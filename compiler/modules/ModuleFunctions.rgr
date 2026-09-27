@@ -1,0 +1,146 @@
+; SPDX-License-Identifier: MIT
+
+; Top-level functions (ISSUES.md #104).
+;
+; A `fn` (or `sfn`) written at the top level of a file is a function of that
+; file's module: it becomes a static method of the module class, named after
+; the file (`geometry.rgr` -> `geometry`). When the file declares a class of
+; that name, the functions join it. A call `area(r)` with no receiver finds
+; the function when no local, parameter or method of the calling class has
+; the name: the caller's own file first, then any module with a function of
+; that name (an error names them when there are several). From another file
+; `geometry.area(r)` works as for any static method.
+
+class ModuleFunctions {
+
+  ; The file name without its directory and extension, as an identifier.
+  sfn moduleClassName:string (fileName:string) {
+    def base:string fileName
+    def slash:int (lastIndexOf base "/")
+    if (slash >= 0) {
+      base = (substring base (slash + 1) (strlen base))
+    }
+    def bslash:int (lastIndexOf base "\\")
+    if (bslash >= 0) {
+      base = (substring base (bslash + 1) (strlen base))
+    }
+    def dot:int (indexOf base ".")
+    if (dot > 0) {
+      base = (substring base 0 dot)
+    }
+    def out:string ""
+    def cs:[int] (to_chars base)
+    for cs c:int i {
+      def ok:boolean (((c >= 48) && (c <= 57)) || ((c >= 65) && (c <= 90)) || ((c >= 97) && (c <= 122)) || (c == 95))
+      if ok {
+        out = out + (strfromcode c)
+      } {
+        out = out + "_"
+      }
+    }
+    if (out == "") {
+      out = "module"
+    }
+    def first:int (charAt out 0)
+    if ((first >= 48) && (first <= 57)) {
+      out = "m_" + out
+    }
+    return out
+  }
+
+  sfn isTopLevelFunction:boolean (ch:CodeNode) {
+    if ((array_length ch.children) < 3) {
+      return false
+    }
+    return ((ch.isFirstVref("fn")) || (ch.isFirstVref("sfn")))
+  }
+
+  ; Moves the top-level functions of `root` into the module class and
+  ; records their names on the root context.
+  sfn hoist:void (root:CodeNode fileName:string ctx:RangerAppWriterContext) {
+    def fns:[CodeNode]
+    def rest:[CodeNode]
+    for root.children ch:CodeNode i {
+      if (ModuleFunctions.isTopLevelFunction(ch)) {
+        push fns ch
+      } {
+        push rest ch
+      }
+    }
+    if ((array_length fns) == 0) {
+      return
+    }
+    def modName:string (ModuleFunctions.moduleClassName(fileName))
+    ; the file's own class of that name, else a new one
+    def body@(optional):CodeNode
+    for rest ch2:CodeNode i2 {
+      if (((ch2.isFirstVref("class")) && ((array_length ch2.children) >= 3)) && (null? body)) {
+        def nm:CodeNode (ch2.getSecond())
+        if (nm.vref == modName) {
+          def last:CodeNode (itemAt ch2.children ((array_length ch2.children) - 1))
+          body = last
+        }
+      }
+    }
+    if (null? body) {
+      def src:SourceCode (new SourceCode(((("class " + modName) + " {\n}\n"))))
+      src.filename = fileName
+      def parser:RangerLispParser (new RangerLispParser(src))
+      parser.parse(false)
+      if (!null? parser.rootNode) {
+        def pr:CodeNode (unwrap parser.rootNode)
+        if ((array_length pr.children) > 0) {
+          def clNode:CodeNode (itemAt pr.children 0)
+          push rest clNode
+          def last2:CodeNode (itemAt clNode.children ((array_length clNode.children) - 1))
+          body = last2
+        }
+      }
+    }
+    if (null? body) {
+      return
+    }
+    def target:CodeNode (unwrap body)
+    def rootCtx:RangerAppWriterContext (ctx.getRoot())
+    set rootCtx.fileModules fileName modName
+    for fns f:CodeNode fi {
+      def head:CodeNode (f.getFirst())
+      head.vref = "sfn"
+      push target.children f
+      f.parent = target
+      def nameNode:CodeNode (f.getSecond())
+      def fname:string nameNode.vref
+      if (has rootCtx.moduleFunctions fname) {
+        def prev:string (unwrap (get rootCtx.moduleFunctions fname))
+        def parts:[string] (strsplit prev "|")
+        if ((indexOf parts modName) < 0) {
+          set rootCtx.moduleFunctions fname ((prev + "|") + modName)
+        }
+      } {
+        set rootCtx.moduleFunctions fname modName
+      }
+    }
+    root.children = rest
+  }
+
+  ; The module class a call `name(…)` in `fileName` resolves to: "" when no
+  ; module has the function, "?a|b" when several do and none is the caller's.
+  sfn resolve:string (name:string fileName:string ctx:RangerAppWriterContext) {
+    def rootCtx:RangerAppWriterContext (ctx.getRoot())
+    if (false == (has rootCtx.moduleFunctions name)) {
+      return ""
+    }
+    def mods:string (unwrap (get rootCtx.moduleFunctions name))
+    def parts:[string] (strsplit mods "|")
+    if (has rootCtx.fileModules fileName) {
+      def own:string (unwrap (get rootCtx.fileModules fileName))
+      if ((indexOf parts own) >= 0) {
+        return own
+      }
+    }
+    if ((array_length parts) == 1) {
+      return (itemAt parts 0)
+    }
+    return ("?" + mods)
+  }
+}

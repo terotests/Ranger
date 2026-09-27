@@ -16,6 +16,77 @@ const outDir = path.join(rangerRoot, "playground/public/examples");
  * @type {{ id: string, title: string, file: string, description: string,
  *          needsProcess?: boolean, unsupported?: Record<string, string> }[]}
  */
+/**
+ * Strict Rust modules (docs/plans/PLAN_RUST_SYNTAX.md). Their output is
+ * checked against rustc on JavaScript, Python, Go and C++
+ * (tests/rust-strict.test.ts), and the Rust target writes the module as it is.
+ * The runtime the lowering uses, lib/rust/RsPrelude.rgr, has no templates for
+ * the other targets yet.
+ */
+const RUST_RUNTIME_MISSING =
+  "Rust-syntax modules run on JavaScript, TypeScript, Python, Go, C++ and Rust; " +
+  "lib/rust/RsPrelude.rgr has no templates for this target yet";
+const RUST_ONLY_TARGETS = {
+  csharp: RUST_RUNTIME_MISSING,
+  java7: RUST_RUNTIME_MISSING,
+  kotlin: RUST_RUNTIME_MISSING,
+  swift6: RUST_RUNTIME_MISSING,
+  dart: RUST_RUNTIME_MISSING,
+  php: RUST_RUNTIME_MISSING,
+  scala: RUST_RUNTIME_MISSING,
+};
+
+const RUST_EXAMPLES = [
+  {
+    id: "rust-traits",
+    title: "Rust: traits and generics",
+    file: "rust_strict/ex_traits.rs",
+    description:
+      "A .rs file is valid Rust. A trait with a default method, Vec<Box<dyn Shape>>, a generic function bounded by PartialOrd, a derived ordering and a Display impl — each target prints what the rustc build prints.",
+    unsupported: RUST_ONLY_TARGETS,
+  },
+  {
+    id: "rust-enums",
+    title: "Rust: enums and match",
+    file: "rust_strict/ex_enums.rs",
+    description:
+      "An expression tree: an enum with data, recursion through Box, `use Expr::*`, match with guards, and a Result threaded through `?`. The enum lowers to a Ranger shape.",
+    unsupported: RUST_ONLY_TARGETS,
+  },
+  {
+    id: "rust-results",
+    title: "Rust: Option, Result and ?",
+    file: "rust_strict/ex_results.rs",
+    description:
+      "Parsing settings: ok_or, map_err, parse::<i64>() checked as strictly as Rust checks it, filter_map and map_or.",
+    unsupported: RUST_ONLY_TARGETS,
+  },
+  {
+    id: "rust-iterators",
+    title: "Rust: iterators and closures",
+    file: "rust_strict/ex_iterators.rs",
+    description:
+      "Word counts with HashMap::entry, sort_by with Ordering::then, a BTreeMap, and chains of filter / map / take / fold / any / all lowered to loops.",
+    unsupported: RUST_ONLY_TARGETS,
+  },
+  {
+    id: "rust-ownership",
+    title: "Rust: ownership and borrowing",
+    file: "rust_strict/ex_ownership.rs",
+    description:
+      "&mut self methods, &mut parameters, clone and moves. Uncomment the line marked \"error\" and the compiler refuses the use of a moved value, as rustc does.",
+    unsupported: RUST_ONLY_TARGETS,
+  },
+  {
+    id: "rust-strings",
+    title: "Rust: UTF-8 strings",
+    file: "rust_strict/ex_strings.rs",
+    description:
+      "chars() counts characters and bytes() bytes on every target; find answers a byte offset that slicing accepts; padding with {:<6} and {:^10}.",
+    unsupported: RUST_ONLY_TARGETS,
+  },
+];
+
 const NO_SCALA_PROCESS = {
   scala: "Scala output cannot compile RangerProcess.rgr (for-loop with continue)",
 };
@@ -118,6 +189,7 @@ export const EXAMPLES = [
     needsProcess: true,
     unsupported: NO_SCALA_PROCESS,
   },
+  ...RUST_EXAMPLES,
 ];
 
 const EXTRA = {
@@ -182,6 +254,7 @@ fs.mkdirSync(outDir, { recursive: true });
 for (const ex of EXAMPLES) {
   const src = path.join(fixtures, ex.file);
   const dest = path.join(outDir, ex.file);
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
   if (fs.existsSync(src)) {
     fs.copyFileSync(src, dest);
   } else if (EXTRA[ex.file]) {
@@ -198,6 +271,7 @@ fs.writeFileSync(
       id,
       title,
       file,
+      description,
       description,
       needsProcess: !!needsProcess,
       unsupported: unsupported ?? {},

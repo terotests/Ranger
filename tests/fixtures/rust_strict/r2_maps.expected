@@ -1,0 +1,15 @@
+and 2
+bird 1
+cat 1
+dog 1
+the 3
+has cat true has cow false
+the x3
+len 4
+and [2, 5]
+bird [7]
+cat [1]
+dog [4]
+the [0, 3, 6]
+the|cat|and|dog|bird
+true

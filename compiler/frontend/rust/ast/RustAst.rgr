@@ -1,0 +1,186 @@
+; SPDX-License-Identifier: MIT
+
+; The syntax tree of a Rust source file (PLAN_RUST_SYNTAX.md, stage R0).
+;
+; One node class with a `kind` string, like syn without the types: the
+; lowering to CodeNode (stage R1) switches on `kind`, and the dump below is the
+; golden format of the parser tests. Children sit at FIXED positions for each
+; kind; a slot that is empty holds a `none` node, never null, so a position
+; means the same thing on every node of a kind.
+;
+; Items
+;   file            kids: items                  attrs: inner attributes
+;   use             kids: [tree]   tree = use_path(name, kids [tree])
+;                                       | use_name(name, value = alias) | use_glob
+;                                       | use_group(kids trees)
+;   mod             name   kids: items (mods "inline" when it has a body)
+;   extern_crate    name   value: alias
+;   fn              name   kids: [generics params ret where body|none]
+;                          mods: const async unsafe extern default, value: ABI
+;   param           kids: [pattern type]
+;   self_param      mods: & mut, name: lifetime, kids: [type|none]
+;   variadic        (`...` in an extern fn)
+;   struct / union  name   kids: [generics where fields]
+;   fields_named / fields_tuple / fields_unit      kids: field(name, kids [type])
+;   enum            name   kids: [generics where variant…]
+;   variant         name   kids: [fields discriminant|none]
+;   trait           name   kids: [generics bounds where item…]   mods: unsafe auto
+;   impl            kids: [generics trait|none self_type where item…]  mods: unsafe !
+;   type_alias      name   kids: [generics bounds where type|none]
+;   const / static  name   kids: [type expr|none]   mods: mut
+;   macro_item      name: macro path, value: body text, kids: parsed args (see macro_call)
+;   macro_rules     name   value: body text
+;   extern_block    value: ABI   kids: items
+;   Every item may carry `vis` in mods ("pub", "pub(crate)", "pub(super)", "pub(in a::b)").
+;
+; Generics
+;   generics        kids: lifetime_param(name, kids bounds) | type_param(name, kids [bounds default|none])
+;                         | const_param(name, kids [type default|none])
+;   where           kids: where_pred(kids [type bounds], mods for<'a>) | where_lt(name, kids bounds)
+;   bounds          kids: types and lifetimes; a `?Sized` path_type has mods "?"
+;
+; Types
+;   path_type(kids [path])  qself_type  ref_type(name lifetime, mods mut, kids [type])
+;   ptr_type(mods const|mut)  slice_type  array_type(kids [type len])  tuple_type
+;   paren_type  never_type  infer_type  fn_type(kids [param types… ret])  impl_type(kids bounds)
+;   dyn_type(kids bounds)  macro_type  lifetime(name)
+;   A higher-ranked `for<'a>` on a type, bound or where predicate: mods "for<>",
+;   the lifetime_param nodes in attrs (so the fixed kid slots do not move).
+;
+; Paths
+;   path            kids: seg(name, kids [args]) …    mods "::" for a leading `::`
+;   qpath           kids: [type trait_path|none seg…]    (`<T as Trait>::x`)
+;   args            kids: types, lifetimes, const expressions, binding(name, kids [type]),
+;                         constraint(name, kids [bounds]); fn_args(kids types…, ret) for `Fn(A) -> B`
+;
+; Expressions
+;   lit(name raw text, value decoded, mods [int|float|str|char|bool|byte|bytestr|cstr], suffix in mods)
+;   path_expr(kids [path|qpath])  bin(name op, kids [l r])  assign(name op, kids [l r])
+;   unary(name op: - ! * & &mut &raw)  cast(kids [e type])  call(kids [callee arg…])
+;   method(name, kids [recv args arg…])  field(name, kids [e])  index(kids [e i])
+;   try(kids [e])  await(kids [e])  tuple  paren  array  array_repeat(kids [v n])
+;   struct_lit(kids [path field_init(name, kids [e])… base|none])
+;   block(kids stmts, mods unsafe async const move, name label)
+;   if(kids [cond then else|none])  let_cond(kids [pattern e])  match(kids [e arm…])
+;   arm(kids [pattern guard|none body])  while(name label, kids [cond body])
+;   loop(name label, kids [body])  for(name label, kids [pattern iter body])
+;   closure(mods move async, kids [closure_params ret|none body])
+;   return / break(name label) / continue(name label)     kids: [e] or []
+;   range(name .. or ..=, kids [lo|none hi|none])  underscore  macro_call(see below)
+;
+; Statements
+;   let(kids [pattern type|none init|none else|none])  expr_stmt(kids [e], mods ";" when terminated)
+;   empty (a lone `;`); items appear directly among statements.
+;
+; Patterns
+;   pat_ident(name, mods ref mut, kids [sub]|[])  pat_wild  pat_rest  pat_lit(kids [lit])
+;   pat_range(name op, kids [lo|none hi|none])  pat_path(kids [path])
+;   pat_tuple_struct(kids [path pat…])  pat_struct(kids [path pat_field(name, kids [pat])…], mods "..")
+;   pat_tuple  pat_slice  pat_ref(mods mut, kids [pat])  pat_or  pat_paren  pat_macro  pat_box
+;
+; Macros
+;   macro_call      name: macro path, value: the body text between the delimiters,
+;                   mods: the delimiter ("(" "[" "{"); kids: the body parsed as
+;                   comma-separated expressions for the known expression macros
+;                   (println!, format!, vec!, assert! …) — empty when not parsed
+;   attr            name: attribute path, value: argument text; mods "inner";
+;                   a doc comment is attr "doc" with mods "sugared"
+
+class RustNode {
+  def kind:string ""
+  def name:string ""
+  def value:string ""
+  def mods:[string]
+  def kids:[RustNode]
+  def attrs:[RustNode]
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+
+  Constructor (k:string) {
+    kind = k
+  }
+
+  fn add:RustNode (n:RustNode) {
+    push kids n
+    return n
+  }
+
+  fn addMod:void (m:string) {
+    push mods m
+  }
+
+  fn hasMod:boolean (m:string) {
+    for mods x:string i {
+      if (x == m) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn kid:RustNode (idx:int) {
+    if (idx < (array_length kids)) {
+      def k:RustNode (itemAt kids idx)
+      return k
+    }
+    return (new RustNode("none"))
+  }
+
+  fn isNone:boolean () {
+    return (kind == "none")
+  }
+
+  static fn quote:string (s:string) {
+    def out:string (join (strsplit s "\\") "\\\\")
+    out = (join (strsplit out "\"") "\\\"")
+    out = (join (strsplit out "\n") "\\n")
+    out = (join (strsplit out "\t") "\\t")
+    out = (join (strsplit out (strfromcode 13)) "\\r")
+    out = (join (strsplit out (strfromcode 0)) "\\0")
+    return (("\"" + out) + "\"")
+  }
+
+  ; A name is printed bare unless it would break the dump's syntax: the raw
+  ; text of a literal can hold spaces, quotes, parentheses and newlines.
+  static fn needsQuote:boolean (s:string) {
+    def specials:[string] ([] _:string (" " "\n" "\t" "\"" "(" ")" "[" "]"))
+    for specials sp:string i {
+      if ((indexOf s sp) >= 0) {
+        return true
+      }
+    }
+    if ((indexOf s (strfromcode 13)) >= 0) {
+      return true
+    }
+    return ((indexOf s (strfromcode 0)) >= 0)
+  }
+
+  ; `(kind name "value" [mods] #[attr] kids…)`, one node per line when it has
+  ; children. The golden format of the parser tests.
+  fn dump:string (indent:string) {
+    def s:string ("(" + kind)
+    if (name != "") {
+      if (RustNode.needsQuote(name)) {
+        s = (s + " ") + (RustNode.quote(name))
+      } {
+        s = (s + " ") + name
+      }
+    }
+    if (value != "") {
+      s = (s + " ") + (RustNode.quote(value))
+    }
+    if ((array_length mods) > 0) {
+      s = (s + " [") + ((join mods " ") + "]")
+    }
+    def inner:string (indent + "  ")
+    for attrs a:RustNode i {
+      s = (s + "\n") + (inner + ("#" + (a.dump(inner))))
+    }
+    for kids k:RustNode j {
+      s = (s + "\n") + (inner + (k.dump(inner)))
+    }
+    return (s + ")")
+  }
+}

@@ -2165,8 +2165,13 @@ class RangerFlowParser {
     }
     lambdaArgs.children.forEach({
       def item2 (at callParams.children index)
-      if ( item2.eval_type_name != item.type_name ) {
-        ; missing: union types handling
+      ; the method-argument rule first: a subclass, a shape case for its
+      ; family, a union member are all accepted there
+      def acceptedLikeMethodArg:boolean false
+      if ((item.type_name != "") && (item2.eval_type_name != item.type_name)) {
+        acceptedLikeMethodArg = (this.areEqualTypes(item item2 ctx wr))
+      }
+      if ( (item2.eval_type_name != item.type_name) && (false == acceptedLikeMethodArg) ) {
         if( item.type_name != 'Any' ) {
           ctx.addError( item2 ( 'Argument of wrong type given for the lambda parameter ' + index))
           all_matched = false
@@ -2521,6 +2526,28 @@ class RangerFlowParser {
         
           return true
         })
+    }
+    ; a top-level function of a module (ISSUES.md #104): `area(r)` is
+    ; `geometry.area(r)`
+    if (((array_length fnNode.ns) <= 1) && ((strlen fnNode.vref) > 0)) {
+      def srcFile:string ""
+      if (!null? node.code) {
+        srcFile = node.code.filename
+      }
+      def modCls:string (ModuleFunctions.resolve(fnNode.vref srcFile ctx))
+      if ((strlen modCls) > 0) {
+        if ((charAt modCls 0) == (charcode "?")) {
+          ctx.addError(node ((("`" + fnNode.vref) + "` is a function of several modules: call it as ") + (join (strsplit (substring modCls 1 (strlen modCls)) "|") ("." + fnNode.vref + " or "))) + ("." + fnNode.vref))
+          return true
+        }
+        def fname:string fnNode.vref
+        fnNode.vref = ((modCls + ".") + fname)
+        def newNs:[string]
+        push newNs modCls
+        push newNs fname
+        fnNode.ns = newNs
+        return (this.cmdLocalCall(node ctx wr))
+      }
     }
     ; Everything that used to follow the `return false` above was unreachable
     ; -- an error report and an expects_error check that no run could ever
@@ -3123,7 +3150,9 @@ class RangerFlowParser {
           }
       }
     } {
-      if( (methodName.type_name == "void") || ( (has methodName.type_name) == false ) && ( (has methodName.array_type) == false )  ) {
+      ; a function-typed return `sfn mk:(fn:int (x:int)) …` has no type_name
+      def fnTypedReturn:boolean ((!null? methodName.expression_value) || (methodName.value_type == RangerNodeType.ExpressionType))
+      if( (false == fnTypedReturn) && ((methodName.type_name == "void") || ( (has methodName.type_name) == false ) && ( (has methodName.array_type) == false ))  ) {
         if( false == (ctx.getFlag("in_task")) ) {
           def rvNode ( at fnBody.children fnBody.didReturnAtIndex)
           if( (size rvNode.children ) > 1) {
@@ -5038,3 +5067,4 @@ Import "FlowCollect.rgr"
 Import "FlowTypes.rgr"
 Import "FlowTree.rgr"
 Import "FlowImport.rgr"
+Import "./modules/ModuleFunctions.rgr"

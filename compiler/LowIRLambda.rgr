@@ -1029,6 +1029,10 @@ extension LowIRBuilderPass {
     if ((strlen node.eval_type_name) > 0) {
       ret = (this.llvmTypeForRanger(node.eval_type_name lctx.ptrType))
     }
+    ; a lambda that returns a function hands back a closure handle
+    if ((!null? node.expression_value) || (node.eval_type == RangerNodeType.ExpressionType)) {
+      ret = lctx.ptrType
+    }
     sig = (sig + (":" + ret))
     this.addLambdaSig(sig)
     return (builder.emitCallIndirect(ret sig callArgs callTypes fnIdx))

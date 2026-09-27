@@ -1,0 +1,127 @@
+; SPDX-License-Identifier: MIT
+
+; A consistency check of a parsed Rust tree against its tokens, used by the
+; parser tests (PLAN_RUST_SYNTAX.md, stage R0).
+;
+; A parser that recovers from errors, or that has a bug, can drop a statement
+; or an item and still report nothing. Two invariants catch that:
+;
+;   1. every child lies inside its parent, and children are in source order;
+;   2. between two consecutive children of a list (items of a file, module,
+;      impl or trait; statements of a block; arms of a match) there is nothing
+;      but `;`, `,` and the attributes of the next child.
+
+Import "RustParser.rgr"
+
+class RustSpanCheck {
+  def toks:[RustToken]
+  def problems:[string]
+
+  Constructor (parser:RustParser) {
+    toks = parser.toks
+  }
+
+  static fn isList:boolean (kind:string) {
+    if ((kind == "file") || (kind == "block") || (kind == "mod") || (kind == "impl") || (kind == "trait")) {
+      return true
+    }
+    return ((kind == "extern_block") || (kind == "match"))
+  }
+
+  ; The number of fixed-position children before the list elements.
+  static fn fixedSlots:int (kind:string) {
+    if (kind == "impl") {
+      return 4
+    }
+    if (kind == "trait") {
+      return 3
+    }
+    if (kind == "match") {
+      return 1
+    }
+    return 0
+  }
+
+  fn problem:void (n:RustNode msg:string) {
+    push problems (((("line " + (to_string n.line)) + ": ") + n.kind) + (" " + msg))
+  }
+
+  ; The first token index whose start is >= offset.
+  fn tokenAt:int (offset:int) {
+    def lo:int 0
+    def hi:int (array_length toks)
+    while (lo < hi) {
+      def mid:int (idiv (lo + hi) 2)
+      def t:RustToken (itemAt toks mid)
+      if (t.start < offset) {
+        lo = mid + 1
+      } {
+        hi = mid
+      }
+    }
+    return lo
+  }
+
+  fn check:void (n:RustNode) {
+    def prevEnd:int -1
+    def prev@(optional):RustNode
+    for n.kids k:RustNode i {
+      if (k.isNone()) {
+        continue
+      }
+      if (k.kind == "args") {
+        ; an empty turbofish slot takes the position of the node that made it
+        if ((array_length k.kids) == 0) {
+          continue
+        }
+      }
+      if (((k.kind == "generics") || (k.kind == "where") || (k.kind == "bounds") || (k.kind == "params") || (k.kind == "ret") || (k.kind == "fields_unit")) && ((array_length k.kids) == 0)) {
+        continue
+      }
+      if ((k.start < n.start) || (k.end > n.end)) {
+        this.problem(k (((((("[" + (to_string k.start)) + ",") + (to_string k.end)) + ") outside its parent ") + n.kind) + (((" [" + (to_string n.start)) + ",") + ((to_string n.end) + ")"))))
+      }
+      if (k.kind == "where") {
+        ; slot order puts `where` before a tuple struct's fields; the source
+        ; puts it after them
+        this.check(k)
+        continue
+      }
+      if (k.start < prevEnd) {
+        this.problem(k "overlaps the previous child")
+      }
+      if ((RustSpanCheck.isList(n.kind)) && (!null? prev) && (i > (RustSpanCheck.fixedSlots(n.kind)))) {
+        this.checkGap(prevEnd k)
+      }
+      prevEnd = k.end
+      prev = k
+      this.check(k)
+    }
+  }
+
+  fn checkGap:void (from:int next:RustNode) {
+    def attrStart:int next.start
+    for next.attrs a:RustNode i {
+      if (a.start < attrStart) {
+        attrStart = a.start
+      }
+    }
+    def p:int (this.tokenAt(from))
+    def n:int (array_length toks)
+    while (p < n) {
+      def t:RustToken (itemAt toks p)
+      if (t.start >= attrStart) {
+        break
+      }
+      def ok:boolean false
+      if ((t.kind == "punct") && ((t.text == ";") || (t.text == ","))) {
+        ok = true
+      }
+      if (false == ok) {
+        this.problem(next (("has unparsed '" + t.text) + ("' before it at line " + (to_string t.line))))
+        return
+      }
+      p = p + 1
+    }
+  }
+}

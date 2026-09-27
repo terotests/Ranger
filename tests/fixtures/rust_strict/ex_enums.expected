@@ -1,0 +1,5 @@
+(2 + 3) = 5
+(1 + 2) * 7 = 21
+-17 / 5 = -3
+error: division by zero in 1 / (2 + (-2))
+depths 2 1

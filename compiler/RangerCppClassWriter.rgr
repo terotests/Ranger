@@ -3086,6 +3086,16 @@ class RangerCppClassWriter {
     ; reference case — the split the family already declares — and `identical`,
     ; which writes `==` on this target, answers the same.
     if (this.cppUnionValueCase((unwrap cl) ctx)) {
+      ; the variant is default-constructed wherever a field holds the family
+      ; (a case that contains its own family, Rust's `Neg(Box<Expr>)`), and
+      ; std::variant is default-constructible only when its first
+      ; alternative is -- so a value case gets a default constructor
+      if (cl.has_constructor && (!null? cl.constructor_fn)) {
+        def vcCtor:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+        if ((array_length vcCtor.params) > 0) {
+          wr.out((cl.name + "() = default;") true)
+        }
+      }
       wr.out("/* a value case of a closed family compares by content */ " true)
       wr.out((("bool operator==(const " + cl.name) + "& o) const {") true)
       wr.indent(1)

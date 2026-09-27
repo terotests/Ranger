@@ -6672,6 +6672,8 @@ class RangerAppWriterContext  {
     this.opNs = [];
     this.langFilePath = "";     /* note: unused */
     this.libraryPaths = [];
+    this.moduleFunctions = {};
+    this.fileModules = {};
     this.outputPath = "";     /* note: unused */
     this.counters = new TypeCounts();
     this.parser = undefined;
@@ -16797,7 +16799,11 @@ class RangerFlowParser  {
     }
     operatorsOf.forEach_7(lambdaArgs.children, ((item, index) => { 
       const item2 = callParams.children[index];
-      if ( item2.eval_type_name != item.type_name ) {
+      let acceptedLikeMethodArg = false;
+      if ( item.type_name != "" && item2.eval_type_name != item.type_name ) {
+        acceptedLikeMethodArg = this.areEqualTypes(item, item2, ctx, wr);
+      }
+      if ( item2.eval_type_name != item.type_name && false == acceptedLikeMethodArg ) {
         if ( item.type_name != "Any" ) {
           ctx.addError(item2, "Argument of wrong type given for the lambda parameter " + index);
           all_matched = false;
@@ -17111,6 +17117,26 @@ class RangerFlowParser  {
           }
         }
         return true;
+      }
+    }
+    if ( fnNode.ns.length <= 1 && fnNode.vref.length > 0 ) {
+      let srcFile = "";
+      if ( (typeof(node.code) !== "undefined" && node.code != null )  ) {
+        srcFile = node.code.filename;
+      }
+      const modCls = ModuleFunctions.resolve(fnNode.vref, srcFile, ctx);
+      if ( modCls.length > 0 ) {
+        if ( modCls.charCodeAt(0 ) == ("?".charCodeAt(0)) ) {
+          ctx.addError(node, ((("`" + fnNode.vref) + "` is a function of several modules: call it as ") + modCls.substring(1, modCls.length ).split("|").join(("." + fnNode.vref) + " or ")) + ("." + fnNode.vref));
+          return true;
+        }
+        const fname = fnNode.vref;
+        fnNode.vref = (modCls + ".") + fname;
+        let newNs = [];
+        newNs.push(modCls);
+        newNs.push(fname);
+        fnNode.ns = newNs;
+        return this.cmdLocalCall(node, ctx, wr);
       }
     }
     return false;
@@ -17634,7 +17660,8 @@ class RangerFlowParser  {
         }
       }
     } else {
-      if ( methodName.type_name == "void" || (methodName.type_name.length > 0) == false && (methodName.array_type.length > 0) == false ) {
+      const fnTypedReturn = ((typeof(methodName.expression_value) !== "undefined" && methodName.expression_value != null ) ) || methodName.value_type == 20;
+      if ( false == fnTypedReturn && (methodName.type_name == "void" || (methodName.type_name.length > 0) == false && (methodName.array_type.length > 0) == false) ) {
         if ( false == ctx.getFlag("in_task") ) {
           const rvNode = fnBody.children[fnBody.didReturnAtIndex];
           if ( rvNode.children.length > 1 ) {
@@ -24740,6 +24767,18 @@ class RangerFlowParser  {
           console.log("  -> file read OK, importFileDir=" + importFileDir);
         }
       }
+      if ( RustLower.isRustFile(import_file) ) {
+        const rl = new RustLower();
+        const lowered = rl.translate(source_code, import_file);
+        if ( rl.errors.length > 0 ) {
+          // Loop start
+          for ( const rerr of rl.errors) {
+            ctx.addError(node, rerr);
+          }
+          return;
+        }
+        source_code = lowered;
+      }
       const code = new SourceCode(source_code);
       code.filename = import_file;
       const parser = new RangerLispParser(code);
@@ -24754,6 +24793,7 @@ class RangerFlowParser  {
         fileWr.raw(source_code, false);
       }
       const rn = parser.rootNode;
+      ModuleFunctions.hoist(rn, import_file, ctx);
       if ( importFileDir.length > 0 ) {
         rootCtx.libraryPaths.push(importFileDir);
         if ( ctx.hasCompilerFlag("verbose") ) {
@@ -24776,6 +24816,133 @@ class RangerFlowParser  {
     }
   };
 }
+class ModuleFunctions  {
+}
+ModuleFunctions.moduleClassName = function(fileName) {
+  let base = fileName;
+  const slash = base.lastIndexOf("/");
+  if ( slash >= 0 ) {
+    base = base.substring(slash + 1, base.length );
+  }
+  const bslash = base.lastIndexOf("\\");
+  if ( bslash >= 0 ) {
+    base = base.substring(bslash + 1, base.length );
+  }
+  const dot = base.indexOf(".");
+  if ( dot > 0 ) {
+    base = base.substring(0, dot );
+  }
+  let out = "";
+  const cs = Array.from(base, (rg_c) => rg_c.codePointAt(0));
+  // Loop start
+  for ( const c of cs) {
+    const ok = ((c >= 48 && c <= 57 || c >= 65 && c <= 90) || c >= 97 && c <= 122) || c == 95;
+    if ( ok ) {
+      out = out + String.fromCharCode(c);
+    } else {
+      out = out + "_";
+    }
+  }
+  if ( out == "" ) {
+    out = "module";
+  }
+  const first = out.charCodeAt(0 );
+  if ( first >= 48 && first <= 57 ) {
+    out = "m_" + out;
+  }
+  return out;
+};
+ModuleFunctions.isTopLevelFunction = function(ch) {
+  if ( ch.children.length < 3 ) {
+    return false;
+  }
+  return ch.isFirstVref("fn") || ch.isFirstVref("sfn");
+};
+ModuleFunctions.hoist = function(root, fileName, ctx) {
+  let fns = [];
+  let rest = [];
+  // Loop start
+  for ( const ch of root.children) {
+    if ( ModuleFunctions.isTopLevelFunction(ch) ) {
+      fns.push(ch);
+    } else {
+      rest.push(ch);
+    }
+  }
+  if ( fns.length == 0 ) {
+    return;
+  }
+  const modName = ModuleFunctions.moduleClassName(fileName);
+  let body;
+  // Loop start
+  for ( const ch2 of rest) {
+    if ( (ch2.isFirstVref("class") && ch2.children.length >= 3) && (typeof(body) === "undefined") ) {
+      const nm = ch2.getSecond();
+      if ( nm.vref == modName ) {
+        const last = ch2.children[(ch2.children.length - 1)];
+        body = last;
+      }
+    }
+  }
+  if ( typeof(body) === "undefined" ) {
+    const src = new SourceCode(("class " + modName) + " {\n}\n");
+    src.filename = fileName;
+    const parser = new RangerLispParser(src);
+    parser.parse(false);
+    if ( (typeof(parser.rootNode) !== "undefined" && parser.rootNode != null )  ) {
+      const pr = parser.rootNode;
+      if ( pr.children.length > 0 ) {
+        const clNode = pr.children[0];
+        rest.push(clNode);
+        const last2 = clNode.children[(clNode.children.length - 1)];
+        body = last2;
+      }
+    }
+  }
+  if ( typeof(body) === "undefined" ) {
+    return;
+  }
+  const target = body;
+  const rootCtx = ctx.getRoot();
+  rootCtx.fileModules[fileName] = modName;
+  // Loop start
+  for ( const f of fns) {
+    const head = f.getFirst();
+    head.vref = "sfn";
+    target.children.push(f);
+    f.parent = target;
+    const nameNode = f.getSecond();
+    const fname = nameNode.vref;
+    if ( ( typeof(rootCtx.moduleFunctions[fname] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, fname) ) ) {
+      const prev = ( Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, fname) ? rootCtx.moduleFunctions[fname] : undefined );
+      const parts = prev.split("|");
+      if ( parts.indexOf(modName) < 0 ) {
+        rootCtx.moduleFunctions[fname] = (prev + "|") + modName;
+      }
+    } else {
+      rootCtx.moduleFunctions[fname] = modName;
+    }
+  }
+  root.children = rest;
+};
+ModuleFunctions.resolve = function(name, fileName, ctx) {
+  const rootCtx = ctx.getRoot();
+  if ( false == ( typeof(rootCtx.moduleFunctions[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, name) ) ) {
+    return "";
+  }
+  const mods = ( Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, name) ? rootCtx.moduleFunctions[name] : undefined );
+  const parts = mods.split("|");
+  if ( ( typeof(rootCtx.fileModules[fileName] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.fileModules, fileName) ) ) {
+    const own = ( Object.prototype.hasOwnProperty.call(rootCtx.fileModules, fileName) ? rootCtx.fileModules[fileName] : undefined );
+    if ( parts.indexOf(own) >= 0 ) {
+      return own;
+    }
+  }
+  if ( parts.length == 1 ) {
+    return parts[0];
+  }
+  return "?" + mods;
+};
 class TFactory  {
 }
 TFactory.new_class_signature = function(node, ctx, wr) {
@@ -33332,6 +33499,12 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
     }
     if ( this.cppUnionValueCase(cl, ctx) ) {
+      if ( cl.has_constructor && ((typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null ) ) ) {
+        const vcCtor = cl.constructor_fn;
+        if ( vcCtor.params.length > 0 ) {
+          wr.out(cl.name + "() = default;", true);
+        }
+      }
       wr.out("/* a value case of a closed family compares by content */ ", true);
       wr.out(("bool operator==(const " + cl.name) + "& o) const {", true);
       wr.indent(1);
@@ -33926,6 +34099,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     this.rust_path_head_mut = false;
     this.rust_field_call_mut_ready = false;
     this.rust_writing_field_type = false;
+    this.rust_lambda_boxed = false;
     this.compiler = undefined;     /* note: unused */
     this.thisName = "self";
     this.rustFnReturnsUnion = "";
@@ -34360,7 +34534,13 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     const lambdaCtx = node.lambda_ctx;
     const args = node.children[1];
     const body = node.children[2];
-    wr.out("&mut |", false);
+    const boxed = this.rust_lambda_boxed;
+    this.rust_lambda_boxed = false;
+    if ( boxed ) {
+      wr.out("Box::new(move |", false);
+    } else {
+      wr.out("&mut |", false);
+    }
     // Loop start
     for ( let i = 0; i < args.children.length; i++) {
       var arg = args.children[i];
@@ -34380,6 +34560,80 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     wr.newline();
     wr.indent(-1);
     wr.out("}", false);
+    if ( boxed ) {
+      wr.out(")", false);
+    }
+  };
+  rustIsFnTyped (n) {
+    return ((typeof(n.expression_value) !== "undefined" && n.expression_value != null ) ) || n.value_type == 20;
+  };
+  rustWriteBoxedFnType (n, ctx, wr) {
+    const prev = this.rust_writing_field_type;
+    this.rust_writing_field_type = true;
+    this.writeRustLambdaType(n.expression_value, ctx, wr);
+    this.rust_writing_field_type = prev;
+  };
+  rustBodyReturnsName (body, name) {
+    if ( body.isFirstVref("return") && body.children.length > 1 ) {
+      const rv = body.children[1];
+      if ( rv.vref == name ) {
+        return true;
+      }
+    }
+    // Loop start
+    for ( const ch of body.children) {
+      if ( this.rustBodyReturnsName(ch, name) ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  rustLocalFnEscapes (name, ctx) {
+    const mOpt = ctx.getCurrentMethod();
+    if ( typeof(mOpt) === "undefined" ) {
+      return false;
+    }
+    const m = mOpt;
+    if ( (typeof(m.nameNode) === "undefined") || (typeof(m.fnBody) === "undefined") ) {
+      return false;
+    }
+    if ( false == this.rustIsFnTyped(m.nameNode) ) {
+      return false;
+    }
+    return this.rustBodyReturnsName(m.fnBody, name);
+  };
+  rustCallReturnsFn (init, ctx) {
+    let n = init;
+    if ( (typeof(n.fnDesc) === "undefined") && n.children.length == 1 ) {
+      n = n.children[0];
+    }
+    if ( typeof(n.fnDesc) === "undefined" ) {
+      if ( n.children.length == 2 ) {
+        const callee = n.children[0];
+        if ( callee.vref.length > 0 ) {
+          const vOpt = ctx.getVariableDef(callee.vref);
+          if ( (typeof(vOpt) !== "undefined" && vOpt != null )  ) {
+            const v = vOpt;
+            if ( (typeof(v.nameNode) !== "undefined" && v.nameNode != null )  ) {
+              const vn = v.nameNode;
+              if ( (typeof(vn.expression_value) !== "undefined" && vn.expression_value != null )  ) {
+                const sig = vn.expression_value;
+                if ( sig.children.length > 0 ) {
+                  const ret = sig.children[0];
+                  return this.rustIsFnTyped(ret);
+                }
+              }
+            }
+          }
+        }
+      }
+      return false;
+    }
+    const fd = n.fnDesc;
+    if ( typeof(fd.nameNode) === "undefined" ) {
+      return false;
+    }
+    return this.rustIsFnTyped(fd.nameNode);
   };
   writeRustLambdaType (expression_value, ctx, wr) {
     const rv = expression_value.children[0];
@@ -34410,6 +34664,14 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       }
     }
     wr.out(")", false);
+    if ( this.rustIsFnTyped(rv) && ((typeof(rv.expression_value) !== "undefined" && rv.expression_value != null ) ) ) {
+      wr.out(" -> ", false);
+      this.rustWriteBoxedFnType(rv, ctx, wr);
+      if ( this.rust_writing_field_type ) {
+        wr.out(">", false);
+      }
+      return;
+    }
     if ( rv.type_name == "void" || rv.eval_type_name == "void" ) {
     } else {
       wr.out(" -> ", false);
@@ -35470,6 +35732,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   writeRustFnClose (variant, ctx, wr) {
     wr.out(")", false);
     const fcnn = variant.nameNode;
+    if ( this.rustIsFnTyped(fcnn) && ((typeof(fcnn.expression_value) !== "undefined" && fcnn.expression_value != null ) ) ) {
+      wr.out(" -> ", false);
+      this.rustWriteBoxedFnType(fcnn, ctx, wr);
+      return;
+    }
     if ( fcnn.array_type.length == 0 && fcnn.key_type.length == 0 ) {
       if ( fcnn.type_name == "void" ) {
         return;
@@ -35877,6 +36144,39 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     }
   };
   writeVarDef (node, ctx, wr) {
+    if ( node.hasParamDesc && node.children.length > 2 ) {
+      const fnn = node.children[1];
+      if ( this.rustIsFnTyped(fnn) && ((typeof(fnn.expression_value) !== "undefined" && fnn.expression_value != null ) ) ) {
+        const finit = node.getThird();
+        const fp = fnn.paramDesc;
+        const fname = this.adjustType(fp.compiledName);
+        if ( finit.has_lambda && this.rustLocalFnEscapes(fnn.vref, ctx) ) {
+          wr.out(("let mut " + fname) + ": ", false);
+          this.rustWriteBoxedFnType(fnn, ctx, wr);
+          wr.out(" = ", false);
+          this.rust_lambda_boxed = true;
+          ctx.setInExpr();
+          this.WalkNode(finit, ctx, wr);
+          ctx.unsetInExpr();
+          this.rust_lambda_boxed = false;
+          wr.out(";", true);
+          return;
+        }
+        if ( this.rustCallReturnsFn(finit, ctx) ) {
+          wr.out(("let mut " + fname) + "__box: ", false);
+          this.rustWriteBoxedFnType(fnn, ctx, wr);
+          wr.out(" = ", false);
+          ctx.setInExpr();
+          this.WalkNode(finit, ctx, wr);
+          ctx.unsetInExpr();
+          wr.out(";", true);
+          wr.out(("let " + fname) + ": ", false);
+          this.writeRustLambdaType(fnn.expression_value, ctx, wr);
+          wr.out((" = &mut *" + fname) + "__box;", true);
+          return;
+        }
+      }
+    }
     if ( node.rg_init_fold ) {
       if ( node.hasParamDesc ) {
         if ( this.rustFoldedInitIsWritable(node, ctx) ) {
@@ -42104,6 +42404,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         }
         if ( node.rust_is_tail_return == false ) {
           wr.out("return ", false);
+        }
+        if ( retVal.has_lambda ) {
+          this.rust_lambda_boxed = true;
         }
         if ( this.rustFnReturnsUnion.length > 0 ) {
           if ( this.rustWriteUnionValue(this.rustFnReturnsUnion, retVal, ctx, wr) ) {
@@ -50044,6 +50347,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     }
   };
   goDeclaredClassOf (nVal) {
+    if ( nVal.isFirstVref("to") && nVal.children.length == 3 ) {
+      return this.goDeclaredClassOf(nVal.children[2]);
+    }
     if ( nVal.hasNewOper ) {
       const newClOpt = nVal.clDesc;
       if ( (typeof(newClOpt) !== "undefined" && newClOpt != null )  ) {
@@ -50063,6 +50369,14 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       return nVal.eval_type_name;
     }
     return "";
+  };
+  goOptTargetType (p) {
+    const nn = p.nameNode;
+    if ( typeof(nn) === "undefined" ) {
+      return "";
+    }
+    const n = nn;
+    return n.type_name;
   };
   goUnionHasMember (ucl, memberName) {
     return ucl.is_union_of.indexOf(memberName) >= 0;
@@ -51112,10 +51426,12 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
               return;
             } else {
               wr.out(p.compiledName + ".value = ", false);
-              ctx.setInExpr();
               const value_4 = node.getThird();
-              this.WalkNode(value_4, ctx, wr);
-              ctx.unsetInExpr();
+              if ( false == this.goWriteUnionValue(this.goOptTargetType(p), value_4, ctx, wr) ) {
+                ctx.setInExpr();
+                this.WalkNode(value_4, ctx, wr);
+                ctx.unsetInExpr();
+              }
               wr.out(";", true);
               wr.out(p.compiledName + ".has_value = true;", true);
               return;
@@ -51123,10 +51439,12 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           } else {
             if ( value_1.hasNewOper || false == value_1.hasFlag("optional") ) {
               wr.out(p.compiledName + ".value = ", false);
-              ctx.setInExpr();
               const value_5 = node.getThird();
-              this.WalkNode(value_5, ctx, wr);
-              ctx.unsetInExpr();
+              if ( false == this.goWriteUnionValue(this.goOptTargetType(p), value_5, ctx, wr) ) {
+                ctx.setInExpr();
+                this.WalkNode(value_5, ctx, wr);
+                ctx.unsetInExpr();
+              }
               wr.out(";", true);
               wr.out(p.compiledName + ".has_value = true;", true);
               return;
@@ -51317,12 +51635,33 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       }));
       let cnt = 0;
       // Loop start
-      for ( const n of pms) {
+      for ( let i = 0; i < pms.length; i++) {
+        var n = pms[i];
         if ( cnt > 0 ) {
           wr.out(", ", false);
         }
         cnt = cnt + 1;
-        this.WalkNode(n, ctx, wr);
+        let wroteUnion = false;
+        const ctorFn = constr;
+        let positional = [];
+        // Loop start
+        for ( const cp of ctorFn.params) {
+          let cpKeyword = false;
+          if ( (typeof(cp.nameNode) !== "undefined" && cp.nameNode != null )  ) {
+            const cpn = cp.nameNode;
+            cpKeyword = cpn.hasFlag("keyword");
+          }
+          if ( false == cpKeyword ) {
+            positional.push(cp);
+          }
+        }
+        if ( i < positional.length ) {
+          const ctorParam = positional[i];
+          wroteUnion = this.goWriteUnionArg(ctorParam, n, ctx, wr);
+        }
+        if ( false == wroteUnion ) {
+          this.WalkNode(n, ctx, wr);
+        }
       }
       wr.out(")", false);
     }
@@ -51373,9 +51712,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       if ( i > 0 ) {
         wr.out(", ", false);
       }
-      if ( arg.value_type != 0 ) {
-        this.WalkNode(n, subCtx, wr);
-      } else {
+      if ( false == this.goWriteUnionValue(arg.type_name, n, subCtx, wr) ) {
         this.WalkNode(n, subCtx, wr);
       }
     }
@@ -52843,30 +53180,44 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
   CreateLambdaCall (node, ctx, wr) {
     const fName = node.children[0];
     const givenArgs = node.children[1];
-    let args;
+    let argsOpt;
     if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
       const lambdaExpression = fName.expression_value;
-      args = lambdaExpression.children[1];
+      argsOpt = lambdaExpression.children[1];
     } else {
       const paramOpt = ctx.getVariableDef(fName.vref);
-      const param = paramOpt;
-      const parameterName = param.nameNode;
-      const lambdaExpression_1 = parameterName.expression_value;
-      args = lambdaExpression_1.children[1];
+      if ( (typeof(paramOpt) !== "undefined" && paramOpt != null )  ) {
+        const param = paramOpt;
+        if ( (typeof(param.nameNode) !== "undefined" && param.nameNode != null )  ) {
+          const parameterName = param.nameNode;
+          if ( (typeof(parameterName.expression_value) !== "undefined" && parameterName.expression_value != null )  ) {
+            const lambdaExpression2 = parameterName.expression_value;
+            if ( lambdaExpression2.children.length > 1 ) {
+              argsOpt = lambdaExpression2.children[1];
+            }
+          }
+        }
+      }
     }
     ctx.setInExpr();
     wr.out("call_user_func(", false);
     this.WalkNode(fName, ctx, wr);
-    const lambdaArgs = args;
-    // Loop start
-    for ( let i = 0; i < lambdaArgs.children.length; i++) {
-      var arg = lambdaArgs.children[i];
-      const n = givenArgs.children[i];
-      if ( i >= 0 ) {
+    if ( typeof(argsOpt) === "undefined" ) {
+      // Loop start
+      for ( const ga of givenArgs.children) {
         wr.out(", ", false);
+        this.WalkNode(ga, ctx, wr);
       }
-      if ( arg.value_type != 0 ) {
-        this.WalkNode(n, ctx, wr);
+    } else {
+      const lambdaArgs = argsOpt;
+      // Loop start
+      for ( let i = 0; i < lambdaArgs.children.length; i++) {
+        var arg = lambdaArgs.children[i];
+        const n = givenArgs.children[i];
+        wr.out(", ", false);
+        if ( arg.value_type != 0 ) {
+          this.WalkNode(n, ctx, wr);
+        }
       }
     }
     ctx.unsetInExpr();
@@ -53722,30 +54073,49 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
   CreateLambdaCall (node, ctx, wr) {
     const fName = node.children[0];
     const givenArgs = node.children[1];
-    let args;
+    let argsOpt;
     if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
       const lambdaExpression = fName.expression_value;
-      args = lambdaExpression.children[1];
+      argsOpt = lambdaExpression.children[1];
     } else {
       const paramOpt = ctx.getVariableDef(fName.vref);
-      const param = paramOpt;
-      const parameterName = param.nameNode;
-      const lambdaExpression_1 = parameterName.expression_value;
-      args = lambdaExpression_1.children[1];
+      if ( (typeof(paramOpt) !== "undefined" && paramOpt != null )  ) {
+        const param = paramOpt;
+        if ( (typeof(param.nameNode) !== "undefined" && param.nameNode != null )  ) {
+          const parameterName = param.nameNode;
+          if ( (typeof(parameterName.expression_value) !== "undefined" && parameterName.expression_value != null )  ) {
+            const lambdaExpression2 = parameterName.expression_value;
+            if ( lambdaExpression2.children.length > 1 ) {
+              argsOpt = lambdaExpression2.children[1];
+            }
+          }
+        }
+      }
     }
     ctx.setInExpr();
     this.WalkNode(fName, ctx, wr);
     wr.out("(", false);
-    const lambdaArgs = args;
-    // Loop start
-    for ( let i = 0; i < lambdaArgs.children.length; i++) {
-      var arg = lambdaArgs.children[i];
-      const n = givenArgs.children[i];
-      if ( i > 0 ) {
-        wr.out(", ", false);
+    if ( typeof(argsOpt) === "undefined" ) {
+      // Loop start
+      for ( let gi = 0; gi < givenArgs.children.length; gi++) {
+        var ga = givenArgs.children[gi];
+        if ( gi > 0 ) {
+          wr.out(", ", false);
+        }
+        this.WalkNode(ga, ctx, wr);
       }
-      if ( arg.value_type != 0 ) {
-        this.WalkNode(n, ctx, wr);
+    } else {
+      const lambdaArgs = argsOpt;
+      // Loop start
+      for ( let i = 0; i < lambdaArgs.children.length; i++) {
+        var arg = lambdaArgs.children[i];
+        const n = givenArgs.children[i];
+        if ( i > 0 ) {
+          wr.out(", ", false);
+        }
+        if ( arg.value_type != 0 ) {
+          this.WalkNode(n, ctx, wr);
+        }
       }
     }
     ctx.unsetInExpr();
@@ -58846,6 +59216,9 @@ class LowIRBuilderPass  {
     return ptrType;
   };
   varTypeName (nameNode) {
+    if ( ((typeof(nameNode.expression_value) !== "undefined" && nameNode.expression_value != null ) ) || nameNode.value_type == 20 ) {
+      return "__closure";
+    }
     if ( nameNode.type_name.length > 0 ) {
       return nameNode.type_name;
     }
@@ -63860,7 +64233,7 @@ class LowIRBuilderPass  {
       const fnDesc = node.fnDesc;
       if ( (typeof(fnDesc.nameNode) !== "undefined" && fnDesc.nameNode != null )  ) {
         const rn = fnDesc.nameNode;
-        retType = this.llvmTypeForRanger(rn.type_name, lctx.ptrType);
+        retType = this.llvmTypeForRanger(this.varTypeName(rn), lctx.ptrType);
       }
     }
     let args = [];
@@ -66316,7 +66689,7 @@ class LowIRBuilderPass  {
       const fnDesc_1 = node.fnDesc;
       if ( (typeof(fnDesc_1.nameNode) !== "undefined" && fnDesc_1.nameNode != null )  ) {
         const rn = fnDesc_1.nameNode;
-        retType = this.llvmTypeForRanger(rn.type_name, lctx.ptrType);
+        retType = this.llvmTypeForRanger(this.varTypeName(rn), lctx.ptrType);
       }
     } else {
       if ( ((methName == "push" || methName == "put") || methName == "putAt") || methName == "storeI32" ) {
@@ -68988,6 +69361,9 @@ class LowIRBuilderPass  {
     let ret = "void";
     if ( node.eval_type_name.length > 0 ) {
       ret = this.llvmTypeForRanger(node.eval_type_name, lctx.ptrType);
+    }
+    if ( ((typeof(node.expression_value) !== "undefined" && node.expression_value != null ) ) || node.eval_type == 20 ) {
+      ret = lctx.ptrType;
     }
     sig = sig + (":" + ret);
     this.addLambdaSig(sig);
@@ -81264,6 +81640,12675 @@ class StaticAnalyzer  {
     };
   };
 }
+class RustNode  {
+  constructor(k) {
+    this.kind = "";
+    this.name = "";
+    this.value = "";
+    this.mods = [];
+    this.kids = [];
+    this.attrs = [];
+    this.start = 0;
+    this.end = 0;
+    this.line = 0;
+    this.col = 0;
+    this.kind = k;
+  }
+  add (n) {
+    this.kids.push(n);
+    return n;
+  };
+  addMod (m) {
+    this.mods.push(m);
+  };
+  hasMod (m) {
+    // Loop start
+    for ( const x of this.mods) {
+      if ( x == m ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  kid (idx) {
+    if ( idx < this.kids.length ) {
+      const k = this.kids[idx];
+      return k;
+    }
+    return new RustNode("none");
+  };
+  isNone () {
+    return this.kind == "none";
+  };
+  dump (indent) {
+    let s = "(" + this.kind;
+    if ( this.name != "" ) {
+      if ( RustNode.needsQuote(this.name) ) {
+        s = (s + " ") + RustNode.quote(this.name);
+      } else {
+        s = (s + " ") + this.name;
+      }
+    }
+    if ( this.value != "" ) {
+      s = (s + " ") + RustNode.quote(this.value);
+    }
+    if ( this.mods.length > 0 ) {
+      s = (s + " [") + (this.mods.join(" ") + "]");
+    }
+    const inner = indent + "  ";
+    // Loop start
+    for ( const a of this.attrs) {
+      s = (s + "\n") + (inner + ("#" + a.dump(inner)));
+    }
+    // Loop start
+    for ( const k of this.kids) {
+      s = (s + "\n") + (inner + k.dump(inner));
+    }
+    return s + ")";
+  };
+}
+RustNode.quote = function(s) {
+  let out = s.split("\\").join("\\\\");
+  out = out.split("\"").join("\\\"");
+  out = out.split("\n").join("\\n");
+  out = out.split("\t").join("\\t");
+  out = out.split(String.fromCharCode(13)).join("\\r");
+  out = out.split(String.fromCharCode(0)).join("\\0");
+  return ("\"" + out) + "\"";
+};
+RustNode.needsQuote = function(s) {
+  const specials = [" ", "\n", "\t", "\"", "(", ")", "[", "]"];
+  // Loop start
+  for ( const sp of specials) {
+    if ( s.indexOf(sp) >= 0 ) {
+      return true;
+    }
+  }
+  if ( s.indexOf(String.fromCharCode(13)) >= 0 ) {
+    return true;
+  }
+  return s.indexOf(String.fromCharCode(0)) >= 0;
+};
+class RustToken  {
+  constructor() {
+    this.kind = "";
+    this.text = "";
+    this.value = "";
+    this.suffix = "";
+    this.raw = false;
+    this.joint = false;
+    this.start = 0;
+    this.end = 0;
+    this.line = 0;
+    this.col = 0;
+  }
+  is (k, t) {
+    if ( this.kind != k ) {
+      return false;
+    }
+    return this.text == t;
+  };
+}
+class RustLexer  {
+  constructor(source) {
+    this.src = "";
+    this.buf = r_cb_enc.encode("");
+    this.__len = 0;
+    this.i = 0;
+    this.line = 1;
+    this.line_start = 0;
+    this.tokens = [];
+    this.errors = [];
+    this.src = source;
+    this.buf = r_cb_enc.encode(source);
+    this.__len = this.buf.length;
+  }
+  error (msg) {
+    this.errors.push(((("line " + (this.line.toString())) + ":") + (((this.i - this.line_start) + 1).toString())) + (": " + msg));
+  };
+  at (p) {
+    if ( p < this.__len ) {
+      const c = this.buf[p];
+      return c;
+    }
+    return 0;
+  };
+  text (a, b) {
+    return r_cb_dec.decode(this.buf.subarray(a, b));
+  };
+  newToken (kind, a) {
+    const t = new RustToken();
+    t.kind = kind;
+    t.start = a;
+    t.end = this.i;
+    t.line = this.line;
+    t.col = (a - this.line_start) + 1;
+    t.text = r_cb_dec.decode(this.buf.subarray(a, this.i));
+    this.tokens.push(t);
+    return t;
+  };
+  countLines (a, b) {
+    let p = a;
+    while (p < b) {
+      if ( this.buf[p] == 10 ) {
+        this.line = this.line + 1;
+        this.line_start = p + 1;
+      }
+      p = p + 1;
+    };
+  };
+  tokenize () {
+    if ( (this.at(0) == 35 && this.at(1) == 33) && this.at(2) != 91 ) {
+      while (this.i < this.__len && this.at(this.i) != 10) {
+        this.i = this.i + 1;
+      };
+    }
+    while (this.i < this.__len) {
+      const c = this.at(this.i);
+      if ( (c == 32 || c == 9) || c == 13 ) {
+        this.i = this.i + 1;
+        continue;
+      }
+      if ( c == 10 ) {
+        this.i = this.i + 1;
+        this.line = this.line + 1;
+        this.line_start = this.i;
+        continue;
+      }
+      if ( c == 47 && this.at(this.i + 1) == 47 ) {
+        this.lineComment();
+        continue;
+      }
+      if ( c == 47 && this.at(this.i + 1) == 42 ) {
+        this.blockComment();
+        continue;
+      }
+      if ( this.tryPrefixedLiteral() ) {
+        continue;
+      }
+      if ( RustLexer.isIdentStart(c) ) {
+        this.ident();
+        continue;
+      }
+      if ( RustLexer.isDigit(c) ) {
+        this.number();
+        continue;
+      }
+      if ( c == 34 ) {
+        this.quoted(this.i, "");
+        continue;
+      }
+      if ( c == 39 ) {
+        this.charOrLifetime();
+        continue;
+      }
+      this.punct();
+    };
+    const eof = this.newToken("eof", this.i);
+    eof.text = "";
+    return this.tokens;
+  };
+  lineComment () {
+    const a = this.i;
+    while (this.i < this.__len && this.at(this.i) != 10) {
+      this.i = this.i + 1;
+    };
+    const c2 = this.at((a + 2));
+    const c3 = this.at((a + 3));
+    if ( c2 == 47 && c3 != 47 ) {
+      const t = this.newToken("doc", a);
+      t.suffix = "outer";
+      t.value = this.text((a + 3), this.i);
+      return;
+    }
+    if ( c2 == 33 ) {
+      const t2 = this.newToken("doc", a);
+      t2.suffix = "inner";
+      t2.value = this.text((a + 3), this.i);
+    }
+  };
+  blockComment () {
+    const a = this.i;
+    const startLine = this.line;
+    const startLineStart = this.line_start;
+    let depth = 0;
+    while (this.i < this.__len) {
+      const c = this.at(this.i);
+      if ( c == 47 && this.at(this.i + 1) == 42 ) {
+        depth = depth + 1;
+        this.i = this.i + 2;
+        continue;
+      }
+      if ( c == 42 && this.at(this.i + 1) == 47 ) {
+        depth = depth - 1;
+        this.i = this.i + 2;
+        if ( depth == 0 ) {
+          break;
+        }
+        continue;
+      }
+      if ( c == 10 ) {
+        this.line = this.line + 1;
+        this.line_start = this.i + 1;
+      }
+      this.i = this.i + 1;
+    };
+    if ( depth != 0 ) {
+      this.error("unterminated block comment");
+    }
+    const c2 = this.at((a + 2));
+    const c3 = this.at((a + 3));
+    let kind = "";
+    if ( (c2 == 42 && c3 != 42) && c3 != 47 ) {
+      kind = "outer";
+    }
+    if ( c2 == 33 ) {
+      kind = "inner";
+    }
+    if ( kind != "" ) {
+      const endLine = this.line;
+      const endLineStart = this.line_start;
+      this.line = startLine;
+      this.line_start = startLineStart;
+      const t = this.newToken("doc", a);
+      t.suffix = kind;
+      let e = this.i - 2;
+      if ( e < a + 3 ) {
+        e = a + 3;
+      }
+      t.value = this.text((a + 3), e);
+      this.line = endLine;
+      this.line_start = endLineStart;
+    }
+  };
+  tryPrefixedLiteral () {
+    const c = this.at(this.i);
+    const c1 = this.at((this.i + 1));
+    const c2 = this.at((this.i + 2));
+    const a = this.i;
+    if ( c == 98 ) {
+      if ( c1 == 34 ) {
+        this.i = this.i + 1;
+        this.quoted(a, "b");
+        return true;
+      }
+      if ( c1 == 39 ) {
+        this.i = this.i + 1;
+        this.charLiteral(a, "b");
+        return true;
+      }
+      if ( c1 == 114 && (c2 == 34 || c2 == 35) ) {
+        this.i = this.i + 2;
+        return this.rawString(a, "b");
+      }
+      return false;
+    }
+    if ( c == 99 ) {
+      if ( c1 == 34 ) {
+        this.i = this.i + 1;
+        this.quoted(a, "c");
+        return true;
+      }
+      if ( c1 == 114 && (c2 == 34 || c2 == 35) ) {
+        this.i = this.i + 2;
+        return this.rawString(a, "c");
+      }
+      return false;
+    }
+    if ( c == 114 ) {
+      if ( c1 == 34 ) {
+        this.i = this.i + 1;
+        return this.rawString(a, "");
+      }
+      if ( c1 == 35 ) {
+        if ( c2 == 34 ) {
+          this.i = this.i + 1;
+          return this.rawString(a, "");
+        }
+        if ( c2 == 35 ) {
+          this.i = this.i + 1;
+          return this.rawString(a, "");
+        }
+        if ( RustLexer.isIdentStart(c2) ) {
+          this.i = this.i + 2;
+          while (this.i < this.__len && RustLexer.isIdentChar(this.at(this.i))) {
+            this.i = this.i + 1;
+          };
+          const t = this.newToken("ident", a);
+          t.raw = true;
+          t.value = this.text((a + 2), this.i);
+          this.markJoint(t);
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  rawString (a, prefix) {
+    let hashes = 0;
+    while (this.at(this.i) == 35) {
+      hashes = hashes + 1;
+      this.i = this.i + 1;
+    };
+    if ( this.at(this.i) != 34 ) {
+      this.i = a;
+      return false;
+    }
+    this.i = this.i + 1;
+    const vs = this.i;
+    let ve = -1;
+    const startLine = this.line;
+    const startLineStart = this.line_start;
+    while (this.i < this.__len) {
+      if ( this.at(this.i) == 34 ) {
+        let k = 0;
+        while (k < hashes && this.at((this.i + 1) + k) == 35) {
+          k = k + 1;
+        };
+        if ( k == hashes ) {
+          ve = this.i;
+          this.i = (this.i + 1) + hashes;
+          break;
+        }
+      }
+      this.i = this.i + 1;
+    };
+    if ( ve < 0 ) {
+      this.error("unterminated raw string");
+      ve = this.__len;
+    }
+    const endLine = this.line;
+    this.line = startLine;
+    const endLineStart = this.line_start;
+    this.line_start = startLineStart;
+    const t = this.newToken("str", a);
+    t.raw = true;
+    t.suffix = prefix;
+    t.value = this.text(vs, ve);
+    this.line = endLine;
+    this.line_start = endLineStart;
+    this.countLines(vs, ve);
+    this.literalSuffix(t);
+    return true;
+  };
+  ident () {
+    const a = this.i;
+    while (this.i < this.__len && RustLexer.isIdentChar(this.at(this.i))) {
+      this.i = this.i + 1;
+    };
+    const t = this.newToken("ident", a);
+    t.value = t.text;
+    this.markJoint(t);
+  };
+  number () {
+    const a = this.i;
+    let isFloat = false;
+    const c = this.at(this.i);
+    const c1 = this.at((this.i + 1));
+    let afterDot = false;
+    const n = this.tokens.length;
+    if ( n > 0 ) {
+      const prev = this.tokens[(n - 1)];
+      if ( (prev.kind == "punct" && prev.text == ".") && prev.end == a ) {
+        afterDot = true;
+      }
+    }
+    if ( c == 48 && ((c1 == 120 || c1 == 111) || c1 == 98) ) {
+      this.i = this.i + 2;
+      while (this.i < this.__len && (RustLexer.isHexDigit(this.at(this.i)) || this.at(this.i) == 95)) {
+        this.i = this.i + 1;
+      };
+    } else {
+      this.digits();
+      if ( false == afterDot ) {
+        if ( (this.at(this.i) == 46 && this.at(this.i + 1) != 46) && false == RustLexer.isIdentStart(this.at(this.i + 1)) ) {
+          isFloat = true;
+          this.i = this.i + 1;
+          if ( RustLexer.isDigit(this.at(this.i)) ) {
+            this.digits();
+          }
+        }
+        const e = this.at(this.i);
+        if ( e == 101 || e == 69 ) {
+          const e1 = this.at((this.i + 1));
+          const e2 = this.at((this.i + 2));
+          if ( RustLexer.isDigit(e1) || (e1 == 43 || e1 == 45) && RustLexer.isDigit(e2) ) {
+            isFloat = true;
+            this.i = this.i + 2;
+            this.digits();
+          }
+        }
+      }
+    }
+    const numEnd = this.i;
+    if ( RustLexer.isIdentStart(this.at(this.i)) ) {
+      while (this.i < this.__len && RustLexer.isIdentChar(this.at(this.i))) {
+        this.i = this.i + 1;
+      };
+    }
+    let kind = "int";
+    if ( isFloat ) {
+      kind = "float";
+    }
+    const t = this.newToken(kind, a);
+    t.suffix = this.text(numEnd, this.i);
+    if ( t.suffix == "f32" || t.suffix == "f64" ) {
+      if ( c != 48 || (c1 != 120 && c1 != 111) && c1 != 98 ) {
+        t.kind = "float";
+      }
+    }
+    t.value = this.text(a, numEnd).split("_").join("");
+    this.markJoint(t);
+  };
+  digits () {
+    while (this.i < this.__len && (RustLexer.isDigit(this.at(this.i)) || this.at(this.i) == 95)) {
+      this.i = this.i + 1;
+    };
+  };
+  quoted (a, prefix) {
+    this.i = this.i + 1;
+    const startLine = this.line;
+    const startLineStart = this.line_start;
+    const vs = this.i;
+    let closed = false;
+    while (this.i < this.__len) {
+      const c = this.at(this.i);
+      if ( c == 92 ) {
+        this.i = this.i + 2;
+        continue;
+      }
+      if ( c == 34 ) {
+        closed = true;
+        break;
+      }
+      this.i = this.i + 1;
+    };
+    let ve = this.i;
+    if ( closed ) {
+      this.i = this.i + 1;
+    } else {
+      this.error("unterminated string literal");
+      ve = this.__len;
+      this.i = this.__len;
+    }
+    const endLine = this.line;
+    const endLineStart = this.line_start;
+    this.line = startLine;
+    this.line_start = startLineStart;
+    const t = this.newToken("str", a);
+    t.suffix = prefix;
+    t.value = this.unescape(vs, ve);
+    this.line = endLine;
+    this.line_start = endLineStart;
+    this.countLines(vs, ve);
+    this.literalSuffix(t);
+  };
+  literalSuffix (t) {
+    if ( RustLexer.isIdentStart(this.at(this.i)) ) {
+      while (this.i < this.__len && RustLexer.isIdentChar(this.at(this.i))) {
+        this.i = this.i + 1;
+      };
+      t.end = this.i;
+      t.text = r_cb_dec.decode(this.buf.subarray(t.start, this.i));
+    }
+    this.markJoint(t);
+  };
+  charOrLifetime () {
+    const a = this.i;
+    const c1 = this.at((this.i + 1));
+    if ( c1 == 92 ) {
+      this.charLiteral(a, "");
+      return;
+    }
+    let w = 1;
+    if ( c1 >= 240 ) {
+      w = 4;
+    } else {
+      if ( c1 >= 224 ) {
+        w = 3;
+      } else {
+        if ( c1 >= 192 ) {
+          w = 2;
+        }
+      }
+    }
+    if ( this.at((this.i + 1) + w) == 39 ) {
+      this.charLiteral(a, "");
+      return;
+    }
+    if ( RustLexer.isIdentStart(c1) ) {
+      this.i = this.i + 1;
+      while (this.i < this.__len && RustLexer.isIdentChar(this.at(this.i))) {
+        this.i = this.i + 1;
+      };
+      const t = this.newToken("lifetime", a);
+      t.value = this.text((a + 1), this.i);
+      this.markJoint(t);
+      return;
+    }
+    this.charLiteral(a, "");
+  };
+  charLiteral (a, prefix) {
+    this.i = this.i + 1;
+    const vs = this.i;
+    while (this.i < this.__len) {
+      const c = this.at(this.i);
+      if ( c == 92 ) {
+        this.i = this.i + 2;
+        continue;
+      }
+      if ( c == 39 || c == 10 ) {
+        break;
+      }
+      this.i = this.i + 1;
+    };
+    const ve = this.i;
+    if ( this.at(this.i) == 39 ) {
+      this.i = this.i + 1;
+    } else {
+      this.error("unterminated character literal");
+    }
+    const t = this.newToken("char", a);
+    t.suffix = prefix;
+    t.value = this.unescape(vs, ve);
+    this.literalSuffix(t);
+  };
+  unescape (a, b) {
+    let out = "";
+    let runStart = a;
+    let p = a;
+    while (p < b) {
+      const c = this.at(p);
+      if ( c != 92 ) {
+        p = p + 1;
+        continue;
+      }
+      out = out + this.text(runStart, p);
+      const e = this.at((p + 1));
+      p = p + 2;
+      if ( e == 110 ) {
+        out = out + "\n";
+      }
+      if ( e == 116 ) {
+        out = out + "\t";
+      }
+      if ( e == 114 ) {
+        out = out + String.fromCharCode(13);
+      }
+      if ( e == 48 ) {
+        out = out + String.fromCharCode(0);
+      }
+      if ( e == 92 ) {
+        out = out + "\\";
+      }
+      if ( e == 39 ) {
+        out = out + "'";
+      }
+      if ( e == 34 ) {
+        out = out + "\"";
+      }
+      if ( e == 120 ) {
+        const v = RustLexer.hexValue(this.at(p)) * 16 + RustLexer.hexValue(this.at((p + 1)));
+        out = out + String.fromCharCode(v);
+        p = p + 2;
+      }
+      if ( e == 117 && this.at(p) == 123 ) {
+        p = p + 1;
+        let cp = 0;
+        while (p < b && this.at(p) != 125) {
+          const h = this.at(p);
+          if ( h != 95 ) {
+            cp = cp * 16 + RustLexer.hexValue(h);
+          }
+          p = p + 1;
+        };
+        p = p + 1;
+        out = out + String.fromCharCode(cp);
+      }
+      if ( e == 10 ) {
+        while (p < b && (((this.at(p) == 32 || this.at(p) == 9) || this.at(p) == 10) || this.at(p) == 13)) {
+          p = p + 1;
+        };
+      }
+      if ( e == 13 && this.at(p) == 10 ) {
+        p = p + 1;
+        while (p < b && (((this.at(p) == 32 || this.at(p) == 9) || this.at(p) == 10) || this.at(p) == 13)) {
+          p = p + 1;
+        };
+      }
+      runStart = p;
+    };
+    out = out + this.text(runStart, b);
+    return out;
+  };
+  punct () {
+    const a = this.i;
+    const c = this.at(this.i);
+    this.i = this.i + 1;
+    let isKnown = false;
+    if ( (((((((c == 59 || c == 44) || c == 46) || c == 40) || c == 41) || c == 123) || c == 125) || c == 91) || c == 93 ) {
+      isKnown = true;
+    }
+    if ( ((((((c == 64 || c == 35) || c == 126) || c == 63) || c == 58) || c == 36) || c == 61) || c == 33 ) {
+      isKnown = true;
+    }
+    if ( ((((((((c == 60 || c == 62) || c == 45) || c == 38) || c == 124) || c == 43) || c == 42) || c == 47) || c == 94) || c == 37 ) {
+      isKnown = true;
+    }
+    if ( false == isKnown ) {
+      this.error(("unexpected character '" + this.text(a, this.i)) + "'");
+      return;
+    }
+    const t = this.newToken("punct", a);
+    this.markJoint(t);
+  };
+  markJoint (t) {
+    if ( this.i >= this.__len ) {
+      return;
+    }
+    const n = this.at(this.i);
+    if ( ((n == 32 || n == 9) || n == 10) || n == 13 ) {
+      return;
+    }
+    t.joint = true;
+  };
+}
+RustLexer.isIdentStart = function(c) {
+  if ( c >= 97 && c <= 122 ) {
+    return true;
+  }
+  if ( c >= 65 && c <= 90 ) {
+    return true;
+  }
+  if ( c == 95 ) {
+    return true;
+  }
+  return c >= 128;
+};
+RustLexer.isIdentChar = function(c) {
+  if ( RustLexer.isIdentStart(c) ) {
+    return true;
+  }
+  return c >= 48 && c <= 57;
+};
+RustLexer.isDigit = function(c) {
+  return c >= 48 && c <= 57;
+};
+RustLexer.isHexDigit = function(c) {
+  if ( c >= 48 && c <= 57 ) {
+    return true;
+  }
+  if ( c >= 97 && c <= 102 ) {
+    return true;
+  }
+  return c >= 65 && c <= 70;
+};
+RustLexer.hexValue = function(c) {
+  if ( c >= 48 && c <= 57 ) {
+    return c - 48;
+  }
+  if ( c >= 97 && c <= 102 ) {
+    return c - 87;
+  }
+  if ( c >= 65 && c <= 70 ) {
+    return c - 55;
+  }
+  return 0;
+};
+class RustParser  {
+  constructor(source) {
+    this.lx = undefined;
+    this.toks = [];
+    this.pos = 0;
+    this.limit = 0;
+    this.errors = [];
+    this.noStruct = false;
+    this.eofTok = new RustToken();
+    this.lx = new RustLexer(source);
+    this.toks = this.lx.tokenize();
+    this.limit = this.toks.length - 1;
+    this.eofTok.kind = "eof";
+    // Loop start
+    for ( let i_30 = 0; i_30 < this.lx.errors.length; i_30++) {
+      var e = this.lx.errors[i_30];
+      this.errors.push(e);
+    }
+  }
+  tok () {
+    if ( this.pos < this.limit ) {
+      const t = this.toks[this.pos];
+      return t;
+    }
+    return this.eofAt(this.pos);
+  };
+  peek (k) {
+    const p = this.pos + k;
+    if ( p < this.limit ) {
+      const t = this.toks[p];
+      return t;
+    }
+    return this.eofAt(p);
+  };
+  eofAt (p) {
+    const n = this.toks.length;
+    let idx = this.limit;
+    if ( idx >= n ) {
+      idx = n - 1;
+    }
+    const last = this.toks[idx];
+    this.eofTok.start = last.start;
+    this.eofTok.end = last.start;
+    this.eofTok.line = last.line;
+    this.eofTok.col = last.col;
+    return this.eofTok;
+  };
+  tokText () {
+    const t = this.tok();
+    return t.text;
+  };
+  tokKind () {
+    const t = this.tok();
+    return t.kind;
+  };
+  tokValue () {
+    const t = this.tok();
+    return t.value;
+  };
+  peekKind (k) {
+    const t = this.peek(k);
+    return t.kind;
+  };
+  atEnd () {
+    return this.pos >= this.limit;
+  };
+  isP (s) {
+    const t = this.tok();
+    return t.kind == "punct" && t.text == s;
+  };
+  isPAt (k, s) {
+    const t = this.peek(k);
+    return t.kind == "punct" && t.text == s;
+  };
+  isKw (s) {
+    const t = this.tok();
+    return t.kind == "ident" && t.text == s;
+  };
+  isKwAt (k, s) {
+    const t = this.peek(k);
+    return t.kind == "ident" && t.text == s;
+  };
+  gluedAt (k) {
+    const t = this.peek(k);
+    if ( t.kind != "punct" ) {
+      return "";
+    }
+    const s1 = t.text;
+    if ( false == t.joint ) {
+      return s1;
+    }
+    const t2 = this.peek((k + 1));
+    if ( t2.kind != "punct" ) {
+      return s1;
+    }
+    const s2 = s1 + t2.text;
+    if ( t2.joint ) {
+      const t3 = this.peek((k + 2));
+      if ( t3.kind == "punct" ) {
+        const s3 = s2 + t3.text;
+        if ( RustParser.isKnownOp(s3) ) {
+          return s3;
+        }
+      }
+    }
+    if ( RustParser.isKnownOp(s2) ) {
+      return s2;
+    }
+    return s1;
+  };
+  glued () {
+    return this.gluedAt(0);
+  };
+  isOp (s) {
+    return this.glued() == s;
+  };
+  eatPrefix (s) {
+    const n = s.length;
+    let k = 0;
+    while (k < n) {
+      const t = this.peek(k);
+      if ( t.kind != "punct" || t.text != s.substring(k, k + 1 ) ) {
+        return false;
+      }
+      if ( k < n - 1 && false == t.joint ) {
+        return false;
+      }
+      k = k + 1;
+    };
+    this.pos = this.pos + n;
+    return true;
+  };
+  eatOp (s) {
+    if ( this.isOp(s) ) {
+      this.pos = this.pos + r_char_length(s);
+      return true;
+    }
+    return false;
+  };
+  eatP (s) {
+    if ( this.isP(s) ) {
+      this.pos = this.pos + 1;
+      return true;
+    }
+    return false;
+  };
+  eatKw (s) {
+    if ( this.isKw(s) ) {
+      this.pos = this.pos + 1;
+      return true;
+    }
+    return false;
+  };
+  error (msg) {
+    const t = this.tok();
+    let got = t.text;
+    if ( t.kind == "eof" ) {
+      got = "end of input";
+    }
+    this.errors.push(((((("line " + (t.line.toString())) + ":") + (t.col.toString())) + ": ") + msg) + ((", found '" + got) + "'"));
+  };
+  expectP (s) {
+    if ( false == this.eatP(s) ) {
+      this.error(("expected '" + s) + "'");
+    }
+  };
+  expectOp (s) {
+    if ( false == this.eatPrefix(s) ) {
+      this.error(("expected '" + s) + "'");
+    }
+  };
+  expectKw (s) {
+    if ( false == this.eatKw(s) ) {
+      this.error(("expected '" + s) + "'");
+    }
+  };
+  node (kind) {
+    const t = this.tok();
+    const n = new RustNode(kind);
+    n.start = t.start;
+    n.end = t.start;
+    n.line = t.line;
+    n.col = t.col;
+    return n;
+  };
+  nodeAt (kind, from) {
+    const n = new RustNode(kind);
+    n.start = from.start;
+    n.end = from.end;
+    n.line = from.line;
+    n.col = from.col;
+    return n;
+  };
+  done (n) {
+    if ( this.pos > 0 ) {
+      let idx = this.pos - 1;
+      if ( idx >= this.toks.length ) {
+        idx = this.toks.length - 1;
+      }
+      const prev = this.toks[idx];
+      if ( prev.end > n.start ) {
+        n.end = prev.end;
+      }
+    }
+    return n;
+  };
+  none () {
+    return new RustNode("none");
+  };
+  identText () {
+    const t = this.tok();
+    if ( t.kind == "ident" ) {
+      this.pos = this.pos + 1;
+      return t.value;
+    }
+    this.error("expected an identifier");
+    return "";
+  };
+  matchingClose (from) {
+    let depth = 0;
+    let p = from;
+    while (p < this.limit) {
+      const t = this.toks[p];
+      if ( t.kind == "punct" ) {
+        if ( (t.text == "(" || t.text == "[") || t.text == "{" ) {
+          depth = depth + 1;
+        }
+        if ( (t.text == ")" || t.text == "]") || t.text == "}" ) {
+          depth = depth - 1;
+          if ( depth == 0 ) {
+            return p + 1;
+          }
+        }
+      }
+      p = p + 1;
+    };
+    return this.limit;
+  };
+  textOf (a, b) {
+    if ( b <= a ) {
+      return "";
+    }
+    const ta = this.toks[a];
+    const tb = this.toks[(b - 1)];
+    return this.lx.text(ta.start, tb.end);
+  };
+  parseFile () {
+    const f = this.node("file");
+    this.innerAttrs(f);
+    while (false == this.atEnd()) {
+      const before = this.pos;
+      const it = this.parseItem();
+      if ( false == it.isNone() ) {
+        f.add(it);
+      }
+      if ( this.pos == before ) {
+        this.error("expected an item");
+        this.pos = this.pos + 1;
+      }
+    };
+    return this.done(f);
+  };
+  innerAttrs (owner) {
+    while (true) {
+      const t = this.tok();
+      if ( t.kind == "doc" && t.suffix == "inner" ) {
+        const d = this.node("attr");
+        d.name = "doc";
+        d.value = t.value;
+        d.addMod("inner");
+        d.addMod("sugared");
+        this.pos = this.pos + 1;
+        owner.attrs.push(this.done(d));
+        continue;
+      }
+      if ( (this.isP("#") && this.isPAt(1, "!")) && this.isPAt(2, "[") ) {
+        const a = this.parseAttr();
+        a.addMod("inner");
+        owner.attrs.push(a);
+        continue;
+      }
+      break;
+    };
+  };
+  outerAttrs () {
+    let list = [];
+    while (true) {
+      const t = this.tok();
+      if ( t.kind == "doc" && t.suffix == "outer" ) {
+        const d = this.node("attr");
+        d.name = "doc";
+        d.value = t.value;
+        d.addMod("sugared");
+        this.pos = this.pos + 1;
+        list.push(this.done(d));
+        continue;
+      }
+      if ( t.kind == "doc" && t.suffix == "inner" ) {
+        this.error("inner doc comment must come before the items");
+        this.pos = this.pos + 1;
+        continue;
+      }
+      if ( this.isP("#") && this.isPAt(1, "[") ) {
+        list.push(this.parseAttr());
+        continue;
+      }
+      break;
+    };
+    return list;
+  };
+  parseAttr () {
+    const a = this.node("attr");
+    this.expectP("#");
+    this.eatP("!");
+    if ( false == this.isP("[") ) {
+      this.error("expected '['");
+      return a;
+    }
+    const close = this.matchingClose(this.pos);
+    this.pos = this.pos + 1;
+    const ps = this.pos;
+    while (this.pos < close - 1) {
+      if ( ((this.isP("(") || this.isP("[")) || this.isP("{")) || this.isP("=") && false == this.isOp("==") ) {
+        break;
+      }
+      this.pos = this.pos + 1;
+    };
+    a.name = this.textOf(ps, this.pos);
+    a.value = this.textOf(this.pos, (close - 1));
+    this.pos = close;
+    return this.done(a);
+  };
+  parseVis () {
+    if ( false == this.isKw("pub") ) {
+      return "";
+    }
+    this.pos = this.pos + 1;
+    if ( this.isP("(") ) {
+      const k1 = this.peek(1);
+      if ( ((k1.text == "crate" || k1.text == "self") || k1.text == "super") || k1.text == "in" ) {
+        const close = this.matchingClose(this.pos);
+        const v = "pub" + this.textOf(this.pos, close);
+        this.pos = close;
+        return v;
+      }
+    }
+    return "pub";
+  };
+  isItemStart () {
+    const t = this.tok();
+    if ( t.kind != "ident" ) {
+      return false;
+    }
+    const w = t.text;
+    if ( ((((((((w == "fn" || w == "struct") || w == "enum") || w == "trait") || w == "impl") || w == "mod") || w == "use") || w == "type") || w == "pub") || w == "static" ) {
+      if ( w == "static" && (this.isPAt(1, "|") || this.isKwAt(1, "move")) ) {
+        return false;
+      }
+      return true;
+    }
+    if ( w == "extern" ) {
+      return true;
+    }
+    if ( w == "const" ) {
+      return false == this.isPAt(1, "{");
+    }
+    if ( w == "unsafe" ) {
+      const n1 = this.peek(1);
+      return ((((n1.text == "fn" || n1.text == "impl") || n1.text == "trait") || n1.text == "extern") || n1.text == "auto") || n1.text == "mod";
+    }
+    if ( w == "async" ) {
+      const a1 = this.peek(1);
+      return a1.text == "fn" || a1.text == "unsafe";
+    }
+    if ( w == "union" || w == "auto" ) {
+      const u1 = this.peek(1);
+      return u1.kind == "ident" && u1.text != "=";
+    }
+    if ( w == "default" ) {
+      const d1 = this.peek(1);
+      return ((((d1.text == "fn" || d1.text == "impl") || d1.text == "type") || d1.text == "const") || d1.text == "unsafe") || d1.text == "async";
+    }
+    if ( w == "macro_rules" ) {
+      return this.isPAt(1, "!");
+    }
+    return false;
+  };
+  parseItem () {
+    const attrs = this.outerAttrs();
+    const it = this.parseItemNoAttrs();
+    // Loop start
+    for ( const a of attrs) {
+      it.attrs.push(a);
+    }
+    return it;
+  };
+  parseItemNoAttrs () {
+    const start = this.node("x");
+    const vis = this.parseVis();
+    const it = this.parseItemKind();
+    it.start = start.start;
+    it.line = start.line;
+    it.col = start.col;
+    if ( vis != "" ) {
+      it.mods.push(vis);
+    }
+    return it;
+  };
+  parseItemKind () {
+    let quals = [];
+    let abi = "";
+    while (true) {
+      if ( this.isKw("default") && false == this.isPAt(1, "!") ) {
+        quals.push("default");
+        this.pos = this.pos + 1;
+        continue;
+      }
+      if ( this.isKw("const") && (((this.isKwAt(1, "fn") || this.isKwAt(1, "unsafe")) || this.isKwAt(1, "async")) || this.isKwAt(1, "extern")) ) {
+        quals.push("const");
+        this.pos = this.pos + 1;
+        continue;
+      }
+      if ( this.isKw("async") && (this.isKwAt(1, "fn") || this.isKwAt(1, "unsafe")) ) {
+        quals.push("async");
+        this.pos = this.pos + 1;
+        continue;
+      }
+      if ( this.isKw("unsafe") && false == this.isPAt(1, "{") ) {
+        quals.push("unsafe");
+        this.pos = this.pos + 1;
+        continue;
+      }
+      if ( this.isKw("safe") && (this.isKwAt(1, "fn") || this.isKwAt(1, "static")) ) {
+        quals.push("safe");
+        this.pos = this.pos + 1;
+        continue;
+      }
+      if ( this.isKw("extern") && false == this.isKwAt(1, "crate") ) {
+        const e1 = this.peek(1);
+        if ( e1.kind == "str" ) {
+          abi = e1.value;
+          this.pos = this.pos + 2;
+        } else {
+          this.pos = this.pos + 1;
+          abi = "C";
+        }
+        quals.push("extern");
+        if ( this.isP("{") ) {
+          return this.parseExternBlock(abi);
+        }
+        continue;
+      }
+      if ( this.isKw("auto") ) {
+        quals.push("auto");
+        this.pos = this.pos + 1;
+        continue;
+      }
+      break;
+    };
+    let it = this.parseItemDispatch();
+    if ( it.isNone() ) {
+      if ( this.tokKind() == "ident" || this.isOp("::") ) {
+        const save = this.pos;
+        const p = this.parsePath(false);
+        if ( this.isP("!") && false == this.isOp("!=") ) {
+          it = this.parseMacroCall(p);
+          if ( it.hasMod("(") || it.hasMod("[") ) {
+            this.expectP(";");
+          }
+          it.kind = "macro_item";
+          return this.done(it);
+        }
+        this.pos = save;
+      }
+      if ( quals.length == 0 ) {
+        this.error("expected an item");
+      }
+      return it;
+    }
+    // Loop start
+    for ( const q of quals) {
+      it.addMod(q);
+    }
+    if ( abi != "" ) {
+      it.value = abi;
+    }
+    return it;
+  };
+  parseItemDispatch () {
+    if ( this.isKw("fn") ) {
+      return this.parseFn();
+    }
+    if ( this.isKw("struct") || this.isKw("union") && this.peekKind(1) == "ident" ) {
+      return this.parseStruct();
+    }
+    if ( this.isKw("enum") ) {
+      return this.parseEnum();
+    }
+    if ( this.isKw("trait") ) {
+      return this.parseTrait();
+    }
+    if ( this.isKw("impl") ) {
+      return this.parseImpl();
+    }
+    if ( this.isKw("mod") ) {
+      return this.parseMod();
+    }
+    if ( this.isKw("use") ) {
+      return this.parseUse();
+    }
+    if ( this.isKw("type") ) {
+      return this.parseTypeAlias();
+    }
+    if ( this.isKw("const") ) {
+      return this.parseConstStatic("const");
+    }
+    if ( this.isKw("static") ) {
+      return this.parseConstStatic("static");
+    }
+    if ( this.isKw("extern") && this.isKwAt(1, "crate") ) {
+      return this.parseExternCrate();
+    }
+    if ( this.isKw("macro_rules") && this.isPAt(1, "!") ) {
+      return this.parseMacroRules();
+    }
+    return this.none();
+  };
+  parseFn () {
+    const f = this.node("fn");
+    this.expectKw("fn");
+    f.name = this.identText();
+    f.add(this.parseGenerics());
+    f.add(this.parseParams());
+    const ret = this.node("ret");
+    if ( this.eatOp("->") ) {
+      ret.add(this.parseType());
+    }
+    f.add(this.done(ret));
+    f.add(this.parseWhere());
+    if ( this.eatP(";") ) {
+      f.add(this.none());
+    } else {
+      f.add(this.parseBlock());
+    }
+    return this.done(f);
+  };
+  parseParams () {
+    const ps = this.node("params");
+    this.expectP("(");
+    while (false == this.isP(")") && false == this.atEnd()) {
+      const before = this.pos;
+      const attrs = this.outerAttrs();
+      const p = this.parseParam();
+      // Loop start
+      for ( const a of attrs) {
+        p.attrs.push(a);
+      }
+      ps.add(p);
+      if ( false == this.eatP(",") ) {
+        break;
+      }
+      if ( this.pos == before ) {
+        this.pos = this.pos + 1;
+      }
+    };
+    this.expectP(")");
+    return this.done(ps);
+  };
+  parseParam () {
+    let k = 0;
+    let isSelf = false;
+    if ( this.isP("&") ) {
+      k = 1;
+      const __REGx1 = this.peek(k);
+      if ( __REGx1.kind == "lifetime" ) {
+        k = k + 1;
+      }
+      if ( this.isKwAt(k, "mut") ) {
+        k = k + 1;
+      }
+      isSelf = this.isKwAt(k, "self");
+    } else {
+      if ( this.isKw("mut") ) {
+        k = 1;
+      }
+      isSelf = this.isKwAt(k, "self") && false == (this.isPAt(k + 1, ":") && this.isPAt(k + 2, ":"));
+    }
+    if ( isSelf ) {
+      const s = this.node("self_param");
+      if ( this.eatP("&") ) {
+        s.addMod("&");
+        if ( this.tokKind() == "lifetime" ) {
+          s.name = this.tokText();
+          this.pos = this.pos + 1;
+        }
+      }
+      if ( this.eatKw("mut") ) {
+        s.addMod("mut");
+      }
+      this.expectKw("self");
+      if ( this.isP(":") && false == this.isOp("::") ) {
+        this.pos = this.pos + 1;
+        s.add(this.parseType());
+      } else {
+        s.add(this.none());
+      }
+      return this.done(s);
+    }
+    if ( this.isOp("...") ) {
+      const v = this.node("variadic");
+      this.pos = this.pos + 3;
+      return this.done(v);
+    }
+    const p = this.node("param");
+    p.add(this.parsePatternNoAlt());
+    if ( this.eatP(":") ) {
+      if ( this.isOp("...") ) {
+        const v2 = this.node("variadic");
+        this.pos = this.pos + 3;
+        p.add(this.done(v2));
+      } else {
+        p.add(this.parseType());
+      }
+    } else {
+      p.add(this.none());
+    }
+    return this.done(p);
+  };
+  parseGenerics () {
+    const g = this.node("generics");
+    if ( false == this.isP("<") ) {
+      return g;
+    }
+    this.pos = this.pos + 1;
+    while (false == this.isP(">") && false == this.atEnd()) {
+      const before = this.pos;
+      const attrs = this.outerAttrs();
+      let gp = this.none();
+      if ( this.tokKind() == "lifetime" ) {
+        gp = this.node("lifetime_param");
+        gp.name = this.tokText();
+        this.pos = this.pos + 1;
+        const lb = this.node("bounds");
+        if ( this.eatP(":") ) {
+          while (this.tokKind() == "lifetime") {
+            const lt = this.node("lifetime");
+            lt.name = this.tokText();
+            this.pos = this.pos + 1;
+            lb.add(this.done(lt));
+            if ( false == this.eatP("+") ) {
+              break;
+            }
+          };
+        }
+        gp.add(this.done(lb));
+      } else {
+        if ( this.eatKw("const") ) {
+          gp = this.node("const_param");
+          gp.name = this.identText();
+          this.expectP(":");
+          gp.add(this.parseType());
+          if ( this.eatP("=") ) {
+            gp.add(this.parseConstArg());
+          } else {
+            gp.add(this.none());
+          }
+        } else {
+          gp = this.node("type_param");
+          gp.name = this.identText();
+          if ( this.isP(":") && false == this.isOp("::") ) {
+            this.pos = this.pos + 1;
+            gp.add(this.parseBounds());
+          } else {
+            gp.add(this.node("bounds"));
+          }
+          if ( this.eatP("=") ) {
+            gp.add(this.parseType());
+          } else {
+            gp.add(this.none());
+          }
+        }
+      }
+      // Loop start
+      for ( const a of attrs) {
+        gp.attrs.push(a);
+      }
+      g.add(this.done(gp));
+      if ( false == this.eatP(",") ) {
+        break;
+      }
+      if ( this.pos == before ) {
+        this.pos = this.pos + 1;
+      }
+    };
+    this.expectOp(">");
+    return this.done(g);
+  };
+  parseWhere () {
+    const w = this.node("where");
+    if ( false == this.eatKw("where") ) {
+      return w;
+    }
+    while (true) {
+      if ( ((this.isP("{") || this.isP(";")) || this.atEnd()) || this.isP("=") && false == this.isOp("==") ) {
+        break;
+      }
+      const before = this.pos;
+      if ( this.tokKind() == "lifetime" ) {
+        const wl = this.node("where_lt");
+        wl.name = this.tokText();
+        this.pos = this.pos + 1;
+        this.expectP(":");
+        const lb = this.node("bounds");
+        while (this.tokKind() == "lifetime") {
+          const lt = this.node("lifetime");
+          lt.name = this.tokText();
+          this.pos = this.pos + 1;
+          lb.add(this.done(lt));
+          if ( false == this.eatP("+") ) {
+            break;
+          }
+        };
+        wl.add(this.done(lb));
+        w.add(this.done(wl));
+      } else {
+        const wp = this.node("where_pred");
+        if ( this.isKw("for") ) {
+          this.pos = this.pos + 1;
+          const hr = this.parseGenerics();
+          wp.addMod("for<>");
+          wp.attrs = hr.kids;
+        }
+        wp.add(this.parseType());
+        this.expectP(":");
+        wp.add(this.parseBounds());
+        w.add(this.done(wp));
+      }
+      if ( false == this.eatP(",") ) {
+        break;
+      }
+      if ( this.pos == before ) {
+        this.pos = this.pos + 1;
+      }
+    };
+    return this.done(w);
+  };
+  parseStruct () {
+    let kind = "struct";
+    if ( this.isKw("union") ) {
+      kind = "union";
+    }
+    const s = this.node(kind);
+    this.pos = this.pos + 1;
+    s.name = this.identText();
+    s.add(this.parseGenerics());
+    if ( this.isP("(") ) {
+      const tf = this.parseTupleFields();
+      s.add(this.parseWhere());
+      s.add(tf);
+      this.expectP(";");
+      return this.done(s);
+    }
+    s.add(this.parseWhere());
+    if ( this.eatP(";") ) {
+      s.add(this.node("fields_unit"));
+    } else {
+      s.add(this.parseNamedFields());
+    }
+    return this.done(s);
+  };
+  parseNamedFields () {
+    const fs = this.node("fields_named");
+    this.expectP("{");
+    while (false == this.isP("}") && false == this.atEnd()) {
+      const before = this.pos;
+      const attrs = this.outerAttrs();
+      const f = this.node("field");
+      const vis = this.parseVis();
+      if ( vis != "" ) {
+        f.addMod(vis);
+      }
+      if ( this.eatKw("unsafe") ) {
+        f.addMod("unsafe");
+      }
+      f.name = this.identText();
+      this.expectP(":");
+      f.add(this.parseType());
+      if ( this.eatP("=") ) {
+        f.add(this.parseExpr());
+      }
+      // Loop start
+      for ( const a of attrs) {
+        f.attrs.push(a);
+      }
+      fs.add(this.done(f));
+      if ( false == this.eatP(",") ) {
+        break;
+      }
+      if ( this.pos == before ) {
+        this.pos = this.pos + 1;
+      }
+    };
+    this.expectP("}");
+    return this.done(fs);
+  };
+  parseTupleFields () {
+    const fs = this.node("fields_tuple");
+    this.expectP("(");
+    let idx = 0;
+    while (false == this.isP(")") && false == this.atEnd()) {
+      const before = this.pos;
+      const attrs = this.outerAttrs();
+      const f = this.node("field");
+      const vis = this.parseVis();
+      if ( vis != "" ) {
+        f.addMod(vis);
+      }
+      f.name = (idx.toString());
+      f.add(this.parseType());
+      // Loop start
+      for ( const a of attrs) {
+        f.attrs.push(a);
+      }
+      fs.add(this.done(f));
+      idx = idx + 1;
+      if ( false == this.eatP(",") ) {
+        break;
+      }
+      if ( this.pos == before ) {
+        this.pos = this.pos + 1;
+      }
+    };
+    this.expectP(")");
+    return this.done(fs);
+  };
+  parseEnum () {
+    const e = this.node("enum");
+    this.expectKw("enum");
+    e.name = this.identText();
+    e.add(this.parseGenerics());
+    e.add(this.parseWhere());
+    this.expectP("{");
+    while (false == this.isP("}") && false == this.atEnd()) {
+      const before = this.pos;
+      const attrs = this.outerAttrs();
+      const v = this.node("variant");
+      const vis = this.parseVis();
+      if ( vis != "" ) {
+        v.addMod(vis);
+      }
+      v.name = this.identText();
+      if ( this.isP("{") ) {
+        v.add(this.parseNamedFields());
+      } else {
+        if ( this.isP("(") ) {
+          v.add(this.parseTupleFields());
+        } else {
+          v.add(this.node("fields_unit"));
+        }
+      }
+      if ( this.eatP("=") ) {
+        v.add(this.parseExpr());
+      } else {
+        v.add(this.none());
+      }
+      // Loop start
+      for ( const a of attrs) {
+        v.attrs.push(a);
+      }
+      e.add(this.done(v));
+      if ( false == this.eatP(",") ) {
+        break;
+      }
+      if ( this.pos == before ) {
+        this.pos = this.pos + 1;
+      }
+    };
+    this.expectP("}");
+    return this.done(e);
+  };
+  parseTrait () {
+    const t = this.node("trait");
+    this.expectKw("trait");
+    t.name = this.identText();
+    t.add(this.parseGenerics());
+    if ( this.isP(":") && false == this.isOp("::") ) {
+      this.pos = this.pos + 1;
+      t.add(this.parseBounds());
+    } else {
+      t.add(this.node("bounds"));
+    }
+    if ( this.eatP("=") ) {
+      t.addMod("alias");
+      t.add(this.parseWhere());
+      t.add(this.parseBounds());
+      this.expectP(";");
+      return this.done(t);
+    }
+    t.add(this.parseWhere());
+    this.parseAssocItems(t);
+    return this.done(t);
+  };
+  parseImpl () {
+    const im = this.node("impl");
+    this.expectKw("impl");
+    if ( this.isP("<") && false == this.looksLikeQPathAfterImpl() ) {
+      im.add(this.parseGenerics());
+    } else {
+      im.add(this.node("generics"));
+    }
+    this.eatKw("const");
+    const neg = this.eatP("!");
+    const first = this.parseType();
+    if ( this.eatKw("for") ) {
+      if ( neg ) {
+        im.addMod("!");
+      }
+      im.add(first);
+      im.add(this.parseType());
+    } else {
+      im.add(this.none());
+      im.add(first);
+    }
+    im.add(this.parseWhere());
+    this.parseAssocItems(im);
+    return this.done(im);
+  };
+  looksLikeQPathAfterImpl () {
+    const t1 = this.peek(1);
+    if ( t1.kind == "punct" && (t1.text == ">" || t1.text == "#") ) {
+      return false;
+    }
+    if ( t1.kind == "lifetime" ) {
+      return false;
+    }
+    if ( t1.kind == "ident" && t1.text == "const" ) {
+      return false;
+    }
+    const t2 = this.peek(2);
+    if ( t2.kind == "punct" ) {
+      if ( (t2.text == "," || t2.text == ">") || t2.text == "=" ) {
+        return false;
+      }
+      if ( t2.text == ":" && this.gluedAt(2) == ":" ) {
+        return false;
+      }
+    }
+    return true;
+  };
+  parseAssocItems (owner) {
+    this.expectP("{");
+    this.innerAttrs(owner);
+    while (false == this.isP("}") && false == this.atEnd()) {
+      const before = this.pos;
+      const it = this.parseItem();
+      if ( false == it.isNone() ) {
+        owner.add(it);
+      }
+      if ( this.pos == before ) {
+        this.error("expected an associated item");
+        this.pos = this.pos + 1;
+      }
+    };
+    this.expectP("}");
+  };
+  parseMod () {
+    const m = this.node("mod");
+    this.expectKw("mod");
+    m.name = this.identText();
+    if ( this.eatP(";") ) {
+      return this.done(m);
+    }
+    m.addMod("inline");
+    this.expectP("{");
+    this.innerAttrs(m);
+    while (false == this.isP("}") && false == this.atEnd()) {
+      const before = this.pos;
+      const it = this.parseItem();
+      if ( false == it.isNone() ) {
+        m.add(it);
+      }
+      if ( this.pos == before ) {
+        this.error("expected an item");
+        this.pos = this.pos + 1;
+      }
+    };
+    this.expectP("}");
+    return this.done(m);
+  };
+  parseUse () {
+    const u = this.node("use");
+    this.expectKw("use");
+    u.add(this.parseUseTree());
+    this.expectP(";");
+    return this.done(u);
+  };
+  parseUseTree () {
+    const start = this.node("x");
+    let path = "";
+    if ( this.eatOp("::") ) {
+      path = "::";
+    }
+    while (true) {
+      if ( this.isP("*") ) {
+        this.pos = this.pos + 1;
+        const g = this.nodeAt("use_glob", start);
+        g.name = path;
+        return this.done(g);
+      }
+      if ( this.isP("{") ) {
+        this.pos = this.pos + 1;
+        const grp = this.nodeAt("use_group", start);
+        grp.name = path;
+        while (false == this.isP("}") && false == this.atEnd()) {
+          const before = this.pos;
+          grp.add(this.parseUseTree());
+          if ( false == this.eatP(",") ) {
+            break;
+          }
+          if ( this.pos == before ) {
+            this.pos = this.pos + 1;
+          }
+        };
+        this.expectP("}");
+        return this.done(grp);
+      }
+      const seg = this.identText();
+      if ( path != "" && path != "::" ) {
+        path = path + "::";
+      }
+      path = path + seg;
+      if ( this.eatOp("::") ) {
+        continue;
+      }
+      const nm = this.nodeAt("use_name", start);
+      nm.name = path;
+      if ( this.eatKw("as") ) {
+        if ( this.eatKw("_") ) {
+          nm.value = "_";
+        } else {
+          nm.value = this.identText();
+        }
+      }
+      return this.done(nm);
+    };
+    return this.none();
+  };
+  parseTypeAlias () {
+    const t = this.node("type_alias");
+    this.expectKw("type");
+    t.name = this.identText();
+    t.add(this.parseGenerics());
+    if ( this.isP(":") && false == this.isOp("::") ) {
+      this.pos = this.pos + 1;
+      t.add(this.parseBounds());
+    } else {
+      t.add(this.node("bounds"));
+    }
+    let w = this.parseWhere();
+    if ( this.eatP("=") ) {
+      const ty = this.parseType();
+      const w2 = this.parseWhere();
+      if ( w2.kids.length > 0 ) {
+        w = w2;
+      }
+      t.add(w);
+      t.add(ty);
+    } else {
+      t.add(w);
+      t.add(this.none());
+    }
+    this.expectP(";");
+    return this.done(t);
+  };
+  parseConstStatic (kind) {
+    const c = this.node(kind);
+    this.pos = this.pos + 1;
+    if ( this.eatKw("mut") ) {
+      c.addMod("mut");
+    }
+    if ( this.eatKw("_") ) {
+      c.name = "_";
+    } else {
+      c.name = this.identText();
+    }
+    if ( this.isP("<") ) {
+      c.add(this.parseGenerics());
+    }
+    if ( this.eatP(":") ) {
+      c.add(this.parseType());
+    } else {
+      c.add(this.none());
+    }
+    if ( this.eatP("=") ) {
+      c.add(this.parseExpr());
+    } else {
+      c.add(this.none());
+    }
+    this.expectP(";");
+    return this.done(c);
+  };
+  parseExternCrate () {
+    const c = this.node("extern_crate");
+    this.pos = this.pos + 2;
+    c.name = this.identText();
+    if ( this.eatKw("as") ) {
+      c.value = this.identText();
+    }
+    this.expectP(";");
+    return this.done(c);
+  };
+  parseExternBlock (abi) {
+    const b = this.node("extern_block");
+    b.value = abi;
+    this.parseAssocItems(b);
+    return this.done(b);
+  };
+  parseMacroRules () {
+    const m = this.node("macro_rules");
+    this.pos = this.pos + 2;
+    m.name = this.identText();
+    if ( (this.isP("(") || this.isP("[")) || this.isP("{") ) {
+      const open = this.tokText();
+      const close = this.matchingClose(this.pos);
+      m.value = this.textOf((this.pos + 1), (close - 1));
+      this.pos = close;
+      if ( open != "{" ) {
+        this.expectP(";");
+      }
+    } else {
+      this.error("expected a macro body");
+    }
+    return this.done(m);
+  };
+  parseType () {
+    return this.parseTypeImpl(true);
+  };
+  parseTypeNoBounds () {
+    return this.parseTypeImpl(false);
+  };
+  parseTypeImpl (allowPlus) {
+    const t = this.tok();
+    if ( t.kind == "lifetime" ) {
+      const lt = this.node("lifetime");
+      lt.name = t.text;
+      this.pos = this.pos + 1;
+      return this.done(lt);
+    }
+    if ( this.isP("(") ) {
+      const tt = this.node("tuple_type");
+      this.pos = this.pos + 1;
+      let count = 0;
+      let trailingComma = false;
+      while (false == this.isP(")") && false == this.atEnd()) {
+        tt.add(this.parseType());
+        count = count + 1;
+        trailingComma = false;
+        if ( false == this.eatP(",") ) {
+          break;
+        }
+        trailingComma = true;
+      };
+      this.expectP(")");
+      if ( count == 1 && false == trailingComma ) {
+        tt.kind = "paren_type";
+        if ( allowPlus && this.isP("+") ) {
+          return this.continueBounds(tt);
+        }
+      }
+      return this.done(tt);
+    }
+    if ( this.isP("!") ) {
+      const nv = this.node("never_type");
+      this.pos = this.pos + 1;
+      return this.done(nv);
+    }
+    if ( this.isKw("_") ) {
+      const inf = this.node("infer_type");
+      this.pos = this.pos + 1;
+      return this.done(inf);
+    }
+    if ( this.isP("&") ) {
+      const r = this.node("ref_type");
+      this.pos = this.pos + 1;
+      if ( this.tokKind() == "lifetime" ) {
+        r.name = this.tokText();
+        this.pos = this.pos + 1;
+      }
+      if ( this.eatKw("mut") ) {
+        r.addMod("mut");
+      }
+      r.add(this.parseTypeNoBounds());
+      return this.done(r);
+    }
+    if ( this.isP("*") ) {
+      const pt = this.node("ptr_type");
+      this.pos = this.pos + 1;
+      if ( this.eatKw("mut") ) {
+        pt.addMod("mut");
+      } else {
+        this.expectKw("const");
+        pt.addMod("const");
+      }
+      pt.add(this.parseTypeNoBounds());
+      return this.done(pt);
+    }
+    if ( this.isP("[") ) {
+      const st = this.node("slice_type");
+      this.pos = this.pos + 1;
+      st.add(this.parseType());
+      if ( this.eatP(";") ) {
+        st.kind = "array_type";
+        const save = this.noStruct;
+        this.noStruct = false;
+        st.add(this.parseExpr());
+        this.noStruct = save;
+      }
+      this.expectP("]");
+      return this.done(st);
+    }
+    if ( (this.isKw("fn") || this.isKw("unsafe")) || this.isKw("extern") ) {
+      return this.parseFnType();
+    }
+    if ( this.isKw("for") ) {
+      const fs = this.node("x");
+      this.pos = this.pos + 1;
+      const hr = this.parseGenerics();
+      const inner = this.parseTypeImpl(allowPlus);
+      inner.addMod("for<>");
+      // Loop start
+      for ( const h of hr.kids) {
+        inner.attrs.push(h);
+      }
+      return inner;
+    }
+    if ( this.isKw("impl") ) {
+      const it = this.node("impl_type");
+      this.pos = this.pos + 1;
+      it.kids = this.parseBoundList(allowPlus);
+      return this.done(it);
+    }
+    if ( this.isKw("dyn") && false == this.isOpAtPath(1) ) {
+      const dt = this.node("dyn_type");
+      this.pos = this.pos + 1;
+      dt.kids = this.parseBoundList(allowPlus);
+      return this.done(dt);
+    }
+    if ( this.isP("?") ) {
+      this.pos = this.pos + 1;
+      const q = this.parseTypeNoBounds();
+      q.addMod("?");
+      return q;
+    }
+    if ( (this.isP("<") || t.kind == "ident") || this.isOp("::") ) {
+      const pth = this.node("path_type");
+      const p = this.parsePath(true);
+      if ( this.isP("!") && false == this.isOp("!=") ) {
+        const mc = this.parseMacroCall(p);
+        mc.kind = "macro_type";
+        return mc;
+      }
+      pth.add(p);
+      this.done(pth);
+      if ( allowPlus && this.isP("+") ) {
+        return this.continueBounds(pth);
+      }
+      return pth;
+    }
+    this.error("expected a type");
+    return this.none();
+  };
+  isOpAtPath (k) {
+    return this.isPAt(k, ":") && this.isPAt(k + 1, ":");
+  };
+  continueBounds (first) {
+    const d = this.nodeAt("dyn_type", first);
+    d.addMod("bare");
+    d.add(first);
+    while (this.eatP("+")) {
+      if ( ((((this.isP(">") || this.isP(",")) || this.isP(")")) || this.isP("{")) || this.isP("=")) || this.isP(";") ) {
+        break;
+      }
+      d.add(this.parseBound());
+    };
+    return this.done(d);
+  };
+  parseFnType () {
+    const f = this.node("fn_type");
+    if ( this.eatKw("unsafe") ) {
+      f.addMod("unsafe");
+    }
+    if ( this.eatKw("extern") ) {
+      f.addMod("extern");
+      if ( this.tokKind() == "str" ) {
+        f.value = this.tokValue();
+        this.pos = this.pos + 1;
+      }
+    }
+    this.expectKw("fn");
+    this.expectP("(");
+    while (false == this.isP(")") && false == this.atEnd()) {
+      const before = this.pos;
+      this.outerAttrs();
+      if ( this.isOp("...") ) {
+        this.pos = this.pos + 3;
+        f.add(this.node("variadic"));
+      } else {
+        const t0 = this.tok();
+        if ( ((t0.kind == "ident" || t0.text == "_") && this.isPAt(1, ":")) && false == this.isPAt(2, ":") ) {
+          this.pos = this.pos + 2;
+        }
+        f.add(this.parseType());
+      }
+      if ( false == this.eatP(",") ) {
+        break;
+      }
+      if ( this.pos == before ) {
+        this.pos = this.pos + 1;
+      }
+    };
+    this.expectP(")");
+    const ret = this.node("ret");
+    if ( this.eatOp("->") ) {
+      ret.add(this.parseTypeNoBounds());
+    }
+    f.add(this.done(ret));
+    return this.done(f);
+  };
+  parseBounds () {
+    const b = this.node("bounds");
+    b.kids = this.parseBoundList(true);
+    return this.done(b);
+  };
+  parseBoundList (allowPlus) {
+    let list = [];
+    while (true) {
+      if ( ((((((this.isP(">") || this.isP(",")) || this.isP(")")) || this.isP("{")) || this.isP(";")) || this.isP("]")) || this.atEnd()) || this.isP("=") && false == this.isOp("==") ) {
+        break;
+      }
+      if ( this.isKw("where") ) {
+        break;
+      }
+      list.push(this.parseBound());
+      if ( false == allowPlus ) {
+        break;
+      }
+      if ( false == this.eatP("+") ) {
+        break;
+      }
+    };
+    return list;
+  };
+  parseBound () {
+    if ( this.tokKind() == "lifetime" ) {
+      const lt = this.node("lifetime");
+      lt.name = this.tokText();
+      this.pos = this.pos + 1;
+      return this.done(lt);
+    }
+    const paren = this.eatP("(");
+    let mods = [];
+    while (true) {
+      if ( this.eatP("?") ) {
+        mods.push("?");
+        continue;
+      }
+      if ( this.isP("~") && this.isKwAt(1, "const") ) {
+        this.pos = this.pos + 2;
+        mods.push("~const");
+        continue;
+      }
+      if ( this.isKw("const") || this.isKw("async") ) {
+        mods.push(this.tokText());
+        this.pos = this.pos + 1;
+        continue;
+      }
+      break;
+    };
+    let b = this.none();
+    if ( this.isKw("use") ) {
+      b = this.node("use_bound");
+      this.pos = this.pos + 1;
+      const uargs = this.parseGenericArgs();
+      b.kids = uargs.kids;
+      this.done(b);
+    } else {
+      if ( this.isKw("for") ) {
+        this.pos = this.pos + 1;
+        const hr = this.parseGenerics();
+        b = this.parseTypeNoBounds();
+        b.addMod("for<>");
+        // Loop start
+        for ( const h of hr.kids) {
+          b.attrs.push(h);
+        }
+      } else {
+        b = this.parseTypeNoBounds();
+      }
+    }
+    // Loop start
+    for ( const m of mods) {
+      b.addMod(m);
+    }
+    if ( paren ) {
+      this.expectP(")");
+    }
+    return b;
+  };
+  parsePath (inType) {
+    if ( this.isP("<") ) {
+      return this.parseQPath(inType);
+    }
+    const p = this.node("path");
+    if ( this.eatOp("::") ) {
+      p.addMod("::");
+    }
+    while (true) {
+      const seg = this.node("seg");
+      const t = this.tok();
+      if ( t.kind != "ident" ) {
+        this.error("expected a path segment");
+        break;
+      }
+      seg.name = t.value;
+      this.pos = this.pos + 1;
+      if ( inType ) {
+        if ( this.isP("<") && false == this.isOp("<=") ) {
+          seg.add(this.parseGenericArgs());
+        } else {
+          if ( this.isOp("::") && this.isPAt(2, "<") ) {
+            this.pos = this.pos + 2;
+            seg.add(this.parseGenericArgs());
+          } else {
+            if ( this.isP("(") && this.isFnSugarSegment(seg.name) ) {
+              seg.add(this.parseFnSugarArgs());
+            }
+          }
+        }
+      } else {
+        if ( this.isOp("::") && this.isPAt(2, "<") ) {
+          this.pos = this.pos + 2;
+          seg.add(this.parseGenericArgs());
+        }
+      }
+      p.add(this.done(seg));
+      if ( ((this.isOp("::") && false == this.isPAt(2, "<")) && false == this.isPAt(2, "{")) && false == this.isPAt(2, "*") ) {
+        const nt = this.peek(2);
+        if ( nt.kind == "ident" ) {
+          this.pos = this.pos + 2;
+          continue;
+        }
+      }
+      break;
+    };
+    return this.done(p);
+  };
+  isFnSugarSegment (name) {
+    return true;
+  };
+  parseFnSugarArgs () {
+    const a = this.node("fn_args");
+    this.expectP("(");
+    while (false == this.isP(")") && false == this.atEnd()) {
+      a.add(this.parseType());
+      if ( false == this.eatP(",") ) {
+        break;
+      }
+    };
+    this.expectP(")");
+    const ret = this.node("ret");
+    if ( this.eatOp("->") ) {
+      ret.add(this.parseTypeNoBounds());
+    }
+    a.add(this.done(ret));
+    return this.done(a);
+  };
+  parseQPath (inType) {
+    const q = this.node("qpath");
+    this.expectP("<");
+    q.add(this.parseType());
+    if ( this.eatKw("as") ) {
+      q.add(this.parsePath(true));
+    } else {
+      q.add(this.none());
+    }
+    this.expectOp(">");
+    while (this.eatOp("::")) {
+      const seg = this.node("seg");
+      seg.name = this.identText();
+      if ( inType && this.isP("<") ) {
+        seg.add(this.parseGenericArgs());
+      } else {
+        if ( this.isOp("::") && this.isPAt(2, "<") ) {
+          this.pos = this.pos + 2;
+          seg.add(this.parseGenericArgs());
+        }
+      }
+      q.add(this.done(seg));
+    };
+    return this.done(q);
+  };
+  parseGenericArgs () {
+    const a = this.node("args");
+    this.expectP("<");
+    while (false == this.isP(">") && false == this.atEnd()) {
+      const before = this.pos;
+      const t = this.tok();
+      if ( t.kind == "lifetime" ) {
+        const lt = this.node("lifetime");
+        lt.name = t.text;
+        this.pos = this.pos + 1;
+        a.add(this.done(lt));
+      } else {
+        let isBinding = false;
+        if ( t.kind == "ident" ) {
+          if ( this.isPAt(1, "=") && false == this.isPAt(2, "=") ) {
+            isBinding = true;
+          }
+          if ( this.isPAt(1, ":") && false == this.isPAt(2, ":") ) {
+            isBinding = true;
+          }
+        }
+        if ( isBinding ) {
+          const bn = this.node("binding");
+          bn.name = t.value;
+          this.pos = this.pos + 1;
+          if ( this.eatP("=") ) {
+            bn.add(this.parseTypeOrConst());
+          } else {
+            this.pos = this.pos + 1;
+            bn.kind = "constraint";
+            bn.add(this.parseBounds());
+          }
+          a.add(this.done(bn));
+        } else {
+          a.add(this.parseTypeOrConst());
+        }
+      }
+      if ( false == this.eatP(",") ) {
+        break;
+      }
+      if ( this.pos == before ) {
+        this.pos = this.pos + 1;
+      }
+    };
+    this.expectOp(">");
+    return this.done(a);
+  };
+  parseTypeOrConst () {
+    const t = this.tok();
+    if ( ((((((t.kind == "int" || t.kind == "float") || t.kind == "str") || t.kind == "char") || this.isP("{")) || this.isP("-")) || this.isKw("true")) || this.isKw("false") ) {
+      return this.parseConstArg();
+    }
+    return this.parseType();
+  };
+  parseConstArg () {
+    if ( this.isP("{") ) {
+      return this.parseBlock();
+    }
+    if ( this.isP("-") ) {
+      const u = this.node("unary");
+      u.name = "-";
+      this.pos = this.pos + 1;
+      u.add(this.parseLiteral());
+      return this.done(u);
+    }
+    const t = this.tok();
+    if ( t.kind == "ident" ) {
+      if ( t.text == "true" || t.text == "false" ) {
+        return this.parseLiteral();
+      }
+      const pe = this.node("path_expr");
+      pe.add(this.parsePath(false));
+      return this.done(pe);
+    }
+    return this.parseLiteral();
+  };
+  parsePattern () {
+    const start = this.node("pat_or");
+    this.eatP("|");
+    const first = this.parsePatternNoAlt();
+    if ( this.isP("|") && false == this.isOp("||") ) {
+      start.add(first);
+      while (this.isP("|") && false == this.isOp("||")) {
+        this.pos = this.pos + 1;
+        start.add(this.parsePatternNoAlt());
+      };
+      return this.done(start);
+    }
+    return first;
+  };
+  parsePatternNoAlt () {
+    const p = this.parsePatternAtom();
+    if ( (p.kind == "pat_lit" || p.kind == "pat_path") || (p.kind == "pat_ident" && p.mods.length == 0) && p.kids.length == 0 ) {
+      const op = this.glued();
+      if ( (op == "..=" || op == "...") || op == ".." ) {
+        const r = this.nodeAt("pat_range", p);
+        r.name = op;
+        this.pos = this.pos + r_char_length(op);
+        r.add(p);
+        if ( this.startsRangeEnd() ) {
+          r.add(this.parsePatternAtom());
+        } else {
+          r.add(this.none());
+        }
+        return this.done(r);
+      }
+    }
+    return p;
+  };
+  startsRangeEnd () {
+    const t = this.tok();
+    if ( ((t.kind == "int" || t.kind == "float") || t.kind == "char") || t.kind == "str" ) {
+      return true;
+    }
+    if ( this.isP("-") ) {
+      return true;
+    }
+    if ( t.kind == "ident" && t.text != "if" ) {
+      return true;
+    }
+    return this.isOp("::") || this.isP("<");
+  };
+  parsePatternAtom () {
+    const t = this.tok();
+    if ( this.isKw("_") ) {
+      const w = this.node("pat_wild");
+      this.pos = this.pos + 1;
+      return this.done(w);
+    }
+    const op = this.glued();
+    if ( (op == ".." || op == "..=") || op == "..." ) {
+      if ( op == ".." && false == this.startsRangeEndAfter(2) ) {
+        const rest = this.node("pat_rest");
+        this.pos = this.pos + 2;
+        return this.done(rest);
+      }
+      const r = this.node("pat_range");
+      r.name = op;
+      this.pos = this.pos + r_char_length(op);
+      r.add(this.none());
+      r.add(this.parsePatternAtom());
+      return this.done(r);
+    }
+    if ( this.isP("&") ) {
+      const pr = this.node("pat_ref");
+      this.pos = this.pos + 1;
+      if ( this.eatKw("mut") ) {
+        pr.addMod("mut");
+      }
+      pr.add(this.parsePatternNoAlt());
+      return this.done(pr);
+    }
+    if ( this.isP("(") ) {
+      const tp = this.node("pat_tuple");
+      this.pos = this.pos + 1;
+      let count = 0;
+      let trailing = false;
+      while (false == this.isP(")") && false == this.atEnd()) {
+        const before = this.pos;
+        tp.add(this.parsePattern());
+        count = count + 1;
+        trailing = false;
+        if ( false == this.eatP(",") ) {
+          break;
+        }
+        trailing = true;
+        if ( this.pos == before ) {
+          this.pos = this.pos + 1;
+        }
+      };
+      this.expectP(")");
+      if ( count == 1 && false == trailing ) {
+        tp.kind = "pat_paren";
+      }
+      return this.done(tp);
+    }
+    if ( this.isP("[") ) {
+      const sp = this.node("pat_slice");
+      this.pos = this.pos + 1;
+      while (false == this.isP("]") && false == this.atEnd()) {
+        const before2 = this.pos;
+        sp.add(this.parsePattern());
+        if ( false == this.eatP(",") ) {
+          break;
+        }
+        if ( this.pos == before2 ) {
+          this.pos = this.pos + 1;
+        }
+      };
+      this.expectP("]");
+      return this.done(sp);
+    }
+    if ( (((((t.kind == "int" || t.kind == "float") || t.kind == "str") || t.kind == "char") || this.isP("-")) || this.isKw("true")) || this.isKw("false") ) {
+      const pl = this.node("pat_lit");
+      if ( this.eatP("-") ) {
+        const neg = this.node("unary");
+        neg.name = "-";
+        neg.add(this.parseLiteral());
+        pl.add(this.done(neg));
+      } else {
+        pl.add(this.parseLiteral());
+      }
+      return this.done(pl);
+    }
+    if ( this.isKw("box") ) {
+      const bx = this.node("pat_box");
+      this.pos = this.pos + 1;
+      bx.add(this.parsePatternNoAlt());
+      return this.done(bx);
+    }
+    if ( this.isKw("ref") || this.isKw("mut") ) {
+      const pi = this.node("pat_ident");
+      if ( this.eatKw("ref") ) {
+        pi.addMod("ref");
+      }
+      if ( this.eatKw("mut") ) {
+        pi.addMod("mut");
+      }
+      pi.name = this.identText();
+      if ( this.eatP("@") ) {
+        pi.add(this.parsePatternNoAlt());
+      }
+      return this.done(pi);
+    }
+    if ( (t.kind == "ident" || this.isOp("::")) || this.isP("<") ) {
+      const simple = (((t.kind == "ident" && false == this.isOpAt1Path()) && false == this.isPAt(1, "(")) && false == this.isPAt(1, "{")) && false == this.isPAt(1, "!");
+      if ( (((simple && t.text != "self") && t.text != "Self") && t.text != "crate") && t.text != "super" ) {
+        const id = this.node("pat_ident");
+        id.name = t.value;
+        this.pos = this.pos + 1;
+        if ( this.eatP("@") ) {
+          id.add(this.parsePatternNoAlt());
+        }
+        return this.done(id);
+      }
+      const start = this.node("x");
+      const path = this.parsePath(false);
+      if ( this.isP("!") && false == this.isOp("!=") ) {
+        const mc = this.parseMacroCall(path);
+        mc.kind = "pat_macro";
+        return mc;
+      }
+      if ( this.isP("(") ) {
+        const ts = this.nodeAt("pat_tuple_struct", start);
+        ts.add(path);
+        this.pos = this.pos + 1;
+        while (false == this.isP(")") && false == this.atEnd()) {
+          const before3 = this.pos;
+          ts.add(this.parsePattern());
+          if ( false == this.eatP(",") ) {
+            break;
+          }
+          if ( this.pos == before3 ) {
+            this.pos = this.pos + 1;
+          }
+        };
+        this.expectP(")");
+        return this.done(ts);
+      }
+      if ( this.isP("{") ) {
+        const ps = this.nodeAt("pat_struct", start);
+        ps.add(path);
+        this.pos = this.pos + 1;
+        while (false == this.isP("}") && false == this.atEnd()) {
+          const before4 = this.pos;
+          const fattrs = this.outerAttrs();
+          if ( this.isOp("..") ) {
+            this.pos = this.pos + 2;
+            ps.addMod("..");
+            break;
+          }
+          const pf = this.node("pat_field");
+          const ft = this.tok();
+          if ( ((ft.kind == "ident" || ft.kind == "int") && this.isPAt(1, ":")) && false == this.isPAt(2, ":") ) {
+            pf.name = ft.text;
+            this.pos = this.pos + 2;
+            pf.add(this.parsePattern());
+          } else {
+            const sh = this.parsePatternAtom();
+            pf.name = sh.name;
+            pf.add(sh);
+          }
+          // Loop start
+          for ( const fa of fattrs) {
+            pf.attrs.push(fa);
+          }
+          ps.add(this.done(pf));
+          if ( false == this.eatP(",") ) {
+            break;
+          }
+          if ( this.pos == before4 ) {
+            this.pos = this.pos + 1;
+          }
+        };
+        this.expectP("}");
+        return this.done(ps);
+      }
+      const pp = this.nodeAt("pat_path", start);
+      pp.add(path);
+      return this.done(pp);
+    }
+    this.error("expected a pattern");
+    this.pos = this.pos + 1;
+    return this.none();
+  };
+  isOpAt1Path () {
+    return this.isPAt(1, ":") && this.isPAt(2, ":");
+  };
+  startsRangeEndAfter (k) {
+    const t = this.peek(k);
+    if ( (t.kind == "int" || t.kind == "float") || t.kind == "char" ) {
+      return true;
+    }
+    if ( t.kind == "punct" && t.text == "-" ) {
+      return true;
+    }
+    return false;
+  };
+  parseBlock () {
+    const b = this.node("block");
+    if ( false == this.eatP("{") ) {
+      this.error("expected '{'");
+      return b;
+    }
+    const save = this.noStruct;
+    this.noStruct = false;
+    this.innerAttrs(b);
+    while (false == this.isP("}") && false == this.atEnd()) {
+      const before = this.pos;
+      const st = this.parseStatement();
+      if ( false == st.isNone() ) {
+        b.add(st);
+      }
+      if ( this.pos == before ) {
+        this.error("expected a statement");
+        this.pos = this.pos + 1;
+      }
+    };
+    this.expectP("}");
+    this.noStruct = save;
+    return this.done(b);
+  };
+  parseStatement () {
+    if ( this.isP(";") ) {
+      const em = this.node("empty");
+      this.pos = this.pos + 1;
+      return this.done(em);
+    }
+    const attrs = this.outerAttrs();
+    const st = this.parseStatementNoAttrs();
+    // Loop start
+    for ( const a of attrs) {
+      st.attrs.push(a);
+    }
+    return st;
+  };
+  parseStatementNoAttrs () {
+    if ( this.isKw("let") ) {
+      return this.parseLet();
+    }
+    if ( this.isItemStart() ) {
+      return this.parseItemNoAttrs();
+    }
+    if ( this.isKw("macro_rules") && this.isPAt(1, "!") ) {
+      return this.parseMacroRules();
+    }
+    const es = this.node("expr_stmt");
+    if ( this.startsBlockLike() ) {
+      let e = this.parseBlockLike();
+      if ( this.isP(".") || this.isP("?") ) {
+        e = this.parsePostfix(e);
+        e = this.continueBinary(e);
+      }
+      es.add(e);
+      if ( this.eatP(";") ) {
+        es.addMod(";");
+      }
+      return this.done(es);
+    }
+    es.add(this.parseExpr());
+    if ( this.eatP(";") ) {
+      es.addMod(";");
+    } else {
+      if ( false == this.isP("}") && false == this.atEnd() ) {
+        const last = es.kid(0);
+        if ( last.kind != "macro_call" || false == last.hasMod("{") ) {
+          this.error("expected ';'");
+        }
+      }
+    }
+    return this.done(es);
+  };
+  continueBinary (left) {
+    const e = this.parseBinRest(left, 0);
+    return this.parseAssignRest(e);
+  };
+  parseLet () {
+    const l = this.node("let");
+    this.expectKw("let");
+    l.add(this.parsePattern());
+    if ( this.isP(":") && false == this.isOp("::") ) {
+      this.pos = this.pos + 1;
+      l.add(this.parseType());
+    } else {
+      l.add(this.none());
+    }
+    if ( this.isP("=") && false == this.isOp("==") ) {
+      this.pos = this.pos + 1;
+      l.add(this.parseExpr());
+      if ( this.eatKw("else") ) {
+        l.add(this.parseBlock());
+      } else {
+        l.add(this.none());
+      }
+    } else {
+      l.add(this.none());
+      l.add(this.none());
+    }
+    this.expectP(";");
+    return this.done(l);
+  };
+  startsBlockLike () {
+    const t = this.tok();
+    if ( this.isP("{") ) {
+      return true;
+    }
+    if ( t.kind == "lifetime" ) {
+      return this.isPAt(1, ":") && false == this.isPAt(2, ":");
+    }
+    if ( t.kind != "ident" ) {
+      return false;
+    }
+    const w = t.text;
+    if ( (((w == "if" || w == "match") || w == "loop") || w == "while") || w == "for" ) {
+      return true;
+    }
+    if ( w == "unsafe" || w == "const" ) {
+      return this.isPAt(1, "{");
+    }
+    if ( w == "async" ) {
+      return this.isPAt(1, "{") || this.isKwAt(1, "move") && this.isPAt(2, "{");
+    }
+    return false;
+  };
+  parseExpr () {
+    return this.parseAssign();
+  };
+  parseExprNoStruct () {
+    const save = this.noStruct;
+    this.noStruct = true;
+    const e = this.parseExpr();
+    this.noStruct = save;
+    return e;
+  };
+  parseAssign () {
+    const left = this.parseRange();
+    return this.parseAssignRest(left);
+  };
+  parseAssignRest (left) {
+    const op = this.glued();
+    if ( RustParser.assignOp(op) ) {
+      this.pos = this.pos + r_char_length(op);
+      const a = this.nodeAt("assign", left);
+      a.name = op;
+      a.add(left);
+      a.add(this.parseAssign());
+      return this.done(a);
+    }
+    return left;
+  };
+  parseRange () {
+    const op = this.glued();
+    if ( op == ".." || op == "..=" ) {
+      const r = this.node("range");
+      r.name = op;
+      this.pos = this.pos + r_char_length(op);
+      r.add(this.none());
+      if ( this.startsExpr() ) {
+        r.add(this.parseBin(2));
+      } else {
+        r.add(this.none());
+      }
+      return this.done(r);
+    }
+    const lo = this.parseBin(2);
+    return this.parseRangeRest(lo);
+  };
+  parseRangeRest (lo) {
+    const op2 = this.glued();
+    if ( op2 == ".." || op2 == "..=" ) {
+      const r2 = this.nodeAt("range", lo);
+      r2.name = op2;
+      this.pos = this.pos + r_char_length(op2);
+      r2.add(lo);
+      if ( this.startsExpr() ) {
+        r2.add(this.parseBin(2));
+      } else {
+        r2.add(this.none());
+      }
+      return this.done(r2);
+    }
+    return lo;
+  };
+  startsExpr () {
+    const t = this.tok();
+    if ( t.kind == "eof" ) {
+      return false;
+    }
+    if ( t.kind == "punct" ) {
+      const s = t.text;
+      if ( ((((((s == "(" || s == "[") || s == "-") || s == "!") || s == "*") || s == "&") || s == "|") || s == "<" ) {
+        return true;
+      }
+      if ( s == "{" ) {
+        return false == this.noStruct;
+      }
+      if ( s == ":" && this.isOp("::") ) {
+        return true;
+      }
+      if ( s == "." && this.isOp("..") ) {
+        return true;
+      }
+      return false;
+    }
+    if ( t.kind == "ident" ) {
+      if ( t.text == "as" || t.text == "else" ) {
+        return false;
+      }
+    }
+    return true;
+  };
+  parseBin (minPrec) {
+    const left = this.parseCast();
+    return this.parseBinRest(left, minPrec);
+  };
+  parseBinRest (left0, minPrec) {
+    let left = left0;
+    while (true) {
+      const op = this.glued();
+      const prec = RustParser.binPrec(op);
+      if ( prec < 0 || prec < minPrec ) {
+        break;
+      }
+      this.pos = this.pos + r_char_length(op);
+      const right = this.parseBin((prec + 1));
+      const b = this.nodeAt("bin", left);
+      b.name = op;
+      b.add(left);
+      b.add(right);
+      left = this.done(b);
+    };
+    return left;
+  };
+  parseCast () {
+    let e = this.parseUnary();
+    while (this.isKw("as")) {
+      this.pos = this.pos + 1;
+      const c = this.nodeAt("cast", e);
+      c.add(e);
+      c.add(this.parseTypeNoBounds());
+      e = this.done(c);
+    };
+    return e;
+  };
+  parseUnary () {
+    if ( (this.isP("-") || this.isP("!")) || this.isP("*") ) {
+      const u = this.node("unary");
+      u.name = this.tokText();
+      this.pos = this.pos + 1;
+      u.add(this.parseUnary());
+      return this.done(u);
+    }
+    if ( this.isP("&") ) {
+      const r = this.node("unary");
+      this.pos = this.pos + 1;
+      r.name = "&";
+      if ( this.isKw("raw") && (this.isKwAt(1, "const") || this.isKwAt(1, "mut")) ) {
+        this.pos = this.pos + 1;
+        r.name = "&raw " + this.tokText();
+        this.pos = this.pos + 1;
+      } else {
+        if ( this.eatKw("mut") ) {
+          r.name = "&mut";
+        }
+      }
+      r.add(this.parseUnary());
+      return this.done(r);
+    }
+    const p = this.parsePrimary();
+    return this.parsePostfix(p);
+  };
+  parsePostfix (e0) {
+    let e = e0;
+    while (true) {
+      if ( this.isP("?") ) {
+        const tr = this.nodeAt("try", e);
+        this.pos = this.pos + 1;
+        tr.add(e);
+        e = this.done(tr);
+        continue;
+      }
+      if ( this.glued() == "." ) {
+        this.pos = this.pos + 1;
+        const t = this.tok();
+        if ( t.kind == "int" ) {
+          const tf = this.nodeAt("field", e);
+          tf.name = t.text;
+          this.pos = this.pos + 1;
+          tf.add(e);
+          e = this.done(tf);
+          continue;
+        }
+        if ( t.kind == "float" ) {
+          const tf2 = this.nodeAt("field", e);
+          tf2.name = t.text;
+          this.pos = this.pos + 1;
+          tf2.add(e);
+          e = this.done(tf2);
+          continue;
+        }
+        if ( (t.kind == "ident" && t.text == "await") && false == t.raw ) {
+          const aw = this.nodeAt("await", e);
+          this.pos = this.pos + 1;
+          aw.add(e);
+          e = this.done(aw);
+          continue;
+        }
+        const name = this.identText();
+        let targs = this.node("args");
+        if ( this.isOp("::") && this.isPAt(2, "<") ) {
+          this.pos = this.pos + 2;
+          targs = this.parseGenericArgs();
+        }
+        if ( this.isP("(") ) {
+          const m = this.nodeAt("method", e);
+          m.name = name;
+          m.add(e);
+          m.add(targs);
+          this.parseCallArgs(m);
+          e = this.done(m);
+          continue;
+        }
+        const f = this.nodeAt("field", e);
+        f.name = name;
+        f.add(e);
+        e = this.done(f);
+        continue;
+      }
+      if ( this.isP("(") ) {
+        const c = this.nodeAt("call", e);
+        c.add(e);
+        this.parseCallArgs(c);
+        e = this.done(c);
+        continue;
+      }
+      if ( this.isP("[") ) {
+        const ix = this.nodeAt("index", e);
+        this.pos = this.pos + 1;
+        ix.add(e);
+        const save = this.noStruct;
+        this.noStruct = false;
+        ix.add(this.parseExpr());
+        this.noStruct = save;
+        this.expectP("]");
+        e = this.done(ix);
+        continue;
+      }
+      break;
+    };
+    return e;
+  };
+  parseCallArgs (owner) {
+    this.expectP("(");
+    const save = this.noStruct;
+    this.noStruct = false;
+    while (false == this.isP(")") && false == this.atEnd()) {
+      const before = this.pos;
+      this.outerAttrs();
+      owner.add(this.parseExpr());
+      if ( false == this.eatP(",") ) {
+        break;
+      }
+      if ( this.pos == before ) {
+        this.pos = this.pos + 1;
+      }
+    };
+    this.noStruct = save;
+    this.expectP(")");
+  };
+  parseLiteral () {
+    const t = this.tok();
+    const l = this.node("lit");
+    l.name = t.text;
+    l.value = t.value;
+    if ( t.kind == "ident" ) {
+      if ( t.text == "true" || t.text == "false" ) {
+        l.addMod("bool");
+        this.pos = this.pos + 1;
+        return this.done(l);
+      }
+      this.error("expected a literal");
+      return l;
+    }
+    let k = t.kind;
+    if ( k == "str" && t.suffix == "b" ) {
+      k = "bytestr";
+    }
+    if ( k == "str" && t.suffix == "c" ) {
+      k = "cstr";
+    }
+    if ( k == "char" && t.suffix == "b" ) {
+      k = "byte";
+    }
+    if ( (((((k != "int" && k != "float") && k != "str") && k != "char") && k != "bytestr") && k != "cstr") && k != "byte" ) {
+      this.error("expected a literal");
+      return l;
+    }
+    l.addMod(k);
+    if ( (k == "int" || k == "float") && t.suffix != "" ) {
+      l.addMod(t.suffix);
+    }
+    this.pos = this.pos + 1;
+    return this.done(l);
+  };
+  parseBlockLike () {
+    const t = this.tok();
+    let label = "";
+    if ( t.kind == "lifetime" ) {
+      label = t.text;
+      this.pos = this.pos + 2;
+    }
+    const e = this.parseBlockLikeInner();
+    if ( label != "" ) {
+      e.name = label;
+      e.start = t.start;
+      e.line = t.line;
+      e.col = t.col;
+    }
+    return e;
+  };
+  parseBlockLikeInner () {
+    if ( this.isKw("if") ) {
+      return this.parseIf();
+    }
+    if ( this.isKw("match") ) {
+      return this.parseMatch();
+    }
+    if ( this.isKw("loop") ) {
+      const lp = this.node("loop");
+      this.pos = this.pos + 1;
+      lp.add(this.parseBlock());
+      return this.done(lp);
+    }
+    if ( this.isKw("while") ) {
+      const wh = this.node("while");
+      this.pos = this.pos + 1;
+      wh.add(this.parseCond());
+      wh.add(this.parseBlock());
+      return this.done(wh);
+    }
+    if ( this.isKw("for") ) {
+      const fr = this.node("for");
+      this.pos = this.pos + 1;
+      fr.add(this.parsePattern());
+      this.expectKw("in");
+      fr.add(this.parseExprNoStruct());
+      fr.add(this.parseBlock());
+      return this.done(fr);
+    }
+    let mods = [];
+    while (true) {
+      if ( this.eatKw("unsafe") ) {
+        mods.push("unsafe");
+        continue;
+      }
+      if ( this.eatKw("async") ) {
+        mods.push("async");
+        continue;
+      }
+      if ( this.eatKw("const") ) {
+        mods.push("const");
+        continue;
+      }
+      if ( this.eatKw("move") ) {
+        mods.push("move");
+        continue;
+      }
+      break;
+    };
+    const e = this.parseBlock();
+    e.mods = mods;
+    return e;
+  };
+  parseIf () {
+    const n = this.node("if");
+    this.expectKw("if");
+    n.add(this.parseCond());
+    n.add(this.parseBlock());
+    if ( this.eatKw("else") ) {
+      if ( this.isKw("if") ) {
+        n.add(this.parseIf());
+      } else {
+        n.add(this.parseBlock());
+      }
+    } else {
+      n.add(this.none());
+    }
+    return this.done(n);
+  };
+  parseCond () {
+    const save = this.noStruct;
+    this.noStruct = true;
+    const c = this.parseCondOr();
+    this.noStruct = save;
+    return c;
+  };
+  parseCondOr () {
+    let left = this.parseCondAnd();
+    while (this.isOp("||")) {
+      this.pos = this.pos + 2;
+      const b = this.nodeAt("bin", left);
+      b.name = "||";
+      b.add(left);
+      b.add(this.parseCondAnd());
+      left = this.done(b);
+    };
+    return left;
+  };
+  parseCondAnd () {
+    let left = this.parseCondAtom();
+    while (this.isOp("&&")) {
+      this.pos = this.pos + 2;
+      const b = this.nodeAt("bin", left);
+      b.name = "&&";
+      b.add(left);
+      b.add(this.parseCondAtom());
+      left = this.done(b);
+    };
+    return left;
+  };
+  parseCondAtom () {
+    if ( this.isKw("let") ) {
+      const l = this.node("let_cond");
+      this.pos = this.pos + 1;
+      l.add(this.parsePattern());
+      this.expectP("=");
+      l.add(this.parseBin(4));
+      return this.done(l);
+    }
+    let e = this.parseBin(4);
+    e = this.parseRangeRest(e);
+    return e;
+  };
+  parseMatch () {
+    const m = this.node("match");
+    this.expectKw("match");
+    m.add(this.parseExprNoStruct());
+    this.expectP("{");
+    const save = this.noStruct;
+    this.noStruct = false;
+    this.innerAttrs(m);
+    while (false == this.isP("}") && false == this.atEnd()) {
+      const before = this.pos;
+      const attrs = this.outerAttrs();
+      const arm = this.node("arm");
+      arm.add(this.parsePattern());
+      if ( this.eatKw("if") ) {
+        arm.add(this.parseCondOr());
+      } else {
+        arm.add(this.none());
+      }
+      this.expectOp("=>");
+      let blockLike = this.startsBlockLike();
+      let body = this.none();
+      if ( blockLike ) {
+        body = this.parseBlockLike();
+        if ( this.isP(".") || this.isP("?") ) {
+          body = this.parsePostfix(body);
+          body = this.continueBinary(body);
+          blockLike = false;
+        }
+      } else {
+        body = this.parseExpr();
+      }
+      arm.add(body);
+      // Loop start
+      for ( const a of attrs) {
+        arm.attrs.push(a);
+      }
+      m.add(this.done(arm));
+      if ( false == this.eatP(",") ) {
+        if ( false == blockLike && false == this.isP("}") ) {
+          this.error("expected ',' after a match arm");
+        }
+      }
+      if ( this.pos == before ) {
+        this.pos = this.pos + 1;
+      }
+    };
+    this.expectP("}");
+    this.noStruct = save;
+    return this.done(m);
+  };
+  parseClosure () {
+    const c = this.node("closure");
+    while (true) {
+      if ( this.eatKw("move") ) {
+        c.addMod("move");
+        continue;
+      }
+      if ( this.eatKw("async") ) {
+        c.addMod("async");
+        continue;
+      }
+      if ( this.eatKw("static") ) {
+        c.addMod("static");
+        continue;
+      }
+      break;
+    };
+    const ps = this.node("closure_params");
+    if ( this.isOp("||") ) {
+      this.pos = this.pos + 2;
+    } else {
+      this.expectP("|");
+      while (false == this.isP("|") && false == this.atEnd()) {
+        const before = this.pos;
+        this.outerAttrs();
+        const p = this.node("param");
+        p.add(this.parsePatternNoAlt());
+        if ( this.eatP(":") ) {
+          p.add(this.parseTypeNoBounds());
+        } else {
+          p.add(this.none());
+        }
+        ps.add(this.done(p));
+        if ( false == this.eatP(",") ) {
+          break;
+        }
+        if ( this.pos == before ) {
+          this.pos = this.pos + 1;
+        }
+      };
+      this.expectP("|");
+    }
+    c.add(this.done(ps));
+    if ( this.eatOp("->") ) {
+      c.add(this.parseTypeNoBounds());
+      c.add(this.parseBlock());
+    } else {
+      c.add(this.none());
+      c.add(this.parseExpr());
+    }
+    return this.done(c);
+  };
+  parsePrimary () {
+    const t = this.tok();
+    const k = t.kind;
+    if ( ((k == "int" || k == "float") || k == "str") || k == "char" ) {
+      return this.parseLiteral();
+    }
+    if ( k == "lifetime" ) {
+      if ( this.isPAt(1, ":") && false == this.isPAt(2, ":") ) {
+        return this.parseBlockLike();
+      }
+      this.error("unexpected lifetime");
+      this.pos = this.pos + 1;
+      return this.none();
+    }
+    if ( k == "punct" ) {
+      if ( this.isP("(") ) {
+        const tp = this.node("tuple");
+        this.pos = this.pos + 1;
+        const save = this.noStruct;
+        this.noStruct = false;
+        let count = 0;
+        let trailing = false;
+        while (false == this.isP(")") && false == this.atEnd()) {
+          const before = this.pos;
+          this.outerAttrs();
+          tp.add(this.parseExpr());
+          count = count + 1;
+          trailing = false;
+          if ( false == this.eatP(",") ) {
+            break;
+          }
+          trailing = true;
+          if ( this.pos == before ) {
+            this.pos = this.pos + 1;
+          }
+        };
+        this.noStruct = save;
+        this.expectP(")");
+        if ( count == 1 && false == trailing ) {
+          tp.kind = "paren";
+        }
+        return this.done(tp);
+      }
+      if ( this.isP("[") ) {
+        const ar = this.node("array");
+        this.pos = this.pos + 1;
+        const save2 = this.noStruct;
+        this.noStruct = false;
+        if ( false == this.isP("]") ) {
+          const first = this.parseExpr();
+          ar.add(first);
+          if ( this.eatP(";") ) {
+            ar.kind = "array_repeat";
+            ar.add(this.parseExpr());
+          } else {
+            while (this.eatP(",")) {
+              if ( this.isP("]") ) {
+                break;
+              }
+              ar.add(this.parseExpr());
+            };
+          }
+        }
+        this.noStruct = save2;
+        this.expectP("]");
+        return this.done(ar);
+      }
+      if ( this.isP("{") ) {
+        return this.parseBlock();
+      }
+      if ( this.isP("|") || this.isOp("||") ) {
+        return this.parseClosure();
+      }
+      if ( this.isP("<") || this.isOp("::") ) {
+        return this.parsePathExpr();
+      }
+      this.error("expected an expression");
+      this.pos = this.pos + 1;
+      return this.none();
+    }
+    if ( k == "ident" ) {
+      const w = t.text;
+      if ( t.raw ) {
+        return this.parsePathExpr();
+      }
+      if ( w == "true" || w == "false" ) {
+        return this.parseLiteral();
+      }
+      if ( (((w == "if" || w == "match") || w == "loop") || w == "while") || w == "for" ) {
+        return this.parseBlockLike();
+      }
+      if ( (w == "unsafe" || w == "const") && this.isPAt(1, "{") ) {
+        return this.parseBlockLike();
+      }
+      if ( w == "async" ) {
+        if ( this.isPAt(1, "{") || this.isKwAt(1, "move") && this.isPAt(2, "{") ) {
+          return this.parseBlockLike();
+        }
+        return this.parseClosure();
+      }
+      if ( w == "move" || w == "static" && ((this.isPAt(1, "|") || this.isKwAt(1, "move")) || this.isKwAt(1, "async")) ) {
+        return this.parseClosure();
+      }
+      if ( w == "return" ) {
+        const r = this.node("return");
+        this.pos = this.pos + 1;
+        if ( this.startsExpr() ) {
+          r.add(this.parseExpr());
+        }
+        return this.done(r);
+      }
+      if ( w == "break" || w == "continue" ) {
+        const bk = this.node(w);
+        this.pos = this.pos + 1;
+        if ( this.tokKind() == "lifetime" ) {
+          bk.name = this.tokText();
+          this.pos = this.pos + 1;
+        }
+        if ( w == "break" && this.startsExpr() ) {
+          bk.add(this.parseExpr());
+        }
+        return this.done(bk);
+      }
+      if ( w == "yield" || w == "become" ) {
+        const y = this.node(w);
+        this.pos = this.pos + 1;
+        if ( this.startsExpr() ) {
+          y.add(this.parseExpr());
+        }
+        return this.done(y);
+      }
+      if ( w == "_" && false == this.isOpAt1Path() ) {
+        const us = this.node("underscore");
+        this.pos = this.pos + 1;
+        return this.done(us);
+      }
+      if ( w == "let" ) {
+        const lc = this.node("let_cond");
+        this.pos = this.pos + 1;
+        lc.add(this.parsePattern());
+        this.expectP("=");
+        lc.add(this.parseBin(4));
+        return this.done(lc);
+      }
+      return this.parsePathExpr();
+    }
+    this.error("expected an expression");
+    this.pos = this.pos + 1;
+    return this.none();
+  };
+  parsePathExpr () {
+    const start = this.node("path_expr");
+    const p = this.parsePath(false);
+    if ( this.isP("!") && false == this.isOp("!=") ) {
+      return this.parseMacroCall(p);
+    }
+    if ( this.isP("{") && false == this.noStruct ) {
+      return this.parseStructLit(p, start);
+    }
+    start.add(p);
+    return this.done(start);
+  };
+  parseStructLit (p, start) {
+    const s = this.nodeAt("struct_lit", start);
+    s.add(p);
+    this.pos = this.pos + 1;
+    const save = this.noStruct;
+    this.noStruct = false;
+    let base = this.none();
+    while (false == this.isP("}") && false == this.atEnd()) {
+      const before = this.pos;
+      const attrs = this.outerAttrs();
+      if ( this.isOp("..") ) {
+        this.pos = this.pos + 2;
+        if ( this.isP("}") ) {
+          base = this.node("default_rest");
+        } else {
+          base = this.parseExpr();
+        }
+        break;
+      }
+      const fi = this.node("field_init");
+      const ft = this.tok();
+      fi.name = ft.value;
+      if ( ft.kind == "int" ) {
+        fi.name = ft.text;
+      }
+      this.pos = this.pos + 1;
+      if ( this.eatP(":") ) {
+        fi.add(this.parseExpr());
+      } else {
+        fi.addMod("shorthand");
+      }
+      // Loop start
+      for ( const a of attrs) {
+        fi.attrs.push(a);
+      }
+      s.add(this.done(fi));
+      if ( false == this.eatP(",") ) {
+        break;
+      }
+      if ( this.pos == before ) {
+        this.pos = this.pos + 1;
+      }
+    };
+    s.add(base);
+    this.noStruct = save;
+    this.expectP("}");
+    return this.done(s);
+  };
+  parseMacroCall (p) {
+    const m = this.node("macro_call");
+    m.start = p.start;
+    m.line = p.line;
+    m.col = p.col;
+    let names = [];
+    // Loop start
+    for ( const s of p.kids) {
+      names.push(s.name);
+    }
+    m.name = names.join("::");
+    this.expectP("!");
+    if ( (false == this.isP("(") && false == this.isP("[")) && false == this.isP("{") ) {
+      this.error("expected a macro body");
+      return m;
+    }
+    m.addMod(this.tokText());
+    const open = this.pos;
+    const close = this.matchingClose(this.pos);
+    m.value = this.textOf((open + 1), (close - 1));
+    let last = "";
+    if ( names.length > 0 ) {
+      last = names[(names.length - 1)];
+    }
+    if ( RustParser.isExprMacro(last) ) {
+      this.tryParseMacroArgs(m, open + 1, close - 1);
+    }
+    this.pos = close;
+    return this.done(m);
+  };
+  tryParseMacroArgs (m, a, b) {
+    const savePos = this.pos;
+    const saveLimit = this.limit;
+    const saveErrs = this.errors.length;
+    const saveNo = this.noStruct;
+    this.pos = a;
+    this.limit = b;
+    this.noStruct = false;
+    let args = [];
+    let repeat = false;
+    while (this.pos < this.limit && false == this.atEnd()) {
+      const before = this.pos;
+      args.push(this.parseExpr());
+      if ( this.isP(";") && args.length == 1 ) {
+        this.pos = this.pos + 1;
+        repeat = true;
+        args.push(this.parseExpr());
+        break;
+      }
+      if ( false == this.eatP(",") ) {
+        break;
+      }
+      if ( this.pos == before ) {
+        break;
+      }
+    };
+    const ok = this.pos == b && this.errors.length == saveErrs;
+    while (this.errors.length > saveErrs) {
+      this.errors.pop();
+    };
+    this.pos = savePos;
+    this.limit = saveLimit;
+    this.noStruct = saveNo;
+    if ( ok ) {
+      m.kids = args;
+      if ( repeat ) {
+        m.addMod("repeat");
+      }
+    }
+  };
+}
+RustParser.isKnownOp = function(s) {
+  const ops = ["<<=", ">>=", "...", "..=", "::", "->", "=>", "==", "!=", "<=", ">=", "&&", "||", "+=", "-=", "*=", "/=", "%=", "^=", "&=", "|=", "<<", ">>", ".."];
+  // Loop start
+  for ( const o of ops) {
+    if ( o == s ) {
+      return true;
+    }
+  }
+  return false;
+};
+RustParser.assignOp = function(op) {
+  if ( ((((op == "=" || op == "+=") || op == "-=") || op == "*=") || op == "/=") || op == "%=" ) {
+    return true;
+  }
+  return (((op == "^=" || op == "&=") || op == "|=") || op == "<<=") || op == ">>=";
+};
+RustParser.binPrec = function(op) {
+  if ( (op == "*" || op == "/") || op == "%" ) {
+    return 10;
+  }
+  if ( op == "+" || op == "-" ) {
+    return 9;
+  }
+  if ( op == "<<" || op == ">>" ) {
+    return 8;
+  }
+  if ( op == "&" ) {
+    return 7;
+  }
+  if ( op == "^" ) {
+    return 6;
+  }
+  if ( op == "|" ) {
+    return 5;
+  }
+  if ( ((((op == "==" || op == "!=") || op == "<") || op == ">") || op == "<=") || op == ">=" ) {
+    return 4;
+  }
+  if ( op == "&&" ) {
+    return 3;
+  }
+  if ( op == "||" ) {
+    return 2;
+  }
+  return -1;
+};
+RustParser.isExprMacro = function(name) {
+  const known = ["println", "print", "eprintln", "eprint", "format", "write", "writeln", "panic", "assert", "assert_eq", "assert_ne", "debug_assert", "debug_assert_eq", "debug_assert_ne", "vec", "unreachable", "todo", "unimplemented", "dbg", "format_args", "include_str", "include_bytes", "concat", "env", "stringify", "line", "column", "file", "cfg", "import_rgr", "native"];
+  // Loop start
+  for ( const k of known) {
+    if ( k == name ) {
+      return true;
+    }
+  }
+  return false;
+};
+class RsType  {
+  constructor(k) {
+    this.kind = "unknown";
+    this.name = "";
+    this.args = [];
+    this.isRef = false;
+    this.isMutRef = false;
+    this.weak = false;
+    this.shared = false;
+    this.isDyn = false;
+    this.kind = k;
+  }
+  arg (i) {
+    if ( i < this.args.length ) {
+      const a = this.args[i];
+      return a;
+    }
+    return new RsType("unknown");
+  };
+  is (k) {
+    return this.kind == k;
+  };
+  isUnknown () {
+    return this.kind == "unknown";
+  };
+  isPrim () {
+    return ((((this.kind == "int" || this.kind == "double") || this.kind == "bool") || this.kind == "string") || this.kind == "char") || this.kind == "unit";
+  };
+  copy () {
+    const t = new RsType(this.kind);
+    t.name = this.name;
+    // Loop start
+    for ( const a of this.args) {
+      t.args.push(a.copy());
+    }
+    t.isRef = this.isRef;
+    t.isMutRef = this.isMutRef;
+    t.weak = this.weak;
+    t.shared = this.shared;
+    t.isDyn = this.isDyn;
+    return t;
+  };
+  key () {
+    if ( this.args.length == 0 ) {
+      if ( this.kind == "named" ) {
+        return this.name;
+      }
+      if ( this.kind == "param" ) {
+        return this.name;
+      }
+      return this.kind;
+    }
+    let parts = [];
+    // Loop start
+    for ( const a of this.args) {
+      parts.push(a.key());
+    }
+    let head = this.kind;
+    if ( this.kind == "named" ) {
+      head = this.name;
+    }
+    return (head + "_") + parts.join("_");
+  };
+  sameAs (o) {
+    return this.key() == o.key();
+  };
+  rust () {
+    if ( this.kind == "int" ) {
+      return "i64";
+    }
+    if ( this.kind == "double" ) {
+      return "f64";
+    }
+    if ( this.kind == "bool" ) {
+      return "bool";
+    }
+    if ( this.kind == "string" ) {
+      return "String";
+    }
+    if ( this.kind == "char" ) {
+      return "char";
+    }
+    if ( this.kind == "unit" ) {
+      return "()";
+    }
+    let parts = [];
+    // Loop start
+    for ( const a of this.args) {
+      parts.push(a.rust());
+    }
+    if ( this.kind == "vec" ) {
+      return ("Vec<" + parts.join(", ")) + ">";
+    }
+    if ( this.kind == "map" ) {
+      return ("HashMap<" + parts.join(", ")) + ">";
+    }
+    if ( this.kind == "opt" ) {
+      return ("Option<" + parts.join(", ")) + ">";
+    }
+    if ( this.kind == "tuple" ) {
+      return ("(" + parts.join(", ")) + ")";
+    }
+    if ( this.kind == "named" || this.kind == "param" ) {
+      if ( parts.length > 0 ) {
+        return ((this.name + "<") + parts.join(", ")) + ">";
+      }
+      return this.name;
+    }
+    return this.kind;
+  };
+}
+RsType.mk = function(k) {
+  return new RsType(k);
+};
+RsType.named = function(n) {
+  const t = new RsType("named");
+  t.name = n;
+  return t;
+};
+RsType.of1 = function(k, a) {
+  const t = new RsType(k);
+  t.args.push(a);
+  return t;
+};
+RsType.of2 = function(k, a, b) {
+  const t = new RsType(k);
+  t.args.push(a);
+  t.args.push(b);
+  return t;
+};
+class RsField  {
+  constructor() {
+    this.name = "";
+    this.ty = new RsType("unknown");
+    this.node = undefined;
+  }
+}
+class RsParam  {
+  constructor() {
+    this.name = "";
+    this.ty = new RsType("unknown");
+    this.pat = undefined;
+    this.boxed = false;
+  }
+}
+RsParam.unknown = function() {
+  return new RsParam();
+};
+class RsFn  {
+  constructor() {
+    this.name = "";
+    this.rname = "";
+    this.generics = [];
+    this.bounds = {};
+    this.params = [];
+    this.ret = new RsType("unit");
+    this.hasSelf = false;
+    this.selfMut = false;
+    this.selfByValue = false;
+    this.owner = "";
+    this.fromTrait = "";
+    this.hasBody = true;
+    this.ownerGenerics = [];
+    this.node = undefined;
+  }
+}
+class RsVariant  {
+  constructor() {
+    this.name = "";
+    this.shape = "unit";
+    this.fields = [];
+    this.disc = 0;
+  }
+}
+class RsStruct  {
+  constructor() {
+    this.name = "";
+    this.generics = [];
+    this.fields = [];
+    this.isTuple = false;
+    this.derives = [];
+    this.methods = [];
+    this.traits = [];
+    this.node = undefined;
+  }
+  derivesTrait (t) {
+    // Loop start
+    for ( const d of this.derives) {
+      if ( d == t ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  field (n) {
+    let none;
+    // Loop start
+    for ( const f of this.fields) {
+      if ( f.name == n ) {
+        let r;
+        r = f;
+        return r;
+      }
+    }
+    return none;
+  };
+  method (n) {
+    let none;
+    // Loop start
+    for ( const m of this.methods) {
+      if ( m.name == n ) {
+        let r;
+        r = m;
+        return r;
+      }
+    }
+    return none;
+  };
+}
+class RsEnum  {
+  constructor() {
+    this.name = "";
+    this.generics = [];
+    this.variants = [];
+    this.plain = true;
+    this.derives = [];
+    this.methods = [];
+    this.traits = [];
+  }
+  variant (n) {
+    let none;
+    // Loop start
+    for ( const v of this.variants) {
+      if ( v.name == n ) {
+        let r;
+        r = v;
+        return r;
+      }
+    }
+    return none;
+  };
+  method (n) {
+    let none;
+    // Loop start
+    for ( const m of this.methods) {
+      if ( m.name == n ) {
+        let r;
+        r = m;
+        return r;
+      }
+    }
+    return none;
+  };
+}
+class RsTrait  {
+  constructor() {
+    this.name = "";
+    this.methods = [];
+    this.implementors = [];
+  }
+  method (n) {
+    let none;
+    // Loop start
+    for ( const m of this.methods) {
+      if ( m.name == n ) {
+        let r;
+        r = m;
+        return r;
+      }
+    }
+    return none;
+  };
+}
+class RsConst  {
+  constructor() {
+    this.name = "";
+    this.ty = new RsType("unknown");
+    this.node = undefined;
+  }
+}
+class RsLocal  {
+  constructor() {
+    this.name = "";
+    this.rname = "";
+    this.ty = new RsType("unknown");
+    this.moved = false;
+    this.movedLine = 0;
+    this.movedCol = 0;
+    this.order = 0;
+    this.isAlias = false;
+    this.iterVec = "";
+    this.iterIdx = "";
+    this.slotMap = "";
+    this.slotKey = "";
+    this.slotTy = new RsType("unknown");
+  }
+}
+class RsScope  {
+  constructor() {
+    this.vars = {};
+    this.parent = undefined;
+  }
+  lookup (n) {
+    if ( ( typeof(this.vars[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.vars, n) ) ) {
+      const v = ( Object.prototype.hasOwnProperty.call(this.vars, n) ? this.vars[n] : undefined );
+      return v;
+    }
+    if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
+      const p = this.parent;
+      const found = p.lookup(n);
+      return found;
+    }
+    let none;
+    return none;
+  };
+}
+class RsExpr  {
+  constructor() {
+    this.code = "";
+    this.ty = new RsType("unknown");
+    this.simple = false;
+  }
+}
+RsExpr.of = function(c, t) {
+  const e = new RsExpr();
+  e.code = c;
+  e.ty = t;
+  return e;
+};
+class RsInst  {
+  constructor() {
+    this.name = "";
+    this.fnDef = undefined;
+    this.ty = new RsType("unknown");
+    this.env = {};
+  }
+}
+class RustOut  {
+  constructor() {
+    this.lines = [];
+    this.ind = "";
+  }
+  line (s) {
+    this.lines.push(this.ind + s);
+  };
+  indent () {
+    this.ind = this.ind + "  ";
+  };
+  dedent () {
+    if ( this.ind.length >= 2 ) {
+      this.ind = this.ind.substring(2, this.ind.length );
+    }
+  };
+  addAll (other) {
+    // Loop start
+    for ( const l of other) {
+      this.lines.push(l);
+    }
+  };
+  addIndented (other, baseInd) {
+    const n = baseInd.length;
+    // Loop start
+    for ( const l of other) {
+      if ( (n > 0 && l.length >= n) && l.substring(0, n ) == baseInd ) {
+        this.lines.push(this.ind + l.substring(n, l.length ));
+      } else {
+        this.lines.push(this.ind + l);
+      }
+    }
+  };
+  text () {
+    return this.lines.join("\n");
+  };
+}
+class RustReserved  {
+}
+RustReserved.build = function() {
+  let parts = [];
+  parts.push("ArrayList ByteArrayOutputStream Constructor DispatchQueue Double Enum");
+  parts.push("Err Extends FILE False File Function I Import List M_PI Map None Ok");
+  parts.push("PrintWriter ProcessBuilder Runtime Self Some String StringBuilder");
+  parts.push("System T Thread True _ a abs absolute abstract acc acos alignas");
+  parts.push("alignof all and and_eq annotation_keywors any array_extract");
+  parts.push("array_length as ascii asin asm assert associatedtype async");
+  parts.push("async_read_file at atan2 auto await b base begin_dispatch_turn bin");
+  parts.push("bit_and bit_not bit_or bit_shl bit_shr bit_ushr bit_xor bitand bitor");
+  parts.push("bool boolean borrowing break buf buffer_alloc buffer_copy buffer_fill");
+  parts.push("buffer_from_string buffer_get buffer_length buffer_read_file");
+  parts.push("buffer_set buffer_slice buffer_to_base64 buffer_to_string");
+  parts.push("buffer_write_file byte bytearray bytes c cCurrentPath c_data callable");
+  parts.push("candidate case cast catch ccode ceil ch ch2 chan char charAt");
+  parts.push("char_length charcode checked childEnv chr class classmethod clear");
+  parts.push("clear_screen clone cmd code commands companion compile compl complex");
+  parts.push("const const_cast constexpr consuming contains continue correctly cos");
+  parts.push("count covariant cp cpp cpp_old crate create_dir create_immutable_array");
+  parts.push("create_immutable_hash csharp cur current_directory d dart data");
+  parts.push("debugger decimal decltype def default defer deferred defn deinit del");
+  parts.push("delattr delegate delete dict dir dir_exists do doc does double");
+  parts.push("double2str double_buffer_alloc double_buffer_copy double_buffer_fill");
+  parts.push("double_buffer_get double_buffer_length double_buffer_set dynamic");
+  parts.push("dynamic_cast e elif else empty end end_dispatch_turn endsWith enum");
+  parts.push("enumerate env_var environment err errData errPipe error_msg es5 es6");
+  parts.push("eval event except exe exec exit explicit export extends extension");
+  parts.push("extern external extra f fabs factory fallthrough false fclose field");
+  parts.push("file file_exists file_mtime fileprivate filter final finally find");
+  parts.push("find_process first fixed float floor flow fmt fn for forEach forSome");
+  parts.push("foreach format friend from frozenset fun func function get get_option");
+  parts.push("get_required_option getattr getch gitdoc global globals go go_idea");
+  parts.push("golang_wait goto group guard h has has_option hasattr hash help hex hh");
+  parts.push("hide hide_cursor http_get_header http_get_method http_get_param");
+  parts.push("http_get_path http_get_query http_send http_send_buffer");
+  parts.push("http_send_bytes http_set_header http_set_status i id idiv if if_cpp");
+  parts.push("if_csharp if_dart if_go if_java if_javascript if_kotlin if_php");
+  parts.push("if_python if_rust if_scala if_swift impl implements implicit import in");
+  parts.push("indexOf indexOfFrom info init inline inout input insert");
+  parts.push("install_directory instanceof int int2double int64_t int_buffer_alloc");
+  parts.push("int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length");
+  parts.push("int_buffer_set interface internal is isinstance iso_add_days");
+  parts.push("iso_between iso_compare issubclass itemAt iter java java7 join kbhit");
+  parts.push("keys kotlin lambda language last lastIndexOf last_index late lateinit");
+  parts.push("lazy len length let library lift list llvm locals lock long make map");
+  parts.push("map_clear match max md5 means memoryview min mixin mkdir move_cursor");
+  parts.push("msg msvcrt mutable n name namespace native new next nim nl noexcept");
+  parts.push("nonisolated nonlocal normalize not not_eq null nullify nullptr object");
+  parts.push("oct off on on_keypress open operator operator_new operators opt or");
+  parts.push("or_eq ord os out outPipe output outputFile override p package panic");
+  parts.push("params part parts pass path_dirname pb php poll_keypress pos");
+  parts.push("precedencegroup print private proc_hibernate proc_start proc_stop");
+  parts.push("proc_wakeup property protected protocol psi public push pushString");
+  parts.push("python r_key_lock r_key_queue r_map_get_val r_windows_key_process");
+  parts.push("r_windows_key_reader raise ramger random range ranger rawbytechar re");
+  parts.push("read read_file read_file_sync readonly record ref regex_test register");
+  parts.push("reified reinterpret_cast remove removeLast remove_index repeat replace");
+  parts.push("repr required res reserved_words result ret rethrow rethrows return");
+  parts.push("reverse reversed round rs run_process_result rust s sbyte scala se");
+  parts.push("sealed select self set set_at set_exit_code setattr sets sfn sha256");
+  parts.push("shape shell_arg shell_arg_cnt short show show_cursor si signed simply");
+  parts.push("sin size size_t sizeof sleep_ms slice sofar some sort sorted sqrt");
+  parts.push("sse_is_connected sse_send stackalloc start startsWith static");
+  parts.push("static_assert static_cast staticmethod std stderr stdout str");
+  parts.push("str2double str2int str_append strfromcode strictfp string strlen");
+  parts.push("strsplit struct subscript substring sum super suspend swift swift3");
+  parts.push("swift6 switch sync synchronized system systemclass t tailrec tan");
+  parts.push("targets template templates theDir this thread_local throw throws time");
+  parts.push("timer toString to_charbuffer to_chars to_double to_int to_lowercase");
+  parts.push("to_string to_uppercase toplevel_keywords trailing trait transient trim");
+  parts.push("trim_right true try ts tuple type typealias typedef typeid typename");
+  parts.push("typeof uint uint32_t uint64_t ulong unchecked union unsafe unsigned");
+  parts.push("unwrap use ushort using utf8_substring v val value var vararg variant");
+  parts.push("vars virtual void volatile w wait wall_clock_ms wchar_t when where");
+  parts.push("while with workingDirectory wrap write write_file xor xor_eq yield zip");
+  let names = {};
+  // Loop start
+  for ( const line of parts) {
+    const words = line.split(" ");
+    // Loop start
+    for ( const w of words) {
+      names[w] = true;
+    }
+  }
+  return names;
+};
+RustReserved.operatorNames = function() {
+  let parts = [];
+  parts.push("M_PI acos array_extract array_length asin async_read_file at atan2");
+  parts.push("bit_and bit_not bit_or bit_shl bit_shr bit_ushr bit_xor break");
+  parts.push("buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get");
+  parts.push("buffer_length buffer_read_file buffer_set buffer_slice");
+  parts.push("buffer_to_base64 buffer_to_string buffer_write_file case cast ccode");
+  parts.push("ceil charAt char_length charcode clear clear_screen const contains");
+  parts.push("continue cos create_dir create_immutable_array create_immutable_hash");
+  parts.push("current_directory def default dir_exists double2str");
+  parts.push("double_buffer_alloc double_buffer_copy double_buffer_fill");
+  parts.push("double_buffer_get double_buffer_length double_buffer_set empty");
+  parts.push("endsWith env_var error_msg except exit fabs file_exists file_mtime");
+  parts.push("first floor for get get_option get_required_option gitdoc golang_wait");
+  parts.push("has has_option hide_cursor http_get_header http_get_method");
+  parts.push("http_get_param http_get_path http_get_query http_send http_send_buffer");
+  parts.push("http_send_bytes http_set_header http_set_status idiv if if_cpp");
+  parts.push("if_csharp if_dart if_go if_java if_javascript if_kotlin if_php");
+  parts.push("if_python if_rust if_scala if_swift indexOf indexOfFrom insert");
+  parts.push("install_directory int2double int_buffer_alloc int_buffer_copy");
+  parts.push("int_buffer_fill int_buffer_get int_buffer_length int_buffer_set");
+  parts.push("iso_add_days iso_between iso_compare itemAt join keys last lastIndexOf");
+  parts.push("last_index length let lift make map_clear match max md5 move_cursor");
+  parts.push("normalize nullify on_keypress path_dirname poll_keypress print push");
+  parts.push("pushString random rawbytechar read_file read_file_sync regex_test");
+  parts.push("remove removeLast remove_index replace ret return reverse rs_abs");
+  parts.push("rs_byte_len rs_byte_slice rs_ceil rs_char_code rs_char_count");
+  parts.push("rs_char_from rs_dbg rs_div rs_f2i rs_find_bytes rs_floor rs_fmt");
+  parts.push("rs_fmt_dbg_f64 rs_fmt_prec rs_i2f rs_lower rs_map_len rs_map_remove");
+  parts.push("rs_max rs_min rs_neg rs_panic rs_pow rs_powi rs_rem rs_sqrt rs_str_cmp");
+  parts.push("rs_upper rs_wrap_u16 rs_wrap_u8 run_process_result set set_at");
+  parts.push("set_exit_code sfn sha256 shell_arg shell_arg_cnt show_cursor sin size");
+  parts.push("sleep_ms sort sqrt sse_is_connected sse_send startsWith str2double");
+  parts.push("str2int str_append strfromcode strlen strsplit substring switch tan");
+  parts.push("throw timer toString to_charbuffer to_chars to_double to_int");
+  parts.push("to_lowercase to_string to_uppercase trim trim_right try unwrap use");
+  parts.push("utf8_substring var wait wall_clock_ms while wrap write write_file");
+  let names = {};
+  // Loop start
+  for ( const line of parts) {
+    const words = line.split(" ");
+    // Loop start
+    for ( const w of words) {
+      names[w] = true;
+    }
+  }
+  return names;
+};
+class RustPreludeOps  {
+}
+RustPreludeOps.arities = function() {
+  let m = {};
+  m["acos"] = 1;
+  m["asin"] = 1;
+  m["atan2"] = 2;
+  m["bit_ushr"] = 2;
+  m["ceil"] = 1;
+  m["char_length"] = 1;
+  m["clear_screen"] = 0;
+  m["cos"] = 1;
+  m["create_dir"] = 1;
+  m["current_directory"] = 0;
+  m["dir_exists"] = 1;
+  m["double2str"] = 1;
+  m["error_msg"] = 0;
+  m["exit"] = 1;
+  m["fabs"] = 1;
+  m["file_exists"] = 2;
+  m["file_mtime"] = 2;
+  m["floor"] = 1;
+  m["hide_cursor"] = 0;
+  m["install_directory"] = 0;
+  m["int2double"] = 1;
+  m["move_cursor"] = 2;
+  m["normalize"] = 1;
+  m["path_dirname"] = 1;
+  m["set_exit_code"] = 1;
+  m["sha256"] = 1;
+  m["shell_arg"] = 1;
+  m["shell_arg_cnt"] = 0;
+  m["show_cursor"] = 0;
+  m["sin"] = 1;
+  m["sqrt"] = 1;
+  m["tan"] = 1;
+  m["to_lowercase"] = 1;
+  m["to_uppercase"] = 1;
+  m["trim"] = 1;
+  m["trim_right"] = 1;
+  m["utf8_substring"] = 3;
+  m["wall_clock_ms"] = 0;
+  m["write"] = 1;
+  m["write_file"] = 3;
+  return m;
+};
+RustPreludeOps.returns = function() {
+  let m = {};
+  m["acos"] = "double";
+  m["asin"] = "double";
+  m["atan2"] = "double";
+  m["bit_ushr"] = "int";
+  m["ceil"] = "int";
+  m["char_length"] = "int";
+  m["clear_screen"] = "void";
+  m["cos"] = "double";
+  m["create_dir"] = "void";
+  m["current_directory"] = "string";
+  m["dir_exists"] = "boolean";
+  m["double2str"] = "string";
+  m["error_msg"] = "string";
+  m["exit"] = "void";
+  m["fabs"] = "double";
+  m["file_exists"] = "boolean";
+  m["file_mtime"] = "int";
+  m["floor"] = "int";
+  m["hide_cursor"] = "void";
+  m["install_directory"] = "string";
+  m["int2double"] = "double";
+  m["move_cursor"] = "void";
+  m["normalize"] = "string";
+  m["path_dirname"] = "string";
+  m["set_exit_code"] = "void";
+  m["sha256"] = "string";
+  m["shell_arg"] = "string";
+  m["shell_arg_cnt"] = "int";
+  m["show_cursor"] = "void";
+  m["sin"] = "double";
+  m["sqrt"] = "double";
+  m["tan"] = "double";
+  m["to_lowercase"] = "string";
+  m["to_uppercase"] = "string";
+  m["trim"] = "string";
+  m["trim_right"] = "string";
+  m["utf8_substring"] = "string";
+  m["wall_clock_ms"] = "double";
+  m["write"] = "void";
+  m["write_file"] = "void";
+  return m;
+};
+class RustLower  {
+  constructor() {
+    this.errors = [];
+    this.fileName = "";
+    this.ownerGenerics = [];
+    this.fnBoundTypes = {};
+    this.selfArgs = [];
+    this.fnInstQueue = [];
+    this.fnInstNames = {};
+    this.structInstQueue = [];
+    this.structInstNames = {};
+    this.dynQueue = [];
+    this.dynNames = {};
+    this.modClass = "RsMain";
+    this.preludeOps = {};
+    this.preludeRets = {};
+    this.preludeLoaded = false;
+    this.structs = {};
+    this.structOrder = [];
+    this.enums = {};
+    this.enumOrder = [];
+    this.traits = {};
+    this.traitOrder = [];
+    this.fns = {};
+    this.fnOrder = [];
+    this.consts = {};
+    this.constOrder = [];
+    this.aliases = {};
+    this.reserved = {};
+    this.localReserved = {};
+    this.genNames = {};
+    this.genOut = [];
+    this.hoisted = [];     /* note: unused */
+    this.out = new RustOut();
+    this.scope = new RsScope();
+    this.used = {};
+    this.tmpN = 0;
+    this.selfType = "";
+    this.retType = new RsType("unit");
+    this.loopVals = [];
+    this.loopLabels = [];
+    this.loopFlags = [];
+    this.loopFlagKind = [];
+    this.genericEnv = {};
+    this.fnLocals = [];
+    this.clonerOut = [];
+    this.fnNameOverride = "";
+    this.hoistQueue = [];
+    this.tempTypes = {};
+    this.flagTargets = {};
+    this.pendingFlags = [];
+    this.forPat = undefined;
+    this.forBody = undefined;
+    this.armBefore = [];
+    this.armAcc = [];
+    this.armAny = false;
+    this.variantAliases = {};
+    this.optInCollectionReported = false;
+    this.lastVecName = "";
+    this.lastReturn = new RsType("unknown");
+    this.lastEntry = new RsExpr();
+    this.displayFormatter = "";
+    this.lastCaptured = [];
+    this.lastCapturedInd = "";
+    this.loopStart = 0;
+    this.loopInd = "";
+    this.noMoveCheck = false;
+    this.iterRoots = [];
+    this.reserved = RustReserved.build();
+    const kw = ["def", "fn", "sfn", "class", "new", "if", "while", "for", "return", "break", "continue", "print", "true", "false", "null", "this", "switch", "case", "default", "try", "throw", "match", "shape", "trait", "does", "Import", "Enum", "record", "union", "operators", "Extends", "Constructor", "static", "write", "exit", "push", "set", "set_at", "remove", "removeLast", "clear", "ret", "defn", "unwrap", "group", "variant", "extension", "systemclass", "doc", "self", "super", "catch", "and", "or", "not", "is", "in", "del", "pass", "lambda", "yield", "None", "True", "False", "nil", "var", "val", "let", "const", "func", "function", "undefined", "arguments", "delete", "typeof", "instanceof", "void", "with", "package", "import", "export", "interface", "implements", "public", "private", "protected", "struct", "enum", "go", "chan", "select", "range", "type", "map", "string", "int", "double", "boolean", "char", "float", "long", "short", "byte", "auto", "register", "extern", "goto", "sizeof", "volatile", "typedef", "unsigned", "signed", "namespace", "template", "typename", "using", "virtual", "friend", "inline", "operator", "delete", "fun", "object", "when", "init", "deinit", "guard", "repeat", "internal", "open", "final", "override", "abstract", "sealed", "data", "companion", "lateinit", "native", "synchronized", "transient", "strictfp", "assert", "global", "nonlocal", "elif", "except", "finally", "raise", "from", "as", "async", "await", "def", "print"];
+    // Loop start
+    for ( const k of kw) {
+      this.localReserved[k] = true;
+      this.reserved[k] = true;
+    }
+    const ops = RustReserved.operatorNames();
+    const opNames = Object.keys(ops);
+    // Loop start
+    for ( const on of opNames) {
+      this.localReserved[on] = true;
+    }
+  }
+  err (n, msg) {
+    this.errors.push((((((this.fileName + ":") + (n.line.toString())) + ":") + (n.col.toString())) + ": ") + msg);
+  };
+  unsupported (n, what) {
+    this.err(n, what + " is not in the Ranger subset of Rust");
+  };
+  staticName (n) {
+    if ( ( typeof(this.reserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.reserved, n) ) ) {
+      return n + "_";
+    }
+    return n;
+  };
+  methodName (n) {
+    if ( ( typeof(this.localReserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localReserved, n) ) ) {
+      return n + "_";
+    }
+    return n;
+  };
+  fieldName (n) {
+    if ( ( typeof(this.localReserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localReserved, n) ) ) {
+      return n + "_";
+    }
+    return n;
+  };
+  className (n) {
+    if ( ( typeof(this.reserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.reserved, n) ) ) {
+      return "Rs" + n;
+    }
+    return n;
+  };
+  tmp (base) {
+    this.tmpN = this.tmpN + 1;
+    return ("rs__" + base) + (this.tmpN.toString());
+  };
+  allocLocal (n) {
+    let base = n;
+    if ( ( typeof(this.localReserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localReserved, n) ) ) {
+      base = n + "_";
+    }
+    if ( false == ( typeof(this.used[base] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.used, base) ) ) {
+      this.used[base] = true;
+      return base;
+    }
+    let k = 2;
+    while (true) {
+      const cand = (base + "_") + (k.toString());
+      if ( false == ( typeof(this.used[cand] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.used, cand) ) ) {
+        this.used[cand] = true;
+        return cand;
+      }
+      k = k + 1;
+    };
+    return base;
+  };
+  declare (n, t) {
+    const l = new RsLocal();
+    l.name = n;
+    l.rname = this.allocLocal(n);
+    l.ty = t;
+    l.order = this.fnLocals.length;
+    this.fnLocals.push(l);
+    this.scope.vars[n] = l;
+    return l;
+  };
+  alias (n, code, t) {
+    const l = new RsLocal();
+    l.name = n;
+    l.rname = code;
+    l.ty = t;
+    l.isAlias = true;
+    this.scope.vars[n] = l;
+    return l;
+  };
+  pushScope () {
+    const s = new RsScope();
+    s.parent = this.scope;
+    this.scope = s;
+  };
+  popScope () {
+    if ( (typeof(this.scope.parent) !== "undefined" && this.scope.parent != null )  ) {
+      this.scope = this.scope.parent;
+    }
+  };
+  translate (src, name) {
+    this.fileName = name;
+    this.modClass = RustLower.moduleClassFor(name);
+    const p = new RustParser(src);
+    const root = p.parseFile();
+    // Loop start
+    for ( let i = 0; i < p.errors.length; i++) {
+      var e = p.errors[i];
+      this.errors.push((name + ":") + e);
+    }
+    if ( this.errors.length > 0 ) {
+      return "";
+    }
+    this.collect(root);
+    if ( this.errors.length > 0 ) {
+      return "";
+    }
+    const text = this.emitAll();
+    if ( this.errors.length > 0 ) {
+      return "";
+    }
+    return text;
+  };
+  deriveList (attrs) {
+    let list = [];
+    // Loop start
+    for ( const a of attrs) {
+      if ( a.name == "derive" ) {
+        let inner = a.value.trim();
+        if ( inner.length >= 2 ) {
+          inner = inner.substring(1, inner.length - 1 );
+        }
+        const parts = inner.split(",");
+        // Loop start
+        for ( const p of parts) {
+          let t = p.trim();
+          const dc = t.lastIndexOf("::");
+          if ( dc >= 0 ) {
+            t = t.substring(dc + 2, t.length );
+          }
+          if ( t.length > 0 ) {
+            list.push(t);
+          }
+        }
+      }
+    }
+    return list;
+  };
+  genericNames (g) {
+    let list = [];
+    // Loop start
+    for ( const k of g.kids) {
+      if ( k.kind == "type_param" ) {
+        list.push(k.name);
+      }
+    }
+    return list;
+  };
+  collect (root) {
+    // Loop start
+    for ( const it of root.kids) {
+      if ( it.kind == "struct" ) {
+        const s = new RsStruct();
+        s.name = it.name;
+        s.node = it;
+        s.derives = this.deriveList(it.attrs);
+        s.generics = this.genericNames(it.kid(0));
+        this.structs[it.name] = s;
+        this.structOrder.push(it.name);
+      }
+      if ( it.kind == "enum" ) {
+        const e = new RsEnum();
+        e.name = it.name;
+        e.derives = this.deriveList(it.attrs);
+        e.generics = this.genericNames(it.kid(0));
+        this.enums[it.name] = e;
+        this.enumOrder.push(it.name);
+      }
+      if ( it.kind == "trait" ) {
+        const tr = new RsTrait();
+        tr.name = it.name;
+        this.traits[it.name] = tr;
+        this.traitOrder.push(it.name);
+      }
+      if ( it.kind == "type_alias" ) {
+        this.aliases[it.name] = it.kid(3);
+      }
+    }
+    // Loop start
+    for ( const it2 of root.kids) {
+      this.collectItem(it2);
+    }
+    // Loop start
+    for ( const ut of root.kids) {
+      if ( ut.kind == "use" ) {
+        // Loop start
+        for ( const uk of ut.kids) {
+          this.collectUse(uk);
+        }
+      }
+    }
+    // Loop start
+    for ( const sn of this.structOrder) {
+      const st0 = ( Object.prototype.hasOwnProperty.call(this.structs, sn) ? this.structs[sn] : undefined );
+      // Loop start
+      for ( let smi = 0; smi < st0.methods.length; smi++) {
+        var sm = st0.methods[smi];
+        if ( (typeof(st0.field(sm.name)) !== "undefined" && st0.field(sm.name) != null )  ) {
+          sm.rname = sm.name + "_m";
+        }
+      }
+    }
+    let toi = 0;
+    while (toi < this.traitOrder.length) {
+      const tn = this.traitOrder[toi];
+      toi = toi + 1;
+      const tr2 = ( Object.prototype.hasOwnProperty.call(this.traits, tn) ? this.traits[tn] : undefined );
+      // Loop start
+      for ( let ii = 0; ii < tr2.implementors.length; ii++) {
+        var impl = tr2.implementors[ii];
+        // Loop start
+        for ( const tm of tr2.methods) {
+          if ( false == tm.hasBody ) {
+            continue;
+          }
+          if ( ( typeof(this.structs[impl] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, impl) ) ) {
+            const st = ( Object.prototype.hasOwnProperty.call(this.structs, impl) ? this.structs[impl] : undefined );
+            if ( typeof(st.method(tm.name)) === "undefined" ) {
+              const cm = this.retarget(tm, impl);
+              if ( (typeof(st.field(cm.name)) !== "undefined" && st.field(cm.name) != null )  ) {
+                cm.rname = cm.name + "_m";
+              }
+              st.methods.push(cm);
+            }
+          }
+          if ( ( typeof(this.enums[impl] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, impl) ) ) {
+            const en = ( Object.prototype.hasOwnProperty.call(this.enums, impl) ? this.enums[impl] : undefined );
+            if ( typeof(en.method(tm.name)) === "undefined" ) {
+              en.methods.push(this.retarget(tm, impl));
+            }
+          }
+        }
+      }
+    };
+  };
+  retarget (m, owner) {
+    const c = new RsFn();
+    c.name = m.name;
+    c.rname = m.rname;
+    c.generics = m.generics;
+    c.params = m.params;
+    c.ret = m.ret;
+    c.hasSelf = m.hasSelf;
+    c.selfMut = m.selfMut;
+    c.selfByValue = m.selfByValue;
+    c.owner = owner;
+    c.fromTrait = m.fromTrait;
+    c.hasBody = m.hasBody;
+    c.node = m.node;
+    return c;
+  };
+  collectItem (it) {
+    const k = it.kind;
+    if ( k == "use" || k == "extern_crate" ) {
+      return;
+    }
+    if ( k == "struct" ) {
+      const s = ( Object.prototype.hasOwnProperty.call(this.structs, it.name) ? this.structs[it.name] : undefined );
+      const fs = it.kid(2);
+      if ( fs.kind == "fields_tuple" ) {
+        s.isTuple = true;
+      }
+      const sg = it.kid(0);
+      // Loop start
+      for ( const gk of sg.kids) {
+        if ( gk.kind == "lifetime_param" ) {
+          this.unsupported(gk, ("a lifetime parameter on the struct `" + it.name) + "` (a struct cannot hold references)");
+        }
+      }
+      // Loop start
+      for ( const f of fs.kids) {
+        const rf = new RsField();
+        rf.name = f.name;
+        if ( s.isTuple ) {
+          rf.name = "f" + f.name;
+        }
+        rf.node = f;
+        rf.ty = this.typeOfIn(f.kid(0), s.generics);
+        if ( rf.ty.isRef ) {
+          this.unsupported(f, ("a reference stored in the field `" + f.name) + "`: own the value, or share it with Rc");
+        }
+        s.fields.push(rf);
+      }
+      return;
+    }
+    if ( k == "enum" ) {
+      const e = ( Object.prototype.hasOwnProperty.call(this.enums, it.name) ? this.enums[it.name] : undefined );
+      let disc = 0;
+      let ki = 3;
+      while (ki <= it.kids.length) {
+        const v = it.kid((ki - 1));
+        ki = ki + 1;
+        if ( v.kind != "variant" ) {
+          continue;
+        }
+        const rv = new RsVariant();
+        rv.name = v.name;
+        const vf = v.kid(0);
+        if ( vf.kind == "fields_tuple" ) {
+          rv.shape = "tuple";
+          e.plain = false;
+        }
+        if ( vf.kind == "fields_named" ) {
+          rv.shape = "named";
+          e.plain = false;
+        }
+        // Loop start
+        for ( const f_1 of vf.kids) {
+          const rf_1 = new RsField();
+          rf_1.name = f_1.name;
+          if ( rv.shape == "tuple" ) {
+            rf_1.name = "f" + f_1.name;
+          }
+          rf_1.ty = this.typeOfIn(f_1.kid(0), e.generics);
+          rv.fields.push(rf_1);
+        }
+        const dn = v.kid(1);
+        if ( false == dn.isNone() ) {
+          if ( dn.kind == "lit" ) {
+            disc = this.intValue(dn);
+          } else {
+            this.unsupported(dn, "a non-literal enum discriminant");
+          }
+        }
+        rv.disc = disc;
+        disc = disc + 1;
+        e.variants.push(rv);
+      };
+      return;
+    }
+    if ( k == "trait" ) {
+      const tr = ( Object.prototype.hasOwnProperty.call(this.traits, it.name) ? this.traits[it.name] : undefined );
+      let ti = 3;
+      while (ti < it.kids.length) {
+        const m = it.kid(ti);
+        ti = ti + 1;
+        if ( m.kind == "fn" ) {
+          const f_2 = this.fnSig(m, it.name);
+          f_2.fromTrait = it.name;
+          tr.methods.push(f_2);
+        } else {
+          if ( m.kind == "type_alias" || m.kind == "const" ) {
+            this.unsupported(m, "an associated type or const in a trait");
+          }
+        }
+      };
+      return;
+    }
+    if ( k == "impl" ) {
+      const selfT = it.kid(2);
+      const owner = this.typeNameOf(selfT);
+      if ( false == (( typeof(this.structs[owner] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, owner) ) || ( typeof(this.enums[owner] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, owner) )) ) {
+        this.err(it, "impl for a type not declared in this file: " + owner);
+        return;
+      }
+      const traitN = it.kid(1);
+      let traitName = "";
+      if ( false == traitN.isNone() ) {
+        traitName = this.typeNameOf(traitN);
+      }
+      const saveSelf = this.selfType;
+      this.selfType = owner;
+      this.ownerGenerics = this.genericNames(it.kid(0));
+      let mi = 4;
+      while (mi < it.kids.length) {
+        const m2 = it.kid(mi);
+        mi = mi + 1;
+        if ( m2.kind != "fn" ) {
+          if ( m2.kind == "type_alias" && traitName != "" ) {
+            continue;
+          }
+          this.unsupported(m2, "`" + (m2.kind + "` inside an impl"));
+          continue;
+        }
+        const f2 = this.fnSig(m2, owner);
+        f2.fromTrait = traitName;
+        if ( ( typeof(this.structs[owner] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, owner) ) ) {
+          const st = ( Object.prototype.hasOwnProperty.call(this.structs, owner) ? this.structs[owner] : undefined );
+          st.methods.push(f2);
+        } else {
+          const en = ( Object.prototype.hasOwnProperty.call(this.enums, owner) ? this.enums[owner] : undefined );
+          en.methods.push(f2);
+        }
+      };
+      this.selfType = saveSelf;
+      let noGen = [];
+      this.ownerGenerics = noGen;
+      if ( traitName != "" ) {
+        this.noteTraitImpl(traitName, owner, it);
+      }
+      return;
+    }
+    if ( k == "fn" ) {
+      const ff = this.fnSig(it, "");
+      ff.rname = this.staticName(it.name);
+      this.fns[it.name] = ff;
+      this.fnOrder.push(it.name);
+      return;
+    }
+    if ( k == "const" || k == "static" ) {
+      const c = new RsConst();
+      c.name = it.name;
+      c.node = it;
+      c.ty = this.typeOf(it.kid(0));
+      if ( it.hasMod("mut") ) {
+        this.unsupported(it, "`static mut`");
+      }
+      this.consts[it.name] = c;
+      this.constOrder.push(it.name);
+      return;
+    }
+    if ( (k == "struct" || k == "enum") || k == "type_alias" ) {
+      return;
+    }
+    if ( k == "macro_item" ) {
+      this.unsupported(it, ("the macro invocation `" + it.name) + "!` at item level");
+      return;
+    }
+    this.unsupported(it, "`" + (k + "`"));
+  };
+  noteTraitImpl (traitName, owner, it) {
+    if ( ( typeof(this.traits[traitName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.traits, traitName) ) ) {
+      const tr = ( Object.prototype.hasOwnProperty.call(this.traits, traitName) ? this.traits[traitName] : undefined );
+      tr.implementors.push(owner);
+    }
+    if ( ( typeof(this.structs[owner] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, owner) ) ) {
+      const st = ( Object.prototype.hasOwnProperty.call(this.structs, owner) ? this.structs[owner] : undefined );
+      st.traits.push(traitName);
+    }
+    if ( ( typeof(this.enums[owner] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, owner) ) ) {
+      const en = ( Object.prototype.hasOwnProperty.call(this.enums, owner) ? this.enums[owner] : undefined );
+      en.traits.push(traitName);
+    }
+  };
+  fnSig (m, owner) {
+    const f = new RsFn();
+    f.name = m.name;
+    f.rname = this.methodName(m.name);
+    f.owner = owner;
+    f.node = m;
+    const all = this.genericNames(m.kid(0));
+    const gp = m.kid(0);
+    let fnBound = {};
+    // Loop start
+    for ( const g of gp.kids) {
+      if ( g.kind == "type_param" ) {
+        const bs = g.kid(0);
+        let names = [];
+        // Loop start
+        for ( const b of bs.kids) {
+          names.push(this.typeNameOf(b));
+          if ( this.isFnBound(b) ) {
+            const bt = this.typeOfIn(b, this.ownerGenerics);
+            this.fnBoundTypes[g.name] = bt;
+            fnBound[g.name] = true;
+          }
+        }
+        f.bounds[g.name] = names.join("+");
+      }
+    }
+    const wh = m.kid(3);
+    // Loop start
+    for ( const wp of wh.kids) {
+      if ( wp.kind == "where_pred" ) {
+        const target = this.typeNameOf(wp.kid(0));
+        const wb = wp.kid(1);
+        // Loop start
+        for ( const b2 of wb.kids) {
+          if ( this.isFnBound(b2) ) {
+            const bt2 = this.typeOfIn(b2, this.ownerGenerics);
+            this.fnBoundTypes[target] = bt2;
+            fnBound[target] = true;
+          }
+        }
+      }
+    }
+    // Loop start
+    for ( const gn of all) {
+      if ( false == ( typeof(fnBound[gn] ) != "undefined" && Object.prototype.hasOwnProperty.call(fnBound, gn) ) ) {
+        f.generics.push(gn);
+      }
+    }
+    let sigGen = [];
+    // Loop start
+    for ( const g1 of f.generics) {
+      sigGen.push(g1);
+    }
+    // Loop start
+    for ( const g2 of this.ownerGenerics) {
+      sigGen.push(g2);
+    }
+    f.ownerGenerics = this.ownerGenerics;
+    const params = m.kid(1);
+    // Loop start
+    for ( const p of params.kids) {
+      if ( p.kind == "self_param" ) {
+        f.hasSelf = true;
+        if ( p.hasMod("mut") && p.hasMod("&") ) {
+          f.selfMut = true;
+        }
+        if ( false == p.hasMod("&") ) {
+          f.selfByValue = true;
+        }
+        continue;
+      }
+      const rp = new RsParam();
+      const pat = p.kid(0);
+      rp.pat = pat;
+      if ( pat.kind == "pat_ident" ) {
+        rp.name = pat.name;
+      } else {
+        rp.name = "";
+      }
+      rp.ty = this.typeOfIn(p.kid(1), sigGen);
+      rp.boxed = this.needsBox(rp.ty);
+      f.params.push(rp);
+    }
+    const ret = m.kid(2);
+    if ( ret.kids.length > 0 ) {
+      f.ret = this.typeOfIn(ret.kid(0), sigGen);
+    } else {
+      f.ret = RsType.mk("unit");
+    }
+    const body = m.kid(4);
+    f.hasBody = false == body.isNone();
+    return f;
+  };
+  isFnBound (b) {
+    if ( b.kind != "path_type" ) {
+      return false;
+    }
+    const p = b.kid(0);
+    if ( p.kids.length == 0 ) {
+      return false;
+    }
+    const last = p.kids[(p.kids.length - 1)];
+    const a = last.kid(0);
+    return a.kind == "fn_args";
+  };
+  typeNameOf (t) {
+    if ( t.kind == "path_type" ) {
+      const p = t.kid(0);
+      if ( p.kids.length > 0 ) {
+        const last = p.kids[(p.kids.length - 1)];
+        return last.name;
+      }
+    }
+    if ( t.kind == "ref_type" || t.kind == "paren_type" ) {
+      return this.typeNameOf(t.kid(0));
+    }
+    if ( t.kind == "dyn_type" || t.kind == "impl_type" ) {
+      return this.typeNameOf(t.kid(0));
+    }
+    return "";
+  };
+  typeOf (t) {
+    let none = [];
+    return this.typeOfIn(t, none);
+  };
+  typeOfIn (t, generics) {
+    const k = t.kind;
+    if ( k == "none" ) {
+      return RsType.mk("unknown");
+    }
+    if ( k == "ref_type" ) {
+      const inner = this.typeOfIn(t.kid(0), generics).copy();
+      inner.isRef = true;
+      if ( t.hasMod("mut") ) {
+        inner.isMutRef = true;
+      }
+      return inner;
+    }
+    if ( k == "paren_type" || k == "ptr_type" ) {
+      return this.typeOfIn(t.kid(0), generics);
+    }
+    if ( k == "slice_type" || k == "array_type" ) {
+      return RsType.of1("vec", this.typeOfIn(t.kid(0), generics));
+    }
+    if ( k == "tuple_type" ) {
+      if ( t.kids.length == 0 ) {
+        return RsType.mk("unit");
+      }
+      const tt = RsType.mk("tuple");
+      // Loop start
+      for ( const e of t.kids) {
+        tt.args.push(this.typeOfIn(e, generics));
+      }
+      return tt;
+    }
+    if ( k == "never_type" ) {
+      return RsType.mk("never");
+    }
+    if ( k == "infer_type" ) {
+      return RsType.mk("unknown");
+    }
+    if ( k == "fn_type" ) {
+      const ft = RsType.mk("fn");
+      const n = t.kids.length;
+      let i_1 = 0;
+      while (i_1 < n - 1) {
+        ft.args.push(this.typeOfIn(t.kid(i_1), generics));
+        i_1 = i_1 + 1;
+      };
+      ft.args.push(this.retTypeOf(t.kid(n - 1), generics));
+      return ft;
+    }
+    if ( k == "impl_type" || k == "dyn_type" ) {
+      const b = t.kid(0);
+      const bt = this.typeOfIn(b, generics).copy();
+      bt.isDyn = true;
+      return bt;
+    }
+    if ( k == "path_type" ) {
+      return this.pathType(t.kid(0), generics, t);
+    }
+    if ( k == "qself_type" ) {
+      this.unsupported(t, "a qualified path type");
+      return RsType.mk("unknown");
+    }
+    this.unsupported(t, "the type form `" + (k + "`"));
+    return RsType.mk("unknown");
+  };
+  retTypeOf (ret, generics) {
+    if ( ret.kids.length > 0 ) {
+      return this.typeOfIn(ret.kid(0), generics);
+    }
+    return RsType.mk("unit");
+  };
+  segArgs (seg, generics) {
+    let list = [];
+    const a = seg.kid(0);
+    if ( a.kind == "args" ) {
+      // Loop start
+      for ( const x of a.kids) {
+        if ( (x.kind == "lifetime" || x.kind == "binding") || x.kind == "constraint" ) {
+          continue;
+        }
+        list.push(this.typeOfIn(x, generics));
+      }
+    }
+    return list;
+  };
+  pathType (p, generics, at) {
+    if ( p.kind != "path" ) {
+      this.unsupported(at, "a qualified path type");
+      return RsType.mk("unknown");
+    }
+    const n = p.kids.length;
+    if ( n == 0 ) {
+      return RsType.mk("unknown");
+    }
+    const seg = p.kids[(n - 1)];
+    const name = seg.name;
+    const args = this.segArgs(seg, generics);
+    const sa = seg.kid(0);
+    if ( sa.kind == "fn_args" ) {
+      const ft = RsType.mk("fn");
+      const an = sa.kids.length;
+      let ai = 0;
+      while (ai < an - 1) {
+        ft.args.push(this.typeOfIn(sa.kid(ai), generics));
+        ai = ai + 1;
+      };
+      ft.args.push(this.retTypeOf(sa.kid(an - 1), generics));
+      return ft;
+    }
+    if ( ( typeof(this.fnBoundTypes[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fnBoundTypes, name) ) ) {
+      const fb = ( Object.prototype.hasOwnProperty.call(this.fnBoundTypes, name) ? this.fnBoundTypes[name] : undefined );
+      return fb.copy();
+    }
+    // Loop start
+    for ( const g of generics) {
+      if ( g == name ) {
+        if ( ( typeof(this.genericEnv[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genericEnv, name) ) ) {
+          const bound = ( Object.prototype.hasOwnProperty.call(this.genericEnv, name) ? this.genericEnv[name] : undefined );
+          return bound.copy();
+        }
+        const pt = RsType.mk("param");
+        pt.name = name;
+        return pt;
+      }
+    }
+    if ( ( typeof(this.genericEnv[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genericEnv, name) ) ) {
+      const bound2 = ( Object.prototype.hasOwnProperty.call(this.genericEnv, name) ? this.genericEnv[name] : undefined );
+      return bound2.copy();
+    }
+    if ( (((((((((((name == "i8" || name == "i16") || name == "i32") || name == "i64") || name == "i128") || name == "isize") || name == "u8") || name == "u16") || name == "u32") || name == "u64") || name == "u128") || name == "usize") || name == "int" ) {
+      const it = RsType.mk("int");
+      it.name = name;
+      return it;
+    }
+    if ( (name == "f32" || name == "f64") || name == "double" ) {
+      return RsType.mk("double");
+    }
+    if ( name == "bool" || name == "boolean" ) {
+      return RsType.mk("bool");
+    }
+    if ( (name == "String" || name == "str") || name == "string" ) {
+      const stT = RsType.mk("string");
+      if ( name == "String" ) {
+        stT.name = "String";
+      }
+      return stT;
+    }
+    if ( name == "char" ) {
+      return RsType.mk("char");
+    }
+    if ( name == "Vec" || name == "VecDeque" ) {
+      return RsType.of1("vec", this.argOr(args, 0));
+    }
+    if ( (name == "HashMap" || name == "BTreeMap") || name == "Map" ) {
+      const mt = RsType.of2("map", this.argOr(args, 0), this.argOr(args, 1));
+      if ( name == "BTreeMap" ) {
+        mt.name = "sorted";
+      }
+      if ( name == "Map" ) {
+        mt.name = "ordered";
+      }
+      return mt;
+    }
+    if ( name == "HashSet" || name == "BTreeSet" ) {
+      const st = RsType.of1("set", this.argOr(args, 0));
+      if ( name == "BTreeSet" ) {
+        st.name = "sorted";
+      }
+      return st;
+    }
+    if ( name == "Option" ) {
+      return RsType.of1("opt", this.argOr(args, 0));
+    }
+    if ( name == "Result" ) {
+      return RsType.of2("result", this.argOr(args, 0), this.argOr(args, 1));
+    }
+    if ( ((((name == "Box" || name == "Rc") || name == "Arc") || name == "RefCell") || name == "Cell") || name == "Mutex" ) {
+      const inner = this.argOr(args, 0).copy();
+      inner.shared = true;
+      return inner;
+    }
+    if ( name == "Weak" ) {
+      const w = this.argOr(args, 0).copy();
+      w.weak = true;
+      w.shared = true;
+      return w;
+    }
+    if ( name == "Self" ) {
+      if ( this.selfType != "" ) {
+        const sft = RsType.named(this.selfType);
+        // Loop start
+        for ( const sa_2 of this.selfArgs) {
+          sft.args.push(sa_2);
+        }
+        if ( this.selfArgs.length == 0 && ( typeof(this.structs[this.selfType] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, this.selfType) ) ) {
+          const ss = ( Object.prototype.hasOwnProperty.call(this.structs, this.selfType) ? this.structs[this.selfType] : undefined );
+          // Loop start
+          for ( const g_1 of ss.generics) {
+            const gp = RsType.mk("param");
+            gp.name = g_1;
+            sft.args.push(gp);
+          }
+        }
+        return sft;
+      }
+    }
+    if ( ( typeof(this.aliases[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.aliases, name) ) ) {
+      const an2 = ( Object.prototype.hasOwnProperty.call(this.aliases, name) ? this.aliases[name] : undefined );
+      return this.typeOfIn(an2, generics);
+    }
+    if ( (( typeof(this.structs[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, name) ) || ( typeof(this.enums[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, name) )) || ( typeof(this.traits[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.traits, name) ) ) {
+      const nt = RsType.named(name);
+      nt.args = args;
+      return nt;
+    }
+    if ( name == "Formatter" || name == "Arguments" ) {
+      return RsType.named("Formatter");
+    }
+    if ( name == "ParseIntError" || name == "ParseFloatError" ) {
+      return this.ownedString();
+    }
+    if ( name == "Ordering" ) {
+      const ordT = RsType.mk("int");
+      ordT.name = "Ordering";
+      return ordT;
+    }
+    if ( name == "Display" || name == "Debug" ) {
+      const ot = RsType.named(name);
+      return ot;
+    }
+    this.err(at, ("unknown type `" + name) + "`");
+    return RsType.mk("unknown");
+  };
+  argOr (args, i) {
+    if ( i < args.length ) {
+      const a = args[i];
+      return a;
+    }
+    return RsType.mk("unknown");
+  };
+  rtype (t) {
+    const k = t.kind;
+    if ( k == "int" ) {
+      return "int";
+    }
+    if ( k == "double" ) {
+      return "double";
+    }
+    if ( k == "bool" ) {
+      return "boolean";
+    }
+    if ( k == "string" || k == "char" ) {
+      return "string";
+    }
+    if ( k == "unit" ) {
+      return "void";
+    }
+    if ( k == "vec" ) {
+      const __REGx1 = t.arg(0);
+      if ( __REGx1.kind == "opt" ) {
+        if ( false == this.optInCollectionReported ) {
+          this.optInCollectionReported = true;
+          this.errors.push(this.fileName + ": a Vec of Option is not in the Ranger subset: keep the present values (`filter_map`, `flatten`) or use a sentinel");
+        }
+        return "";
+      }
+      const e = this.rtype(t.arg(0));
+      if ( e == "" ) {
+        return "";
+      }
+      return ("[" + e) + "]";
+    }
+    if ( k == "map" ) {
+      const mk = this.rtype(t.arg(0));
+      const mv = this.rtype(t.arg(1));
+      if ( mk == "" || mv == "" ) {
+        return "";
+      }
+      if ( t.name == "ordered" ) {
+        return this.omapClass(t);
+      }
+      return ((("[" + mk) + ":") + mv) + "]";
+    }
+    if ( k == "set" ) {
+      const sk = this.rtype(t.arg(0));
+      if ( sk == "" ) {
+        return "";
+      }
+      return ("[" + sk) + ":boolean]";
+    }
+    if ( k == "opt" ) {
+      return this.rtype(t.arg(0));
+    }
+    if ( k == "tuple" ) {
+      return this.tupleClass(t);
+    }
+    if ( k == "fn" ) {
+      const n = t.args.length;
+      let ps = [];
+      let i = 0;
+      while (i < n - 1) {
+        ps.push((("p" + (i.toString())) + ":") + this.rtype(t.arg(i)));
+        i = i + 1;
+      };
+      return ((("(fn:" + this.rtype(t.arg((n - 1)))) + " (") + ps.join(" ")) + "))";
+    }
+    if ( k == "named" ) {
+      if ( t.isDyn && ( typeof(this.traits[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.traits, t.name) ) ) {
+        return this.dynUnion(t.name);
+      }
+      if ( t.args.length > 0 ) {
+        return this.instanceClass(t);
+      }
+      return this.className(t.name);
+    }
+    if ( k == "result" ) {
+      return this.resultClass(t);
+    }
+    return "";
+  };
+  declText (rname, t) {
+    let s = rname;
+    if ( t.kind == "opt" ) {
+      s = s + "@(optional)";
+    } else {
+      if ( t.weak ) {
+        s = s + "@(weak)";
+      }
+    }
+    const tt = this.rtype(t);
+    if ( tt != "" ) {
+      s = (s + ":") + tt;
+    }
+    return s;
+  };
+  isCopyStruct (t) {
+    if ( t.kind != "named" ) {
+      return false;
+    }
+    if ( ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+      return s.derivesTrait("Copy");
+    }
+    return false;
+  };
+  tupleClass (t) {
+    let parts = [];
+    // Loop start
+    for ( const a of t.args) {
+      parts.push(this.mangleKey(a));
+    }
+    const name = "RsTup_" + parts.join("_");
+    if ( false == ( typeof(this.genNames[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, name) ) ) {
+      this.genNames[name] = true;
+      let lines = [];
+      lines.push(("class " + name) + " {");
+      let ci = 0;
+      let cps = [];
+      // Loop start
+      for ( const a2 of t.args) {
+        lines.push("  def " + this.fieldDecl(("f" + (ci.toString())), a2));
+        cps.push(this.declText("a" + (ci.toString()), a2));
+        ci = ci + 1;
+      }
+      lines.push(("  Constructor (" + cps.join(" ")) + ") {");
+      let ck = 0;
+      // Loop start
+      for ( const a4 of t.args) {
+        lines.push((("    this.f" + (ck.toString())) + " = a") + (ck.toString()));
+        ck = ck + 1;
+      }
+      lines.push("  }");
+      lines.push(("  fn rs_clone:" + name) + " () {");
+      let cargs = [];
+      let cj = 0;
+      // Loop start
+      for ( const a3 of t.args) {
+        cargs.push(this.cloneCode("this.f" + (cj.toString()), a3));
+        cj = cj + 1;
+      }
+      lines.push(((("    return (new " + name) + "(") + cargs.join(" ")) + "))");
+      lines.push("  }");
+      lines.push("}");
+      this.genOut.push(lines.join("\n"));
+    }
+    return name;
+  };
+  mangleKey (t) {
+    const k = t.key();
+    let out_1 = "";
+    const cs = Array.from(k, (rg_c) => rg_c.codePointAt(0));
+    // Loop start
+    for ( const c of cs) {
+      if ( ((c >= 48 && c <= 57 || c >= 65 && c <= 90) || c >= 97 && c <= 122) || c == 95 ) {
+        out_1 = out_1 + String.fromCharCode(c);
+      }
+    }
+    return out_1;
+  };
+  fieldDecl (name, t) {
+    const d = this.declText(name, t);
+    const dv = this.defaultValue(t);
+    if ( dv != "" ) {
+      return (d + " ") + dv;
+    }
+    if ( (t.kind == "named" || t.kind == "tuple") || t.kind == "result" ) {
+      if ( false == t.weak ) {
+        const z = this.zeroCode(t);
+        if ( z != "" ) {
+          return (d + " ") + z;
+        }
+      }
+    }
+    return d;
+  };
+  defaultValue (t) {
+    if ( t.kind == "opt" ) {
+      return "";
+    }
+    const k = t.kind;
+    if ( k == "int" ) {
+      return "0";
+    }
+    if ( k == "double" ) {
+      return "0.0";
+    }
+    if ( k == "bool" ) {
+      return "false";
+    }
+    if ( k == "string" || k == "char" ) {
+      return "\"\"";
+    }
+    if ( k == "map" && t.name == "ordered" ) {
+      return ("(new " + this.omapClass(t)) + "())";
+    }
+    return "";
+  };
+  zeroCode (t) {
+    const dv = this.defaultValue(t);
+    if ( dv != "" ) {
+      return dv;
+    }
+    const k = t.kind;
+    if ( k == "vec" ) {
+      const et = this.rtype(t.arg(0));
+      if ( et != "" ) {
+        return ("([] _:" + et) + " ())";
+      }
+      return "";
+    }
+    if ( k == "named" ) {
+      if ( t.isDyn && ( typeof(this.traits[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.traits, t.name) ) ) {
+        const tr = ( Object.prototype.hasOwnProperty.call(this.traits, t.name) ? this.traits[t.name] : undefined );
+        if ( tr.implementors.length > 0 ) {
+          const first = tr.implementors[0];
+          return this.zeroCode(RsType.named(first));
+        }
+        return "";
+      }
+      if ( ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+        if ( t.args.length > 0 ) {
+          return ("(" + this.rtype(t)) + ".zeroOf())";
+        }
+        return ("(" + this.className(t.name)) + ".zeroOf())";
+      }
+      if ( ( typeof(this.enums[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, t.name) ) ) {
+        const e = ( Object.prototype.hasOwnProperty.call(this.enums, t.name) ? this.enums[t.name] : undefined );
+        if ( e.plain ) {
+          const v0 = e.variants[0];
+          return (this.className(t.name) + ".") + v0.name;
+        }
+        return ("(" + this.implClass(t.name)) + ".zeroOf())";
+      }
+    }
+    if ( k == "tuple" ) {
+      let zs = [];
+      // Loop start
+      for ( const a of t.args) {
+        zs.push(this.zeroCode(a));
+      }
+      return ((("(new " + this.tupleClass(t)) + "(") + zs.join(" ")) + "))";
+    }
+    if ( k == "result" ) {
+      return ("(" + this.resultClass(t)) + ".zeroOf())";
+    }
+    return "";
+  };
+  tempDecl (name, t) {
+    const z = this.zeroCode(t);
+    if ( z != "" && t.kind != "opt" ) {
+      return (this.declText(name, t) + " ") + z;
+    }
+    return this.declText(name, t);
+  };
+  cloneCode (code, t) {
+    const k = t.kind;
+    if ( t.shared ) {
+      return code;
+    }
+    if ( this.isDataEnum(t) ) {
+      return ((("(" + this.implClass(t.name)) + ".cloneOf(") + code) + "))";
+    }
+    if ( k == "named" && (( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) || t.args.length > 0) ) {
+      return ("(" + code) + ".rs_clone())";
+    }
+    if ( k == "tuple" ) {
+      return ("(" + code) + ".rs_clone())";
+    }
+    if ( k == "map" && t.name == "ordered" ) {
+      return ("(" + code) + ".rs_clone())";
+    }
+    if ( (k == "vec" || k == "map") || k == "set" ) {
+      return (("(" + this.collectionCloner(t)) + "(") + (code + "))");
+    }
+    return code;
+  };
+  collectionCloner (t) {
+    const key = "c_" + this.mangleKey(t);
+    const name = "RsClone." + key;
+    if ( ( typeof(this.genNames[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, key) ) ) {
+      return name;
+    }
+    this.genNames[key] = true;
+    const rt = this.rtype(t);
+    let lines = [];
+    lines.push(((("  sfn " + key) + ":") + rt) + ((" (src:" + rt) + ") {"));
+    lines.push("    def out:" + rt);
+    if ( t.kind == "vec" ) {
+      lines.push("    def n:int (array_length src)");
+      lines.push("    def i:int 0");
+      lines.push("    while (i < n) {");
+      lines.push(("      def e:" + this.rtype(t.arg(0))) + " (itemAt src i)");
+      lines.push("      push out " + this.cloneCode("e", t.arg(0)));
+      lines.push("      i = i + 1");
+      lines.push("    }");
+    } else {
+      lines.push((("    def ks:[" + this.rtype(t.arg(0))) + "] ") + this.mapKeysCode("src", RsType.of2(
+        "map",
+        t.arg(0),
+        t.arg(0)
+      )));
+      lines.push("    def n:int (array_length ks)");
+      lines.push("    def i:int 0");
+      lines.push("    while (i < n) {");
+      lines.push(("      def k:" + this.rtype(t.arg(0))) + " (itemAt ks i)");
+      if ( t.kind == "set" ) {
+        lines.push("      set out k true");
+      } else {
+        lines.push(("      def v:" + this.rtype(t.arg(1))) + " (unwrap (get src k))");
+        lines.push("      set out k " + this.cloneCode("v", t.arg(1)));
+      }
+      lines.push("      i = i + 1");
+      lines.push("    }");
+    }
+    lines.push("    return out");
+    lines.push("  }");
+    this.clonerOut.push(lines.join("\n"));
+    return name;
+  };
+  instanceClass (t) {
+    const name = this.mangleKey(t);
+    if ( false == ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      this.err(new RustNode("none"), ("generic type `" + t.rust()) + "` is not a struct of this module");
+      return name;
+    }
+    // Loop start
+    for ( const a of t.args) {
+      if ( a.kind == "param" || a.isUnknown() ) {
+        return name;
+      }
+    }
+    if ( false == ( typeof(this.structInstNames[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structInstNames, name) ) ) {
+      this.structInstNames[name] = true;
+      const inst = new RsInst();
+      inst.name = name;
+      inst.ty = t;
+      const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+      inst.env = this.envFor(s.generics, t.args);
+      this.structInstQueue.push(inst);
+    }
+    return name;
+  };
+  envFor (names, args) {
+    let env = {};
+    let i = 0;
+    // Loop start
+    for ( const n of names) {
+      if ( i < args.length ) {
+        env[n] = args[i];
+      }
+      i = i + 1;
+    }
+    return env;
+  };
+  subst (t, env) {
+    if ( t.kind == "param" ) {
+      if ( ( typeof(env[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(env, t.name) ) ) {
+        const b = ( Object.prototype.hasOwnProperty.call(env, t.name) ? env[t.name] : undefined ).copy();
+        b.isRef = t.isRef;
+        b.isMutRef = t.isMutRef;
+        return b;
+      }
+      return t;
+    }
+    if ( t.args.length == 0 ) {
+      return t;
+    }
+    const c = t.copy();
+    let na = [];
+    // Loop start
+    for ( const a of t.args) {
+      na.push(this.subst(a, env));
+    }
+    c.args = na;
+    return c;
+  };
+  unify (pt, at, env) {
+    if ( at.isUnknown() ) {
+      return;
+    }
+    if ( pt.kind == "param" ) {
+      if ( false == ( typeof(env[pt.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(env, pt.name) ) ) {
+        const b = at.copy();
+        b.isRef = false;
+        b.isMutRef = false;
+        env[pt.name] = b;
+      }
+      return;
+    }
+    if ( pt.kind != at.kind ) {
+      return;
+    }
+    let i = 0;
+    // Loop start
+    for ( const a of pt.args) {
+      if ( i < at.args.length ) {
+        this.unify(a, at.args[i], env);
+      }
+      i = i + 1;
+    }
+  };
+  fieldTypeOf (s, f, owner) {
+    if ( s.generics.length == 0 ) {
+      return f.ty;
+    }
+    const env = this.envFor(s.generics, owner.args);
+    return this.subst(f.ty, env);
+  };
+  methodEnv (owner) {
+    if ( owner.kind == "named" && ( typeof(this.structs[owner.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, owner.name) ) ) {
+      const s = ( Object.prototype.hasOwnProperty.call(this.structs, owner.name) ? this.structs[owner.name] : undefined );
+      return this.envFor(s.generics, owner.args);
+    }
+    let none = {};
+    return none;
+  };
+  lowerGenericCall (f, args, targs, expect, at) {
+    let env = {};
+    if ( targs.kind == "args" ) {
+      let ti = 0;
+      // Loop start
+      for ( const ta of targs.kids) {
+        if ( ti < f.generics.length ) {
+          env[f.generics[ti]] = this.typeOf(ta);
+        }
+        ti = ti + 1;
+      }
+    }
+    let vals = [];
+    let i = 0;
+    // Loop start
+    for ( const a of args) {
+      let pt = RsType.mk("unknown");
+      if ( i < f.params.length ) {
+        const p = f.params[i];
+        pt = this.subst(p.ty, env);
+      }
+      let want = pt;
+      if ( this.hasParam(pt) ) {
+        want = RsType.mk("unknown");
+      }
+      const v = this.lowerExprCopy(a, want);
+      if ( i < f.params.length ) {
+        const p2 = f.params[i];
+        this.unify(p2.ty, v.ty, env);
+      }
+      vals.push(v);
+      i = i + 1;
+    }
+    if ( this.hasParam(f.ret) ) {
+      this.unify(f.ret, expect, env);
+    }
+    let keys = [];
+    // Loop start
+    for ( let gi = 0; gi < f.generics.length; gi++) {
+      var g = f.generics[gi];
+      if ( false == ( typeof(env[g] ) != "undefined" && Object.prototype.hasOwnProperty.call(env, g) ) ) {
+        this.err(at, ((("cannot infer the type parameter `" + g) + "` of `") + f.name) + "`: add a turbofish `::<…>`");
+        return this.unit();
+      }
+      const gt = ( Object.prototype.hasOwnProperty.call(env, g) ? env[g] : undefined );
+      keys.push(this.mangleKey(gt));
+    }
+    const name = (f.rname + "__") + keys.join("_");
+    if ( false == ( typeof(this.fnInstNames[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fnInstNames, name) ) ) {
+      this.fnInstNames[name] = true;
+      const inst = new RsInst();
+      inst.name = name;
+      inst.fnDef = f;
+      inst.env = env;
+      this.fnInstQueue.push(inst);
+    }
+    let codes = [];
+    let k = 0;
+    // Loop start
+    for ( const v2 of vals) {
+      let pt2 = RsType.mk("unknown");
+      if ( k < f.params.length ) {
+        const p3 = f.params[k];
+        pt2 = this.subst(p3.ty, env);
+      }
+      const c = this.coerce(v2, pt2, args[k]);
+      codes.push(c.code);
+      k = k + 1;
+    }
+    return RsExpr.of((((((("(" + this.modClass) + ".") + name) + "(") + codes.join(" ")) + "))"), this.subst(f.ret, env));
+  };
+  genericAssocCall (s, m, args, expect, at) {
+    let inst = RsType.named(s.name);
+    if ( (expect.kind == "named" && expect.name == s.name) && expect.args.length > 0 ) {
+      inst = expect;
+    } else {
+      if ( this.selfType == s.name && this.selfArgs.length > 0 ) {
+        // Loop start
+        for ( const sa of this.selfArgs) {
+          inst.args.push(sa);
+        }
+      }
+    }
+    const env = this.envFor(s.generics, inst.args);
+    let vals = [];
+    let k = 0;
+    // Loop start
+    for ( const a of args) {
+      let pt = RsType.mk("unknown");
+      if ( k < m.params.length ) {
+        const p = m.params[k];
+        pt = this.subst(p.ty, env);
+        if ( this.hasParam(pt) ) {
+          pt = RsType.mk("unknown");
+        }
+      }
+      const v = this.lowerExprCopy(a, pt);
+      if ( k < m.params.length ) {
+        const p2 = m.params[k];
+        this.unify(p2.ty, v.ty, env);
+      }
+      vals.push(v);
+      k = k + 1;
+    }
+    if ( inst.args.length == 0 ) {
+      // Loop start
+      for ( let gi = 0; gi < s.generics.length; gi++) {
+        var g = s.generics[gi];
+        if ( ( typeof(env[g] ) != "undefined" && Object.prototype.hasOwnProperty.call(env, g) ) ) {
+          inst.args.push(( Object.prototype.hasOwnProperty.call(env, g) ? env[g] : undefined ));
+        } else {
+          this.err(at, ((("cannot infer the type parameter `" + g) + "` of `") + s.name) + "`: annotate the `let`");
+          return this.unit();
+        }
+      }
+    }
+    let codes = [];
+    // Loop start
+    for ( const v2 of vals) {
+      codes.push(v2.code);
+    }
+    const cls = this.rtype(inst);
+    if ( m.hasSelf ) {
+      this.err(at, ("`" + m.name) + "` takes self: call it as a method");
+    }
+    return RsExpr.of((((((("(" + cls) + ".") + this.staticName(m.name)) + "(") + codes.join(" ")) + "))"), this.subst(m.ret, env));
+  };
+  hasParam (t) {
+    if ( t.kind == "param" ) {
+      return true;
+    }
+    // Loop start
+    for ( const a of t.args) {
+      if ( this.hasParam(a) ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  dynUnion (traitName) {
+    const name = "Dyn" + traitName;
+    if ( false == ( typeof(this.dynNames[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.dynNames, name) ) ) {
+      this.dynNames[name] = true;
+      this.dynQueue.push(traitName);
+    }
+    return name;
+  };
+  emitDyn (traitName) {
+    const tr = ( Object.prototype.hasOwnProperty.call(this.traits, traitName) ? this.traits[traitName] : undefined );
+    const uname = "Dyn" + traitName;
+    let members = [];
+    // Loop start
+    for ( const im of tr.implementors) {
+      if ( ( typeof(this.enums[im] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, im) ) ) {
+        this.unsupported(new RustNode("none"), ((("the enum `" + im) + "` as a `dyn ") + traitName) + "` (only structs)");
+        continue;
+      }
+      members.push(this.className(im));
+    }
+    if ( members.length == 0 ) {
+      this.err(new RustNode("none"), ("no struct implements `" + traitName) + "`");
+      return "";
+    }
+    let lines = [];
+    lines.push(((("union " + uname) + " (") + members.join(" ")) + ")");
+    lines.push(("class " + uname) + "_ops {");
+    // Loop start
+    for ( let mi = 0; mi < tr.methods.length; mi++) {
+      var m = tr.methods[mi];
+      if ( false == m.hasSelf ) {
+        continue;
+      }
+      let ps = [];
+      let as = [];
+      ps.push("x:" + uname);
+      let pi = 0;
+      // Loop start
+      for ( const p of m.params) {
+        const pn = "a" + (pi.toString());
+        ps.push(this.declText(pn, p.ty));
+        as.push(pn);
+        pi = pi + 1;
+      }
+      let rt = this.rtype(m.ret);
+      if ( rt == "" ) {
+        rt = "void";
+      }
+      let head = (("  sfn " + this.staticName(m.name)) + ":") + rt;
+      if ( m.ret.kind == "opt" ) {
+        head = (("  sfn " + this.staticName(m.name)) + "@(optional):") + rt;
+      }
+      lines.push(((head + " (") + ps.join(" ")) + ") {");
+      const hasRet = m.ret.kind != "unit" && m.ret.kind != "never";
+      if ( hasRet ) {
+        lines.push("    def r:" + this.tempDecl2(m.ret));
+      }
+      let ci = 0;
+      // Loop start
+      for ( const impl of tr.implementors) {
+        if ( ( typeof(this.enums[impl] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, impl) ) ) {
+          continue;
+        }
+        const mem = this.className(impl);
+        const st = ( Object.prototype.hasOwnProperty.call(this.structs, impl) ? this.structs[impl] : undefined );
+        let mname = this.methodName(m.name);
+        const sm = st.method(m.name);
+        if ( (typeof(sm) !== "undefined" && sm != null )  ) {
+          const smf = sm;
+          mname = smf.rname;
+        }
+        const v = "c" + (ci.toString());
+        ci = ci + 1;
+        lines.push(((("    case x " + v) + ":") + mem) + " {");
+        const call = ((((v + ".") + mname) + "(") + as.join(" ")) + ")";
+        if ( hasRet ) {
+          lines.push(("      r = (" + call) + ")");
+        } else {
+          lines.push("      " + call);
+        }
+        lines.push("    }");
+      }
+      if ( hasRet ) {
+        lines.push("    return r");
+      }
+      lines.push("  }");
+    }
+    lines.push("}");
+    return lines.join("\n");
+  };
+  tempDecl2 (t) {
+    const d = this.tempDecl("r", t);
+    return d.substring(2, d.length );
+  };
+  resultClass (t) {
+    const vt = t.arg(0);
+    const et = t.arg(1);
+    const name = (("RsRes_" + this.mangleKey(vt)) + "_") + this.mangleKey(et);
+    if ( false == ( typeof(this.genNames[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, name) ) ) {
+      this.genNames[name] = true;
+      let lines = [];
+      lines.push(("class " + name) + " {");
+      lines.push("  def ok:boolean false");
+      if ( vt.kind != "unit" && false == vt.isUnknown() ) {
+        lines.push("  def " + this.fieldDecl("v", vt));
+      }
+      if ( et.kind != "unit" && false == et.isUnknown() ) {
+        lines.push("  def " + this.fieldDecl("e", et));
+      }
+      lines.push(((("  sfn zeroOf:" + name) + " () {\n    return (new ") + name) + ")\n  }");
+      lines.push("}");
+      this.genOut.push(lines.join("\n"));
+    }
+    return name;
+  };
+  makeResultValue (isOk, arg, rt, at) {
+    const cls = this.resultClass(rt);
+    const name = this.tmp("res");
+    this.out.line(((("def " + name) + ":") + cls) + ((" (new " + cls) + ")"));
+    if ( isOk ) {
+      this.out.line(name + ".ok = true");
+      const vt = rt.arg(0);
+      if ( vt.kind != "unit" && false == arg.isNone() ) {
+        const v = this.lowerExprCopy(arg, vt);
+        const c = this.coerce(v, vt, arg);
+        this.out.line((name + ".v = ") + this.unionSafe(c.code, vt));
+      }
+    } else {
+      const et = rt.arg(1);
+      if ( et.kind != "unit" && false == arg.isNone() ) {
+        const e = this.lowerExprCopy(arg, et);
+        this.out.line((name + ".e = ") + this.unionSafe(e.code, et));
+      }
+    }
+    return this.simpleExpr(name, rt);
+  };
+  emitAll () {
+    let parts = [];
+    parts.push("Import \"rust/RsPrelude.rgr\"");
+    let ei = 0;
+    while (ei < this.enumOrder.length) {
+      const en = this.enumOrder[ei];
+      ei = ei + 1;
+      const eo = ( Object.prototype.hasOwnProperty.call(this.enums, en) ? this.enums[en] : undefined );
+      parts.push(this.emitEnum(eo));
+    };
+    let si = 0;
+    while (si < this.structOrder.length) {
+      const sn = this.structOrder[si];
+      si = si + 1;
+      const so = ( Object.prototype.hasOwnProperty.call(this.structs, sn) ? this.structs[sn] : undefined );
+      parts.push(this.emitStruct(so));
+    };
+    parts.push(this.emitModule());
+    let qi = 0;
+    let di = 0;
+    while (qi < this.structInstQueue.length || di < this.dynQueue.length) {
+      if ( qi < this.structInstQueue.length ) {
+        const inst = this.structInstQueue[qi];
+        qi = qi + 1;
+        parts.push(this.emitStructInstance(inst));
+        continue;
+      }
+      const tn = this.dynQueue[di];
+      di = di + 1;
+      parts.push(this.emitDyn(tn));
+    };
+    // Loop start
+    for ( const g of this.genOut) {
+      parts.push(g);
+    }
+    if ( this.clonerOut.length > 0 ) {
+      parts.push(("class RsClone {\n" + this.clonerOut.join("\n")) + "\n}");
+    }
+    return parts.join("\n\n") + "\n";
+  };
+  implClass (en) {
+    return "RsImpl_" + en;
+  };
+  isDataEnum (t) {
+    if ( t.kind == "named" && ( typeof(this.enums[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, t.name) ) ) {
+      const e = ( Object.prototype.hasOwnProperty.call(this.enums, t.name) ? this.enums[t.name] : undefined );
+      return false == e.plain;
+    }
+    return false;
+  };
+  isEnumType (t) {
+    return t.kind == "named" && ( typeof(this.enums[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, t.name) );
+  };
+  emitEnum (e) {
+    if ( e.generics.length > 0 ) {
+      this.unsupported(new RustNode("none"), ("the generic enum `" + e.name) + "`");
+      return "";
+    }
+    const cname = this.className(e.name);
+    let lines = [];
+    if ( e.plain ) {
+      let names = [];
+      // Loop start
+      for ( const v of e.variants) {
+        names.push(v.name);
+      }
+      lines.push(((("Enum " + cname) + " ( ") + names.join(" ")) + " )");
+    } else {
+      lines.push(("shape " + cname) + " {");
+      // Loop start
+      for ( const v2 of e.variants) {
+        if ( v2.fields.length == 0 ) {
+          lines.push("  case " + v2.name);
+        } else {
+          lines.push(("  case " + v2.name) + " {");
+          // Loop start
+          for ( const f of v2.fields) {
+            lines.push("    def " + this.fieldDecl(this.fieldName(f.name), f.ty));
+          }
+          lines.push("  }");
+        }
+      }
+      lines.push("}");
+    }
+    let impl = [];
+    impl.push(("class " + this.implClass(e.name)) + " {");
+    let mi = 0;
+    while (mi < e.methods.length) {
+      const m = e.methods[mi];
+      mi = mi + 1;
+      impl.push(this.emitFn(m, e.name));
+    };
+    if ( false == e.plain ) {
+      impl.push(this.emitEnumZero(e, cname));
+    }
+    if ( false == this.hasFmt(RsType.named(e.name), "Debug") ) {
+      impl.push(this.emitEnumDebug(e, cname));
+      if ( false == e.plain ) {
+        impl.push(this.emitEnumClone(e, cname));
+        impl.push(this.emitEnumEq(e, cname));
+      }
+    }
+    impl.push("}");
+    lines.push(impl.join("\n"));
+    return lines.join("\n");
+  };
+  caseType (en, v) {
+    return (this.className(en) + ".") + v;
+  };
+  emitEnumDebug (e, cname) {
+    let lines = [];
+    lines.push(("  sfn dbgOf:string (v:" + cname) + ") {");
+    if ( e.plain ) {
+      lines.push("    return " + this.enumName("v", e.name));
+    } else {
+      // Loop start
+      for ( let i = 0; i < e.variants.length; i++) {
+        var vr = e.variants[i];
+        const ct = this.caseType(e.name, vr.name);
+        if ( vr.fields.length == 0 ) {
+          lines.push(((("    if (is v _:" + ct) + ") {\n      return ") + this.strLit(vr.name)) + "\n    }");
+          continue;
+        }
+        lines.push(("    case v x:" + ct) + " {");
+        let parts = [];
+        let labels = [];
+        // Loop start
+        for ( const f of vr.fields) {
+          parts.push(this.dbgCode("x." + this.fieldName(f.name), f.ty));
+          labels.push(f.name);
+        }
+        if ( vr.shape == "tuple" ) {
+          lines.push("      return " + this.concat(
+            (vr.name + "("),
+            parts,
+            ", ",
+            ")"
+          ));
+        } else {
+          let acc = this.strLit((((vr.name + " { ") + labels[0]) + ": "));
+          let k = 0;
+          while (k < parts.length) {
+            if ( k > 0 ) {
+              acc = ((("(" + acc) + " + ") + this.strLit(((", " + labels[k]) + ": "))) + ")";
+            }
+            acc = ((("(" + acc) + " + ") + parts[k]) + ")";
+            k = k + 1;
+          };
+          lines.push(("      return (" + acc) + " + \" }\")");
+        }
+        lines.push("    }");
+      }
+      lines.push("    return \"\"");
+    }
+    lines.push("  }");
+    return lines.join("\n");
+  };
+  emitEnumZero (e, cname) {
+    let pick = "";
+    let args = [];
+    // Loop start
+    for ( const v of e.variants) {
+      if ( pick == "" && v.fields.length == 0 ) {
+        pick = v.name;
+      }
+    }
+    if ( pick == "" ) {
+      // Loop start
+      for ( const v2 of e.variants) {
+        if ( pick != "" ) {
+          continue;
+        }
+        let ok = true;
+        let zs = [];
+        // Loop start
+        for ( const f of v2.fields) {
+          let z = this.defaultValue(f.ty);
+          if ( z == "" ) {
+            if ( f.ty.kind == "vec" ) {
+              z = this.emptyValueCode(f.ty);
+            } else {
+              ok = false;
+            }
+          }
+          zs.push(z);
+        }
+        if ( ok ) {
+          pick = v2.name;
+          args = zs;
+        }
+      }
+    }
+    if ( pick == "" ) {
+      const vf = e.variants[0];
+      pick = vf.name;
+      // Loop start
+      for ( const f2 of vf.fields) {
+        let z2 = this.zeroCode(f2.ty);
+        if ( z2 == "" ) {
+          z2 = this.emptyValueCode(f2.ty);
+        }
+        args.push(z2);
+      }
+    }
+    return ((((("  sfn zeroOf:" + cname) + " () {\n    return (new ") + this.caseType(e.name, pick)) + "(") + args.join(" ")) + "))\n  }";
+  };
+  emitEnumClone (e, cname) {
+    let lines = [];
+    lines.push(((("  sfn cloneOf:" + cname) + " (v:") + cname) + ") {");
+    // Loop start
+    for ( let i = 0; i < e.variants.length; i++) {
+      var vr = e.variants[i];
+      const ct = this.caseType(e.name, vr.name);
+      if ( vr.fields.length == 0 ) {
+        lines.push(((("    if (is v _:" + ct) + ") {\n      return (new ") + ct) + "())\n    }");
+        continue;
+      }
+      lines.push(("    case v x:" + ct) + " {");
+      let args = [];
+      // Loop start
+      for ( const f of vr.fields) {
+        args.push(this.cloneCode("x." + this.fieldName(f.name), f.ty));
+      }
+      lines.push(((("      return (new " + ct) + "(") + args.join(" ")) + "))");
+      lines.push("    }");
+    }
+    lines.push("    return v");
+    lines.push("  }");
+    return lines.join("\n");
+  };
+  emitEnumEq (e, cname) {
+    let lines = [];
+    lines.push(((("  sfn eqOf:boolean (a:" + cname) + " b:") + cname) + ") {");
+    // Loop start
+    for ( let i = 0; i < e.variants.length; i++) {
+      var vr = e.variants[i];
+      const ct = this.caseType(e.name, vr.name);
+      if ( vr.fields.length == 0 ) {
+        lines.push(((("    if ((is a _:" + ct) + ") && (is b _:") + ct) + ")) {\n      return true\n    }");
+        continue;
+      }
+      lines.push(("    case a x:" + ct) + " {");
+      lines.push(("      case b y:" + ct) + " {");
+      let conds = [];
+      // Loop start
+      for ( const f of vr.fields) {
+        const fnm = this.fieldName(f.name);
+        conds.push(this.eqCode("x." + fnm, ("y." + fnm), f.ty));
+      }
+      lines.push("        return " + this.andAll(conds));
+      lines.push("      }");
+      lines.push("    }");
+    }
+    lines.push("    return false");
+    lines.push("  }");
+    return lines.join("\n");
+  };
+  emitStruct (s) {
+    if ( s.generics.length > 0 ) {
+      return "";
+    }
+    return this.emitStructAs(s, this.className(s.name));
+  };
+  emitStructAs (s, cname) {
+    let lines = [];
+    lines.push(("class " + cname) + " {");
+    // Loop start
+    for ( const f of s.fields) {
+      lines.push("  def " + this.fieldDecl(this.fieldName(f.name), this.subst(f.ty, this.genericEnv)));
+    }
+    if ( s.isTuple ) {
+      let ps = [];
+      let asg = [];
+      // Loop start
+      for ( const f2 of s.fields) {
+        ps.push(this.declText("a" + f2.name, this.subst(f2.ty, this.genericEnv)));
+      }
+      lines.push(("  Constructor (" + ps.join(" ")) + ") {");
+      // Loop start
+      for ( const f3 of s.fields) {
+        lines.push((("    this." + f3.name) + " = a") + f3.name);
+      }
+      lines.push("  }");
+    }
+    // Loop start
+    for ( let k = 0; k < s.methods.length; k++) {
+      var m = s.methods[k];
+      lines.push(this.emitFn(m, s.name));
+    }
+    lines.push(this.emitStructZero(s, cname));
+    if ( s.derivesTrait("Clone") || s.derivesTrait("Copy") ) {
+      lines.push(("  fn rs_clone:" + cname) + " () {");
+      if ( s.isTuple ) {
+        let args = [];
+        // Loop start
+        for ( const f4 of s.fields) {
+          args.push(this.cloneCode("this." + f4.name, this.subst(f4.ty, this.genericEnv)));
+        }
+        lines.push(((("    return (new " + cname) + "(") + args.join(" ")) + "))");
+      } else {
+        lines.push((("    def c:" + cname) + " (new ") + (cname + ")"));
+        // Loop start
+        for ( const f5 of s.fields) {
+          const fnm = this.fieldName(f5.name);
+          lines.push((("    c." + fnm) + " = ") + this.cloneCode(("this." + fnm), this.subst(f5.ty, this.genericEnv)));
+        }
+        lines.push("    return c");
+      }
+      lines.push("  }");
+    }
+    if ( s.derivesTrait("PartialEq") ) {
+      let conds = [];
+      // Loop start
+      for ( const f6 of s.fields) {
+        const fnm2 = this.fieldName(f6.name);
+        conds.push(this.eqCode(
+          "this." + fnm2,
+          ("o." + fnm2),
+          this.subst(f6.ty, this.genericEnv)
+        ));
+      }
+      if ( conds.length == 0 ) {
+        conds.push("true");
+      }
+      lines.push(((("  fn rs_eq:boolean (o:" + cname) + ") {\n    return ") + this.andAll(conds)) + "\n  }");
+    }
+    if ( ((s.derivesTrait("PartialOrd") || s.derivesTrait("Ord")) && (typeof(s.method("cmp")) === "undefined")) && (typeof(s.method("partial_cmp")) === "undefined") ) {
+      lines.push(("  fn rs_cmp:int (o:" + cname) + ") {");
+      lines.push("    def c:int 0");
+      // Loop start
+      for ( const f7 of s.fields) {
+        const fnm3 = this.fieldName(f7.name);
+        lines.push("    c = " + this.cmpCode(
+          ("this." + fnm3),
+          ("o." + fnm3),
+          this.subst(f7.ty, this.genericEnv)
+        ));
+        lines.push("    if (c != 0) {\n      return c\n    }");
+      }
+      lines.push("    return 0");
+      lines.push("  }");
+    }
+    if ( s.derivesTrait("Debug") && false == this.hasFmt(RsType.named(s.name), "Debug") ) {
+      lines.push(this.emitDebugStruct(s, cname));
+    }
+    lines.push("}");
+    return lines.join("\n");
+  };
+  structCmp (a, b, t) {
+    const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+    const cm = s.method("cmp");
+    if ( (typeof(cm) !== "undefined" && cm != null )  ) {
+      const cmf = cm;
+      return ((((("(" + a) + ".") + cmf.rname) + "(") + b) + "))";
+    }
+    const pc = s.method("partial_cmp");
+    if ( (typeof(pc) !== "undefined" && pc != null )  ) {
+      const pcf = pc;
+      return ((((("(unwrap (" + a) + ".") + pcf.rname) + "(") + b) + ")))";
+    }
+    if ( s.derivesTrait("PartialOrd") || s.derivesTrait("Ord") ) {
+      return ((("(" + a) + ".rs_cmp(") + b) + "))";
+    }
+    return "";
+  };
+  emitStructZero (s, cname) {
+    let lines = [];
+    lines.push(("  sfn zeroOf:" + cname) + " () {");
+    if ( s.isTuple ) {
+      let zs = [];
+      // Loop start
+      for ( const f of s.fields) {
+        let z = this.zeroCode(this.subst(f.ty, this.genericEnv));
+        if ( z == "" ) {
+          z = this.emptyValueCode(this.subst(f.ty, this.genericEnv));
+        }
+        zs.push(z);
+      }
+      lines.push(((("    return (new " + cname) + "(") + zs.join(" ")) + "))");
+    } else {
+      lines.push(("    return (new " + cname) + ")");
+    }
+    lines.push("  }");
+    return lines.join("\n");
+  };
+  emptyValueCode (t) {
+    if ( t.kind == "vec" ) {
+      return ("([] _:" + this.rtype(t.arg(0))) + " ())";
+    }
+    return "0";
+  };
+  emitStructInstance (inst) {
+    const s = ( Object.prototype.hasOwnProperty.call(this.structs, inst.ty.name) ? this.structs[inst.ty.name] : undefined );
+    this.genericEnv = inst.env;
+    this.selfArgs = inst.ty.args;
+    const text = this.emitStructAs(s, inst.name);
+    let noEnv = {};
+    this.genericEnv = noEnv;
+    let noArgs = [];
+    this.selfArgs = noArgs;
+    return text;
+  };
+  andAll (conds) {
+    if ( conds.length == 1 ) {
+      const c = conds[0];
+      return c;
+    }
+    let acc = conds[0];
+    let i = 1;
+    while (i < conds.length) {
+      acc = ((("(" + acc) + " && ") + conds[i]) + ")";
+      i = i + 1;
+    };
+    return acc;
+  };
+  eqCode (a, b, t) {
+    if ( this.isDataEnum(t) ) {
+      return ((((("(" + this.implClass(t.name)) + ".eqOf(") + a) + " ") + b) + "))";
+    }
+    if ( t.kind == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      return ((("(" + a) + ".rs_eq(") + b) + "))";
+    }
+    if ( t.kind == "tuple" ) {
+      this.unsupported(new RustNode("none"), "comparing tuples with ==");
+    }
+    return ((("(" + a) + " == ") + b) + ")";
+  };
+  emitDebugStruct (s, cname) {
+    let lines = [];
+    lines.push("  fn rs_dbg:string () {");
+    if ( s.isTuple ) {
+      let parts = [];
+      // Loop start
+      for ( const f of s.fields) {
+        parts.push(this.dbgCode("this." + f.name, this.subst(f.ty, this.genericEnv)));
+      }
+      lines.push("    return " + this.concat(
+        ((s.name + "(") + ""),
+        parts,
+        ", ",
+        ")"
+      ));
+    } else {
+      let parts2 = [];
+      let labels = [];
+      // Loop start
+      for ( const f2 of s.fields) {
+        const fnm = this.fieldName(f2.name);
+        parts2.push(this.dbgCode("this." + fnm, this.subst(f2.ty, this.genericEnv)));
+        labels.push(f2.name);
+      }
+      if ( s.fields.length == 0 ) {
+        lines.push("    return " + this.strLit(s.name));
+      } else {
+        let acc = this.strLit((((s.name + " { ") + labels[0]) + ": "));
+        let i2 = 0;
+        while (i2 < parts2.length) {
+          if ( i2 > 0 ) {
+            acc = ((("(" + acc) + " + ") + this.strLit(((", " + labels[i2]) + ": "))) + ")";
+          }
+          acc = ((("(" + acc) + " + ") + parts2[i2]) + ")";
+          i2 = i2 + 1;
+        };
+        acc = ((("(" + acc) + " + ") + this.strLit(" }")) + ")";
+        lines.push("    return " + acc);
+      }
+    }
+    lines.push("  }");
+    return lines.join("\n");
+  };
+  concat (head, parts, sep, tail) {
+    let acc = this.strLit(head);
+    let i = 0;
+    // Loop start
+    for ( const p of parts) {
+      if ( i > 0 ) {
+        acc = ((("(" + acc) + " + ") + this.strLit(sep)) + ")";
+      }
+      acc = ((("(" + acc) + " + ") + p) + ")";
+      i = i + 1;
+    }
+    return ((("(" + acc) + " + ") + this.strLit(tail)) + ")";
+  };
+  dbgCode (code, t) {
+    const k = t.kind;
+    if ( k == "string" ) {
+      return ("(rs_dbg " + code) + ")";
+    }
+    if ( k == "char" ) {
+      return ("(RsFmt.dbgChar(" + code) + "))";
+    }
+    if ( (k == "int" || k == "double") || k == "bool" ) {
+      return ("(rs_dbg " + code) + ")";
+    }
+    if ( k == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      return ("(" + code) + ".rs_dbg())";
+    }
+    if ( k == "named" && ( typeof(this.enums[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, t.name) ) ) {
+      return ((("(" + this.implClass(t.name)) + ".dbgOf(") + code) + "))";
+    }
+    if ( k == "vec" ) {
+      return (("(" + this.vecDebugger(t)) + "(") + (code + "))");
+    }
+    if ( k == "result" ) {
+      let okS = this.dbgCode((code + ".v"), t.arg(0));
+      const errS = this.dbgCode((code + ".e"), t.arg(1));
+      const __REGx1 = t.arg(0);
+      if ( __REGx1.kind == "unit" ) {
+        okS = "\"()\"";
+      }
+      return ((((("(? " + code) + ".ok (\"Ok(\" + (") + okS) + " + \")\")) (\"Err(\" + (") + errS) + " + \")\")))";
+    }
+    if ( k == "opt" ) {
+      const inner = this.dbgCode((("(unwrap " + code) + ")"), t.arg(0));
+      return ((("(? (null? " + code) + ") \"None\" (\"Some(\" + (") + inner) + " + \")\")))";
+    }
+    if ( k == "tuple" ) {
+      let parts = [];
+      let i = 0;
+      // Loop start
+      for ( const a of t.args) {
+        parts.push(this.dbgCode((code + ".f") + (i.toString()), a));
+        i = i + 1;
+      }
+      return this.concat("(", parts, ", ", ")");
+    }
+    return ("(rs_dbg " + code) + ")";
+  };
+  vecDebugger (t) {
+    const key = "dbg_" + this.mangleKey(t);
+    const name = "RsClone." + key;
+    if ( ( typeof(this.genNames[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, key) ) ) {
+      return name;
+    }
+    this.genNames[key] = true;
+    const rt = this.rtype(t);
+    let lines = [];
+    lines.push(((("  sfn " + key) + ":string (src:") + rt) + ") {");
+    lines.push("    def parts:[string]");
+    lines.push("    def n:int (array_length src)");
+    lines.push("    def i:int 0");
+    lines.push("    while (i < n) {");
+    lines.push(("      def e:" + this.rtype(t.arg(0))) + " (itemAt src i)");
+    lines.push("      push parts " + this.dbgCode("e", t.arg(0)));
+    lines.push("      i = i + 1");
+    lines.push("    }");
+    lines.push("    return ((\"[\" + (join parts \", \")) + \"]\")");
+    lines.push("  }");
+    this.clonerOut.push(lines.join("\n"));
+    return name;
+  };
+  enumName (code, en) {
+    const e = ( Object.prototype.hasOwnProperty.call(this.enums, en) ? this.enums[en] : undefined );
+    let acc = "\"?\"";
+    let i = e.variants.length - 1;
+    while (i >= 0) {
+      const v = e.variants[i];
+      acc = ((((("(? (" + code) + " == ") + this.className(en)) + ".") + v.name) + (((") " + this.strLit(v.name)) + " ") + (acc + ")"));
+      i = i - 1;
+    };
+    return acc;
+  };
+  emitModule () {
+    let lines = [];
+    lines.push(("class " + this.modClass) + " {");
+    let ci = 0;
+    while (ci < this.constOrder.length) {
+      const cn = this.constOrder[ci];
+      ci = ci + 1;
+      const c = ( Object.prototype.hasOwnProperty.call(this.consts, cn) ? this.consts[cn] : undefined );
+      lines.push(this.emitConst(c));
+    };
+    let fi = 0;
+    while (fi < this.fnOrder.length) {
+      const fname = this.fnOrder[fi];
+      fi = fi + 1;
+      const f = ( Object.prototype.hasOwnProperty.call(this.fns, fname) ? this.fns[fname] : undefined );
+      if ( f.generics.length > 0 ) {
+        continue;
+      }
+      lines.push(this.emitFn(f, ""));
+    };
+    let hi = 0;
+    let gi = 0;
+    while (hi < this.hoistQueue.length || gi < this.fnInstQueue.length) {
+      if ( hi < this.hoistQueue.length ) {
+        const hf = this.hoistQueue[hi];
+        hi = hi + 1;
+        lines.push(this.emitFn(hf, ""));
+        continue;
+      }
+      const inst = this.fnInstQueue[gi];
+      gi = gi + 1;
+      this.genericEnv = inst.env;
+      this.fnNameOverride = inst.name;
+      lines.push(this.emitFn(inst.fnDef, ""));
+      this.fnNameOverride = "";
+      let noEnv = {};
+      this.genericEnv = noEnv;
+    };
+    lines.push("}");
+    return lines.join("\n");
+  };
+  emitConst (c) {
+    this.beginFn();
+    const node = c.node;
+    const e = this.lowerExpr(node.kid(1), c.ty);
+    const body = this.out.lines;
+    let lines = [];
+    lines.push(((("  sfn " + this.staticName(c.name)) + ":") + this.rtype(c.ty)) + " () {");
+    // Loop start
+    for ( const b of body) {
+      lines.push(b);
+    }
+    lines.push("    return " + e.code);
+    lines.push("  }");
+    return lines.join("\n");
+  };
+  prependFlags () {
+    if ( this.pendingFlags.length == 0 ) {
+      return;
+    }
+    let lines = [];
+    // Loop start
+    for ( const f of this.pendingFlags) {
+      lines.push(("    def " + f) + ":boolean false");
+    }
+    // Loop start
+    for ( let j = 0; j < this.out.lines.length; j++) {
+      var l = this.out.lines[j];
+      lines.push(l);
+    }
+    this.out.lines = lines;
+    let none = [];
+    this.pendingFlags = none;
+  };
+  beginFn () {
+    let noLocals = [];
+    this.fnLocals = noLocals;
+    this.out = new RustOut();
+    this.out.ind = "    ";
+    this.scope = new RsScope();
+    let fresh = {};
+    this.used = fresh;
+    this.tmpN = 0;
+    let lv = [];
+    this.loopVals = lv;
+    let ll = [];
+    this.loopLabels = ll;
+    let lf = [];
+    this.loopFlags = lf;
+    let lk = [];
+    this.loopFlagKind = lk;
+  };
+  emitFn (f, owner) {
+    if ( f.generics.length > 0 && this.fnNameOverride == "" ) {
+      this.unsupported(f.node, ("the generic method `" + f.name) + "`");
+      return "";
+    }
+    if ( false == f.hasBody ) {
+      return "";
+    }
+    this.beginFn();
+    this.selfType = owner;
+    let fret = this.subst(f.ret, this.genericEnv);
+    const isFmt = f.name == "fmt" && (f.fromTrait == "Display" || f.fromTrait == "Debug");
+    if ( isFmt ) {
+      fret = RsType.mk("unit");
+      if ( f.params.length > 0 ) {
+        const fp = f.params[0];
+        this.displayFormatter = fp.name;
+      }
+    }
+    this.retType = fret;
+    let ps = [];
+    let destructure = [];
+    let destructureNames = [];
+    let destructureTypes = [];
+    // Loop start
+    for ( const p of f.params) {
+      const pat = p.pat;
+      const pty = this.subst(p.ty, this.genericEnv);
+      if ( isFmt ) {
+        continue;
+      }
+      if ( pat.kind == "pat_ident" && p.boxed ) {
+        const bl = this.declare(p.name, pty);
+        const boxName = bl.rname + "_box";
+        this.used[boxName] = true;
+        ps.push((boxName + ":") + this.boxClass(pty));
+        bl.rname = boxName + ".v";
+        continue;
+      }
+      if ( pat.kind == "pat_ident" ) {
+        const l = this.declare(p.name, pty);
+        ps.push(this.declText(l.rname, pty));
+      } else {
+        const wn = this.allocLocal("arg");
+        ps.push(this.declText(wn, pty));
+        if ( pat.kind != "pat_wild" ) {
+          destructure.push(pat);
+          destructureNames.push(wn);
+          destructureTypes.push(pty);
+        }
+      }
+    }
+    let di = 0;
+    while (di < destructure.length) {
+      this.bindPattern(
+        destructure[di],
+        destructureNames[di],
+        destructureTypes[di]
+      );
+      di = di + 1;
+    };
+    const enumOwner = owner != "" && ( typeof(this.enums[owner] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, owner) );
+    const selfT = RsType.named(owner);
+    // Loop start
+    for ( const sa of this.selfArgs) {
+      selfT.args.push(sa);
+    }
+    if ( f.hasSelf ) {
+      if ( enumOwner ) {
+        this.alias("self", "self_", RsType.named(owner));
+        this.used["self_"] = true;
+        let selfDecl = [];
+        selfDecl.push("self_:" + this.className(owner));
+        // Loop start
+        for ( const pp of ps) {
+          selfDecl.push(pp);
+        }
+        ps = selfDecl;
+      } else {
+        this.alias("self", "this", selfT);
+      }
+    }
+    const node = f.node;
+    const body = node.kid(4);
+    if ( isFmt ) {
+      this.out.line("def rs__out:string \"\"");
+    }
+    this.lowerBody(body, fret);
+    if ( isFmt ) {
+      this.out.line("return rs__out");
+      this.displayFormatter = "";
+      fret = RsType.mk("string");
+    }
+    this.prependFlags();
+    let kw = "sfn";
+    if ( f.hasSelf && false == enumOwner ) {
+      kw = "fn";
+    }
+    let name = f.rname;
+    if ( (owner == "" || false == f.hasSelf) || enumOwner ) {
+      name = this.staticName(f.name);
+    }
+    if ( this.fnNameOverride != "" ) {
+      name = this.fnNameOverride;
+    }
+    if ( isFmt ) {
+      if ( enumOwner ) {
+        name = "displayOf";
+        if ( f.fromTrait == "Debug" ) {
+          name = "dbgOf";
+        }
+      } else {
+        name = "rs_display";
+        if ( f.fromTrait == "Debug" ) {
+          name = "rs_dbg";
+        }
+      }
+    }
+    let retText = this.rtype(fret);
+    if ( retText == "" ) {
+      retText = "void";
+      if ( fret.kind != "unit" ) {
+        this.err(node, ("the return type of `" + f.name) + "` is not in the subset");
+      }
+    }
+    let head = (("  " + kw) + " ") + name;
+    if ( fret.kind == "opt" ) {
+      head = head + "@(optional)";
+    }
+    let lines = [];
+    lines.push((((head + ":") + retText) + " (") + (ps.join(" ") + ") {"));
+    // Loop start
+    for ( let j = 0; j < this.out.lines.length; j++) {
+      var b = this.out.lines[j];
+      lines.push(b);
+    }
+    lines.push("  }");
+    return lines.join("\n");
+  };
+  lowerBody (body, ret) {
+    this.pushScope();
+    const n = body.kids.length;
+    let i = 0;
+    while (i < n) {
+      const st = body.kid(i);
+      if ( i == n - 1 && this.isTail(st) ) {
+        const e = st.kid(0);
+        if ( ret.kind == "unit" || ret.kind == "never" ) {
+          this.lowerStmtExpr(e);
+        } else {
+          this.emitReturn(e);
+        }
+      } else {
+        this.lowerStmt(st);
+      }
+      i = i + 1;
+    };
+    this.popScope();
+  };
+  isTail (st) {
+    return st.kind == "expr_stmt" && false == st.hasMod(";");
+  };
+  emitReturn (e) {
+    if ( this.displayFormatter != "" ) {
+      this.lowerStmtExpr(e);
+      this.out.line("return rs__out");
+      return;
+    }
+    if ( this.divergesAll(e) ) {
+      this.lowerStmtExpr(e);
+      return;
+    }
+    const v = this.lowerExpr(e, this.retType);
+    this.noteMove(e, v.ty);
+    if ( this.lastReturn.isUnknown() ) {
+      this.lastReturn = v.ty;
+    }
+    const c = this.coerce(v, this.retType, e);
+    this.out.line("return " + c.code);
+  };
+  lowerStmt (st) {
+    const k = st.kind;
+    if ( k == "let" ) {
+      this.lowerLet(st);
+      return;
+    }
+    if ( k == "expr_stmt" ) {
+      this.lowerStmtExpr(st.kid(0));
+      return;
+    }
+    if ( k == "empty" ) {
+      return;
+    }
+    if ( k == "fn" ) {
+      this.hoistFn(st);
+      return;
+    }
+    this.unsupported(st, ("`" + k) + "` inside a function body");
+  };
+  hoistFn (st) {
+    const f = this.fnSig(st, "");
+    f.rname = this.staticName(st.name);
+    if ( ( typeof(this.fns[st.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fns, st.name) ) ) {
+      this.unsupported(st, ("a nested fn named like a module fn (`" + st.name) + "`)");
+      return;
+    }
+    this.fns[st.name] = f;
+    this.hoistQueue.push(f);
+  };
+  lowerLet (st) {
+    const pat = st.kid(0);
+    const tyN = st.kid(1);
+    const init = st.kid(2);
+    const elseB = st.kid(3);
+    let declared = RsType.mk("unknown");
+    if ( false == tyN.isNone() ) {
+      declared = this.typeOf(tyN);
+    }
+    if ( false == elseB.isNone() ) {
+      this.lowerLetElse(pat, init, elseB, declared);
+      return;
+    }
+    if ( init.isNone() ) {
+      if ( pat.kind != "pat_ident" ) {
+        this.unsupported(pat, "a destructuring `let` without a value");
+        return;
+      }
+      if ( declared.isUnknown() ) {
+        this.err(st, "a `let` without a value needs a type annotation");
+        return;
+      }
+      const l = this.declare(pat.name, declared);
+      this.out.line("def " + this.fieldDecl(l.rname, declared));
+      return;
+    }
+    if ( pat.kind == "pat_ident" ) {
+      if ( pat.kids.length > 0 ) {
+        this.unsupported(pat, "`name @ pattern` in a `let`");
+        return;
+      }
+      const v = this.lowerExprCopy(init, declared);
+      let t = declared;
+      if ( t.isUnknown() ) {
+        t = v.ty;
+      }
+      const c = this.coerce(v, t, init);
+      const l2 = this.declare(pat.name, t);
+      if ( c.code == "" ) {
+        this.out.line("def " + this.fieldDecl(l2.rname, t));
+      } else {
+        this.out.line((("def " + this.declText(l2.rname, t)) + " ") + c.code);
+      }
+      let initM = init;
+      while (initM.kind == "unary" || initM.kind == "paren") {
+        initM = initM.kid(0);
+      };
+      if ( (initM.kind == "method" && ((initM.name == "or_insert" || initM.name == "or_insert_with") || initM.name == "or_default")) && ((t.kind == "vec" || t.kind == "map") || t.kind == "set") ) {
+        const bar = this.lastEntry.code.indexOf("|");
+        if ( bar > 0 ) {
+          l2.slotMap = this.lastEntry.code.substring(0, bar );
+          l2.slotKey = this.lastEntry.code.substring(bar + 1, this.lastEntry.code.length );
+          l2.slotTy = this.lastEntry.ty;
+        }
+      }
+      return;
+    }
+    if ( pat.kind == "pat_wild" ) {
+      const v2 = this.lowerExpr(init, declared);
+      this.discard(v2);
+      return;
+    }
+    const v3 = this.lowerExprCopy(init, declared);
+    let t3 = declared;
+    if ( t3.isUnknown() ) {
+      t3 = v3.ty;
+    }
+    const subj = this.bindTemp(v3, t3, "v");
+    this.bindPattern(pat, subj, t3);
+  };
+  lowerLetElse (pat, init, elseB, declared) {
+    const v = this.lowerExpr(init, declared);
+    const t = v.ty;
+    const subj = this.bindTemp(v, t, "v");
+    const cond = this.patCond(pat, subj, t);
+    this.out.line(("if (! " + cond) + ") {");
+    this.out.indent();
+    this.lowerBlockStmts(elseB);
+    this.out.dedent();
+    this.out.line("}");
+    this.bindPattern(pat, subj, t);
+  };
+  lowerStmtExpr (e) {
+    const k = e.kind;
+    if ( this.isBranchy(e) ) {
+      this.lowerBranchy(e, "stmt", "");
+      return;
+    }
+    if ( k == "while" ) {
+      this.lowerWhile(e);
+      return;
+    }
+    if ( k == "loop" ) {
+      this.lowerLoop(e, "");
+      return;
+    }
+    if ( k == "for" ) {
+      this.lowerFor(e);
+      return;
+    }
+    if ( k == "block" ) {
+      if ( e.mods.length > 0 ) {
+        this.unsupported(e, ("a `" + e.mods.join(" ")) + "` block");
+        return;
+      }
+      this.pushScope();
+      this.lowerBlockStmts(e);
+      this.popScope();
+      return;
+    }
+    if ( k == "assign" ) {
+      this.lowerAssign(e);
+      return;
+    }
+    if ( k == "return" ) {
+      if ( this.displayFormatter != "" ) {
+        if ( e.kids.length > 0 ) {
+          this.lowerStmtExpr(e.kid(0));
+        }
+        this.out.line("return rs__out");
+        return;
+      }
+      if ( e.kids.length == 0 ) {
+        this.out.line("return");
+        return;
+      }
+      this.emitReturn(e.kid(0));
+      return;
+    }
+    if ( k == "break" ) {
+      this.lowerBreak(e);
+      return;
+    }
+    if ( k == "continue" ) {
+      this.lowerContinue(e);
+      return;
+    }
+    if ( k == "macro_call" ) {
+      if ( this.lowerMacroStmt(e) ) {
+        return;
+      }
+    }
+    const v = this.lowerExpr(e, RsType.mk("unknown"));
+    this.discard(v);
+  };
+  discard (v) {
+    if ( v.code == "" ) {
+      return;
+    }
+    const c = v.code;
+    if ( this.isCallCode(c) ) {
+      this.out.line(this.unparen(c));
+    }
+  };
+  unparen (c) {
+    if ( (c.length >= 2 && c.substring(0, 1 ) == "(") && c.substring(c.length - 1, c.length ) == ")" ) {
+      let depth = 0;
+      const cs = Array.from(c, (rg_c) => rg_c.codePointAt(0));
+      let i = 0;
+      const n = cs.length;
+      while (i < n) {
+        const ch = cs[i];
+        if ( ch == 34 ) {
+          i = i + 1;
+          while (i < n && cs[i] != 34) {
+            if ( cs[i] == 92 ) {
+              i = i + 1;
+            }
+            i = i + 1;
+          };
+        } else {
+          if ( ch == 40 ) {
+            depth = depth + 1;
+          }
+          if ( ch == 41 ) {
+            depth = depth - 1;
+            if ( depth == 0 && i < n - 1 ) {
+              return c;
+            }
+          }
+        }
+        i = i + 1;
+      };
+      return c.substring(1, c.length - 1 );
+    }
+    return c;
+  };
+  isCallCode (c) {
+    const u = this.unparen(c);
+    if ( u.indexOf("(") < 0 ) {
+      return false;
+    }
+    if ( u.substring(0, 1 ) == "(" ) {
+      return false;
+    }
+    const cs = Array.from(u, (rg_c) => rg_c.codePointAt(0));
+    let i = 0;
+    while (i < cs.length) {
+      const c_1 = cs[i];
+      if ( c_1 == 40 ) {
+        return i > 0;
+      }
+      const ok = (((c_1 >= 48 && c_1 <= 57 || c_1 >= 65 && c_1 <= 90) || c_1 >= 97 && c_1 <= 122) || c_1 == 95) || c_1 == 46;
+      if ( false == ok ) {
+        return false;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  lowerBlockStmts (b) {
+    // Loop start
+    for ( const st of b.kids) {
+      this.lowerStmt(st);
+    }
+  };
+  lowerBlockValue (b, mode, _var) {
+    this.pushScope();
+    const n = b.kids.length;
+    let i = 0;
+    while (i < n) {
+      const st = b.kid(i);
+      if ( i == n - 1 && this.isTail(st) ) {
+        this.lowerValueTo(st.kid(0), mode, _var);
+      } else {
+        this.lowerStmt(st);
+      }
+      i = i + 1;
+    };
+    this.popScope();
+  };
+  lowerValueTo (e, mode, _var) {
+    if ( mode == "stmt" ) {
+      this.lowerStmtExpr(e);
+      return;
+    }
+    if ( this.divergesAll(e) ) {
+      this.lowerStmtExpr(e);
+      return;
+    }
+    if ( this.isBranchy(e) ) {
+      this.lowerBranchy(e, mode, _var);
+      return;
+    }
+    if ( e.kind == "block" ) {
+      this.lowerBlockValue(e, mode, _var);
+      return;
+    }
+    if ( mode == "return" ) {
+      this.emitReturn(e);
+      return;
+    }
+    let target = this.varType(_var);
+    const v = this.lowerExprCopy(e, target);
+    if ( target.isUnknown() || target.kind == "none" ) {
+      if ( false == v.ty.isUnknown() && v.ty.kind != "never" ) {
+        this.tempTypes[_var] = v.ty;
+        target = v.ty;
+      }
+    }
+    const c = this.coerce(v, target, e);
+    if ( c.code != "" ) {
+      this.out.line((_var + " = ") + c.code);
+    }
+  };
+  varType (_var) {
+    if ( ( typeof(this.tempTypes[_var] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.tempTypes, _var) ) ) {
+      const t = ( Object.prototype.hasOwnProperty.call(this.tempTypes, _var) ? this.tempTypes[_var] : undefined );
+      return t;
+    }
+    return RsType.mk("unknown");
+  };
+  divergesAll (e) {
+    const k = e.kind;
+    if ( (k == "return" || k == "break") || k == "continue" ) {
+      return true;
+    }
+    if ( k == "macro_call" && (((e.name == "panic" || e.name == "unreachable") || e.name == "todo") || e.name == "unimplemented") ) {
+      return true;
+    }
+    return false;
+  };
+  isBranchy (e) {
+    return e.kind == "if" || e.kind == "match";
+  };
+  lowerBranchy (e, mode, _var) {
+    if ( e.kind == "if" ) {
+      this.lowerIf(e, mode, _var);
+      return;
+    }
+    this.lowerMatch(e, mode, _var);
+  };
+  lowerIf (e, mode, _var) {
+    const cond = e.kid(0);
+    const thenB = e.kid(1);
+    const elseN = e.kid(2);
+    if ( this.hasLet(cond) ) {
+      this.lowerIfLet(e, mode, _var);
+      return;
+    }
+    const c = this.lowerCond(cond);
+    const before = this.movedSnapshot();
+    this.out.line(("if " + this.condText(c.code)) + " {");
+    this.out.indent();
+    this.lowerBlockValue(thenB, mode, _var);
+    this.out.dedent();
+    let afterA = this.movedSnapshot();
+    if ( this.blockDiverges(thenB) ) {
+      afterA = before;
+    }
+    if ( elseN.isNone() ) {
+      this.out.line("}");
+      this.movedRestore(this.movedUnion(before, afterA));
+      return;
+    }
+    this.movedRestore(before);
+    this.out.line("} {");
+    this.out.indent();
+    if ( elseN.kind == "if" ) {
+      this.lowerIf(elseN, mode, _var);
+    } else {
+      this.lowerBlockValue(elseN, mode, _var);
+    }
+    this.out.dedent();
+    this.out.line("}");
+    let afterB = this.movedSnapshot();
+    if ( elseN.kind == "block" && this.blockDiverges(elseN) ) {
+      afterB = before;
+    }
+    this.movedRestore(this.movedUnion(afterA, afterB));
+  };
+  condText (c) {
+    if ( (c.length > 0 && c.substring(0, 1 ) == "(") && this.unparen(c) != c ) {
+      return c;
+    }
+    return ("(" + c) + ")";
+  };
+  hasLet (c) {
+    if ( c.kind == "let_cond" ) {
+      return true;
+    }
+    if ( c.kind == "bin" && c.name == "&&" ) {
+      return this.hasLet(c.kid(0)) || this.hasLet(c.kid(1));
+    }
+    return false;
+  };
+  lowerIfLet (e, mode, _var) {
+    let parts = [];
+    this.flattenAnd(e.kid(0), parts);
+    const thenB = e.kid(1);
+    const elseN = e.kid(2);
+    const hasElse = false == elseN.isNone();
+    let flag = "";
+    if ( hasElse ) {
+      flag = this.tmp("ok");
+      this.out.line(("def " + flag) + ":boolean false");
+    }
+    this.pushScope();
+    let opened = 0;
+    // Loop start
+    for ( const p of parts) {
+      if ( p.kind == "let_cond" ) {
+        const v = this.lowerExpr(p.kid(1), RsType.mk("unknown"));
+        const subj = this.bindTemp(v, v.ty, "m");
+        if ( this.needsOpen(p.kid(0), v.ty) ) {
+          opened = opened + this.patOpen(p.kid(0), subj, v.ty);
+        } else {
+          const cond = this.patCond(p.kid(0), subj, v.ty);
+          this.out.line(("if " + this.condText(cond)) + " {");
+          this.out.indent();
+          opened = opened + 1;
+          this.bindPattern(p.kid(0), subj, v.ty);
+        }
+      } else {
+        const c = this.lowerCond(p);
+        this.out.line(("if " + this.condText(c.code)) + " {");
+        this.out.indent();
+        opened = opened + 1;
+      }
+    }
+    if ( hasElse ) {
+      this.out.line(flag + " = true");
+    }
+    const before = this.movedSnapshot();
+    this.lowerBlockValue(thenB, mode, _var);
+    let afterA = this.movedSnapshot();
+    if ( this.blockDiverges(thenB) ) {
+      afterA = before;
+    }
+    while (opened > 0) {
+      this.out.dedent();
+      this.out.line("}");
+      opened = opened - 1;
+    };
+    this.popScope();
+    if ( hasElse ) {
+      this.movedRestore(before);
+      this.out.line(("if (! " + flag) + ") {");
+      this.out.indent();
+      if ( elseN.kind == "if" ) {
+        this.lowerIf(elseN, mode, _var);
+      } else {
+        this.lowerBlockValue(elseN, mode, _var);
+      }
+      this.out.dedent();
+      this.out.line("}");
+      let afterB = this.movedSnapshot();
+      if ( elseN.kind == "block" && this.blockDiverges(elseN) ) {
+        afterB = before;
+      }
+      this.movedRestore(this.movedUnion(afterA, afterB));
+    } else {
+      this.movedRestore(this.movedUnion(before, afterA));
+    }
+  };
+  flattenAnd (c, parts) {
+    if ( c.kind == "bin" && c.name == "&&" ) {
+      this.flattenAnd(c.kid(0), parts);
+      this.flattenAnd(c.kid(1), parts);
+      return;
+    }
+    parts.push(c);
+  };
+  lowerCond (c) {
+    const v = this.lowerExpr(c, RsType.mk("bool"));
+    return v;
+  };
+  pushLoop (label, valVar) {
+    this.loopLabels.push(label);
+    this.loopVals.push(valVar);
+    this.loopFlags.push("");
+    this.loopFlagKind.push("");
+  };
+  popLoop () {
+    this.loopLabels.pop();
+    this.loopVals.pop();
+    this.loopFlags.pop();
+    this.loopFlagKind.pop();
+  };
+  lowerWhile (e) {
+    const cond = e.kid(0);
+    const body = e.kid(1);
+    this.pushLoop(e.name, "");
+    const save = this.out;
+    this.out = new RustOut();
+    this.out.ind = save.ind;
+    this.out.indent();
+    const isLet = this.hasLet(cond);
+    let c = RsExpr.of("", RsType.mk("bool"));
+    if ( false == isLet ) {
+      c = this.lowerCond(cond);
+    }
+    const pre = this.out.lines;
+    this.out = save;
+    if ( isLet || pre.length > 0 ) {
+      this.out.line("while true {");
+      this.out.indent();
+      if ( isLet ) {
+        this.pushScope();
+        if ( this.whileLetNarrows(cond) ) {
+          this.whileLetOpen(cond, body);
+        } else {
+          this.whileLetHead(cond);
+          this.lowerLoopBody(body);
+        }
+        this.popScope();
+      } else {
+        this.out.addAll(pre);
+        this.out.line(("if (! " + c.code) + ") {");
+        this.out.line("  break");
+        this.out.line("}");
+        this.lowerLoopBody(body);
+      }
+      this.out.dedent();
+      this.out.line("}");
+    } else {
+      this.out.line(("while " + this.condText(c.code)) + " {");
+      this.out.indent();
+      this.lowerLoopBody(body);
+      this.out.dedent();
+      this.out.line("}");
+    }
+    this.afterLoop();
+    this.popLoop();
+  };
+  whileLetNarrows (cond) {
+    let parts = [];
+    this.flattenAnd(cond, parts);
+    // Loop start
+    for ( const p of parts) {
+      if ( p.kind == "let_cond" ) {
+        const pp = p.kid(0);
+        const pk = pp.kind;
+        if ( (pk == "pat_tuple_struct" || pk == "pat_struct") || pk == "pat_path" ) {
+          const pn = this.lastSeg(pp.kid(0));
+          if ( pn != "Some" ) {
+            return true;
+          }
+          if ( pp.kids.length > 1 ) {
+            const inner = pp.kid(1);
+            if ( inner.kind == "pat_tuple_struct" || inner.kind == "pat_struct" ) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  };
+  whileLetOpen (cond, body) {
+    let parts = [];
+    this.flattenAnd(cond, parts);
+    const hit = this.tmp("hit");
+    this.out.line(("def " + hit) + ":boolean false");
+    let opened = 0;
+    // Loop start
+    for ( const p of parts) {
+      if ( p.kind == "let_cond" ) {
+        const v = this.lowerExpr(p.kid(1), RsType.mk("unknown"));
+        const subj = this.bindTemp(v, v.ty, "m");
+        opened = opened + this.patOpen(p.kid(0), subj, v.ty);
+      } else {
+        const c = this.lowerCond(p);
+        this.out.line(("if " + this.condText(c.code)) + " {");
+        this.out.indent();
+        opened = opened + 1;
+      }
+    }
+    this.out.line(hit + " = true");
+    this.lowerLoopBody(body);
+    this.closeBlocks(opened);
+    this.out.line(("if (! " + hit) + ") {");
+    this.out.line("  break");
+    this.out.line("}");
+  };
+  whileLetHead (cond) {
+    let parts = [];
+    this.flattenAnd(cond, parts);
+    // Loop start
+    for ( const p of parts) {
+      if ( p.kind == "let_cond" ) {
+        const v = this.lowerExpr(p.kid(1), RsType.mk("unknown"));
+        const subj = this.bindTemp(v, v.ty, "m");
+        const pc = this.patCond(p.kid(0), subj, v.ty);
+        this.out.line(("if (! " + pc) + ") {");
+        this.out.line("  break");
+        this.out.line("}");
+        this.bindPattern(p.kid(0), subj, v.ty);
+      } else {
+        const c = this.lowerCond(p);
+        this.out.line(("if (! " + c.code) + ") {");
+        this.out.line("  break");
+        this.out.line("}");
+      }
+    }
+  };
+  lowerLoopBody (body) {
+    const before = this.movedSnapshot();
+    const firstInside = this.fnLocals.length;
+    this.pushScope();
+    this.lowerBlockStmts(body);
+    this.popScope();
+    this.checkLoopMoves(before, firstInside, body);
+    this.movedRestore(this.movedUnion(before, this.movedSnapshot()));
+  };
+  lowerLoop (e, _var) {
+    this.pushLoop(e.name, _var);
+    this.out.line("while true {");
+    this.out.indent();
+    this.lowerLoopBody(e.kid(0));
+    this.out.dedent();
+    this.out.line("}");
+    this.afterLoop();
+    this.popLoop();
+  };
+  afterLoop () {
+    const n = this.loopFlags.length;
+    const flag = this.loopFlags[(n - 1)];
+    if ( flag == "" ) {
+      return;
+    }
+    const kind = this.loopFlagKind[(n - 1)];
+    const target = this.flagTarget(flag);
+    const depth = this.loopIndexOf(target);
+    if ( depth == n - 2 ) {
+      if ( kind == "break" ) {
+        this.out.line(("if " + flag) + " {");
+        this.out.line(("  " + flag) + " = false");
+        this.out.line("  break");
+        this.out.line("}");
+      } else {
+        this.out.line(("if " + flag) + " {");
+        this.out.line(("  " + flag) + " = false");
+        this.out.line("  continue");
+        this.out.line("}");
+      }
+    } else {
+      this.out.line(("if " + flag) + " {");
+      this.out.line("  break");
+      this.out.line("}");
+      const up = n - 2;
+      if ( up >= 0 ) {
+        this.loopFlags[up] = flag;
+        this.loopFlagKind[up] = kind;
+      }
+    }
+  };
+  flagTarget (flag) {
+    if ( ( typeof(this.flagTargets[flag] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.flagTargets, flag) ) ) {
+      const t = ( Object.prototype.hasOwnProperty.call(this.flagTargets, flag) ? this.flagTargets[flag] : undefined );
+      return t;
+    }
+    return "";
+  };
+  loopIndexOf (label) {
+    let i = this.loopLabels.length - 1;
+    while (i >= 0) {
+      if ( this.loopLabels[i] == label ) {
+        return i;
+      }
+      i = i - 1;
+    };
+    return -1;
+  };
+  lowerBreak (e) {
+    const n = this.loopLabels.length;
+    if ( n == 0 ) {
+      this.err(e, "`break` outside a loop");
+      return;
+    }
+    let target = n - 1;
+    if ( e.name != "" ) {
+      target = this.loopIndexOf(e.name);
+      if ( target < 0 ) {
+        this.err(e, "unknown label " + e.name);
+        return;
+      }
+    }
+    if ( e.kids.length > 0 ) {
+      const _var = this.loopVals[target];
+      if ( _var == "" ) {
+        this.err(e, "`break` with a value outside a `loop` expression");
+        return;
+      }
+      const vt = this.varType(_var);
+      const v = this.lowerExprCopy(e.kid(0), vt);
+      const c = this.coerce(v, vt, e.kid(0));
+      this.out.line((_var + " = ") + c.code);
+    }
+    if ( target == n - 1 ) {
+      this.out.line("break");
+      return;
+    }
+    this.labelledExit(target, "break");
+  };
+  lowerContinue (e) {
+    const n = this.loopLabels.length;
+    if ( n == 0 ) {
+      this.err(e, "`continue` outside a loop");
+      return;
+    }
+    let target = n - 1;
+    if ( e.name != "" ) {
+      target = this.loopIndexOf(e.name);
+      if ( target < 0 ) {
+        this.err(e, "unknown label " + e.name);
+        return;
+      }
+    }
+    if ( target == n - 1 ) {
+      this.out.line("continue");
+      return;
+    }
+    this.labelledExit(target, "continue");
+  };
+  labelledExit (target, kind) {
+    const n = this.loopLabels.length;
+    const flag = this.tmp(kind);
+    this.flagTargets[flag] = this.loopLabels[target];
+    this.pendingFlags.push(flag);
+    this.out.line(flag + " = true");
+    this.out.line("break");
+    this.loopFlags[n - 1] = flag;
+    this.loopFlagKind[n - 1] = kind;
+  };
+  forNeedsChain (iter) {
+    let cur = iter;
+    while (cur.kind == "method" || cur.kind == "paren") {
+      if ( cur.kind == "paren" ) {
+        cur = cur.kid(0);
+        continue;
+      }
+      if ( ((this.isIterAdapter(cur.name) && cur.name != "enumerate") && cur.name != "rev") && cur.name != "step_by" ) {
+        return true;
+      }
+      if ( cur.name == "enumerate" || cur.name == "rev" ) {
+        const inner = cur.kid(0);
+        if ( inner.kind == "method" && (((inner.name == "lines" || inner.name == "split") || inner.name == "split_whitespace") || inner.name == "char_indices") ) {
+          return true;
+        }
+      }
+      cur = cur.kid(0);
+    };
+    return false;
+  };
+  lowerFor (e) {
+    const pat = e.kid(0);
+    const iter = e.kid(1);
+    const body = e.kid(2);
+    if ( this.forNeedsChain(iter) ) {
+      if ( e.name != "" ) {
+        this.unsupported(e, "a label on a `for` over an iterator chain");
+        return;
+      }
+      const consumer = new RustNode("method");
+      consumer.name = "__for";
+      consumer.line = e.line;
+      consumer.col = e.col;
+      consumer.add(iter);
+      consumer.add(new RustNode("none"));
+      const savePat = this.forPat;
+      const saveBody = this.forBody;
+      this.forPat = pat;
+      this.forBody = body;
+      const r = this.lowerIterChain(consumer, RsType.mk("unit"));
+      this.discard(r);
+      this.forPat = savePat;
+      this.forBody = saveBody;
+      return;
+    }
+    this.pushScope();
+    let rev = false;
+    let step = "1";
+    let src = iter;
+    while (src.kind == "method" && (src.name == "rev" || src.name == "step_by")) {
+      if ( src.name == "rev" ) {
+        rev = true;
+      } else {
+        const st = this.lowerExpr(src.kid(2), RsType.mk("int"));
+        step = this.bindTemp(st, RsType.mk("int"), "step");
+      }
+      src = src.kid(0);
+    };
+    if ( src.kind == "paren" ) {
+      src = src.kid(0);
+    }
+    if ( src.kind == "range" ) {
+      this.lowerForRange(pat, src, rev, step, body, e.name);
+      this.popScope();
+      return;
+    }
+    if ( rev || step != "1" ) {
+      this.lowerForSeq(pat, src, rev, body, e.name);
+      this.popScope();
+      return;
+    }
+    this.lowerForSeq(pat, iter, false, body, e.name);
+    this.popScope();
+  };
+  lowerForRange (pat, r, rev, step, body, label) {
+    const lo = r.kid(0);
+    const hi = r.kid(1);
+    if ( lo.isNone() || hi.isNone() ) {
+      this.unsupported(r, "an open range in a `for`");
+      return;
+    }
+    const it = RsType.mk("int");
+    const loE = this.lowerExpr(lo, it);
+    const hiE = this.lowerExpr(hi, it);
+    const inclusive = r.name == "..=";
+    const idx = this.tmp("i");
+    const end = this.tmp("end");
+    if ( rev ) {
+      if ( inclusive ) {
+        this.out.line(("def " + idx) + (":int " + hiE.code));
+      } else {
+        this.out.line(("def " + idx) + ((":int (" + hiE.code) + " - 1)"));
+      }
+      this.out.line(("def " + end) + (":int " + loE.code));
+      this.out.line(((("while (" + idx) + " >= ") + end) + ") {");
+    } else {
+      this.out.line(("def " + idx) + (":int " + loE.code));
+      this.out.line(("def " + end) + (":int " + hiE.code));
+      let op = " < ";
+      if ( inclusive ) {
+        op = " <= ";
+      }
+      this.out.line(((("while (" + idx) + op) + end) + ") {");
+    }
+    this.out.indent();
+    this.bindForPattern(pat, idx, it);
+    if ( rev ) {
+      this.out.line((((idx + " = (") + idx) + (" - " + step)) + ")");
+    } else {
+      this.out.line((((idx + " = (") + idx) + (" + " + step)) + ")");
+    }
+    this.pushLoop(label, "");
+    this.lowerLoopBody(body);
+    this.out.dedent();
+    this.out.line("}");
+    this.afterLoop();
+    this.popLoop();
+  };
+  bindForPattern (pat, code, t) {
+    if ( pat.kind == "pat_wild" ) {
+      return;
+    }
+    if ( pat.kind == "pat_ident" ) {
+      const l = this.declare(pat.name, t);
+      this.out.line((("def " + this.declText(l.rname, t)) + " ") + code);
+      return;
+    }
+    this.bindPattern(pat, code, t);
+  };
+  lowerForSeq (pat, iter0, rev, body, label) {
+    let iter = iter0;
+    let enumerate = false;
+    if ( iter.kind == "method" && iter.name == "enumerate" ) {
+      enumerate = true;
+      iter = iter.kid(0);
+    }
+    let mode = "vec";
+    let mutElems = false;
+    let src = iter;
+    if ( src.kind == "method" ) {
+      const mn = src.name;
+      if ( mn == "iter" || mn == "into_iter" ) {
+        src = src.kid(0);
+      } else {
+        if ( mn == "iter_mut" ) {
+          src = src.kid(0);
+          mutElems = true;
+        } else {
+          if ( mn == "chars" ) {
+            src = src.kid(0);
+            mode = "chars";
+          } else {
+            if ( mn == "bytes" ) {
+              src = src.kid(0);
+              mode = "bytes";
+            } else {
+              if ( (mn == "keys" || mn == "values") || mn == "values_mut" ) {
+                src = src.kid(0);
+                mode = mn;
+              } else {
+                if ( (mn == "lines" || mn == "split") || mn == "split_whitespace" ) {
+                  mode = "vec";
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    if ( src.kind == "unary" && (src.name == "&" || src.name == "&mut") ) {
+      if ( src.name == "&mut" ) {
+        mutElems = true;
+      }
+      src = src.kid(0);
+    }
+    const sv = this.lowerExpr(src, RsType.mk("unknown"));
+    const st = sv.ty;
+    if ( mode == "vec" && (st.kind == "map" || st.kind == "set") ) {
+      mode = "map";
+    }
+    if ( mode == "vec" && st.kind == "string" ) {
+      this.err(iter0, "iterating a String needs `.chars()` or `.bytes()`");
+      return;
+    }
+    let seq = "";
+    let elemT = RsType.mk("unknown");
+    let elemCode = "";
+    const idx = this.tmp("k");
+    const n = this.tmp("n");
+    if ( mode == "chars" ) {
+      seq = this.tmp("cs");
+      this.out.line(((("def " + seq) + ":[int] (to_chars ") + sv.code) + ")");
+      elemT = RsType.mk("char");
+      elemCode = ((("(rs_char_from (itemAt " + seq) + " ") + idx) + "))";
+    }
+    if ( mode == "bytes" ) {
+      seq = this.tmp("bs");
+      this.out.line(((("def " + seq) + ":charbuffer (to_charbuffer ") + sv.code) + ")");
+      elemT = RsType.mk("int");
+      elemCode = ((("(charAt " + seq) + " ") + idx) + ")";
+    }
+    if ( mode == "vec" ) {
+      seq = this.bindTemp(sv, st, "seq");
+      elemT = st.arg(0);
+      elemCode = ((("(itemAt " + seq) + " ") + idx) + ")";
+    }
+    let mapT = st;
+    if ( ((mode == "map" || mode == "keys") || mode == "values") || mode == "values_mut" ) {
+      const m = this.bindTemp(sv, st, "map");
+      seq = this.tmp("ks");
+      this.out.line((((("def " + seq) + ":[") + this.rtype(st.arg(0))) + "] ") + this.mapKeysCode(m, st));
+      if ( st.name == "sorted" ) {
+        this.sortStrings(seq, st.arg(0));
+      }
+      if ( mode == "keys" || st.kind == "set" ) {
+        elemT = st.arg(0);
+        elemCode = ((("(itemAt " + seq) + " ") + idx) + ")";
+      } else {
+        if ( mode == "values" || mode == "values_mut" ) {
+          elemT = st.arg(1);
+          elemCode = ((("(unwrap (get " + this.mapR(m, st)) + " (itemAt ") + seq) + ((" " + idx) + ")))");
+        } else {
+          elemT = RsType.of2("tuple", st.arg(0), st.arg(1));
+          elemCode = "";
+          mapT = st;
+          seq = (seq + "|") + this.mapR(m, st);
+        }
+      }
+    }
+    let seqName = seq;
+    let mapName = "";
+    const bar = seq.indexOf("|");
+    if ( bar >= 0 ) {
+      seqName = seq.substring(0, bar );
+      mapName = seq.substring(bar + 1, seq.length );
+    }
+    if ( mode == "bytes" ) {
+      this.out.line(((("def " + n) + ":int (length ") + seqName) + ")");
+    } else {
+      this.out.line(((("def " + n) + ":int (array_length ") + seqName) + ")");
+    }
+    if ( rev ) {
+      this.out.line(((("def " + idx) + ":int (") + n) + " - 1)");
+      this.out.line(("while (" + idx) + " >= 0) {");
+    } else {
+      this.out.line(("def " + idx) + ":int 0");
+      this.out.line(((("while (" + idx) + " < ") + n) + ") {");
+    }
+    this.out.indent();
+    const cur = this.tmp("at");
+    this.out.line((("def " + cur) + ":int ") + idx);
+    if ( mapName != "" ) {
+      elemCode = "";
+    }
+    if ( rev ) {
+      this.out.line(((idx + " = (") + idx) + " - 1)");
+    } else {
+      this.out.line(((idx + " = (") + idx) + " + 1)");
+    }
+    const elemAt = this.replaceIdx(elemCode, idx, cur);
+    if ( mapName != "" ) {
+      const kc = ((("(itemAt " + seqName) + " ") + cur) + ")";
+      const vc = ((("(unwrap (get " + mapName) + " ") + kc) + "))";
+      this.bindPairPattern(
+        pat,
+        kc,
+        mapT.arg(0),
+        vc,
+        mapT.arg(1),
+        enumerate,
+        cur
+      );
+    } else {
+      if ( enumerate ) {
+        if ( pat.kind == "pat_tuple" && pat.kids.length == 2 ) {
+          this.bindForPattern(pat.kid(0), cur, RsType.mk("int"));
+          this.bindElem(pat.kid(1), elemAt, elemT, mutElems, seqName, cur);
+        } else {
+          this.unsupported(pat, "an `enumerate()` loop not bound as `(i, x)`");
+        }
+      } else {
+        this.bindElem(pat, elemAt, elemT, mutElems, seqName, cur);
+      }
+    }
+    const root = this.placePath(src);
+    if ( mode != "chars" && mode != "bytes" ) {
+      this.iterRoots.push(root);
+    } else {
+      this.iterRoots.push("");
+    }
+    this.pushLoop(label, "");
+    this.lowerLoopBody(body);
+    this.iterRoots.pop();
+    this.out.dedent();
+    this.out.line("}");
+    this.afterLoop();
+    this.popLoop();
+  };
+  replaceIdx (code, from, to) {
+    if ( from == to || code == "" ) {
+      return code;
+    }
+    return code.split((" " + from) + ")").join((" " + to) + ")");
+  };
+  bindElem (pat, code, t, mutElems, seq, cur) {
+    if ( pat.kind == "pat_wild" ) {
+      return;
+    }
+    if ( (pat.kind == "pat_ident" && mutElems) && t.isPrim() ) {
+      const l = this.declare(pat.name, t);
+      l.iterVec = seq;
+      l.iterIdx = cur;
+      this.out.line((("def " + this.declText(l.rname, t)) + " ") + code);
+      return;
+    }
+    if ( pat.kind == "pat_ref" && pat.kids.length > 0 ) {
+      this.bindElem(pat.kid(0), code, t, mutElems, seq, cur);
+      return;
+    }
+    this.bindForPattern(pat, code, t);
+  };
+  bindPairPattern (pat, kc, kt, vc, vt, enumerate, cur) {
+    let p = pat;
+    if ( enumerate ) {
+      if ( p.kind == "pat_tuple" && p.kids.length == 2 ) {
+        this.bindForPattern(p.kid(0), cur, RsType.mk("int"));
+        p = p.kid(1);
+      }
+    }
+    if ( p.kind == "pat_tuple" && p.kids.length == 2 ) {
+      this.bindForPattern(this.stripRefPat(p.kid(0)), kc, kt);
+      this.bindForPattern(this.stripRefPat(p.kid(1)), vc, vt);
+      return;
+    }
+    this.unsupported(pat, "a map loop not bound as `(k, v)`");
+  };
+  stripRefPat (p) {
+    if ( p.kind == "pat_ref" && p.kids.length > 0 ) {
+      return p.kid(0);
+    }
+    return p;
+  };
+  sortStrings (seq, kt) {
+    const et = this.rtype(kt);
+    this.out.line(((((((seq + " = (sort ") + seq) + " (fn:int (a:") + et) + " b:") + et) + ") {");
+    if ( kt.kind == "string" || kt.kind == "char" ) {
+      this.out.line("  return (rs_str_cmp a b)");
+    } else {
+      this.out.line("  if (a < b) {");
+      this.out.line("    return -1");
+      this.out.line("  }");
+      this.out.line("  if (a > b) {");
+      this.out.line("    return 1");
+      this.out.line("  }");
+      this.out.line("  return 0");
+    }
+    this.out.line("}))");
+  };
+  lowerMatch (e, mode, _var) {
+    const v = this.lowerExpr(e.kid(0), RsType.mk("unknown"));
+    const subj = this.bindTemp(v, v.ty, "m");
+    let arms = [];
+    let narrow = false;
+    let i = 1;
+    while (i < e.kids.length) {
+      const arm = e.kid(i);
+      arms.push(arm);
+      if ( this.needsOpen(arm.kid(0), v.ty) ) {
+        narrow = true;
+      }
+      i = i + 1;
+    };
+    this.armBefore = this.movedSnapshot();
+    let none = [];
+    this.armAcc = none;
+    this.armAny = false;
+    if ( narrow ) {
+      this.lowerArmsOpen(arms, subj, v.ty, mode, _var);
+    } else {
+      this.lowerArms(arms, 0, subj, v.ty, mode, _var, e);
+    }
+    if ( this.armAny ) {
+      this.movedRestore(this.armAcc);
+    } else {
+      this.movedRestore(this.armBefore);
+    }
+  };
+  armStart () {
+    const saved = this.movedSnapshot();
+    this.movedRestore(this.armBefore);
+    return saved;
+  };
+  armEnd (body) {
+    if ( false == this.blockDiverges(body) ) {
+      this.armAcc = this.movedUnion(this.armAcc, this.movedSnapshot());
+      this.armAny = true;
+    }
+  };
+  lowerArmsOpen (arms, subj, t, mode, _var) {
+    const hit = this.tmp("hit");
+    this.out.line(("def " + hit) + ":boolean false");
+    let first = true;
+    // Loop start
+    for ( const arm of arms) {
+      let outer = 0;
+      if ( false == first ) {
+        this.out.line(("if (! " + hit) + ") {");
+        this.out.indent();
+        outer = 1;
+      }
+      first = false;
+      this.pushScope();
+      const pat = arm.kid(0);
+      let opened = 0;
+      if ( pat.kind == "pat_or" ) {
+        opened = this.patOpenOr(pat, subj, t);
+      } else {
+        opened = this.patOpen(pat, subj, t);
+      }
+      const guard = arm.kid(1);
+      if ( false == guard.isNone() ) {
+        const g = this.lowerCond(guard);
+        this.out.line(("if " + this.condText(g.code)) + " {");
+        this.out.indent();
+        opened = opened + 1;
+      }
+      this.out.line(hit + " = true");
+      const saveBefore = this.armBefore;
+      this.movedRestore(this.armBefore);
+      this.lowerValueTo(arm.kid(2), mode, _var);
+      this.armEnd(arm.kid(2));
+      this.armBefore = saveBefore;
+      this.closeBlocks(opened);
+      this.popScope();
+      this.closeBlocks(outer);
+    }
+  };
+  patOpenOr (pat, subj, t) {
+    // Loop start
+    for ( const alt of pat.kids) {
+      if ( this.patBinds(alt) ) {
+        this.unsupported(alt, "a binding inside an `|` pattern");
+      }
+    }
+    const cond = this.patCond(pat, subj, t);
+    if ( cond == "true" ) {
+      return 0;
+    }
+    this.out.line(("if " + this.condText(cond)) + " {");
+    this.out.indent();
+    return 1;
+  };
+  lowerArms (arms, i, subj, t, mode, _var, at) {
+    if ( i >= arms.length ) {
+      return;
+    }
+    const arm = arms[i];
+    const pat = arm.kid(0);
+    const guard = arm.kid(1);
+    const body = arm.kid(2);
+    this.pushScope();
+    let cond = this.patCond(pat, subj, t);
+    if ( false == guard.isNone() ) {
+      this.aliasPattern(pat, subj, t);
+      const g = this.lowerCond(guard);
+      if ( cond == "true" ) {
+        cond = g.code;
+      } else {
+        cond = ((("(" + cond) + " && ") + g.code) + ")";
+      }
+    }
+    this.popScope();
+    const always = cond == "true";
+    if ( always ) {
+      this.pushScope();
+      this.bindPattern(pat, subj, t);
+      this.movedRestore(this.armBefore);
+      this.lowerValueTo(body, mode, _var);
+      this.armEnd(body);
+      this.popScope();
+      return;
+    }
+    this.out.line(("if " + this.condText(cond)) + " {");
+    this.out.indent();
+    this.pushScope();
+    this.bindPattern(pat, subj, t);
+    this.movedRestore(this.armBefore);
+    this.lowerValueTo(body, mode, _var);
+    this.armEnd(body);
+    this.popScope();
+    this.out.dedent();
+    if ( i + 1 < arms.length ) {
+      this.out.line("} {");
+      this.out.indent();
+      this.lowerArms(arms, i + 1, subj, t, mode, _var, at);
+      this.out.dedent();
+    }
+    this.out.line("}");
+  };
+  patCond (pat, subj, t) {
+    const k = pat.kind;
+    if ( k == "pat_wild" || k == "pat_rest" ) {
+      return "true";
+    }
+    if ( k == "pat_ident" ) {
+      if ( pat.kids.length > 0 ) {
+        return this.patCond(pat.kid(0), subj, t);
+      }
+      if ( this.isUnitVariantName(pat.name, t) ) {
+        return this.variantTest(pat.name, subj, t, pat);
+      }
+      return "true";
+    }
+    if ( k == "pat_paren" ) {
+      return this.patCond(pat.kid(0), subj, t);
+    }
+    if ( k == "pat_ref" ) {
+      return this.patCond(pat.kid(0), subj, t);
+    }
+    if ( k == "pat_lit" ) {
+      const lv = this.lowerExpr(pat.kid(0), t);
+      return ((("(" + subj) + " == ") + lv.code) + ")";
+    }
+    if ( k == "pat_range" ) {
+      let conds = [];
+      const lo = pat.kid(0);
+      const hi = pat.kid(1);
+      if ( false == lo.isNone() ) {
+        const le = this.patValue(lo, t);
+        conds.push(((("(" + subj) + " >= ") + le.code) + ")");
+      }
+      if ( false == hi.isNone() ) {
+        const he = this.patValue(hi, t);
+        let op = " < ";
+        if ( pat.name == "..=" || pat.name == "..." ) {
+          op = " <= ";
+        }
+        conds.push(((("(" + subj) + op) + he.code) + ")");
+      }
+      if ( conds.length == 0 ) {
+        return "true";
+      }
+      return this.andAll(conds);
+    }
+    if ( k == "pat_or" ) {
+      let ors = [];
+      // Loop start
+      for ( const alt of pat.kids) {
+        if ( this.patBinds(alt) ) {
+          this.unsupported(alt, "a binding inside an `|` pattern");
+        }
+        ors.push(this.patCond(alt, subj, t));
+      }
+      let acc = ors[0];
+      let j = 1;
+      while (j < ors.length) {
+        acc = ((("(" + acc) + " || ") + ors[j]) + ")";
+        j = j + 1;
+      };
+      return acc;
+    }
+    if ( k == "pat_path" ) {
+      const pn = this.lastSeg(pat.kid(0));
+      return this.variantTest(pn, subj, t, pat);
+    }
+    if ( k == "pat_tuple_struct" ) {
+      const pn2 = this.lastSeg(pat.kid(0));
+      if ( pn2 == "Some" && t.kind == "opt" ) {
+        const inner = this.patCond(
+          pat.kid(1),
+          (("(unwrap " + subj) + ")"),
+          t.arg(0)
+        );
+        if ( inner == "true" ) {
+          return ("(!null? " + subj) + ")";
+        }
+        return ((("((!null? " + subj) + ") && ") + inner) + ")";
+      }
+      return this.structPatCond(pat, subj, t, pn2, true);
+    }
+    if ( k == "pat_struct" ) {
+      const pn3 = this.lastSeg(pat.kid(0));
+      return this.structPatCond(pat, subj, t, pn3, false);
+    }
+    if ( k == "pat_tuple" ) {
+      if ( t.kind != "tuple" ) {
+        this.unsupported(pat, "a tuple pattern on a value that is not a tuple");
+        return "true";
+      }
+      let tc = [];
+      let ti = 0;
+      // Loop start
+      for ( const sp of pat.kids) {
+        if ( sp.kind == "pat_rest" ) {
+          this.unsupported(sp, "`..` in a tuple pattern");
+        }
+        const c = this.patCond(
+          sp,
+          ((subj + ".f") + (ti.toString())),
+          t.arg(ti)
+        );
+        if ( c != "true" ) {
+          tc.push(c);
+        }
+        ti = ti + 1;
+      }
+      if ( tc.length == 0 ) {
+        return "true";
+      }
+      return this.andAll(tc);
+    }
+    this.unsupported(pat, ("the pattern `" + k) + "`");
+    return "true";
+  };
+  patValue (n, t) {
+    if ( n.kind == "pat_lit" ) {
+      return this.lowerExpr(n.kid(0), t);
+    }
+    if ( n.kind == "pat_path" ) {
+      const pe = new RustNode("path_expr");
+      pe.add(n.kid(0));
+      return this.lowerExpr(pe, t);
+    }
+    if ( n.kind == "pat_ident" ) {
+      const pe2 = new RustNode("path_expr");
+      const p = new RustNode("path");
+      const s = new RustNode("seg");
+      s.name = n.name;
+      p.add(s);
+      pe2.add(p);
+      return this.lowerExpr(pe2, t);
+    }
+    this.unsupported(n, "this range bound");
+    return RsExpr.of("0", t);
+  };
+  lastSeg (p) {
+    if ( p.kids.length == 0 ) {
+      return "";
+    }
+    const s = p.kids[(p.kids.length - 1)];
+    return s.name;
+  };
+  isUnitVariantName (n, t) {
+    if ( n == "None" ) {
+      return true;
+    }
+    if ( t.kind == "named" && ( typeof(this.enums[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, t.name) ) ) {
+      const e = ( Object.prototype.hasOwnProperty.call(this.enums, t.name) ? this.enums[t.name] : undefined );
+      return (typeof(e.variant(n)) !== "undefined" && e.variant(n) != null ) ;
+    }
+    return false;
+  };
+  variantTest (name, subj, t, at) {
+    if ( name == "None" && t.kind == "opt" ) {
+      return ("(null? " + subj) + ")";
+    }
+    if ( t.kind == "named" && ( typeof(this.enums[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, t.name) ) ) {
+      const e = ( Object.prototype.hasOwnProperty.call(this.enums, t.name) ? this.enums[t.name] : undefined );
+      if ( e.plain ) {
+        return ((((("(" + subj) + " == ") + this.className(e.name)) + ".") + name) + ")";
+      }
+      return ((("(is " + subj) + " _:") + this.caseType(e.name, name)) + ")";
+    }
+    if ( t.kind == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      return "true";
+    }
+    const pe = new RustNode("path_expr");
+    const p = new RustNode("path");
+    const s = new RustNode("seg");
+    s.name = name;
+    p.add(s);
+    pe.add(p);
+    const cv = this.lowerExpr(pe, t);
+    return ((("(" + subj) + " == ") + cv.code) + ")";
+  };
+  structPatCond (pat, subj, t, name, tupleStyle) {
+    if ( this.isDataEnum(t) ) {
+      return this.variantTest(name, subj, t, pat);
+    }
+    if ( t.kind == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+      let conds = [];
+      let i = 1;
+      while (i < pat.kids.length) {
+        const fp = pat.kid(i);
+        let fname = "";
+        let sub = fp;
+        if ( tupleStyle ) {
+          fname = "f" + ((i - 1).toString());
+        } else {
+          fname = fp.name;
+          sub = fp.kid(0);
+        }
+        const f = s.field(fname);
+        if ( typeof(f) === "undefined" ) {
+          this.err(fp, ("no field `" + fname) + "`");
+          return "true";
+        }
+        const ff = f;
+        const c = this.patCond(
+          sub,
+          ((subj + ".") + this.fieldName(fname)),
+          ff.ty
+        );
+        if ( c != "true" ) {
+          conds.push(c);
+        }
+        i = i + 1;
+      };
+      if ( conds.length == 0 ) {
+        return "true";
+      }
+      return this.andAll(conds);
+    }
+    this.unsupported(pat, ("the pattern `" + name) + "(…)` (enums with data are stage R2)");
+    return "true";
+  };
+  patBinds (pat) {
+    if ( pat.kind == "pat_ident" && false == this.isUnitVariantName(pat.name, RsType.mk("unknown")) ) {
+      return true;
+    }
+    // Loop start
+    for ( const k of pat.kids) {
+      if ( k.kind != "path" && this.patBinds(k) ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  bindPattern (pat, subj, t) {
+    this.walkBindings(pat, subj, t, false);
+  };
+  aliasPattern (pat, subj, t) {
+    this.walkBindings(pat, subj, t, true);
+  };
+  walkBindings (pat, subj, t, aliasOnly) {
+    const k = pat.kind;
+    if ( k == "pat_ident" ) {
+      if ( this.isUnitVariantName(pat.name, t) ) {
+        return;
+      }
+      if ( aliasOnly ) {
+        this.alias(pat.name, subj, t);
+      } else {
+        const l = this.declare(pat.name, t);
+        let code = subj;
+        if ( this.isCopyStruct(t) ) {
+          code = ("(" + subj) + ".rs_clone())";
+        }
+        this.out.line((("def " + this.declText(l.rname, t)) + " ") + code);
+      }
+      if ( pat.kids.length > 0 ) {
+        this.walkBindings(pat.kid(0), subj, t, aliasOnly);
+      }
+      return;
+    }
+    if ( (k == "pat_paren" || k == "pat_ref") || k == "pat_box" ) {
+      this.walkBindings(pat.kid(0), subj, t, aliasOnly);
+      return;
+    }
+    if ( k == "pat_tuple_struct" ) {
+      const pn = this.lastSeg(pat.kid(0));
+      if ( pn == "Some" && t.kind == "opt" ) {
+        this.walkBindings(
+          pat.kid(1),
+          ("(unwrap " + subj) + ")",
+          t.arg(0),
+          aliasOnly
+        );
+        return;
+      }
+      if ( t.kind == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+        const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+        let i = 1;
+        while (i < pat.kids.length) {
+          const fname = "f" + ((i - 1).toString());
+          const f = s.field(fname);
+          if ( (typeof(f) !== "undefined" && f != null )  ) {
+            const ff = f;
+            this.walkBindings(
+              pat.kid(i),
+              (subj + ".") + fname,
+              ff.ty,
+              aliasOnly
+            );
+          }
+          i = i + 1;
+        };
+      }
+      return;
+    }
+    if ( k == "pat_struct" ) {
+      if ( t.kind == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+        const s2 = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+        let j = 1;
+        while (j < pat.kids.length) {
+          const fp = pat.kid(j);
+          const f2 = s2.field(fp.name);
+          if ( (typeof(f2) !== "undefined" && f2 != null )  ) {
+            const ff2 = f2;
+            this.walkBindings(
+              fp.kid(0),
+              (subj + ".") + this.fieldName(fp.name),
+              ff2.ty,
+              aliasOnly
+            );
+          }
+          j = j + 1;
+        };
+      }
+      return;
+    }
+    if ( k == "pat_tuple" ) {
+      let ti = 0;
+      // Loop start
+      for ( const sp of pat.kids) {
+        this.walkBindings(
+          sp,
+          (subj + ".f") + (ti.toString()),
+          t.arg(ti),
+          aliasOnly
+        );
+        ti = ti + 1;
+      }
+      return;
+    }
+  };
+  bindTemp (v, t, base) {
+    if ( v.simple ) {
+      return v.code;
+    }
+    const name = this.tmp(base);
+    this.out.line((("def " + this.declText(name, t)) + " ") + v.code);
+    return name;
+  };
+  valueTemp (t) {
+    const name = this.tmp("v");
+    this.tempTypes[name] = t;
+    this.out.line("def " + this.fieldDecl(name, t));
+    return name;
+  };
+  unionSafe (code, t) {
+    let isUnion = this.isDataEnum(t);
+    if ( (t.kind == "named" && t.isDyn) && ( typeof(this.traits[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.traits, t.name) ) ) {
+      isUnion = true;
+    }
+    if ( false == isUnion ) {
+      return code;
+    }
+    const n = this.tmp("u");
+    this.out.line((("def " + this.declText(n, t)) + " ") + code);
+    return n;
+  };
+  coerce (v, t, at) {
+    if ( t.kind == "opt" && v.ty.kind != "opt" ) {
+      const name = this.tmp("o");
+      let safe = v.code;
+      if ( v.ty.kind != "none" ) {
+        safe = this.unionSafe(v.code, t.arg(0));
+      }
+      this.out.line("def " + this.declText(name, t));
+      if ( v.ty.kind != "none" ) {
+        this.out.line((name + " = ") + safe);
+      }
+      const r = RsExpr.of(name, t);
+      r.simple = true;
+      return r;
+    }
+    if ( v.ty.kind == "none" ) {
+      this.err(at, "`None` where the type is not known to be an Option");
+    }
+    return v;
+  };
+  lowerExprCopy (n, expect) {
+    const v = this.lowerExpr(n, expect);
+    if ( false == expect.isRef ) {
+      this.noteMove(n, v.ty);
+    }
+    if ( this.isCopyStruct(v.ty) && this.isPlace(n) ) {
+      const r = RsExpr.of((("(" + this.bindTemp(
+        v,
+        v.ty,
+        "c"
+      )) + ".rs_clone())"), v.ty);
+      return r;
+    }
+    return v;
+  };
+  isPlace (n) {
+    const k = n.kind;
+    if ( (k == "path_expr" || k == "field") || k == "index" ) {
+      return true;
+    }
+    if ( k == "unary" && n.name == "*" ) {
+      return true;
+    }
+    if ( k == "paren" ) {
+      return this.isPlace(n.kid(0));
+    }
+    return false;
+  };
+  unit () {
+    return RsExpr.of("", RsType.mk("unit"));
+  };
+  lowerExpr (n, expect) {
+    const k = n.kind;
+    if ( k == "lit" ) {
+      return this.lowerLit(n, expect);
+    }
+    if ( k == "path_expr" ) {
+      return this.lowerPathExpr(n, expect);
+    }
+    if ( k == "paren" ) {
+      const inner = this.lowerExpr(n.kid(0), expect);
+      return inner;
+    }
+    if ( k == "bin" ) {
+      return this.lowerBin(n, expect);
+    }
+    if ( k == "unary" ) {
+      return this.lowerUnary(n, expect);
+    }
+    if ( k == "cast" ) {
+      return this.lowerCast(n);
+    }
+    if ( k == "call" ) {
+      return this.lowerCall(n, expect);
+    }
+    if ( k == "method" ) {
+      return this.lowerMethod(n, expect);
+    }
+    if ( k == "field" ) {
+      return this.lowerField(n);
+    }
+    if ( k == "index" ) {
+      return this.lowerIndex(n);
+    }
+    if ( k == "tuple" ) {
+      return this.lowerTuple(n, expect);
+    }
+    if ( k == "array" || k == "array_repeat" ) {
+      return this.lowerArray(n, expect);
+    }
+    if ( k == "struct_lit" ) {
+      return this.lowerStructLit(n);
+    }
+    if ( k == "macro_call" ) {
+      return this.lowerMacroExpr(n, expect);
+    }
+    if ( k == "closure" ) {
+      return this.lowerClosure(n, expect);
+    }
+    if ( ((k == "if" || k == "match") || k == "block") || k == "loop" ) {
+      return this.lowerValueExpr(n, expect);
+    }
+    if ( ((((k == "return" || k == "break") || k == "continue") || k == "assign") || k == "while") || k == "for" ) {
+      this.lowerStmtExpr(n);
+      if ( (k == "assign" || k == "while") || k == "for" ) {
+        return this.unit();
+      }
+      return RsExpr.of("", RsType.mk("never"));
+    }
+    if ( k == "try" ) {
+      return this.lowerTry(n, expect);
+    }
+    if ( k == "underscore" ) {
+      this.unsupported(n, "`_` as an expression");
+      return this.unit();
+    }
+    this.unsupported(n, ("the expression `" + k) + "`");
+    return this.unit();
+  };
+  lowerValueExpr (n, expect) {
+    const name = this.tmp("v");
+    this.tempTypes[name] = expect;
+    const save = this.out;
+    this.out = new RustOut();
+    this.out.ind = save.ind;
+    if ( n.kind == "block" ) {
+      if ( n.mods.length > 0 ) {
+        this.unsupported(n, ("a `" + n.mods.join(" ")) + "` block");
+      }
+      this.lowerBlockValue(n, "assign", name);
+    } else {
+      if ( n.kind == "loop" ) {
+        this.lowerLoop(n, name);
+      } else {
+        this.lowerBranchy(n, "assign", name);
+      }
+    }
+    const body = this.out.lines;
+    this.out = save;
+    let t = this.varType(name);
+    if ( t.kind == "none" ) {
+      t = RsType.mk("unknown");
+    }
+    if ( t.isUnknown() ) {
+      this.err(n, "the type of this expression is not known: add a type annotation");
+    }
+    this.out.line("def " + this.tempDecl(name, t));
+    this.out.addAll(body);
+    const r = RsExpr.of(name, t);
+    r.simple = true;
+    return r;
+  };
+  strLit (s) {
+    let out_1 = s.split("\\").join("\\\\");
+    out_1 = out_1.split("\"").join("\\\"");
+    out_1 = out_1.split("\n").join("\\n");
+    out_1 = out_1.split("\t").join("\\t");
+    out_1 = out_1.split(String.fromCharCode(13)).join("\\r");
+    return ("\"" + out_1) + "\"";
+  };
+  intValue (n) {
+    const v = n.value;
+    let base = 10;
+    let start = 0;
+    if ( v.length > 2 ) {
+      const pre = v.substring(0, 2 );
+      if ( pre == "0x" || pre == "0X" ) {
+        base = 16;
+        start = 2;
+      }
+      if ( pre == "0o" || pre == "0O" ) {
+        base = 8;
+        start = 2;
+      }
+      if ( pre == "0b" || pre == "0B" ) {
+        base = 2;
+        start = 2;
+      }
+    }
+    let acc = 0;
+    const cs = Array.from(v, (rg_c) => rg_c.codePointAt(0));
+    let i = start;
+    while (i < cs.length) {
+      const c = cs[i];
+      let d = -1;
+      if ( c >= 48 && c <= 57 ) {
+        d = c - 48;
+      }
+      if ( c >= 97 && c <= 102 ) {
+        d = c - 87;
+      }
+      if ( c >= 65 && c <= 70 ) {
+        d = c - 55;
+      }
+      if ( d >= 0 ) {
+        acc = acc * base + d;
+      }
+      i = i + 1;
+    };
+    return acc;
+  };
+  floatText (v) {
+    const s = v.toLowerCase();
+    const e = s.indexOf("e");
+    if ( e < 0 ) {
+      if ( s.indexOf(".") < 0 ) {
+        return s + ".0";
+      }
+      if ( s.substring(s.length - 1, s.length ) == "." ) {
+        return s + "0";
+      }
+      return s;
+    }
+    const mant = s.substring(0, e );
+    const expS = s.substring(e + 1, s.length );
+    let ex = 0;
+    let neg = false;
+    const cs = Array.from(expS, (rg_c) => rg_c.codePointAt(0));
+    // Loop start
+    for ( const c of cs) {
+      if ( c == 45 ) {
+        neg = true;
+      }
+      if ( c >= 48 && c <= 57 ) {
+        ex = ex * 10 + (c - 48);
+      }
+    }
+    if ( neg ) {
+      ex = 0 - ex;
+    }
+    const dot = mant.indexOf(".");
+    const digits = mant.split(".").join("");
+    let intLen = 0;
+    if ( dot < 0 ) {
+      intLen = mant.length + ex;
+    } else {
+      intLen = dot + ex;
+    }
+    let outS = "";
+    if ( intLen <= 0 ) {
+      let zeros = "";
+      let z = 0;
+      while (z < 0 - intLen) {
+        zeros = zeros + "0";
+        z = z + 1;
+      };
+      outS = ("0." + zeros) + digits;
+    } else {
+      if ( intLen >= digits.length ) {
+        let pad = "";
+        let z2 = 0;
+        while (z2 < intLen - digits.length) {
+          pad = pad + "0";
+          z2 = z2 + 1;
+        };
+        outS = (digits + pad) + ".0";
+      } else {
+        outS = (digits.substring(0, intLen ) + ".") + digits.substring(intLen, digits.length );
+      }
+    }
+    return outS;
+  };
+  lowerLit (n, expect) {
+    if ( n.hasMod("bool") ) {
+      return RsExpr.of(n.value, RsType.mk("bool"));
+    }
+    if ( n.hasMod("str") ) {
+      const litT = RsType.mk("string");
+      litT.isRef = true;
+      const r = RsExpr.of(this.strLit(n.value), litT);
+      r.simple = true;
+      return r;
+    }
+    if ( n.hasMod("char") ) {
+      const rc = RsExpr.of(this.strLit(n.value), RsType.mk("char"));
+      rc.simple = true;
+      return rc;
+    }
+    if ( n.hasMod("byte") ) {
+      const cs = Array.from(n.value, (rg_c) => rg_c.codePointAt(0));
+      let code = 0;
+      if ( cs.length > 0 ) {
+        code = cs[0];
+      }
+      const rb = RsExpr.of((code.toString()), RsType.mk("int"));
+      rb.simple = true;
+      return rb;
+    }
+    if ( ((n.hasMod("float") || n.hasMod("f64")) || n.hasMod("f32")) || expect.kind == "double" ) {
+      let txt = n.value;
+      if ( n.hasMod("int") ) {
+        txt = (this.intValue(n).toString());
+      }
+      const rf = RsExpr.of(this.floatText(txt), RsType.mk("double"));
+      rf.simple = true;
+      return rf;
+    }
+    if ( n.hasMod("int") ) {
+      const ri = RsExpr.of((this.intValue(n).toString()), RsType.mk("int"));
+      ri.simple = true;
+      return ri;
+    }
+    this.unsupported(n, "this literal (byte and C strings)");
+    return this.unit();
+  };
+  pathSegs (p) {
+    let list = [];
+    // Loop start
+    for ( const s of p.kids) {
+      list.push(s.name);
+    }
+    if ( list.length == 1 ) {
+      const only = list[0];
+      if ( ( typeof(this.variantAliases[only] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.variantAliases, only) ) && (typeof(this.scope.lookup(only)) === "undefined") ) {
+        let full = [];
+        full.push(( Object.prototype.hasOwnProperty.call(this.variantAliases, only) ? this.variantAliases[only] : undefined ));
+        full.push(only);
+        return full;
+      }
+    }
+    return list;
+  };
+  useEnum (path) {
+    const segs = path.split("::");
+    let keep = [];
+    // Loop start
+    for ( const sg of segs) {
+      if ( ((sg != "" && sg != "self") && sg != "crate") && sg != "super" ) {
+        keep.push(sg);
+      }
+    }
+    if ( keep.length != 1 ) {
+      return "";
+    }
+    const e = keep[0];
+    if ( ( typeof(this.enums[e] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, e) ) ) {
+      return e;
+    }
+    return "";
+  };
+  collectUse (u) {
+    if ( u.kind == "use_glob" ) {
+      const eg = this.useEnum(u.name);
+      if ( eg != "" ) {
+        const en = ( Object.prototype.hasOwnProperty.call(this.enums, eg) ? this.enums[eg] : undefined );
+        // Loop start
+        for ( const v of en.variants) {
+          this.variantAliases[v.name] = eg;
+        }
+      }
+      return;
+    }
+    if ( u.kind == "use_group" ) {
+      const eg2 = this.useEnum(u.name);
+      // Loop start
+      for ( const c of u.kids) {
+        if ( eg2 != "" && c.kind == "use_name" ) {
+          if ( c.value != "" && c.value != c.name ) {
+            this.err(c, "a renamed enum variant import is not in the subset");
+          }
+          this.variantAliases[c.name] = eg2;
+        }
+        if ( eg2 != "" && c.kind == "use_glob" ) {
+          const en2 = ( Object.prototype.hasOwnProperty.call(this.enums, eg2) ? this.enums[eg2] : undefined );
+          // Loop start
+          for ( const v2 of en2.variants) {
+            this.variantAliases[v2.name] = eg2;
+          }
+        }
+      }
+      return;
+    }
+    if ( u.kind == "use_name" ) {
+      const cut = u.name.lastIndexOf("::");
+      if ( cut > 0 ) {
+        const eg3 = this.useEnum(u.name.substring(0, cut ));
+        if ( eg3 != "" ) {
+          this.variantAliases[u.name.substring(cut + 2, u.name.length )] = eg3;
+        }
+      }
+    }
+  };
+  lowerPathExpr (n, expect) {
+    const p = n.kid(0);
+    if ( p.kind != "path" ) {
+      this.unsupported(n, "a qualified path expression");
+      return this.unit();
+    }
+    const segs = this.pathSegs(p);
+    const ns = segs.length;
+    if ( ns == 1 ) {
+      const name = segs[0];
+      const l = this.scope.lookup(name);
+      if ( (typeof(l) !== "undefined" && l != null )  ) {
+        const lv = l;
+        if ( lv.moved && false == this.noMoveCheck ) {
+          this.err(n, ((("use of moved value: `" + name) + "` (moved at line ") + (lv.movedLine.toString())) + ")");
+          lv.moved = false;
+        }
+        const r = RsExpr.of(lv.rname, lv.ty);
+        r.simple = true;
+        return r;
+      }
+      if ( name == "None" ) {
+        return RsExpr.of("", RsType.mk("none"));
+      }
+      if ( ( typeof(this.consts[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.consts, name) ) ) {
+        const c = ( Object.prototype.hasOwnProperty.call(this.consts, name) ? this.consts[name] : undefined );
+        return RsExpr.of((((("(" + this.modClass) + ".") + this.staticName(name)) + "())"), c.ty);
+      }
+      if ( ( typeof(this.structs[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, name) ) ) {
+        const s = ( Object.prototype.hasOwnProperty.call(this.structs, name) ? this.structs[name] : undefined );
+        if ( s.fields.length == 0 && false == s.isTuple ) {
+          return RsExpr.of((("(new " + this.className(name)) + ")"), RsType.named(name));
+        }
+      }
+      if ( ( typeof(this.fns[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fns, name) ) ) {
+        return this.fnValue(name, n);
+      }
+      this.err(n, ("unknown name `" + name) + "`");
+      return this.unit();
+    }
+    const full = segs.join("::");
+    const last = segs[(ns - 1)];
+    let head = segs[(ns - 2)];
+    if ( head == "Self" ) {
+      head = this.selfType;
+    }
+    if ( ( typeof(this.enums[head] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, head) ) ) {
+      const e = ( Object.prototype.hasOwnProperty.call(this.enums, head) ? this.enums[head] : undefined );
+      if ( e.plain ) {
+        if ( typeof(e.variant(last)) === "undefined" ) {
+          this.err(n, ((("no variant `" + last) + "` in `") + head) + "`");
+        }
+        const ev = RsExpr.of(((this.className(head) + ".") + last), RsType.named(head));
+        ev.simple = true;
+        return ev;
+      }
+      const dv = e.variant(last);
+      if ( typeof(dv) === "undefined" ) {
+        this.err(n, ((("no variant `" + last) + "` in `") + head) + "`");
+        return this.unit();
+      }
+      const dvv = dv;
+      if ( dvv.fields.length > 0 ) {
+        return this.variantCtorValue(e, dvv, n);
+      }
+      return RsExpr.of((("(new " + this.caseType(head, last)) + "())"), RsType.named(head));
+    }
+    const konst = this.stdConst(full);
+    if ( konst != "" ) {
+      let kt = RsType.mk("int");
+      if ( full.indexOf("f64") >= 0 ) {
+        kt = RsType.mk("double");
+      }
+      if ( full.indexOf("f32") >= 0 ) {
+        kt = RsType.mk("double");
+      }
+      const kr = RsExpr.of(konst, kt);
+      kr.simple = true;
+      return kr;
+    }
+    this.unsupported(n, ("the path `" + full) + "`");
+    return this.unit();
+  };
+  stdConst (full) {
+    let f = full;
+    if ( f.indexOf("std::") == 0 ) {
+      f = f.substring(5, f.length );
+    }
+    if ( f.indexOf("core::") == 0 ) {
+      f = f.substring(6, f.length );
+    }
+    if ( f == "Ordering::Less" || f == "cmp::Ordering::Less" ) {
+      return "-1";
+    }
+    if ( f == "Ordering::Equal" || f == "cmp::Ordering::Equal" ) {
+      return "0";
+    }
+    if ( f == "Ordering::Greater" || f == "cmp::Ordering::Greater" ) {
+      return "1";
+    }
+    if ( f == "f64::consts::PI" || f == "f32::consts::PI" ) {
+      return "3.141592653589793";
+    }
+    if ( f == "f64::consts::E" || f == "f32::consts::E" ) {
+      return "2.718281828459045";
+    }
+    if ( f == "f64::consts::TAU" ) {
+      return "6.283185307179586";
+    }
+    if ( f == "i64::MAX" || f == "isize::MAX" ) {
+      return "9223372036854775807";
+    }
+    if ( f == "i64::MIN" || f == "isize::MIN" ) {
+      return "(0 - 9223372036854775807 - 1)";
+    }
+    if ( f == "i32::MAX" ) {
+      return "2147483647";
+    }
+    if ( f == "i32::MIN" ) {
+      return "-2147483648";
+    }
+    if ( f == "u8::MAX" ) {
+      return "255";
+    }
+    if ( f == "u32::MAX" ) {
+      return "4294967295";
+    }
+    if ( f == "usize::MAX" || f == "u64::MAX" ) {
+      return "9223372036854775807";
+    }
+    if ( f == "f64::MAX" ) {
+      return "179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000.0";
+    }
+    if ( f == "f64::EPSILON" ) {
+      return "0.0000000000000002220446049250313";
+    }
+    return "";
+  };
+  fnValue (name, at) {
+    const f = ( Object.prototype.hasOwnProperty.call(this.fns, name) ? this.fns[name] : undefined );
+    let ps = [];
+    let as = [];
+    let i = 0;
+    const ft = RsType.mk("fn");
+    // Loop start
+    for ( const p of f.params) {
+      const pn = "p" + (i.toString());
+      ps.push(this.declText(pn, p.ty));
+      as.push(pn);
+      ft.args.push(p.ty);
+      i = i + 1;
+    }
+    ft.args.push(f.ret);
+    const call = ((((this.modClass + ".") + f.rname) + "(") + as.join(" ")) + ")";
+    let body = "return " + call;
+    if ( f.ret.kind == "unit" ) {
+      body = call;
+    }
+    const code = ((((("(fn:" + this.rtype(f.ret)) + " (") + ps.join(" ")) + ") {\n") + (this.out.ind + "  ")) + ((body + "\n") + (this.out.ind + "})"));
+    return RsExpr.of(code, ft);
+  };
+  lowerBin (n, expect) {
+    const op = n.name;
+    if ( op == "&&" || op == "||" ) {
+      return this.lowerLogic(n);
+    }
+    const isCmp = ((((op == "==" || op == "!=") || op == "<") || op == ">") || op == "<=") || op == ">=";
+    let ex = expect;
+    if ( isCmp ) {
+      ex = RsType.mk("unknown");
+    }
+    const ln = n.kid(0);
+    const rn = n.kid(1);
+    let l = this.lowerExpr(ln, ex);
+    let rex = ex;
+    if ( rex.isUnknown() ) {
+      rex = l.ty;
+    }
+    const r = this.lowerExpr(rn, rex);
+    if ( l.ty.isUnknown() && false == r.ty.isUnknown() ) {
+      if ( ln.kind == "lit" ) {
+        l = this.lowerExpr(ln, r.ty);
+      }
+    }
+    let t = l.ty;
+    if ( t.isUnknown() || t.kind == "none" ) {
+      t = r.ty;
+    }
+    if ( isCmp ) {
+      return RsExpr.of(this.compare(op, l, r, t, n), RsType.mk("bool"));
+    }
+    if ( t.kind == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      return this.operatorMethod(op, l, r, t, n);
+    }
+    let code = "";
+    if ( op == "/" ) {
+      if ( t.kind == "double" ) {
+        code = ((("(" + l.code) + " / ") + r.code) + ")";
+      } else {
+        code = ((("(rs_div " + l.code) + " ") + r.code) + ")";
+      }
+    }
+    if ( op == "%" ) {
+      code = ((("(rs_rem " + l.code) + " ") + r.code) + ")";
+    }
+    if ( (op == "+" || op == "-") || op == "*" ) {
+      code = ((((("(" + l.code) + " ") + op) + " ") + r.code) + ")";
+    }
+    if ( (op == "&" || op == "|") || op == "^" ) {
+      if ( t.kind == "bool" ) {
+        if ( op == "&" ) {
+          code = ((("(" + l.code) + " && ") + r.code) + ")";
+        }
+        if ( op == "|" ) {
+          code = ((("(" + l.code) + " || ") + r.code) + ")";
+        }
+        if ( op == "^" ) {
+          code = ((("(" + l.code) + " != ") + r.code) + ")";
+        }
+      } else {
+        let fname = "bit_and";
+        if ( op == "|" ) {
+          fname = "bit_or";
+        }
+        if ( op == "^" ) {
+          fname = "bit_xor";
+        }
+        code = ((((("(" + fname) + " ") + l.code) + " ") + r.code) + ")";
+      }
+    }
+    if ( op == "<<" ) {
+      code = ((("(bit_shl " + l.code) + " ") + r.code) + ")";
+    }
+    if ( op == ">>" ) {
+      code = ((("(bit_shr " + l.code) + " ") + r.code) + ")";
+    }
+    if ( code == "" ) {
+      this.unsupported(n, ("the operator `" + op) + "`");
+    }
+    if ( code.indexOf("(bit_") == 0 ) {
+      const bn = this.tmp("bits");
+      this.out.line((("def " + bn) + ":int ") + code);
+      const br = RsExpr.of(bn, t);
+      br.simple = true;
+      return br;
+    }
+    if ( t.kind == "char" ) {
+      t = RsType.mk("string");
+    }
+    return RsExpr.of(code, t);
+  };
+  operatorMethod (op, l, r, t, at) {
+    let mn = "";
+    if ( op == "+" ) {
+      mn = "add";
+    }
+    if ( op == "-" ) {
+      mn = "sub";
+    }
+    if ( op == "*" ) {
+      mn = "mul";
+    }
+    if ( op == "/" ) {
+      mn = "div";
+    }
+    if ( op == "%" ) {
+      mn = "rem";
+    }
+    const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+    const m = s.method(mn);
+    if ( mn == "" || (typeof(m) === "undefined") ) {
+      this.err(at, ((("`" + op) + "` on `") + t.name) + "` needs an impl of the operator trait");
+      return this.unit();
+    }
+    const mf = m;
+    const recv = this.bindTemp(l, t, "l");
+    return RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + r.code) + "))"), mf.ret);
+  };
+  compare (op, l, r, t, at) {
+    if ( l.ty.kind == "none" || r.ty.kind == "none" ) {
+      let other = l.code;
+      if ( l.ty.kind == "none" ) {
+        other = r.code;
+      }
+      if ( op == "==" ) {
+        return ("(null? " + other) + ")";
+      }
+      return ("(!null? " + other) + ")";
+    }
+    if ( this.isDataEnum(t) ) {
+      if ( op == "==" || op == "!=" ) {
+        const eqc = this.eqCode(l.code, r.code, t);
+        if ( op == "==" ) {
+          return eqc;
+        }
+        return ("(! " + eqc) + ")";
+      }
+    }
+    if ( t.kind == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      if ( op == "==" || op == "!=" ) {
+        const recv = this.bindTemp(l, t, "l");
+        const eq = ((("(" + recv) + ".rs_eq(") + r.code) + "))";
+        if ( op == "==" ) {
+          return eq;
+        }
+        return ("(! " + eq) + ")";
+      }
+      const lrecv = this.bindTemp(l, t, "l");
+      const sc = this.structCmp(lrecv, r.code, t);
+      if ( sc == "" ) {
+        this.err(at, ("`" + t.name) + "` is not ordered: derive PartialOrd or implement it");
+        return "false";
+      }
+      return ((("(" + sc) + " ") + op) + " 0)";
+    }
+    if ( t.kind == "opt" ) {
+      if ( op == "==" || op == "!=" ) {
+        const lc = this.bindTemp(l, l.ty, "l");
+        const rc = this.bindTemp(r, r.ty, "r");
+        let both = "";
+        if ( l.ty.kind == "opt" && r.ty.kind == "opt" ) {
+          both = ((((((((("(((null? " + lc) + ") && (null? ") + rc) + ")) || ((!null? ") + lc) + ") && ((!null? ") + rc) + ") && ((unwrap ") + lc) + ((") == (unwrap " + rc) + ")))))");
+        } else {
+          this.unsupported(at, "comparing an Option with a plain value");
+          return "false";
+        }
+        if ( op == "==" ) {
+          return both;
+        }
+        return ("(! " + both) + ")";
+      }
+    }
+    if ( op == "!=" ) {
+      return ((("(" + l.code) + " != ") + r.code) + ")";
+    }
+    if ( (t.kind == "string" || t.kind == "char") && op != "==" ) {
+      return ((((("((rs_str_cmp " + l.code) + " ") + r.code) + ") ") + op) + " 0)";
+    }
+    return ((((("(" + l.code) + " ") + op) + " ") + r.code) + ")";
+  };
+  lowerLogic (n) {
+    const l = this.lowerExpr(n.kid(0), RsType.mk("bool"));
+    const save = this.out;
+    this.out = new RustOut();
+    this.out.ind = save.ind;
+    this.out.indent();
+    const r = this.lowerExpr(n.kid(1), RsType.mk("bool"));
+    const pre = this.out.lines;
+    this.out = save;
+    if ( pre.length == 0 ) {
+      return RsExpr.of((((((("(" + l.code) + " ") + n.name) + " ") + r.code) + ")"), RsType.mk("bool"));
+    }
+    const t = this.tmp("b");
+    this.out.line((("def " + t) + ":boolean ") + l.code);
+    if ( n.name == "&&" ) {
+      this.out.line(("if " + t) + " {");
+    } else {
+      this.out.line(("if (! " + t) + ") {");
+    }
+    this.out.addAll(pre);
+    this.out.line(("  " + t) + (" = " + r.code));
+    this.out.line("}");
+    const res = RsExpr.of(t, RsType.mk("bool"));
+    res.simple = true;
+    return res;
+  };
+  lowerUnary (n, expect) {
+    const op = n.name;
+    const c = n.kid(0);
+    if ( (op == "&" || op == "&mut") || op == "*" ) {
+      const v = this.lowerExpr(c, expect);
+      return v;
+    }
+    if ( op == "-" ) {
+      if ( c.kind == "lit" ) {
+        const lv = this.lowerExpr(c, expect);
+        const neg = RsExpr.of(("-" + lv.code), lv.ty);
+        neg.simple = true;
+        return neg;
+      }
+      const v2 = this.lowerExpr(c, expect);
+      if ( v2.ty.kind == "int" ) {
+        return RsExpr.of((("(0 - " + v2.code) + ")"), v2.ty);
+      }
+      if ( v2.ty.kind == "double" ) {
+        return RsExpr.of((("(0.0 - " + v2.code) + ")"), v2.ty);
+      }
+      if ( v2.ty.kind == "named" && ( typeof(this.structs[v2.ty.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, v2.ty.name) ) ) {
+        const s = ( Object.prototype.hasOwnProperty.call(this.structs, v2.ty.name) ? this.structs[v2.ty.name] : undefined );
+        const m = s.method("neg");
+        if ( (typeof(m) !== "undefined" && m != null )  ) {
+          const recv = this.bindTemp(v2, v2.ty, "n");
+          return RsExpr.of((("(" + recv) + ".neg())"), v2.ty);
+        }
+      }
+      return RsExpr.of((("(rs_neg " + v2.code) + ")"), v2.ty);
+    }
+    if ( op == "!" ) {
+      const v3 = this.lowerExpr(c, expect);
+      if ( v3.ty.kind == "int" ) {
+        return RsExpr.of((("(bit_not " + v3.code) + ")"), v3.ty);
+      }
+      return RsExpr.of((("(! " + v3.code) + ")"), RsType.mk("bool"));
+    }
+    this.unsupported(n, ("the unary operator `" + op) + "`");
+    return this.unit();
+  };
+  lowerCast (n) {
+    const target = this.typeOf(n.kid(1));
+    const v = this.lowerExpr(n.kid(0), RsType.mk("unknown"));
+    const s = v.ty.kind;
+    const tk = target.kind;
+    if ( tk == "int" ) {
+      if ( s == "double" ) {
+        return RsExpr.of((("(rs_f2i " + v.code) + ")"), target);
+      }
+      if ( s == "char" ) {
+        return RsExpr.of((("(rs_char_code " + v.code) + ")"), target);
+      }
+      if ( s == "bool" ) {
+        return RsExpr.of((("(? " + v.code) + " 1 0)"), target);
+      }
+      if ( s == "named" && ( typeof(this.enums[v.ty.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, v.ty.name) ) ) {
+        return RsExpr.of(this.enumDisc(v.code, v.ty.name), target);
+      }
+      if ( ((target.name == "u8" || target.name == "i8") || target.name == "u16") || target.name == "i16" ) {
+        let mask = "255";
+        if ( target.name == "u16" || target.name == "i16" ) {
+          mask = "65535";
+        }
+        const wn = this.tmp("w");
+        this.out.line((((("def " + wn) + ":int (bit_and ") + v.code) + (" " + mask)) + ")");
+        const wr = RsExpr.of(wn, target);
+        wr.simple = true;
+        return wr;
+      }
+      return RsExpr.of(v.code, target);
+    }
+    if ( tk == "double" ) {
+      if ( s == "int" ) {
+        return RsExpr.of((("(to_double " + v.code) + ")"), target);
+      }
+      return RsExpr.of(v.code, target);
+    }
+    if ( tk == "char" ) {
+      if ( s == "int" ) {
+        return RsExpr.of((("(rs_char_from " + v.code) + ")"), target);
+      }
+      return RsExpr.of(v.code, target);
+    }
+    this.unsupported(n, ("a cast to `" + target.rust()) + "`");
+    return v;
+  };
+  enumDisc (code, en) {
+    const e = ( Object.prototype.hasOwnProperty.call(this.enums, en) ? this.enums[en] : undefined );
+    let acc = "0";
+    let i = e.variants.length - 1;
+    while (i >= 0) {
+      const v = e.variants[i];
+      acc = ((((((("(? (" + code) + " == ") + this.className(en)) + ".") + v.name) + ") ") + (v.disc.toString())) + ((" " + acc) + ")");
+      i = i - 1;
+    };
+    return acc;
+  };
+  lowerArgs (args, types) {
+    let codes = [];
+    let i = 0;
+    // Loop start
+    for ( const a of args) {
+      let t = RsType.mk("unknown");
+      if ( i < types.length ) {
+        t = types[i];
+      }
+      const v = this.lowerExprCopy(a, t);
+      const c = this.coerce(v, t, a);
+      codes.push(c.code);
+      i = i + 1;
+    }
+    return codes;
+  };
+  paramTypes (f) {
+    let list = [];
+    // Loop start
+    for ( const p of f.params) {
+      list.push(p.ty);
+    }
+    return list;
+  };
+  callArgs (n, from) {
+    let list = [];
+    let i = from;
+    while (i < n.kids.length) {
+      list.push(n.kid(i));
+      i = i + 1;
+    };
+    return list;
+  };
+  lowerCall (n, expect) {
+    const callee = n.kid(0);
+    const args = this.callArgs(n, 1);
+    const __REGx1 = callee.kid(0);
+    if ( callee.kind == "path_expr" && __REGx1.kind == "path" ) {
+      const segs = this.pathSegs(callee.kid(0));
+      const ns = segs.length;
+      const name = segs[(ns - 1)];
+      if ( ns == 1 ) {
+        const l = this.scope.lookup(name);
+        if ( (typeof(l) !== "undefined" && l != null )  ) {
+          const lv = l;
+          return this.callValue(lv.rname, lv.ty, args, n);
+        }
+        if ( name == "Some" ) {
+          return this.makeSome(args, expect, n);
+        }
+        if ( name == "Ok" || name == "Err" ) {
+          if ( this.displayFormatter != "" ) {
+            return this.unit();
+          }
+          return this.makeResult(name, args, expect, n);
+        }
+        if ( ( typeof(this.fns[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fns, name) ) ) {
+          const f = ( Object.prototype.hasOwnProperty.call(this.fns, name) ? this.fns[name] : undefined );
+          if ( f.generics.length > 0 ) {
+            const cp = callee.kid(0);
+            const lastSeg = cp.kids[(cp.kids.length - 1)];
+            return this.lowerGenericCall(f, args, lastSeg.kid(0), expect, n);
+          }
+          this.checkCallBorrows(new RustNode("none"), false, false, args, n);
+          if ( this.hasBoxed(f) ) {
+            return this.boxedCall(
+              (((this.modClass + ".") + f.rname) + "("),
+              f,
+              args,
+              RsType.mk("unknown"),
+              "",
+              n
+            );
+          }
+          const codes = this.lowerArgs(args, this.paramTypes(f));
+          return RsExpr.of((((((("(" + this.modClass) + ".") + f.rname) + "(") + codes.join(" ")) + "))"), f.ret);
+        }
+        if ( ( typeof(this.structs[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, name) ) ) {
+          const s = ( Object.prototype.hasOwnProperty.call(this.structs, name) ? this.structs[name] : undefined );
+          if ( s.isTuple ) {
+            let ftypes = [];
+            // Loop start
+            for ( const sf of s.fields) {
+              ftypes.push(sf.ty);
+            }
+            const codes2 = this.lowerArgs(args, ftypes);
+            return RsExpr.of((((("(new " + this.className(name)) + "(") + codes2.join(" ")) + "))"), RsType.named(name));
+          }
+        }
+        if ( name == "drop" ) {
+          return this.unit();
+        }
+        if ( this.isPreludeOp(name, args.length) ) {
+          return this.preludeOpCall(name, args, n);
+        }
+        this.err(n, ("unknown function `" + name) + "`");
+        return this.unit();
+      }
+      return this.lowerPathCall(segs, args, expect, n);
+    }
+    const cv = this.lowerExpr(callee, RsType.mk("unknown"));
+    const fname = this.bindTemp(cv, cv.ty, "f");
+    return this.callValue(fname, cv.ty, args, n);
+  };
+  callValue (fname, ft, args, at) {
+    if ( ft.kind != "fn" ) {
+      this.err(at, ("`" + fname) + "` is not a function");
+      return this.unit();
+    }
+    let types = [];
+    let i = 0;
+    while (i < ft.args.length - 1) {
+      types.push(ft.arg(i));
+      i = i + 1;
+    };
+    const codes = this.lowerArgs(args, types);
+    const ret = ft.arg((ft.args.length - 1));
+    return RsExpr.of((((("(" + fname) + "(") + codes.join(" ")) + "))"), ret);
+  };
+  makeSome (args, expect, at) {
+    let inner = RsType.mk("unknown");
+    if ( expect.kind == "opt" ) {
+      inner = expect.arg(0);
+    }
+    const v = this.lowerExprCopy(args[0], inner);
+    let t = inner;
+    if ( t.isUnknown() ) {
+      t = v.ty;
+    }
+    const ot = RsType.of1("opt", t);
+    const safe = this.unionSafe(v.code, t);
+    const name = this.tmp("o");
+    this.out.line("def " + this.declText(name, ot));
+    this.out.line((name + " = ") + safe);
+    const r = RsExpr.of(name, ot);
+    r.simple = true;
+    return r;
+  };
+  makeResult (name, args, expect, at) {
+    if ( expect.kind != "result" ) {
+      this.err(at, ("`" + name) + "(…)` where the Result type is not known: annotate the `let` or the function's return type");
+      return this.unit();
+    }
+    let arg = new RustNode("none");
+    if ( args.length > 0 ) {
+      arg = args[0];
+      if ( arg.kind == "tuple" && arg.kids.length == 0 ) {
+        arg = new RustNode("none");
+      }
+    }
+    return this.makeResultValue((name == "Ok"), arg, expect, at);
+  };
+  lowerPathCall (segs, args, expect, at) {
+    const ns = segs.length;
+    const name = segs[(ns - 1)];
+    let head = segs[(ns - 2)];
+    const full = segs.join("::");
+    if ( head == "Self" ) {
+      head = this.selfType;
+    }
+    if ( ( typeof(this.structs[head] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, head) ) ) {
+      const s = ( Object.prototype.hasOwnProperty.call(this.structs, head) ? this.structs[head] : undefined );
+      const m = s.method(name);
+      if ( ((typeof(m) !== "undefined" && m != null ) ) && s.generics.length > 0 ) {
+        return this.genericAssocCall(s, m, args, expect, at);
+      }
+      if ( (typeof(m) !== "undefined" && m != null )  ) {
+        const mf = m;
+        if ( mf.hasSelf ) {
+          const recvN = args[0];
+          let rest = [];
+          let ai = 1;
+          while (ai < args.length) {
+            rest.push(args[ai]);
+            ai = ai + 1;
+          };
+          const rv = this.lowerExpr(recvN, RsType.named(head));
+          const recv = this.bindTemp(rv, rv.ty, "r");
+          const codes0 = this.lowerArgs(rest, this.paramTypes(mf));
+          return RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + codes0.join(" ")) + "))"), mf.ret);
+        }
+        const codes = this.lowerArgs(args, this.paramTypes(mf));
+        return RsExpr.of((((((("(" + this.className(head)) + ".") + this.staticName(name)) + "(") + codes.join(" ")) + "))"), mf.ret);
+      }
+      this.err(at, ((("no associated function `" + name) + "` on `") + head) + "`");
+      return this.unit();
+    }
+    if ( ( typeof(this.enums[head] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, head) ) ) {
+      const e = ( Object.prototype.hasOwnProperty.call(this.enums, head) ? this.enums[head] : undefined );
+      const v = e.variant(name);
+      if ( (typeof(v) !== "undefined" && v != null )  ) {
+        const vv = v;
+        let ftypes = [];
+        // Loop start
+        for ( const vf of vv.fields) {
+          ftypes.push(vf.ty);
+        }
+        const vcodes = this.lowerArgs(args, ftypes);
+        return RsExpr.of((((("(new " + this.caseType(head, name)) + "(") + vcodes.join(" ")) + "))"), RsType.named(head));
+      }
+      const em = e.method(name);
+      if ( (typeof(em) !== "undefined" && em != null )  ) {
+        const emf = em;
+        const ecodes = this.lowerArgs(args, this.paramTypes(emf));
+        if ( emf.hasSelf ) {
+          const recvN2 = args[0];
+          let rest2 = [];
+          let ri = 1;
+          while (ri < args.length) {
+            rest2.push(args[ri]);
+            ri = ri + 1;
+          };
+          const rv2 = this.lowerExpr(recvN2, RsType.named(head));
+          return this.userMethodCall(rv2, emf, rest2, at);
+        }
+        return RsExpr.of((((((("(" + this.implClass(head)) + ".") + this.staticName(name)) + "(") + ecodes.join(" ")) + "))"), emf.ret);
+      }
+      this.err(at, ((("no variant or associated function `" + name) + "` in `") + head) + "`");
+      return this.unit();
+    }
+    if ( (full == "String::from" || full == "String::from_str") || full == "str::to_string" ) {
+      const v_1 = this.lowerExpr(args[0], RsType.mk("string"));
+      return RsExpr.of(v_1.code, this.ownedString());
+    }
+    if ( full == "String::new" ) {
+      const e_1 = RsExpr.of("\"\"", this.ownedString());
+      e_1.simple = true;
+      return e_1;
+    }
+    if ( ((((((((full == "Vec::new" || full == "Vec::with_capacity") || full == "HashMap::new") || full == "BTreeMap::new") || full == "HashSet::new") || full == "BTreeSet::new") || full == "VecDeque::new") || full == "HashMap::with_capacity") || full == "Map::new") || full == "Map::with_capacity" ) {
+      return this.emptyCollection(expect, at);
+    }
+    if ( (((((full == "Box::new" || full == "Rc::new") || full == "Arc::new") || full == "RefCell::new") || full == "Cell::new") || full == "Rc::clone") || full == "Arc::clone" ) {
+      const iv = this.lowerExpr(args[0], expect);
+      return iv;
+    }
+    if ( (((full == "i64::from" || full == "i32::from") || full == "u32::from") || full == "usize::from") || full == "u64::from" ) {
+      const xv = this.lowerExpr(args[0], RsType.mk("unknown"));
+      if ( xv.ty.kind == "char" ) {
+        return RsExpr.of((("(rs_char_code " + xv.code) + ")"), RsType.mk("int"));
+      }
+      if ( xv.ty.kind == "bool" ) {
+        return RsExpr.of((("(? " + xv.code) + " 1 0)"), RsType.mk("int"));
+      }
+      return RsExpr.of(xv.code, RsType.mk("int"));
+    }
+    if ( full == "f64::from" ) {
+      const dv = this.lowerExpr(args[0], RsType.mk("unknown"));
+      if ( dv.ty.kind == "int" ) {
+        return RsExpr.of((("(to_double " + dv.code) + ")"), RsType.mk("double"));
+      }
+      return dv;
+    }
+    if ( ((((full == "std::cmp::max" || full == "cmp::max") || full == "max") || full == "std::cmp::min") || full == "cmp::min") || full == "min" ) {
+      const a = this.lowerExpr(args[0], expect);
+      const b = this.lowerExpr(args[1], a.ty);
+      let op = "rs_max";
+      if ( name == "min" ) {
+        op = "rs_min";
+      }
+      return RsExpr.of((((((("(" + op) + " ") + a.code) + " ") + b.code) + ")"), a.ty);
+    }
+    if ( full == "std::process::exit" || full == "process::exit" ) {
+      const cv = this.lowerExpr(args[0], RsType.mk("int"));
+      this.out.line("exit " + cv.code);
+      return RsExpr.of("", RsType.mk("never"));
+    }
+    if ( full == "std::mem::swap" || full == "mem::swap" ) {
+      this.lowerSwap(args[0], args[1]);
+      return this.unit();
+    }
+    if ( ((full == "std::mem::take" || full == "mem::take") || full == "std::mem::replace") || full == "mem::replace" ) {
+      return this.lowerTake(full, args, at);
+    }
+    if ( full == "char::from_u32" || full == "char::from_digit" ) {
+      this.unsupported(at, ("`" + full) + "` (stage R2)");
+      return this.unit();
+    }
+    this.unsupported(at, ("the function `" + full) + "`");
+    return this.unit();
+  };
+  emptyCollection (expect, at) {
+    const rt = this.rtype(expect);
+    if ( rt == "" ) {
+      this.err(at, "an empty collection needs its element type: annotate the `let`");
+      return this.unit();
+    }
+    const name = this.tmp("c");
+    this.out.line(((("def " + name) + ":") + rt) + this.initSuffix(expect));
+    const r = RsExpr.of(name, expect);
+    r.simple = true;
+    return r;
+  };
+  lowerSwap (a, b) {
+    const av = this.lowerExpr(a, RsType.mk("unknown"));
+    const t = this.tmp("sw");
+    this.out.line((("def " + this.declText(t, av.ty)) + " ") + av.code);
+    const bv = this.lowerExpr(b, av.ty);
+    this.assignTo(a, RsExpr.of(bv.code, av.ty));
+    this.assignTo(b, RsExpr.of(t, av.ty));
+  };
+  lowerTake (full, args, at) {
+    const target = args[0];
+    const cur = this.lowerExpr(target, RsType.mk("unknown"));
+    const t = this.tmp("old");
+    this.out.line((("def " + this.declText(t, cur.ty)) + " ") + cur.code);
+    if ( full.indexOf("replace") >= 0 ) {
+      const nv = this.lowerExpr(args[1], cur.ty);
+      this.assignTo(target, nv);
+    } else {
+      let dv = this.defaultValue(cur.ty);
+      if ( dv == "" ) {
+        const rt = this.rtype(cur.ty);
+        if ( ((cur.ty.kind == "vec" || cur.ty.kind == "map") || cur.ty.kind == "set") && rt != "" ) {
+          const fresh = this.tmp("e");
+          this.out.line((("def " + fresh) + ":") + rt);
+          dv = fresh;
+        } else {
+          this.unsupported(at, "`mem::take` of this type");
+          return RsExpr.of(t, cur.ty);
+        }
+      }
+      this.assignTo(target, RsExpr.of(dv, cur.ty));
+    }
+    const r = RsExpr.of(t, cur.ty);
+    r.simple = true;
+    return r;
+  };
+  lowerMethod (n, expect) {
+    const name = n.name;
+    const recvN = n.kid(0);
+    const args = this.callArgs(n, 2);
+    if ( (name == "count" && recvN.kind == "method") && recvN.name == "chars" ) {
+      const s = this.lowerExpr(recvN.kid(0), RsType.mk("string"));
+      return RsExpr.of((("(rs_char_count " + s.code) + ")"), RsType.mk("int"));
+    }
+    if ( (name == "len" && recvN.kind == "method") && (recvN.name == "as_bytes" || recvN.name == "bytes") ) {
+      const s2 = this.lowerExpr(recvN.kid(0), RsType.mk("string"));
+      return RsExpr.of((("(rs_byte_len " + s2.code) + ")"), RsType.mk("int"));
+    }
+    if ( ((name == "collect" || name == "to_vec") || name == "cloned") || name == "copied" ) {
+      if ( recvN.kind == "method" && ((recvN.name == "split" || recvN.name == "lines") || recvN.name == "split_whitespace") ) {
+        return this.lowerExpr(recvN, expect);
+      }
+    }
+    if ( (name == "unwrap" && recvN.kind == "method") && recvN.name == "parse" ) {
+      return this.lowerParse(recvN, expect);
+    }
+    if ( (name == "unwrap" && recvN.kind == "method") && recvN.name == "partial_cmp" ) {
+      return this.lowerMethod(recvN, expect);
+    }
+    if ( this.isIterConsumer(name) && this.isIterChain(recvN) ) {
+      return this.lowerIterChain(n, expect);
+    }
+    if ( (this.displayFormatter != "" && recvN.kind == "path_expr") && this.lastSeg(recvN.kid(0)) == this.displayFormatter ) {
+      if ( name == "write_str" || name == "write_fmt" ) {
+        const ws = this.arg0(args, RsType.mk("string"));
+        this.out.line(("rs__out = (rs__out + " + ws.code) + ")");
+        return this.unit();
+      }
+      this.unsupported(n, ("the Formatter method `" + name) + "`");
+      return this.unit();
+    }
+    const rv = this.lowerExpr(recvN, RsType.mk("unknown"));
+    const t = rv.ty;
+    if ( t.kind == "named" && ( typeof(this.traits[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.traits, t.name) ) ) {
+      const tr = ( Object.prototype.hasOwnProperty.call(this.traits, t.name) ? this.traits[t.name] : undefined );
+      const tm = tr.method(name);
+      if ( typeof(tm) === "undefined" ) {
+        this.err(n, ((("no method `" + name) + "` in the trait `") + t.name) + "`");
+        return this.unit();
+      }
+      const tmf = tm;
+      const recv = this.bindTemp(rv, t, "r");
+      const codes = this.lowerArgs(args, this.paramTypes(tmf));
+      let all = [];
+      all.push(recv);
+      // Loop start
+      for ( const cc of codes) {
+        all.push(cc);
+      }
+      return RsExpr.of((((((("(" + this.dynUnion(t.name)) + "_ops.") + this.staticName(name)) + "(") + all.join(" ")) + "))"), tmf.ret);
+    }
+    if ( t.kind == "named" ) {
+      if ( ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+        const s3 = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+        const m = s3.method(name);
+        if ( (typeof(m) !== "undefined" && m != null )  ) {
+          return this.userMethodCall(rv, m, args, n);
+        }
+        if ( name == "clone" && (s3.derivesTrait("Clone") || s3.derivesTrait("Copy")) ) {
+          const rc = this.bindTemp(rv, t, "r");
+          return RsExpr.of(this.cloneCode(rc, t), t);
+        }
+        if ( name == "to_string" && false == this.hasFmt(t, "Display") ) {
+          this.err(n, ("`" + t.name) + "` has no Display impl");
+          return this.unit();
+        }
+        if ( name == "to_string" ) {
+          return this.displayCall(rv, t);
+        }
+      }
+      if ( ( typeof(this.enums[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, t.name) ) ) {
+        const en = ( Object.prototype.hasOwnProperty.call(this.enums, t.name) ? this.enums[t.name] : undefined );
+        const em = en.method(name);
+        if ( (typeof(em) !== "undefined" && em != null )  ) {
+          return this.userMethodCall(rv, em, args, n);
+        }
+        if ( name == "clone" ) {
+          if ( en.plain ) {
+            return rv;
+          }
+          const ec = this.bindTemp(rv, t, "r");
+          return RsExpr.of(this.cloneCode(ec, t), t);
+        }
+        if ( name == "to_string" ) {
+          const ed = this.bindTemp(rv, t, "r");
+          return RsExpr.of((((("(" + this.implClass(t.name)) + ".displayOf(") + ed) + "))"), RsType.mk("string"));
+        }
+      }
+      this.err(n, ((("no method `" + name) + "` on `") + t.rust()) + "`");
+      return this.unit();
+    }
+    return this.stdMethod(rv, name, args, n, expect);
+  };
+  userMethodCall (rv, m, args, at) {
+    if ( at.kind == "method" ) {
+      const recvNode = at.kid(0);
+      this.checkCallBorrows(
+        recvNode,
+        m.selfMut,
+        m.hasSelf && false == m.selfByValue,
+        args,
+        at
+      );
+      if ( m.selfByValue ) {
+        this.noteMove(recvNode, rv.ty);
+      }
+    }
+    const recv = this.bindTemp(rv, rv.ty, "r");
+    if ( this.hasBoxed(m) && false == (rv.ty.kind == "named" && ( typeof(this.enums[rv.ty.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, rv.ty.name) )) ) {
+      return this.boxedCall(
+        (((recv + ".") + m.rname) + "("),
+        m,
+        args,
+        rv.ty,
+        "",
+        at
+      );
+    }
+    const env = this.methodEnv(rv.ty);
+    let ptypes = [];
+    // Loop start
+    for ( const pp of m.params) {
+      ptypes.push(this.subst(pp.ty, env));
+    }
+    const mret = this.subst(m.ret, env);
+    const codes = this.lowerArgs(args, ptypes);
+    if ( rv.ty.kind == "named" && ( typeof(this.enums[rv.ty.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, rv.ty.name) ) ) {
+      let all = [];
+      all.push(recv);
+      // Loop start
+      for ( const cc of codes) {
+        all.push(cc);
+      }
+      return RsExpr.of((((((("(" + this.implClass(rv.ty.name)) + ".") + this.staticName(m.name)) + "(") + all.join(" ")) + "))"), mret);
+    }
+    if ( false == m.hasSelf ) {
+      this.err(at, ("`" + m.name) + "` is an associated function: call it as `Type::name(…)`");
+    }
+    return RsExpr.of((((((("(" + recv) + ".") + m.rname) + "(") + codes.join(" ")) + "))"), mret);
+  };
+  displayCall (rv, t) {
+    const recv = this.bindTemp(rv, t, "r");
+    return RsExpr.of((("(" + recv) + ".rs_display())"), RsType.mk("string"));
+  };
+  lowerParse (parseCall, expect) {
+    const s = this.lowerExpr(parseCall.kid(0), RsType.mk("string"));
+    let target = expect;
+    const targs = parseCall.kid(1);
+    if ( targs.kids.length > 0 ) {
+      target = this.typeOf(targs.kid(0));
+    }
+    if ( target.kind == "int" ) {
+      return RsExpr.of((("(unwrap (to_int (trim " + s.code) + ")))"), target);
+    }
+    if ( target.kind == "double" ) {
+      return RsExpr.of((("(unwrap (to_double (trim " + s.code) + ")))"), target);
+    }
+    this.err(parseCall, "`parse` needs a known target type: `parse::<i64>()` or an annotated `let`");
+    return this.unit();
+  };
+  arg0 (args, t) {
+    if ( args.length == 0 ) {
+      return this.unit();
+    }
+    const v = this.lowerExprCopy(args[0], t);
+    return this.coerce(v, t, args[0]);
+  };
+  stdMethod (rv, name, args, at, expect) {
+    const t = rv.ty;
+    const k = t.kind;
+    const c = rv.code;
+    const it = RsType.mk("int");
+    const bt = RsType.mk("bool");
+    const st = RsType.mk("string");
+    if ( ((name == "clone" || name == "to_owned") || name == "cloned") || name == "copied" ) {
+      const rc = this.bindTemp(rv, t, "r");
+      return RsExpr.of(this.cloneCode(rc, t), t);
+    }
+    if ( ((((name == "as_str" || name == "as_ref") || name == "borrow") || name == "borrow_mut") || name == "as_mut") || name == "into" ) {
+      return rv;
+    }
+    if ( name == "to_string" && k != "vec" ) {
+      return RsExpr.of(this.fmtDisplay(rv, ""), this.ownedString());
+    }
+    if ( (name == "to_owned" || name == "clone") && k == "string" ) {
+      return RsExpr.of(c, this.ownedString());
+    }
+    if ( k == "vec" ) {
+      return this.vecMethod(rv, name, args, at, expect);
+    }
+    if ( k == "string" || k == "char" ) {
+      return this.strMethod(rv, name, args, at, expect);
+    }
+    if ( k == "int" || k == "double" ) {
+      return this.numMethod(rv, name, args, at);
+    }
+    if ( k == "opt" ) {
+      return this.optMethod(rv, name, args, at, expect);
+    }
+    if ( k == "result" ) {
+      return this.resultMethod(rv, name, args, at, expect);
+    }
+    if ( k == "entry" ) {
+      this.lastEntry = rv;
+      return this.entryMethod(rv, name, args, at);
+    }
+    if ( k == "map" || k == "set" ) {
+      return this.mapMethod(rv, name, args, at, expect);
+    }
+    if ( k == "unknown" ) {
+      this.err(at, ("cannot resolve `." + name) + "()` on a value of unknown type: add a type annotation");
+      return this.unit();
+    }
+    this.err(at, ((("no method `" + name) + "` on `") + t.rust()) + "`");
+    return this.unit();
+  };
+  vecMethod (rv, name, args, at, expect) {
+    const r = this.vecMethodInner(rv, name, args, at, expect);
+    const mutating = ["push", "pop", "insert", "remove", "clear", "truncate", "extend", "swap", "reverse", "dedup", "sort", "sort_by", "sort_by_key", "retain"];
+    if ( mutating.indexOf(name) >= 0 ) {
+      this.checkIterMutation(at.kid(0), at);
+      this.writeBackElement(at, rv);
+    }
+    return r;
+  };
+  writeBackElement (call, rv) {
+    let recvN = call.kid(0);
+    while (recvN.kind == "unary" || recvN.kind == "paren") {
+      recvN = recvN.kid(0);
+    };
+    if ( recvN.kind == "method" && ((recvN.name == "or_insert" || recvN.name == "or_insert_with") || recvN.name == "or_default") ) {
+      const bar = this.lastEntry.code.indexOf("|");
+      if ( bar > 0 ) {
+        const m = this.lastEntry.code.substring(0, bar );
+        const k = this.lastEntry.code.substring(bar + 1, this.lastEntry.code.length );
+        this.out.line(this.mapSetLine(
+          m,
+          this.lastEntry.ty,
+          k,
+          this.lastVecName
+        ));
+      }
+      return;
+    }
+    if ( recvN.kind == "index" ) {
+      this.assignTo(recvN, this.simpleExpr(this.lastVecName, rv.ty));
+    }
+    if ( recvN.kind == "path_expr" ) {
+      const rp = recvN.kid(0);
+      if ( rp.kids.length == 1 ) {
+        const sl = this.scope.lookup(this.lastSeg(rp));
+        if ( (typeof(sl) !== "undefined" && sl != null )  ) {
+          const slot = sl;
+          if ( slot.slotMap != "" ) {
+            this.out.line(this.mapSetLine(
+              slot.slotMap,
+              slot.slotTy,
+              slot.slotKey,
+              slot.rname
+            ));
+          }
+        }
+      }
+    }
+  };
+  vecMethodInner (rv, name, args, at, expect) {
+    const t = rv.ty;
+    const et = t.arg(0);
+    const v = this.bindTemp(rv, t, "vec");
+    this.lastVecName = v;
+    const it = RsType.mk("int");
+    const bt = RsType.mk("bool");
+    if ( name == "len" ) {
+      return RsExpr.of((("(array_length " + v) + ")"), it);
+    }
+    if ( name == "is_empty" ) {
+      return RsExpr.of((("((array_length " + v) + ") == 0)"), bt);
+    }
+    if ( name == "push" ) {
+      const x = this.arg0(args, et);
+      this.out.line((("push " + v) + " ") + x.code);
+      return this.unit();
+    }
+    if ( name == "pop" ) {
+      const ot = RsType.of1("opt", et);
+      const name2 = this.tmp("p");
+      this.out.line("def " + this.declText(name2, ot));
+      this.out.line(("if ((array_length " + v) + ") > 0) {");
+      this.out.line(((("  " + name2) + " = (last ") + v) + ")");
+      this.out.line("  removeLast " + v);
+      this.out.line("}");
+      const r = RsExpr.of(name2, ot);
+      r.simple = true;
+      return r;
+    }
+    if ( (name == "last" || name == "first") || name == "get" ) {
+      const ot2 = RsType.of1("opt", et);
+      const nm = this.tmp("g");
+      this.out.line("def " + this.declText(nm, ot2));
+      if ( name == "get" ) {
+        const iv = this.lowerExpr(args[0], it);
+        const ix = this.bindTemp(iv, it, "i");
+        this.out.line(((("if ((" + ix) + " >= 0) && (") + ix) + ((" < (array_length " + v) + "))) {"));
+        this.out.line(((("  " + nm) + " = (itemAt ") + v) + ((" " + ix) + ")"));
+      } else {
+        this.out.line(("if ((array_length " + v) + ") > 0) {");
+        this.out.line(((((("  " + nm) + " = (") + name) + " ") + v) + ")");
+      }
+      this.out.line("}");
+      const r2 = RsExpr.of(nm, ot2);
+      r2.simple = true;
+      return r2;
+    }
+    if ( name == "contains" ) {
+      const x2 = this.arg0(args, et);
+      if ( et.kind == "named" && ( typeof(this.structs[et.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, et.name) ) ) {
+        this.unsupported(at, "`contains` on a Vec of structs (stage R2)");
+      }
+      return RsExpr.of((((("((indexOf " + v) + " ") + x2.code) + ") >= 0)"), bt);
+    }
+    if ( name == "clear" ) {
+      this.out.line("clear " + v);
+      return this.unit();
+    }
+    if ( name == "reverse" ) {
+      this.out.line(((v + " = (reverse ") + v) + ")");
+      return this.unit();
+    }
+    if ( name == "remove" ) {
+      const iv2 = this.lowerExpr(args[0], it);
+      const ix2 = this.bindTemp(iv2, it, "i");
+      const tmpv = this.tmp("rm");
+      this.out.line(((((("def " + this.declText(tmpv, et)) + " (itemAt ") + v) + " ") + ix2) + ")");
+      this.out.line((("remove_index " + v) + " ") + ix2);
+      const r3 = RsExpr.of(tmpv, et);
+      r3.simple = true;
+      return r3;
+    }
+    if ( name == "insert" ) {
+      const iv3 = this.lowerExpr(args[0], it);
+      const xv = this.lowerExprCopy(args[1], et);
+      this.out.line((((((this.vecInserter(t) + "(") + v) + " ") + iv3.code) + " ") + (xv.code + ")"));
+      return this.unit();
+    }
+    if ( name == "join" ) {
+      const sep = this.arg0(args, RsType.mk("string"));
+      return RsExpr.of((((("(join " + v) + " ") + sep.code) + ")"), RsType.mk("string"));
+    }
+    if ( name == "sort" || name == "sort_unstable" ) {
+      if ( ((et.kind == "int" || et.kind == "double") || et.kind == "string") || et.kind == "char" ) {
+        this.sortStrings(v, et);
+        this.writeBack(at, v, t);
+        return this.unit();
+      }
+      if ( et.kind == "named" && ( typeof(this.structs[et.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, et.name) ) ) {
+        const es = ( Object.prototype.hasOwnProperty.call(this.structs, et.name) ? this.structs[et.name] : undefined );
+        if ( (typeof(es.method("cmp")) !== "undefined" && es.method("cmp") != null )  ) {
+          const lam = this.comparatorFromMethod(et);
+          this.out.line(((((v + " = (sort ") + v) + " ") + lam) + ")");
+          this.writeBack(at, v, t);
+          return this.unit();
+        }
+      }
+      this.unsupported(at, "`sort` of a Vec whose elements have no `Ord`: use sort_by or sort_by_key");
+      return this.unit();
+    }
+    if ( (((name == "sort_by" || name == "sort_unstable_by") || name == "sort_by_key") || name == "sort_unstable_by_key") || name == "sort_by_cached_key" ) {
+      const keyed = name.indexOf("key") >= 0;
+      const lam2 = this.comparatorLambda(args[0], et, keyed);
+      this.out.line(((((v + " = (sort ") + v) + " ") + lam2) + ")");
+      this.writeBack(at, v, t);
+      return this.unit();
+    }
+    if ( name == "swap" ) {
+      const a = this.lowerExpr(args[0], it);
+      const b = this.lowerExpr(args[1], it);
+      const ai = this.bindTemp(a, it, "i");
+      const bi = this.bindTemp(b, it, "j");
+      const tv = this.tmp("sw");
+      this.out.line(((((("def " + this.declText(tv, et)) + " (itemAt ") + v) + " ") + ai) + ")");
+      this.out.line(((((((("set_at " + v) + " ") + ai) + " (itemAt ") + v) + " ") + bi) + ")");
+      this.out.line((((("set_at " + v) + " ") + bi) + " ") + tv);
+      return this.unit();
+    }
+    if ( name == "extend" ) {
+      const other = this.lowerExpr(args[0], t);
+      const ov = this.bindTemp(other, t, "ext");
+      const k = this.tmp("k");
+      this.out.line(("def " + k) + ":int 0");
+      this.out.line(((("while (" + k) + " < (array_length ") + ov) + ")) {");
+      this.out.line(((((("  push " + v) + " (itemAt ") + ov) + " ") + k) + ")");
+      this.out.line(((("  " + k) + " = (") + k) + " + 1)");
+      this.out.line("}");
+      return this.unit();
+    }
+    if ( name == "truncate" ) {
+      const nv = this.lowerExpr(args[0], it);
+      this.out.line(((("while ((array_length " + v) + ") > ") + nv.code) + ") {");
+      this.out.line("  removeLast " + v);
+      this.out.line("}");
+      return this.unit();
+    }
+    if ( name == "dedup" ) {
+      const dd = this.tmp("dd");
+      this.out.line((("def " + dd) + ":") + this.rtype(t));
+      const dk = this.tmp("k");
+      this.out.line(("def " + dk) + ":int 0");
+      this.out.line(((("while (" + dk) + " < (array_length ") + v) + ")) {");
+      this.out.line((((((("  if ((" + dk) + " == 0) || ((itemAt ") + v) + " ") + dk) + ") != (itemAt ") + (((v + " (") + dk) + " - 1)))) {"));
+      this.out.line(((((("    push " + dd) + " (itemAt ") + v) + " ") + dk) + ")");
+      this.out.line("  }");
+      this.out.line(((("  " + dk) + " = (") + dk) + " + 1)");
+      this.out.line("}");
+      this.out.line((v + " = ") + dd);
+      this.writeBack(at, v, t);
+      return this.unit();
+    }
+    if ( (((name == "iter" || name == "into_iter") || name == "iter_mut") || name == "to_vec") || name == "as_slice" ) {
+      if ( name == "to_vec" ) {
+        return RsExpr.of(this.cloneCode(v, t), t);
+      }
+      const r4 = RsExpr.of(v, t);
+      r4.simple = true;
+      return r4;
+    }
+    this.unsupported(at, ("the Vec method `" + name) + "`");
+    return this.unit();
+  };
+  vecInserter (t) {
+    const key = "ins_" + this.mangleKey(t);
+    const name = "RsClone." + key;
+    if ( ( typeof(this.genNames[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, key) ) ) {
+      return name;
+    }
+    this.genNames[key] = true;
+    const rt = this.rtype(t);
+    const et = this.rtype(t.arg(0));
+    let lines = [];
+    lines.push((((("  sfn " + key) + ":void (v:") + rt) + " at:int x:") + (et + ") {"));
+    lines.push("    push v x");
+    lines.push("    def i:int ((array_length v) - 1)");
+    lines.push("    while (i > at) {");
+    lines.push("      set_at v i (itemAt v (i - 1))");
+    lines.push("      i = i - 1");
+    lines.push("    }");
+    lines.push("    set_at v at x");
+    lines.push("  }");
+    this.clonerOut.push(lines.join("\n"));
+    return name;
+  };
+  strMethod (rv, name, args, at, expect) {
+    const c = rv.code;
+    const st = RsType.mk("string");
+    const bt = RsType.mk("bool");
+    const it = RsType.mk("int");
+    if ( rv.ty.kind == "char" ) {
+      return this.charMethod(rv, name, args, at);
+    }
+    if ( name == "len" ) {
+      this.err(at, "`len()` of a String counts bytes: write `.chars().count()` for characters or `.as_bytes().len()` for bytes");
+      return this.unit();
+    }
+    if ( name == "is_empty" ) {
+      return RsExpr.of((("((strlen " + c) + ") == 0)"), bt);
+    }
+    if ( name == "parse" ) {
+      let target = RsType.mk("unknown");
+      const targs = at.kid(1);
+      if ( targs.kids.length > 0 ) {
+        target = this.typeOf(targs.kid(0));
+      } else {
+        if ( expect.kind == "result" && false == expect.arg(0).isUnknown() ) {
+          target = expect.arg(0);
+        }
+      }
+      if ( target.kind != "int" && target.kind != "double" ) {
+        this.err(at, "`parse` needs a known number type: `parse::<i64>()` or an annotated Result");
+        return this.unit();
+      }
+      const ps = this.bindTemp(rv, st, "s");
+      const prt = RsType.of2("result", target, this.ownedString());
+      const pcls = this.resultClass(prt);
+      const pres = this.tmp("res");
+      const pv = this.tmp("p");
+      let fnP = "parseI64";
+      let fnE = "parseIntErr";
+      let ptn = "int";
+      if ( target.kind == "double" ) {
+        fnP = "parseF64";
+        fnE = "parseFloatErr";
+        ptn = "double";
+      }
+      this.out.line(((("def " + pres) + ":") + pcls) + ((" (new " + pcls) + ")"));
+      this.out.line((((((("def " + pv) + "@(optional):") + ptn) + " (RsStr.") + fnP) + "(") + (ps + "))"));
+      this.out.line(("if (!null? " + pv) + ") {");
+      this.out.line(("  " + pres) + ".ok = true");
+      this.out.line(((("  " + pres) + ".v = (unwrap ") + pv) + ")");
+      this.out.line("} {");
+      this.out.line(((((("  " + pres) + ".e = (RsStr.") + fnE) + "(") + ps) + "))");
+      this.out.line("}");
+      return this.simpleExpr(pres, prt);
+    }
+    if ( name == "cmp" || name == "partial_cmp" ) {
+      const o = this.arg0(args, st);
+      const a0 = this.bindTemp(rv, st, "a");
+      const b0 = this.bindTemp(o, st, "b");
+      return RsExpr.of(this.cmpCode(a0, b0, st), RsType.mk("int"));
+    }
+    if ( name == "push_str" || name == "push" ) {
+      const x = this.arg0(args, st);
+      this.assignTo(at.kid(0), RsExpr.of((((("(" + c) + " + ") + x.code) + ")"), st));
+      return this.unit();
+    }
+    if ( name == "to_uppercase" ) {
+      return RsExpr.of((("(rs_upper " + c) + ")"), st);
+    }
+    if ( name == "to_lowercase" ) {
+      return RsExpr.of((("(rs_lower " + c) + ")"), st);
+    }
+    if ( name == "trim" ) {
+      return RsExpr.of((("(trim " + c) + ")"), st);
+    }
+    if ( name == "trim_end" ) {
+      return RsExpr.of((("(trim_right " + c) + ")"), st);
+    }
+    if ( (name == "contains" || name == "starts_with") || name == "ends_with" ) {
+      const x2 = this.arg0(args, st);
+      let op = "contains";
+      if ( name == "starts_with" ) {
+        op = "startsWith";
+      }
+      if ( name == "ends_with" ) {
+        op = "endsWith";
+      }
+      return RsExpr.of((((((("(" + op) + " ") + c) + " ") + x2.code) + ")"), bt);
+    }
+    if ( name == "replace" ) {
+      const a = this.lowerExpr(args[0], st);
+      const b = this.lowerExpr(args[1], st);
+      return RsExpr.of((((((("(replace " + c) + " ") + a.code) + " ") + b.code) + ")"), st);
+    }
+    if ( name == "split" ) {
+      const sep = this.arg0(args, st);
+      return RsExpr.of((((("(strsplit " + c) + " ") + sep.code) + ")"), RsType.of1("vec", st));
+    }
+    if ( name == "lines" ) {
+      return RsExpr.of((("(strsplit " + c) + " \"\\n\")"), RsType.of1("vec", st));
+    }
+    if ( name == "split_whitespace" ) {
+      return RsExpr.of((("(RsStr.splitWhitespace(" + c) + "))"), RsType.of1("vec", st));
+    }
+    if ( name == "find" ) {
+      const p = this.arg0(args, st);
+      const pos = this.tmp("pos");
+      this.out.line(((((("def " + pos) + ":int (rs_find_bytes ") + c) + " ") + p.code) + ")");
+      const ot = RsType.of1("opt", it);
+      const nm = this.tmp("f");
+      this.out.line("def " + this.declText(nm, ot));
+      this.out.line(("if (" + pos) + " >= 0) {");
+      this.out.line((("  " + nm) + " = ") + pos);
+      this.out.line("}");
+      const r = RsExpr.of(nm, ot);
+      r.simple = true;
+      return r;
+    }
+    if ( name == "repeat" ) {
+      const nv = this.arg0(args, it);
+      return RsExpr.of((((("(RsStr.repeat(" + c) + " ") + nv.code) + "))"), st);
+    }
+    if ( name == "chars" || name == "bytes" ) {
+      this.err(at, ("`." + name) + "()` is supported in a `for` loop and before `.count()`");
+      return this.unit();
+    }
+    this.unsupported(at, ("the String method `" + name) + "`");
+    return this.unit();
+  };
+  charMethod (rv, name, args, at) {
+    const c = rv.code;
+    const bt = RsType.mk("bool");
+    let fnName = "";
+    if ( name == "is_ascii_digit" || name == "is_numeric" ) {
+      fnName = "isAsciiDigit";
+    }
+    if ( name == "is_alphabetic" ) {
+      fnName = "isAlphabetic";
+    }
+    if ( name == "is_ascii_alphabetic" ) {
+      fnName = "isAsciiAlpha";
+    }
+    if ( name == "is_alphanumeric" ) {
+      fnName = "isAlphanumeric";
+    }
+    if ( name == "is_ascii_alphanumeric" ) {
+      fnName = "isAsciiAlnum";
+    }
+    if ( name == "is_whitespace" ) {
+      fnName = "isWhitespace";
+    }
+    if ( name == "is_ascii_whitespace" ) {
+      fnName = "isAsciiSpace";
+    }
+    if ( name == "is_uppercase" ) {
+      fnName = "isUppercase";
+    }
+    if ( name == "is_ascii_uppercase" ) {
+      fnName = "isAsciiUpper";
+    }
+    if ( name == "is_lowercase" ) {
+      fnName = "isLowercase";
+    }
+    if ( name == "is_ascii_lowercase" ) {
+      fnName = "isAsciiLower";
+    }
+    if ( fnName != "" ) {
+      return RsExpr.of((((("(RsChar." + fnName) + "(") + c) + "))"), bt);
+    }
+    if ( name == "to_uppercase" ) {
+      return RsExpr.of((("(rs_upper " + c) + ")"), rv.ty);
+    }
+    if ( name == "collect" || name == "to_string" ) {
+      return RsExpr.of(c, this.ownedString());
+    }
+    if ( name == "len_utf8" ) {
+      return RsExpr.of((("(rs_byte_len " + c) + ")"), RsType.mk("int"));
+    }
+    if ( name == "to_lowercase" ) {
+      return RsExpr.of((("(rs_lower " + c) + ")"), rv.ty);
+    }
+    if ( name == "to_ascii_uppercase" ) {
+      return RsExpr.of((("(RsChar.asciiUpper(" + c) + "))"), rv.ty);
+    }
+    if ( name == "to_ascii_lowercase" ) {
+      return RsExpr.of((("(RsChar.asciiLower(" + c) + "))"), rv.ty);
+    }
+    if ( name == "to_digit" ) {
+      const ot = RsType.of1("opt", RsType.mk("int"));
+      const nm = this.tmp("d");
+      const cc = this.tmp("cc");
+      this.out.line(((("def " + cc) + ":int (rs_char_code ") + c) + ")");
+      this.out.line("def " + this.declText(nm, ot));
+      this.out.line(((("if ((" + cc) + " >= 48) && (") + cc) + " <= 57)) {");
+      this.out.line(((("  " + nm) + " = (") + cc) + " - 48)");
+      this.out.line("}");
+      const r = RsExpr.of(nm, ot);
+      r.simple = true;
+      return r;
+    }
+    this.unsupported(at, ("the char method `" + name) + "`");
+    return this.unit();
+  };
+  numMethod (rv, name, args, at) {
+    const c = rv.code;
+    const t = rv.ty;
+    if ( name == "cmp" || name == "partial_cmp" ) {
+      const o = this.arg0(args, t);
+      const a0 = this.bindTemp(rv, t, "a");
+      const b0 = this.bindTemp(o, t, "b");
+      return RsExpr.of(this.cmpCode(a0, b0, t), RsType.mk("int"));
+    }
+    if ( name == "abs" ) {
+      const v = this.bindTemp(rv, t, "a");
+      return RsExpr.of((("(rs_abs " + v) + ")"), t);
+    }
+    if ( name == "min" || name == "max" ) {
+      const o_1 = this.arg0(args, t);
+      const a = this.bindTemp(rv, t, "a");
+      const b = this.bindTemp(o_1, t, "b");
+      return RsExpr.of((((((("(rs_" + name) + " ") + a) + " ") + b) + ")"), t);
+    }
+    if ( name == "pow" && t.kind == "int" ) {
+      const e = this.arg0(args, RsType.mk("int"));
+      return RsExpr.of((((("(rs_pow " + c) + " ") + e.code) + ")"), t);
+    }
+    if ( name == "powi" || name == "powf" ) {
+      const e2 = this.arg0(args, RsType.mk("unknown"));
+      if ( e2.ty.kind == "int" ) {
+        return RsExpr.of((((("(rs_powi " + c) + " ") + e2.code) + ")"), t);
+      }
+      return RsExpr.of((((("(rs_powf " + c) + " ") + e2.code) + ")"), t);
+    }
+    if ( (name == "sqrt" || name == "floor") || name == "ceil" ) {
+      return RsExpr.of((((("(rs_" + name) + " ") + c) + ")"), t);
+    }
+    if ( (name == "sin" || name == "cos") || name == "tan" ) {
+      return RsExpr.of((((("(" + name) + " ") + c) + ")"), t);
+    }
+    if ( ((((name == "round" || name == "trunc") || name == "ln") || name == "exp") || name == "log10") || name == "signum" ) {
+      return RsExpr.of((((("(rs_" + name) + " ") + c) + ")"), t);
+    }
+    if ( name == "then" || name == "then_with" ) {
+      const first = this.bindTemp(rv, t, "ord");
+      let nextV = RsExpr.of("", t);
+      let nl = [];
+      let ni = "";
+      if ( name == "then" ) {
+        nextV = this.captureExpr(args[0], t);
+      } else {
+        nextV = this.captureClosure(args[0], [], t);
+      }
+      nl = this.lastCaptured;
+      ni = this.lastCapturedInd;
+      const ov = this.tmp("ord");
+      this.out.line((("def " + ov) + ":int ") + first);
+      this.out.line(("if (" + ov) + " == 0) {");
+      this.out.indent();
+      this.out.addIndented(nl, ni);
+      this.out.line((ov + " = ") + nextV.code);
+      this.out.dedent();
+      this.out.line("}");
+      const ordT = RsType.mk("int");
+      ordT.name = "Ordering";
+      return this.simpleExpr(ov, ordT);
+    }
+    if ( name == "reverse" ) {
+      return RsExpr.of((("(0 - " + c) + ")"), t);
+    }
+    this.unsupported(at, ("the number method `" + name) + "`");
+    return this.unit();
+  };
+  optMethod (rv, name, args, at, expect) {
+    const t = rv.ty;
+    const inner = t.arg(0);
+    const o = this.bindTemp(rv, t, "opt");
+    if ( name == "unwrap" || name == "expect" ) {
+      return RsExpr.of((("(unwrap " + o) + ")"), inner);
+    }
+    if ( name == "unwrap_or" ) {
+      const d = this.arg0(args, inner);
+      return RsExpr.of((((("(? (null? " + o) + ") ") + d.code) + ((" (unwrap " + o) + "))")), inner);
+    }
+    if ( name == "unwrap_or_default" ) {
+      return RsExpr.of((((("(? (null? " + o) + ") ") + this.defaultValue(inner)) + ((" (unwrap " + o) + "))")), inner);
+    }
+    if ( name == "is_some" ) {
+      return RsExpr.of((("(!null? " + o) + ")"), RsType.mk("bool"));
+    }
+    if ( name == "is_none" ) {
+      return RsExpr.of((("(null? " + o) + ")"), RsType.mk("bool"));
+    }
+    if ( name == "ok_or" || name == "ok_or_else" ) {
+      let errV = RsExpr.of("", RsType.mk("unknown"));
+      let errLines = [];
+      if ( name == "ok_or" ) {
+        errV = this.captureExpr(args[0], this.resultErrOf(expect));
+      } else {
+        errV = this.captureClosure(args[0], [], this.resultErrOf(expect));
+      }
+      errLines = this.lastCaptured;
+      let et = errV.ty;
+      if ( et.kind == "string" ) {
+        et = this.ownedString();
+      }
+      const rt = RsType.of2("result", inner, et);
+      const cls = this.resultClass(rt);
+      const res = this.tmp("res");
+      this.out.line(((("def " + res) + ":") + cls) + ((" (new " + cls) + ")"));
+      this.out.line(("if (!null? " + o) + ") {");
+      this.out.line(("  " + res) + ".ok = true");
+      this.out.line((("  " + res) + ".v = ") + this.unionSafe((("(unwrap " + o) + ")"), inner));
+      this.out.line("} {");
+      this.out.indent();
+      this.out.addIndented(errLines, this.lastCapturedInd);
+      this.out.line((res + ".e = ") + this.unionSafe(errV.code, et));
+      this.out.dedent();
+      this.out.line("}");
+      return this.simpleExpr(res, rt);
+    }
+    if ( (name == "map" || name == "and_then") || name == "filter" ) {
+      const some = this.simpleExpr((("(unwrap " + o) + ")"), inner);
+      const fv = this.captureClosure(args[0], [some], RsType.mk("unknown"));
+      const fLines = this.lastCaptured;
+      const fInd = this.lastCapturedInd;
+      let outT = RsType.of1("opt", fv.ty);
+      if ( name == "and_then" ) {
+        outT = fv.ty;
+      }
+      if ( name == "filter" ) {
+        outT = t;
+      }
+      const mo = this.tmp("o");
+      this.out.line("def " + this.declText(mo, outT));
+      this.out.line(("if (!null? " + o) + ") {");
+      this.out.indent();
+      this.out.addIndented(fLines, fInd);
+      if ( name == "filter" ) {
+        this.out.line(("if " + this.condText(fv.code)) + " {");
+        this.out.line((("  " + mo) + " = ") + o);
+        this.out.line("}");
+      } else {
+        this.out.line((mo + " = ") + this.unionSafe(fv.code, outT.arg(0)));
+      }
+      this.out.dedent();
+      this.out.line("}");
+      return this.simpleExpr(mo, outT);
+    }
+    if ( (name == "unwrap_or_else" || name == "map_or") || name == "map_or_else" ) {
+      let someV = this.simpleExpr((("(unwrap " + o) + ")"), inner);
+      let dflt = RsExpr.of("", RsType.mk("unknown"));
+      let dLines = [];
+      let dInd = "";
+      if ( name == "unwrap_or_else" ) {
+        dflt = this.captureClosure(args[0], [], inner);
+        dLines = this.lastCaptured;
+        dInd = this.lastCapturedInd;
+      } else {
+        if ( name == "map_or" ) {
+          dflt = this.captureExpr(args[0], expect);
+        } else {
+          dflt = this.captureClosure(args[0], [], expect);
+        }
+        dLines = this.lastCaptured;
+        dInd = this.lastCapturedInd;
+        someV = this.captureClosure(args[1], [someV], dflt.ty);
+      }
+      let sLines = [];
+      if ( name != "unwrap_or_else" ) {
+        sLines = this.lastCaptured;
+      }
+      let vt2 = dflt.ty;
+      if ( name == "unwrap_or_else" ) {
+        vt2 = inner;
+      }
+      const mv = this.tmp("v");
+      this.out.line("def " + this.tempDecl(mv, vt2));
+      this.out.line(("if (!null? " + o) + ") {");
+      this.out.indent();
+      this.out.addIndented(sLines, this.lastCapturedInd);
+      this.out.line((mv + " = ") + someV.code);
+      this.out.dedent();
+      this.out.line("} {");
+      this.out.indent();
+      this.out.addIndented(dLines, dInd);
+      this.out.line((mv + " = ") + dflt.code);
+      this.out.dedent();
+      this.out.line("}");
+      return this.simpleExpr(mv, vt2);
+    }
+    this.unsupported(at, ("the Option method `" + name) + "` (stage R2)");
+    return this.unit();
+  };
+  resultMethod (rv, name, args, at, expect) {
+    const t = rv.ty;
+    const r = this.bindTemp(rv, t, "res");
+    const vt = t.arg(0);
+    if ( name == "unwrap" || name == "expect" ) {
+      this.out.line(("if (! " + r) + ".ok) {");
+      this.out.line("  rs_panic \"called `Result::unwrap()` on an `Err` value\"");
+      this.out.line("}");
+      if ( vt.kind == "unit" ) {
+        return this.unit();
+      }
+      return this.simpleExpr((r + ".v"), vt);
+    }
+    if ( name == "unwrap_err" ) {
+      this.out.line(("if " + r) + ".ok {");
+      this.out.line("  rs_panic \"called `Result::unwrap_err()` on an `Ok` value\"");
+      this.out.line("}");
+      return this.simpleExpr((r + ".e"), t.arg(1));
+    }
+    if ( name == "unwrap_or" ) {
+      const d = this.arg0(args, vt);
+      return RsExpr.of((((("(? " + r) + ".ok ") + r) + ((".v " + d.code) + ")")), vt);
+    }
+    if ( name == "unwrap_or_default" ) {
+      return RsExpr.of((((("(? " + r) + ".ok ") + r) + ((".v " + this.defaultValue(vt)) + ")")), vt);
+    }
+    if ( name == "is_ok" ) {
+      return this.simpleExpr((r + ".ok"), RsType.mk("bool"));
+    }
+    if ( name == "is_err" ) {
+      return RsExpr.of((("(! " + r) + ".ok)"), RsType.mk("bool"));
+    }
+    if ( name == "ok" || name == "err" ) {
+      let inner = vt;
+      let field = "v";
+      let cond = r + ".ok";
+      if ( name == "err" ) {
+        inner = t.arg(1);
+        field = "e";
+        cond = ("(! " + r) + ".ok)";
+      }
+      const ot = RsType.of1("opt", inner);
+      const o = this.tmp("o");
+      this.out.line("def " + this.declText(o, ot));
+      this.out.line(("if " + this.condText(cond)) + " {");
+      this.out.line((((("  " + o) + " = ") + r) + ".") + field);
+      this.out.line("}");
+      return this.simpleExpr(o, ot);
+    }
+    if ( name == "map_or" || name == "unwrap_or_else" ) {
+      let okV = this.simpleExpr((r + ".v"), vt);
+      let dfl = RsExpr.of("", RsType.mk("unknown"));
+      let dl = [];
+      let dInd2 = "";
+      let sl = [];
+      let sInd = "";
+      if ( name == "map_or" ) {
+        dfl = this.captureExpr(args[0], expect);
+        dl = this.lastCaptured;
+        dInd2 = this.lastCapturedInd;
+        okV = this.captureClosure(args[1], [okV], dfl.ty);
+        sl = this.lastCaptured;
+        sInd = this.lastCapturedInd;
+      } else {
+        const errArg = this.simpleExpr((r + ".e"), t.arg(1));
+        dfl = this.captureClosure(args[0], [errArg], vt);
+        dl = this.lastCaptured;
+        dInd2 = this.lastCapturedInd;
+      }
+      let rvT = dfl.ty;
+      if ( name == "unwrap_or_else" ) {
+        rvT = vt;
+      }
+      const mv2 = this.tmp("v");
+      this.out.line("def " + this.tempDecl(mv2, rvT));
+      this.out.line(("if " + r) + ".ok {");
+      this.out.indent();
+      this.out.addIndented(sl, sInd);
+      this.out.line((mv2 + " = ") + okV.code);
+      this.out.dedent();
+      this.out.line("} {");
+      this.out.indent();
+      this.out.addIndented(dl, dInd2);
+      this.out.line((mv2 + " = ") + dfl.code);
+      this.out.dedent();
+      this.out.line("}");
+      return this.simpleExpr(mv2, rvT);
+    }
+    if ( name == "map_err" || name == "map" ) {
+      let arg = this.simpleExpr((r + ".e"), t.arg(1));
+      if ( name == "map" ) {
+        arg = this.simpleExpr((r + ".v"), vt);
+      }
+      let want = RsType.mk("unknown");
+      if ( name == "map_err" && expect.kind == "result" ) {
+        want = expect.arg(1);
+      }
+      const fv2 = this.captureClosure(args[0], [arg], want);
+      const fl = this.lastCaptured;
+      const fi = this.lastCapturedInd;
+      let nvt = vt;
+      let net = t.arg(1);
+      if ( name == "map_err" ) {
+        net = fv2.ty;
+        if ( net.kind == "string" ) {
+          net = this.ownedString();
+        }
+      } else {
+        nvt = fv2.ty;
+      }
+      const nrt = RsType.of2("result", nvt, net);
+      const ncls = this.resultClass(nrt);
+      const nres = this.tmp("res");
+      this.out.line(((("def " + nres) + ":") + ncls) + ((" (new " + ncls) + ")"));
+      this.out.line(("if " + r) + ".ok {");
+      this.out.indent();
+      this.out.line(nres + ".ok = true");
+      if ( name == "map" ) {
+        this.out.addIndented(fl, fi);
+        this.out.line((nres + ".v = ") + this.unionSafe(fv2.code, nvt));
+      } else {
+        if ( vt.kind != "unit" ) {
+          this.out.line(((nres + ".v = ") + r) + ".v");
+        }
+      }
+      this.out.dedent();
+      this.out.line("} {");
+      this.out.indent();
+      if ( name == "map_err" ) {
+        this.out.addIndented(fl, fi);
+        this.out.line((nres + ".e = ") + this.unionSafe(fv2.code, net));
+      } else {
+        this.out.line(((nres + ".e = ") + r) + ".e");
+      }
+      this.out.dedent();
+      this.out.line("}");
+      return this.simpleExpr(nres, nrt);
+    }
+    this.unsupported(at, ("the Result method `" + name) + "`");
+    return this.unit();
+  };
+  entryMethod (rv, name, args, at) {
+    const bar = rv.code.indexOf("|");
+    const m = rv.code.substring(0, bar );
+    const k = rv.code.substring(bar + 1, rv.code.length );
+    const vt = rv.ty.arg(1);
+    if ( (name == "or_insert" || name == "or_insert_with") || name == "or_default" ) {
+      this.out.line(((("if (! (has " + this.mapR(m, rv.ty)) + " ") + k) + ")) {");
+      this.out.indent();
+      let init = "";
+      if ( name == "or_insert" ) {
+        const iv = this.lowerExprCopy(args[0], vt);
+        init = iv.code;
+      }
+      if ( name == "or_insert_with" ) {
+        const fnN = args[0];
+        if ( fnN.kind == "path_expr" && (this.lastSeg(fnN.kid(0)) == "new" || this.lastSeg(fnN.kid(0)) == "default") ) {
+          init = this.newValueCode(vt, at);
+        } else {
+          const cv = this.applyClosure(fnN, [], vt);
+          init = cv.code;
+        }
+      }
+      if ( name == "or_default" ) {
+        init = this.newValueCode(vt, at);
+      }
+      this.out.line(this.mapSetLine(m, rv.ty, k, init));
+      this.out.dedent();
+      this.out.line("}");
+      return RsExpr.of((((("(unwrap (get " + this.mapR(m, rv.ty)) + " ") + k) + "))"), vt);
+    }
+    this.unsupported(at, ("the entry method `" + name) + "`");
+    return this.unit();
+  };
+  newValueCode (t, at) {
+    if ( (t.kind == "vec" || t.kind == "map") || t.kind == "set" ) {
+      const n = this.tmp("new");
+      this.out.line(((("def " + n) + ":") + this.rtype(t)) + this.initSuffix(t));
+      return n;
+    }
+    const z = this.zeroCode(t);
+    if ( z == "" ) {
+      this.err(at, ("no default value for `" + t.rust()) + "`");
+    }
+    return z;
+  };
+  mapMethod (rv, name, args, at, expect) {
+    const t = rv.ty;
+    const m = this.bindTemp(rv, t, "map");
+    const kt = t.arg(0);
+    let vt = t.arg(1);
+    if ( t.kind == "set" ) {
+      vt = RsType.mk("bool");
+    }
+    if ( name == "entry" ) {
+      const ek = this.lowerExprCopy(args[0], kt);
+      const kn = this.bindTemp(ek, kt, "key");
+      const et = RsType.of2("entry", kt, vt);
+      et.name = t.name;
+      return RsExpr.of(((m + "|") + kn), et);
+    }
+    if ( name == "insert" ) {
+      const kv = this.lowerExprCopy(args[0], kt);
+      if ( t.kind == "set" ) {
+        const kn2 = this.bindTemp(kv, kt, "key");
+        const was = this.tmp("had");
+        this.out.line((((("def " + was) + ":boolean (has ") + this.mapR(m, t)) + " ") + (kn2 + ")"));
+        this.out.line((("set " + m) + " ") + (kn2 + " true"));
+        return RsExpr.of((("(! " + was) + ")"), RsType.mk("bool"));
+      }
+      const vv = this.lowerExprCopy(args[1], vt);
+      this.out.line(this.mapSetLine(m, t, kv.code, vv.code));
+      return this.unit();
+    }
+    if ( name == "contains_key" || name == "contains" ) {
+      const k2 = this.arg0(args, kt);
+      return RsExpr.of((((("(has " + this.mapR(m, t)) + " ") + k2.code) + ")"), RsType.mk("bool"));
+    }
+    if ( name == "get" ) {
+      const k3 = this.arg0(args, kt);
+      const ot = RsType.of1("opt", vt);
+      const nm = this.tmp("g");
+      this.out.line(((((("def " + this.declText(nm, ot)) + " (get ") + this.mapR(m, t)) + " ") + k3.code) + ")");
+      const r = RsExpr.of(nm, ot);
+      r.simple = true;
+      return r;
+    }
+    if ( name == "remove" ) {
+      const k4 = this.arg0(args, kt);
+      if ( t.name == "ordered" ) {
+        this.out.line(((m + ".del(") + k4.code) + ")");
+      } else {
+        this.out.line((("rs_map_remove " + m) + " ") + k4.code);
+      }
+      return this.unit();
+    }
+    if ( name == "len" ) {
+      return RsExpr.of((("(rs_map_len " + this.mapR(m, t)) + ")"), RsType.mk("int"));
+    }
+    if ( name == "is_empty" ) {
+      return RsExpr.of((("((rs_map_len " + this.mapR(m, t)) + ") == 0)"), RsType.mk("bool"));
+    }
+    this.unsupported(at, ("the map method `" + name) + "`");
+    return this.unit();
+  };
+  lowerField (n) {
+    const rv = this.lowerExpr(n.kid(0), RsType.mk("unknown"));
+    const t = rv.ty;
+    let fname = n.name;
+    let fty = RsType.mk("unknown");
+    if ( t.kind == "tuple" ) {
+      const idx = this.intValue(n);
+      fname = "f" + n.name;
+      let ti = 0;
+      const cs = Array.from(n.name, (rg_c) => rg_c.codePointAt(0));
+      // Loop start
+      for ( const ch of cs) {
+        ti = ti * 10 + (ch - 48);
+      }
+      fty = t.arg(ti);
+    } else {
+      if ( t.kind == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+        const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+        let key = fname;
+        if ( s.isTuple ) {
+          key = "f" + fname;
+        }
+        const f = s.field(key);
+        if ( typeof(f) === "undefined" ) {
+          this.err(n, ((("no field `" + n.name) + "` on `") + t.name) + "`");
+          return this.unit();
+        }
+        const ff = f;
+        fty = this.fieldTypeOf(s, ff, t);
+        fname = this.fieldName(key);
+      } else {
+        this.err(n, ((("no field `" + n.name) + "` on a value of type `") + t.rust()) + "`");
+        return this.unit();
+      }
+    }
+    const recv = this.bindTemp(rv, t, "r");
+    const r = RsExpr.of(((recv + ".") + fname), fty);
+    r.simple = true;
+    return r;
+  };
+  lowerIndex (n) {
+    const recv0 = n.kid(0);
+    const __REGx1 = n.kid(1);
+    if ( (recv0.kind == "method" && recv0.name == "as_bytes") && __REGx1.kind != "range" ) {
+      const sv = this.lowerExpr(recv0.kid(0), RsType.mk("string"));
+      const bs = this.tmp("bs");
+      this.out.line(((("def " + bs) + ":charbuffer (to_charbuffer ") + sv.code) + ")");
+      const bi = this.lowerExpr(n.kid(1), RsType.mk("int"));
+      const bv = this.tmp("b");
+      this.out.line(((((("def " + bv) + ":int (charAt ") + bs) + " ") + bi.code) + ")");
+      return this.simpleExpr(bv, RsType.mk("int"));
+    }
+    const rv = this.lowerExpr(n.kid(0), RsType.mk("unknown"));
+    const t = rv.ty;
+    const ixN = n.kid(1);
+    if ( t.kind == "string" && ixN.kind == "range" ) {
+      const s = this.bindTemp(rv, t, "s");
+      let lo = "0";
+      let hi = ("(rs_byte_len " + s) + ")";
+      if ( false == ixN.kid(0).isNone() ) {
+        const lv = this.lowerExpr(ixN.kid(0), RsType.mk("int"));
+        lo = lv.code;
+      }
+      if ( false == ixN.kid(1).isNone() ) {
+        const hv = this.lowerExpr(ixN.kid(1), RsType.mk("int"));
+        hi = hv.code;
+        if ( ixN.name == "..=" ) {
+          hi = ("(" + hi) + " + 1)";
+        }
+      }
+      return RsExpr.of((((((("(rs_byte_slice " + s) + " ") + lo) + " ") + hi) + ")"), t);
+    }
+    if ( t.kind == "vec" ) {
+      if ( ixN.kind == "range" ) {
+        this.unsupported(n, "slicing a Vec with a range (stage R2)");
+        return this.unit();
+      }
+      const v = this.bindTemp(rv, t, "vec");
+      const iv = this.lowerExpr(ixN, RsType.mk("int"));
+      return RsExpr.of((((("(itemAt " + v) + " ") + iv.code) + ")"), t.arg(0));
+    }
+    if ( t.kind == "map" ) {
+      const m = this.bindTemp(rv, t, "map");
+      const kv = this.lowerExpr(ixN, t.arg(0));
+      return RsExpr.of((((("(unwrap (get " + this.mapR(m, t)) + " ") + kv.code) + "))"), t.arg(1));
+    }
+    this.err(n, ("cannot index a value of type `" + t.rust()) + "`");
+    return this.unit();
+  };
+  lowerAssign (n) {
+    const op = n.name;
+    const lhs = n.kid(0);
+    const rhs = n.kid(1);
+    if ( op == "=" ) {
+      const lt = this.placeType(lhs);
+      const v = this.lowerExprCopy(rhs, lt.ty);
+      const c = this.coerce(v, lt.ty, rhs);
+      this.assignTo(lhs, c);
+      return;
+    }
+    let slot = lhs;
+    if ( slot.kind == "unary" && slot.name == "*" ) {
+      slot = slot.kid(0);
+    }
+    if ( slot.kind == "method" && ((slot.name == "or_insert" || slot.name == "or_default") || slot.name == "or_insert_with") ) {
+      const sv = this.lowerExpr(slot, RsType.mk("unknown"));
+      const ekind = slot.kid(0);
+      const ev = this.lastEntry;
+      const bar = ev.code.indexOf("|");
+      const m = ev.code.substring(0, bar );
+      const k = ev.code.substring(bar + 1, ev.code.length );
+      const rhsV = this.lowerExpr(rhs, sv.ty);
+      let newV = rhsV.code;
+      if ( op != "=" ) {
+        const bop2 = op.substring(0, op.length - 1 );
+        newV = this.arith(bop2, sv, rhsV, sv.ty);
+      }
+      this.out.line(this.mapSetLine(m, ev.ty, k, newV));
+      return;
+    }
+    const bop = op.substring(0, op.length - 1 );
+    const fake = new RustNode("bin");
+    fake.name = bop;
+    fake.line = n.line;
+    fake.col = n.col;
+    fake.add(lhs);
+    fake.add(rhs);
+    const cur = this.lowerExpr(fake, RsType.mk("unknown"));
+    this.assignTo(lhs, cur);
+  };
+  placeType (lhs) {
+    const save = this.out;
+    this.out = new RustOut();
+    const saveN = this.tmpN;
+    const saveErr = this.errors.length;
+    const saveNm = this.noMoveCheck;
+    this.noMoveCheck = true;
+    const v = this.lowerExpr(lhs, RsType.mk("unknown"));
+    this.noMoveCheck = saveNm;
+    this.out = save;
+    this.tmpN = saveN;
+    while (this.errors.length > saveErr) {
+      this.errors.pop();
+    };
+    return v;
+  };
+  assignTo (lhs, v) {
+    const k = lhs.kind;
+    if ( k == "unary" && lhs.name == "*" ) {
+      this.assignTo(lhs.kid(0), v);
+      return;
+    }
+    if ( k == "paren" ) {
+      this.assignTo(lhs.kid(0), v);
+      return;
+    }
+    if ( k == "path_expr" ) {
+      const p = lhs.kid(0);
+      const segs = this.pathSegs(p);
+      if ( segs.length == 1 ) {
+        const l = this.scope.lookup(segs[0]);
+        if ( (typeof(l) !== "undefined" && l != null )  ) {
+          const lv = l;
+          if ( lv.iterVec != "" ) {
+            this.out.line((((("set_at " + lv.iterVec) + " ") + lv.iterIdx) + " ") + v.code);
+          }
+          this.out.line((lv.rname + " = ") + v.code);
+          lv.moved = false;
+          return;
+        }
+      }
+      this.err(lhs, "cannot assign to this name");
+      return;
+    }
+    if ( k == "field" ) {
+      const rv = this.lowerExpr(lhs.kid(0), RsType.mk("unknown"));
+      const recv = this.bindTemp(rv, rv.ty, "r");
+      let fname = lhs.name;
+      if ( rv.ty.kind == "tuple" ) {
+        fname = "f" + fname;
+      }
+      if ( rv.ty.kind == "named" && ( typeof(this.structs[rv.ty.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, rv.ty.name) ) ) {
+        const s = ( Object.prototype.hasOwnProperty.call(this.structs, rv.ty.name) ? this.structs[rv.ty.name] : undefined );
+        if ( s.isTuple ) {
+          fname = "f" + fname;
+        }
+        fname = this.fieldName(fname);
+      }
+      this.out.line((((recv + ".") + fname) + " = ") + v.code);
+      return;
+    }
+    if ( k == "index" ) {
+      const cv = this.lowerExpr(lhs.kid(0), RsType.mk("unknown"));
+      if ( cv.ty.kind == "map" ) {
+        const m = this.bindTemp(cv, cv.ty, "map");
+        const kv = this.lowerExpr(lhs.kid(1), cv.ty.arg(0));
+        this.out.line(this.mapSetLine(m, cv.ty, kv.code, v.code));
+        return;
+      }
+      const vec = this.bindTemp(cv, cv.ty, "vec");
+      const iv = this.lowerExpr(lhs.kid(1), RsType.mk("int"));
+      this.out.line((((("set_at " + vec) + " ") + iv.code) + " ") + v.code);
+      return;
+    }
+    this.unsupported(lhs, "this assignment target");
+  };
+  lowerTuple (n, expect) {
+    if ( n.kids.length == 0 ) {
+      return this.unit();
+    }
+    const tt = RsType.mk("tuple");
+    let codes = [];
+    let i = 0;
+    // Loop start
+    for ( const e of n.kids) {
+      let et = RsType.mk("unknown");
+      if ( expect.kind == "tuple" ) {
+        et = expect.arg(i);
+      }
+      const v = this.lowerExprCopy(e, et);
+      let t = et;
+      if ( t.isUnknown() ) {
+        t = v.ty;
+      }
+      const c = this.coerce(v, t, e);
+      codes.push(c.code);
+      tt.args.push(t);
+      i = i + 1;
+    }
+    const cname = this.tupleClass(tt);
+    return RsExpr.of((((("(new " + cname) + "(") + codes.join(" ")) + "))"), tt);
+  };
+  lowerArray (n, expect) {
+    let et = RsType.mk("unknown");
+    if ( expect.kind == "vec" ) {
+      et = expect.arg(0);
+    }
+    if ( n.kind == "array_repeat" ) {
+      const v = this.lowerExpr(n.kid(0), et);
+      let t = et;
+      if ( t.isUnknown() ) {
+        t = v.ty;
+      }
+      const cnt = this.lowerExpr(n.kid(1), RsType.mk("int"));
+      const vt = RsType.of1("vec", t);
+      const name = this.tmp("arr");
+      this.out.line((("def " + name) + ":") + this.rtype(vt));
+      const k = this.tmp("k");
+      this.out.line(("def " + k) + ":int 0");
+      this.out.line(((("while (" + k) + " < ") + cnt.code) + ") {");
+      this.out.line((("  push " + name) + " ") + this.cloneCode(v.code, t));
+      this.out.line(((("  " + k) + " = (") + k) + " + 1)");
+      this.out.line("}");
+      const r = RsExpr.of(name, vt);
+      r.simple = true;
+      return r;
+    }
+    let codes = [];
+    let t2 = et;
+    // Loop start
+    for ( const e of n.kids) {
+      const v2 = this.lowerExprCopy(e, t2);
+      if ( t2.isUnknown() ) {
+        t2 = v2.ty;
+      }
+      codes.push(v2.code);
+    }
+    const vt2 = RsType.of1("vec", t2);
+    const rt = this.rtype(t2);
+    if ( rt == "" ) {
+      if ( codes.length == 0 ) {
+        this.err(n, "an empty array needs its element type: annotate the `let`");
+      }
+      return RsExpr.of((("([] " + codes.join(" ")) + ")"), vt2);
+    }
+    return RsExpr.of((((("([] _:" + rt) + " (") + codes.join(" ")) + "))"), vt2);
+  };
+  lowerStructLit (n) {
+    const p = n.kid(0);
+    let name = this.lastSeg(p);
+    if ( name == "Self" ) {
+      name = this.selfType;
+    }
+    if ( false == ( typeof(this.structs[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, name) ) && p.kids.length >= 2 ) {
+      let en = this.pathSegs(p)[(p.kids.length - 2)];
+      if ( en == "Self" ) {
+        en = this.selfType;
+      }
+      if ( ( typeof(this.enums[en] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, en) ) ) {
+        return this.lowerVariantLit(n, en, name);
+      }
+    }
+    if ( false == ( typeof(this.structs[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, name) ) ) {
+      this.err(n, ("unknown struct `" + name) + "`");
+      return this.unit();
+    }
+    const s = ( Object.prototype.hasOwnProperty.call(this.structs, name) ? this.structs[name] : undefined );
+    const st = RsType.named(name);
+    if ( s.generics.length > 0 ) {
+      if ( this.selfType == name && this.selfArgs.length > 0 ) {
+        // Loop start
+        for ( const sa of this.selfArgs) {
+          st.args.push(sa);
+        }
+      } else {
+        this.err(n, ("a literal of the generic struct `" + name) + "` outside its impl");
+        return this.unit();
+      }
+    }
+    const cname = this.rtype(st);
+    const tv = this.tmp("s");
+    const base = n.kid((n.kids.length - 1));
+    if ( (false == base.isNone() && base.kind != "field_init") && base.kind != "default_rest" ) {
+      const bv = this.lowerExpr(base, st);
+      const bc = this.bindTemp(bv, st, "b");
+      this.out.line(((("def " + tv) + ":") + cname) + (" " + this.cloneCode(bc, st)));
+    } else {
+      this.out.line(((("def " + tv) + ":") + cname) + ((" (new " + cname) + ")"));
+    }
+    // Loop start
+    for ( const fi of n.kids) {
+      if ( fi.kind != "field_init" ) {
+        continue;
+      }
+      const f = s.field(fi.name);
+      if ( typeof(f) === "undefined" ) {
+        this.err(fi, ((("no field `" + fi.name) + "` on `") + name) + "`");
+        continue;
+      }
+      const ff0 = f;
+      const ff = new RsField();
+      ff.name = ff0.name;
+      ff.ty = this.fieldTypeOf(s, ff0, st);
+      let v = RsExpr.of("", ff.ty);
+      if ( fi.hasMod("shorthand") ) {
+        const pe = new RustNode("path_expr");
+        const pp = new RustNode("path");
+        const sg = new RustNode("seg");
+        sg.name = fi.name;
+        pp.add(sg);
+        pe.add(pp);
+        pe.line = fi.line;
+        pe.col = fi.col;
+        v = this.lowerExprCopy(pe, ff.ty);
+      } else {
+        v = this.lowerExprCopy(fi.kid(0), ff.ty);
+      }
+      const c = this.coerce(v, ff.ty, fi);
+      if ( c.code != "" ) {
+        this.out.line((((tv + ".") + this.fieldName(fi.name)) + " = ") + c.code);
+      }
+    }
+    const r = RsExpr.of(tv, st);
+    r.simple = true;
+    return r;
+  };
+  lowerClosure (n, expect) {
+    const ps = n.kid(0);
+    const retN = n.kid(1);
+    const body = n.kid(2);
+    let ptypes = [];
+    let i = 0;
+    // Loop start
+    for ( const p of ps.kids) {
+      let pt = RsType.mk("unknown");
+      const tn = p.kid(1);
+      if ( false == tn.isNone() ) {
+        pt = this.typeOf(tn);
+      } else {
+        if ( expect.kind == "fn" && i < expect.args.length - 1 ) {
+          pt = expect.arg(i);
+        }
+      }
+      if ( pt.isUnknown() ) {
+        this.err(p, "a closure parameter needs a type: annotate it or pass the closure where a function type is expected");
+      }
+      ptypes.push(pt);
+      i = i + 1;
+    }
+    let ret = RsType.mk("unknown");
+    if ( false == retN.isNone() ) {
+      ret = this.typeOf(retN);
+    } else {
+      if ( expect.kind == "fn" ) {
+        ret = expect.arg((expect.args.length - 1));
+      }
+    }
+    const saveOut = this.out;
+    const saveRet = this.retType;
+    const saveLast = this.lastReturn;
+    this.out = new RustOut();
+    this.out.ind = saveOut.ind + "  ";
+    this.pushScope();
+    let decls = [];
+    let k = 0;
+    // Loop start
+    for ( const p2 of ps.kids) {
+      const pat = this.stripRefPat(p2.kid(0));
+      const pty = ptypes[k];
+      if ( pat.kind == "pat_ident" ) {
+        const l = this.declare(pat.name, pty);
+        decls.push(this.declText(l.rname, pty));
+      } else {
+        const an = this.allocLocal("arg");
+        decls.push(this.declText(an, pty));
+        if ( pat.kind != "pat_wild" ) {
+          this.bindPattern(pat, an, pty);
+        }
+      }
+      k = k + 1;
+    }
+    this.retType = ret;
+    this.lastReturn = RsType.mk("unknown");
+    if ( body.kind == "block" ) {
+      this.lowerBody(body, ret);
+      if ( ret.isUnknown() ) {
+        ret = this.lastReturn;
+      }
+    } else {
+      const v = this.lowerExpr(body, ret);
+      if ( ret.isUnknown() ) {
+        ret = v.ty;
+      }
+      if ( (ret.kind == "unit" || ret.kind == "never") || ret.isUnknown() ) {
+        this.discard(v);
+        if ( ret.isUnknown() ) {
+          ret = RsType.mk("unit");
+        }
+      } else {
+        const c = this.coerce(v, ret, body);
+        this.out.line("return " + c.code);
+      }
+    }
+    this.popScope();
+    const lines = this.out.lines;
+    this.out = saveOut;
+    this.retType = saveRet;
+    this.lastReturn = saveLast;
+    let rt = this.rtype(ret);
+    if ( rt == "" ) {
+      rt = "void";
+    }
+    const ft = RsType.mk("fn");
+    // Loop start
+    for ( const pt2 of ptypes) {
+      ft.args.push(pt2);
+    }
+    ft.args.push(ret);
+    let text = (((("(fn:" + rt) + " (") + decls.join(" ")) + ") {\n") + lines.join("\n");
+    text = ((text + "\n") + this.out.ind) + "})";
+    return RsExpr.of(text, ft);
+  };
+  hasFmt (t, traitName) {
+    let ms = [];
+    if ( ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+      ms = s.methods;
+    }
+    if ( ( typeof(this.enums[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, t.name) ) ) {
+      const e = ( Object.prototype.hasOwnProperty.call(this.enums, t.name) ? this.enums[t.name] : undefined );
+      ms = e.methods;
+    }
+    // Loop start
+    for ( const m of ms) {
+      if ( m.name == "fmt" && m.fromTrait == traitName ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  arith (op, a, b, t) {
+    if ( op == "/" ) {
+      if ( t.kind == "double" ) {
+        return ((("(" + a.code) + " / ") + b.code) + ")";
+      }
+      return ((("(rs_div " + a.code) + " ") + b.code) + ")";
+    }
+    if ( op == "%" ) {
+      return ((("(rs_rem " + a.code) + " ") + b.code) + ")";
+    }
+    return ((((("(" + a.code) + " ") + op) + " ") + b.code) + ")";
+  };
+  applyClosure (f, args, expect) {
+    if ( f.kind != "closure" ) {
+      const fv = this.lowerExpr(f, RsType.mk("unknown"));
+      if ( fv.ty.kind != "fn" ) {
+        this.err(f, "expected a closure or a function");
+        return this.unit();
+      }
+      const fname = this.bindTemp(fv, fv.ty, "fn");
+      let codes = [];
+      // Loop start
+      for ( const a of args) {
+        codes.push(a.code);
+      }
+      const rt = fv.ty.arg((fv.ty.args.length - 1));
+      return RsExpr.of((((("(" + fname) + "(") + codes.join(" ")) + "))"), rt);
+    }
+    const ps = f.kid(0);
+    this.pushScope();
+    let i_1 = 0;
+    // Loop start
+    for ( const p of ps.kids) {
+      if ( i_1 >= args.length ) {
+        continue;
+      }
+      const a_1 = args[i_1];
+      const pat = this.stripRefPat(this.stripRefPat(p.kid(0)));
+      let at = a_1.ty;
+      const tn = p.kid(1);
+      if ( false == tn.isNone() && at.isUnknown() ) {
+        at = this.typeOf(tn);
+      }
+      if ( pat.kind == "pat_ident" ) {
+        const code = this.bindTemp(a_1, at, "a");
+        this.alias(pat.name, code, at);
+      } else {
+        if ( pat.kind != "pat_wild" ) {
+          const code2 = this.bindTemp(a_1, at, "a");
+          this.bindPattern(pat, code2, at);
+        }
+      }
+      i_1 = i_1 + 1;
+    }
+    const body = f.kid(2);
+    const v = this.lowerExpr(body, expect);
+    this.popScope();
+    return v;
+  };
+  captureClosure (f, args, expect) {
+    const saveOut = this.out;
+    this.out = new RustOut();
+    this.out.ind = saveOut.ind;
+    const v = this.applyClosure(f, args, expect);
+    this.lastCaptured = this.out.lines;
+    this.lastCapturedInd = saveOut.ind;
+    this.out = saveOut;
+    return v;
+  };
+  captureExpr (e, expect) {
+    const saveOut = this.out;
+    this.out = new RustOut();
+    this.out.ind = saveOut.ind;
+    const v = this.lowerExprCopy(e, expect);
+    this.lastCaptured = this.out.lines;
+    this.lastCapturedInd = saveOut.ind;
+    this.out = saveOut;
+    return v;
+  };
+  resultErrOf (expect) {
+    if ( expect.kind == "result" ) {
+      return expect.arg(1);
+    }
+    return RsType.mk("unknown");
+  };
+  isIterConsumer (n) {
+    const names = ["collect", "sum", "product", "count", "max", "min", "max_by_key", "min_by_key", "max_by", "min_by", "any", "all", "position", "find", "fold", "for_each", "last", "next", "nth", "rposition", "find_map"];
+    return names.indexOf(n) >= 0;
+  };
+  isIterAdapter (n) {
+    const names = ["map", "filter", "filter_map", "enumerate", "rev", "skip", "take", "cloned", "copied", "take_while", "skip_while", "step_by", "inspect", "map_while", "flat_map", "zip", "chain"];
+    return names.indexOf(n) >= 0;
+  };
+  isIterSource (n) {
+    const names = ["iter", "into_iter", "iter_mut", "chars", "bytes", "keys", "values", "split", "lines", "split_whitespace", "char_indices"];
+    return names.indexOf(n) >= 0;
+  };
+  isIterChain (n) {
+    let cur = n;
+    while (true) {
+      if ( cur.kind == "paren" ) {
+        cur = cur.kid(0);
+        continue;
+      }
+      if ( cur.kind == "range" ) {
+        return true;
+      }
+      if ( cur.kind != "method" ) {
+        return false;
+      }
+      if ( this.isIterSource(cur.name) ) {
+        return true;
+      }
+      if ( false == this.isIterAdapter(cur.name) ) {
+        return false;
+      }
+      cur = cur.kid(0);
+    };
+    return false;
+  };
+  lowerIterChain (consumer, expect) {
+    let stages = [];
+    let cur = consumer.kid(0);
+    while (true) {
+      if ( cur.kind == "paren" ) {
+        cur = cur.kid(0);
+        continue;
+      }
+      if ( cur.kind == "method" && this.isIterAdapter(cur.name) ) {
+        stages.push(cur);
+        cur = cur.kid(0);
+        continue;
+      }
+      break;
+    };
+    let ordered = [];
+    let si = stages.length - 1;
+    let rev = false;
+    let step = "1";
+    while (si >= 0) {
+      const st = stages[si];
+      si = si - 1;
+      if ( st.name == "rev" && ordered.length == 0 ) {
+        rev = true;
+        continue;
+      }
+      if ( st.name == "step_by" && ordered.length == 0 ) {
+        const sv = this.lowerExpr(st.kid(2), RsType.mk("int"));
+        step = this.bindTemp(sv, RsType.mk("int"), "step");
+        continue;
+      }
+      ordered.push(st);
+    };
+    const cname = consumer.name;
+    const cargs = this.callArgs(consumer, 2);
+    const res = this.tmp("it");
+    const elemT = RsType.mk("unknown");
+    const src = this.iterOpen(cur, rev, step);
+    if ( src.ty.kind == "never" ) {
+      return this.unit();
+    }
+    let e = src;
+    const pos = this.tmp("pos");
+    const body = this.out;
+    let pre = [];
+    let stateDecls = [];
+    // Loop start
+    for ( const ad of ordered) {
+      const an = ad.name;
+      const aargs = this.callArgs(ad, 2);
+      if ( an == "map" || an == "inspect" ) {
+        const mv = this.applyClosure(aargs[0], [e], RsType.mk("unknown"));
+        if ( an == "inspect" ) {
+          this.discard(mv);
+          continue;
+        }
+        const mn = this.tmp("m");
+        this.out.line((("def " + this.declText(mn, mv.ty)) + " ") + mv.code);
+        e = RsExpr.of(mn, mv.ty);
+        e.simple = true;
+        continue;
+      }
+      if ( (an == "filter" || an == "take_while") || an == "skip_while" ) {
+        const fv = this.applyClosure(aargs[0], [e], RsType.mk("bool"));
+        if ( an == "filter" ) {
+          this.out.line(("if (! " + fv.code) + ") {");
+          this.out.line("  continue");
+          this.out.line("}");
+        }
+        if ( an == "take_while" ) {
+          this.out.line(("if (! " + fv.code) + ") {");
+          this.out.line("  break");
+          this.out.line("}");
+        }
+        if ( an == "skip_while" ) {
+          const sk = this.tmp("skipping");
+          stateDecls.push(("def " + sk) + ":boolean true");
+          this.out.line(((("if (" + sk) + " && ") + fv.code) + ") {");
+          this.out.line("  continue");
+          this.out.line("}");
+          this.out.line(sk + " = false");
+        }
+        continue;
+      }
+      if ( an == "filter_map" || an == "map_while" ) {
+        const ov = this.applyClosure(aargs[0], [e], RsType.mk("unknown"));
+        const on = this.bindTemp(ov, ov.ty, "fm");
+        if ( an == "filter_map" ) {
+          this.out.line(("if (null? " + on) + ") {");
+          this.out.line("  continue");
+          this.out.line("}");
+        } else {
+          this.out.line(("if (null? " + on) + ") {");
+          this.out.line("  break");
+          this.out.line("}");
+        }
+        const un = this.tmp("m");
+        this.out.line(((("def " + this.declText(un, ov.ty.arg(0))) + " (unwrap ") + on) + ")");
+        e = RsExpr.of(un, ov.ty.arg(0));
+        e.simple = true;
+        continue;
+      }
+      if ( an == "enumerate" ) {
+        const cnt = this.tmp("n");
+        stateDecls.push(("def " + cnt) + ":int 0");
+        const pt = RsType.of2("tuple", RsType.mk("int"), e.ty);
+        const tn = this.tmp("p");
+        this.out.line(((((((("def " + this.declText(tn, pt)) + " (new ") + this.tupleClass(pt)) + "(") + cnt) + " ") + e.code) + "))");
+        this.out.line(((cnt + " = (") + cnt) + " + 1)");
+        e = RsExpr.of(tn, pt);
+        e.simple = true;
+        continue;
+      }
+      if ( an == "skip" || an == "take" ) {
+        const nv = this.lowerExpr(aargs[0], RsType.mk("int"));
+        const c2 = this.tmp(an);
+        stateDecls.push(("def " + c2) + ":int 0");
+        if ( an == "skip" ) {
+          this.out.line(((("if (" + c2) + " < ") + nv.code) + ") {");
+          this.out.line(((("  " + c2) + " = (") + c2) + " + 1)");
+          this.out.line("  continue");
+          this.out.line("}");
+        } else {
+          this.out.line(((("if (" + c2) + " >= ") + nv.code) + ") {");
+          this.out.line("  break");
+          this.out.line("}");
+          this.out.line(((c2 + " = (") + c2) + " + 1)");
+        }
+        continue;
+      }
+      if ( an == "cloned" || an == "copied" ) {
+        if ( (e.ty.kind == "named" || e.ty.kind == "vec") || e.ty.kind == "tuple" ) {
+          const cn = this.tmp("m");
+          this.out.line((("def " + this.declText(cn, e.ty)) + " ") + this.cloneCode(e.code, e.ty));
+          e = RsExpr.of(cn, e.ty);
+          e.simple = true;
+        }
+        continue;
+      }
+      this.unsupported(ad, ("the iterator adaptor `" + an) + "`");
+    }
+    const result = this.iterConsume(
+      cname,
+      cargs,
+      e,
+      res,
+      pos,
+      expect,
+      consumer,
+      stateDecls
+    );
+    this.iterClose();
+    this.insertBeforeLoop(stateDecls);
+    return result;
+  };
+  insertBeforeLoop (decls) {
+    if ( decls.length == 0 ) {
+      return;
+    }
+    let lines = [];
+    let i = 0;
+    // Loop start
+    for ( let j = 0; j < this.out.lines.length; j++) {
+      var l = this.out.lines[j];
+      if ( i == this.loopStart ) {
+        // Loop start
+        for ( const d of decls) {
+          lines.push(this.loopInd + d);
+        }
+      }
+      lines.push(l);
+      i = i + 1;
+    }
+    this.out.lines = lines;
+  };
+  iterOpen (src0, rev, step) {
+    let src = src0;
+    while (src.kind == "paren") {
+      src = src.kid(0);
+    };
+    const idx = this.tmp("k");
+    const n = this.tmp("len");
+    if ( src.kind == "range" ) {
+      const lo = src.kid(0);
+      const hi = src.kid(1);
+      if ( lo.isNone() || hi.isNone() ) {
+        this.unsupported(src, "an open range as an iterator");
+        return RsExpr.of("", RsType.mk("never"));
+      }
+      const lv = this.lowerExpr(lo, RsType.mk("int"));
+      const hv = this.lowerExpr(hi, RsType.mk("int"));
+      const incl = src.name == "..=";
+      const end = this.tmp("end");
+      this.loopInd = this.out.ind;
+      if ( rev ) {
+        if ( incl ) {
+          this.out.line((("def " + idx) + ":int ") + hv.code);
+        } else {
+          this.out.line(((("def " + idx) + ":int (") + hv.code) + " - 1)");
+        }
+        this.out.line((("def " + end) + ":int ") + lv.code);
+        this.loopStart = this.out.lines.length;
+        this.out.line(((("while (" + idx) + " >= ") + end) + ") {");
+      } else {
+        this.out.line((("def " + idx) + ":int ") + lv.code);
+        this.out.line((("def " + end) + ":int ") + hv.code);
+        this.loopStart = this.out.lines.length;
+        let op = " < ";
+        if ( incl ) {
+          op = " <= ";
+        }
+        this.out.line(((("while (" + idx) + op) + end) + ") {");
+      }
+      this.out.indent();
+      const cur = this.tmp("at");
+      this.out.line((("def " + cur) + ":int ") + idx);
+      if ( rev ) {
+        this.out.line(((((idx + " = (") + idx) + " - ") + step) + ")");
+      } else {
+        this.out.line(((((idx + " = (") + idx) + " + ") + step) + ")");
+      }
+      const r = RsExpr.of(cur, RsType.mk("int"));
+      r.simple = true;
+      return r;
+    }
+    let mode = "vec";
+    let base = src;
+    if ( src.kind == "method" ) {
+      const mn = src.name;
+      if ( (mn == "iter" || mn == "into_iter") || mn == "iter_mut" ) {
+        base = src.kid(0);
+      }
+      if ( (((mn == "chars" || mn == "bytes") || mn == "keys") || mn == "values") || mn == "char_indices" ) {
+        base = src.kid(0);
+        mode = mn;
+      }
+    }
+    while (base.kind == "unary" && (base.name == "&" || base.name == "&mut")) {
+      base = base.kid(0);
+    };
+    const bv = this.lowerExpr(base, RsType.mk("unknown"));
+    const bt = bv.ty;
+    let seq = "";
+    let elemT = RsType.mk("unknown");
+    let elemCode = "";
+    const cur2 = this.tmp("at");
+    const isMap = bt.kind == "map" || bt.kind == "set";
+    if ( mode == "chars" || mode == "char_indices" ) {
+      seq = this.tmp("cs");
+      this.out.line(((("def " + seq) + ":[int] (to_chars ") + bv.code) + ")");
+      elemT = RsType.mk("char");
+      elemCode = ((("(rs_char_from (itemAt " + seq) + " ") + cur2) + "))";
+    } else {
+      if ( mode == "bytes" ) {
+        seq = this.tmp("bs");
+        this.out.line(((("def " + seq) + ":charbuffer (to_charbuffer ") + bv.code) + ")");
+        elemT = RsType.mk("int");
+        elemCode = ((("(charAt " + seq) + " ") + cur2) + ")";
+      } else {
+        if ( isMap ) {
+          const m = this.bindTemp(bv, bt, "map");
+          seq = this.tmp("ks");
+          this.out.line((((("def " + seq) + ":[") + this.rtype(bt.arg(0))) + "] ") + this.mapKeysCode(m, bt));
+          if ( bt.name == "sorted" ) {
+            this.sortStrings(seq, bt.arg(0));
+          }
+          if ( mode == "keys" || bt.kind == "set" ) {
+            elemT = bt.arg(0);
+            elemCode = ((("(itemAt " + seq) + " ") + cur2) + ")";
+          } else {
+            if ( mode == "values" ) {
+              elemT = bt.arg(1);
+              elemCode = ((("(unwrap (get " + this.mapR(m, bt)) + " (itemAt ") + seq) + ((" " + cur2) + ")))");
+            } else {
+              mode = "pairs";
+              elemT = RsType.of2("tuple", bt.arg(0), bt.arg(1));
+              const kc = ((("(itemAt " + seq) + " ") + cur2) + ")";
+              elemCode = ((((((("(new " + this.tupleClass(elemT)) + "(") + kc) + " (unwrap (get ") + this.mapR(m, bt)) + " ") + kc) + "))))";
+            }
+          }
+        } else {
+          if ( bt.kind != "vec" ) {
+            this.err(src0, ("cannot iterate a value of type `" + bt.rust()) + "`");
+            return RsExpr.of("", RsType.mk("never"));
+          }
+          seq = this.bindTemp(bv, bt, "seq");
+          elemT = bt.arg(0);
+          elemCode = ((("(itemAt " + seq) + " ") + cur2) + ")";
+        }
+      }
+    }
+    this.loopInd = this.out.ind;
+    if ( mode == "bytes" ) {
+      this.out.line(((("def " + n) + ":int (length ") + seq) + ")");
+    } else {
+      this.out.line(((("def " + n) + ":int (array_length ") + seq) + ")");
+    }
+    if ( rev ) {
+      this.out.line(((("def " + idx) + ":int (") + n) + " - 1)");
+      this.loopStart = this.out.lines.length;
+      this.out.line(("while (" + idx) + " >= 0) {");
+    } else {
+      this.out.line(("def " + idx) + ":int 0");
+      this.loopStart = this.out.lines.length;
+      this.out.line(((("while (" + idx) + " < ") + n) + ") {");
+    }
+    this.out.indent();
+    this.out.line((("def " + cur2) + ":int ") + idx);
+    if ( rev ) {
+      this.out.line(((((idx + " = (") + idx) + " - ") + step) + ")");
+    } else {
+      this.out.line(((((idx + " = (") + idx) + " + ") + step) + ")");
+    }
+    const en = this.tmp("e");
+    this.out.line((("def " + this.declText(en, elemT)) + " ") + elemCode);
+    if ( mode == "char_indices" ) {
+      const bo = this.tmp("bo");
+      this.out.line(((((("def " + bo) + ":int (rs_byte_len (RsStr.codeSlice(") + bv.code) + " 0 ") + cur2) + ")))");
+      const pt = RsType.of2("tuple", RsType.mk("int"), RsType.mk("char"));
+      const pn = this.tmp("p");
+      this.out.line(((((((("def " + this.declText(pn, pt)) + " (new ") + this.tupleClass(pt)) + "(") + bo) + " ") + en) + "))");
+      const rp = RsExpr.of(pn, pt);
+      rp.simple = true;
+      return rp;
+    }
+    const r2 = RsExpr.of(en, elemT);
+    r2.simple = true;
+    return r2;
+  };
+  iterClose () {
+    this.out.dedent();
+    this.out.line("}");
+  };
+  iterConsume (name, args, e, res, pos, expect, at, decls) {
+    const it = RsType.mk("int");
+    const bt = RsType.mk("bool");
+    const et = e.ty;
+    if ( name == "collect" ) {
+      let target = expect;
+      const ta = at.kid(1);
+      if ( ta.kids.length > 0 ) {
+        target = this.typeOf(ta.kid(0));
+      }
+      if ( target.kind == "string" ) {
+        decls.push(("def " + res) + ":string \"\"");
+        this.out.line(((((res + " = (") + res) + " + ") + e.code) + ")");
+        return this.simpleExpr(res, target);
+      }
+      if ( target.kind == "map" || target.kind == "set" ) {
+        decls.push(((("def " + res) + ":") + this.rtype(target)) + this.initSuffix(target));
+        if ( target.kind == "set" ) {
+          this.out.line(((("set " + res) + " ") + e.code) + " true");
+        } else {
+          this.out.line(this.mapSetLine(
+            res,
+            target,
+            (e.code + ".f0"),
+            (e.code + ".f1")
+          ));
+        }
+        return this.simpleExpr(res, target);
+      }
+      if ( target.kind != "vec" || target.arg(0).isUnknown() ) {
+        target = RsType.of1("vec", et);
+      }
+      decls.push((("def " + res) + ":") + this.rtype(target));
+      this.out.line((("push " + res) + " ") + e.code);
+      return this.simpleExpr(res, target);
+    }
+    if ( name == "sum" || name == "product" ) {
+      let t = et;
+      if ( false == expect.isUnknown() ) {
+        t = expect;
+      }
+      const ta2 = at.kid(1);
+      if ( ta2.kids.length > 0 ) {
+        t = this.typeOf(ta2.kid(0));
+      }
+      let init = "0";
+      if ( t.kind == "double" ) {
+        init = "0.0";
+      }
+      if ( name == "product" ) {
+        init = "1";
+        if ( t.kind == "double" ) {
+          init = "1.0";
+        }
+      }
+      decls.push(((("def " + res) + ":") + this.rtype(t)) + (" " + init));
+      let op = " + ";
+      if ( name == "product" ) {
+        op = " * ";
+      }
+      this.out.line(((((res + " = (") + res) + op) + e.code) + ")");
+      return this.simpleExpr(res, t);
+    }
+    if ( name == "count" ) {
+      decls.push(("def " + res) + ":int 0");
+      this.out.line(((res + " = (") + res) + " + 1)");
+      return this.simpleExpr(res, it);
+    }
+    if ( (name == "max" || name == "min") || name == "last" ) {
+      const ot = RsType.of1("opt", et);
+      decls.push("def " + this.declText(res, ot));
+      const ec = e.code;
+      if ( name == "last" ) {
+        this.out.line((res + " = ") + ec);
+      } else {
+        let cmp = " >= ";
+        if ( name == "min" ) {
+          cmp = " < ";
+        }
+        this.out.line(((((("if ((null? " + res) + ") || (") + ec) + cmp) + ("(unwrap " + res)) + "))) {");
+        this.out.line((("  " + res) + " = ") + ec);
+        this.out.line("}");
+      }
+      return this.simpleExpr(res, ot);
+    }
+    if ( name == "max_by_key" || name == "min_by_key" ) {
+      const ot2 = RsType.of1("opt", et);
+      decls.push("def " + this.declText(res, ot2));
+      const kv = this.applyClosure(args[0], [e], RsType.mk("unknown"));
+      const best = this.tmp("bk");
+      decls.push((("def " + best) + ":") + (this.rtype(kv.ty) + (" " + this.zeroCode(kv.ty))));
+      const kn = this.bindTemp(kv, kv.ty, "kv");
+      let cmp2 = " >= ";
+      if ( name == "min_by_key" ) {
+        cmp2 = " < ";
+      }
+      this.out.line(((((("if ((null? " + res) + ") || (") + kn) + cmp2) + best) + ")) {");
+      this.out.line((("  " + res) + " = ") + e.code);
+      this.out.line((("  " + best) + " = ") + kn);
+      this.out.line("}");
+      return this.simpleExpr(res, ot2);
+    }
+    if ( name == "any" || name == "all" ) {
+      let init2 = "false";
+      if ( name == "all" ) {
+        init2 = "true";
+      }
+      decls.push((("def " + res) + ":boolean ") + init2);
+      const pv = this.applyClosure(args[0], [e], bt);
+      if ( name == "any" ) {
+        this.out.line(("if " + this.condText(pv.code)) + " {");
+        this.out.line(("  " + res) + " = true");
+      } else {
+        this.out.line(("if (! " + pv.code) + ") {");
+        this.out.line(("  " + res) + " = false");
+      }
+      this.out.line("  break");
+      this.out.line("}");
+      return this.simpleExpr(res, bt);
+    }
+    if ( (name == "position" || name == "find") || name == "find_map" ) {
+      let rt = et;
+      if ( name == "position" ) {
+        rt = it;
+        decls.push(("def " + pos) + ":int 0");
+      }
+      const ot3 = RsType.of1("opt", rt);
+      decls.push("def " + this.declText(res, ot3));
+      if ( name == "find_map" ) {
+        const fm = this.applyClosure(args[0], [e], RsType.mk("unknown"));
+        const fmn = this.bindTemp(fm, fm.ty, "fm");
+        this.out.line(("if (!null? " + fmn) + ") {");
+        this.out.line(((("  " + res) + " = (unwrap ") + fmn) + ")");
+        this.out.line("  break");
+        this.out.line("}");
+        return this.simpleExpr(res, fm.ty);
+      }
+      const pv2 = this.applyClosure(args[0], [e], bt);
+      this.out.line(("if " + this.condText(pv2.code)) + " {");
+      if ( name == "position" ) {
+        this.out.line((("  " + res) + " = ") + pos);
+      } else {
+        this.out.line((("  " + res) + " = ") + e.code);
+      }
+      this.out.line("  break");
+      this.out.line("}");
+      if ( name == "position" ) {
+        this.out.line(((pos + " = (") + pos) + " + 1)");
+      }
+      return this.simpleExpr(res, ot3);
+    }
+    if ( name == "fold" ) {
+      const iv = this.lowerExpr(args[0], expect);
+      let ft = iv.ty;
+      if ( false == expect.isUnknown() ) {
+        ft = expect;
+      }
+      decls.push((("def " + this.declText(res, ft)) + " ") + iv.code);
+      const accE = this.simpleExpr(res, ft);
+      const fv = this.applyClosure(args[1], [accE, e], ft);
+      this.out.line((res + " = ") + fv.code);
+      return this.simpleExpr(res, ft);
+    }
+    if ( name == "__for" ) {
+      const fp = this.forPat;
+      const fb = this.forBody;
+      const saveStart = this.loopStart;
+      const saveInd = this.loopInd;
+      this.pushScope();
+      this.bindForPattern(fp, e.code, e.ty);
+      this.pushLoop("", "");
+      this.lowerLoopBody(fb);
+      this.popLoop();
+      this.popScope();
+      this.loopStart = saveStart;
+      this.loopInd = saveInd;
+      return this.unit();
+    }
+    if ( name == "for_each" ) {
+      const bv = this.applyClosure(args[0], [e], RsType.mk("unit"));
+      this.discard(bv);
+      return this.unit();
+    }
+    if ( name == "next" || name == "nth" ) {
+      const ot4 = RsType.of1("opt", et);
+      decls.push("def " + this.declText(res, ot4));
+      if ( name == "nth" ) {
+        const nv = this.lowerExpr(args[0], it);
+        const cnt = this.tmp("nth");
+        decls.push(("def " + cnt) + ":int 0");
+        this.out.line(((("if (" + cnt) + " == ") + nv.code) + ") {");
+        this.out.line((("  " + res) + " = ") + e.code);
+        this.out.line("  break");
+        this.out.line("}");
+        this.out.line(((cnt + " = (") + cnt) + " + 1)");
+      } else {
+        this.out.line((res + " = ") + e.code);
+        this.out.line("break");
+      }
+      return this.simpleExpr(res, ot4);
+    }
+    this.unsupported(at, ("the iterator consumer `" + name) + "`");
+    return this.unit();
+  };
+  simpleExpr (code, t) {
+    const r = RsExpr.of(code, t);
+    r.simple = true;
+    return r;
+  };
+  comparatorLambda (f, et, keyed) {
+    const saveOut = this.out;
+    this.out = new RustOut();
+    this.out.ind = saveOut.ind + "  ";
+    this.pushScope();
+    const an = this.allocLocal("a");
+    const bn = this.allocLocal("b");
+    const ae = this.simpleExpr(an, et);
+    const be = this.simpleExpr(bn, et);
+    if ( keyed ) {
+      const ka = this.applyClosure(f, [ae], RsType.mk("unknown"));
+      const kan = this.bindTemp(ka, ka.ty, "ka");
+      const kb = this.applyClosure(f, [be], RsType.mk("unknown"));
+      const kbn = this.bindTemp(kb, kb.ty, "kb");
+      this.out.line("return " + this.cmpCode(kan, kbn, ka.ty));
+    } else {
+      const r = this.applyClosure(f, [ae, be], RsType.mk("int"));
+      this.out.line("return " + r.code);
+    }
+    this.popScope();
+    const lines = this.out.lines;
+    this.out = saveOut;
+    const rt = this.rtype(et);
+    return ((((((((("(fn:int (" + an) + ":") + rt) + " ") + bn) + ":") + rt) + ") {\n") + lines.join("\n")) + (("\n" + this.out.ind) + "})");
+  };
+  comparatorFromMethod (et) {
+    const rt = this.rtype(et);
+    return ((((("(fn:int (a:" + rt) + " b:") + rt) + ") {\n") + this.out.ind) + (("  return (a.cmp(b))\n" + this.out.ind) + "})");
+  };
+  cmpCode (a, b, t) {
+    if ( t.kind == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      const sc = this.structCmp(a, b, t);
+      if ( sc != "" ) {
+        return sc;
+      }
+      return ((("(" + a) + ".cmp(") + b) + "))";
+    }
+    if ( t.kind == "string" || t.kind == "char" ) {
+      return ((("(rs_str_cmp " + a) + " ") + b) + ")";
+    }
+    return ((((((("(? (" + a) + " < ") + b) + ") -1 (? (") + a) + " > ") + b) + ") 1 0))";
+  };
+  writeBack (call, v, t) {
+    const recvN = call.kid(0);
+    if ( recvN.kind == "path_expr" || recvN.kind == "unary" ) {
+      let inner = recvN;
+      while (inner.kind == "unary" && (inner.name == "&mut" || inner.name == "*")) {
+        inner = inner.kid(0);
+      };
+      if ( inner.kind == "path_expr" ) {
+        const l = this.placeType(inner);
+        if ( l.code != v ) {
+          this.assignTo(inner, this.simpleExpr(v, t));
+        }
+        return;
+      }
+    }
+    if ( recvN.kind == "field" || recvN.kind == "index" ) {
+      this.assignTo(recvN, this.simpleExpr(v, t));
+    }
+  };
+  lowerTry (n, expect) {
+    const inner = n.kid(0);
+    if ( inner.kind == "macro_call" && (inner.name == "write" || inner.name == "writeln") ) {
+      this.lowerMacroStmt(inner);
+      return this.unit();
+    }
+    const v = this.lowerExpr(inner, RsType.mk("unknown"));
+    const t = v.ty;
+    if ( t.kind == "result" ) {
+      const r = this.bindTemp(v, t, "q");
+      if ( this.retType.kind != "result" ) {
+        this.err(n, "`?` on a Result inside a function that does not return a Result");
+        return this.unit();
+      }
+      this.out.line(("if (! " + r) + ".ok) {");
+      this.out.indent();
+      const cls = this.resultClass(this.retType);
+      const back = this.tmp("err");
+      this.out.line(((("def " + back) + ":") + cls) + ((" (new " + cls) + ")"));
+      const et = this.retType.arg(1);
+      if ( et.kind != "unit" && false == et.isUnknown() ) {
+        this.out.line(((back + ".e = ") + r) + ".e");
+      }
+      this.out.line("return " + back);
+      this.out.dedent();
+      this.out.line("}");
+      const __REGx1 = t.arg(0);
+      if ( __REGx1.kind == "unit" ) {
+        return this.unit();
+      }
+      return this.simpleExpr((r + ".v"), t.arg(0));
+    }
+    if ( t.kind == "opt" ) {
+      const o = this.bindTemp(v, t, "q");
+      if ( this.retType.kind != "opt" ) {
+        this.err(n, "`?` on an Option inside a function that does not return an Option");
+        return this.unit();
+      }
+      this.out.line(("if (null? " + o) + ") {");
+      const none = this.tmp("none");
+      this.out.line("  def " + this.declText(none, this.retType));
+      this.out.line("  return " + none);
+      this.out.line("}");
+      return RsExpr.of((("(unwrap " + o) + ")"), t.arg(0));
+    }
+    this.err(n, "`?` needs a Result or an Option");
+    return this.unit();
+  };
+  lowerMacroStmt (m) {
+    const name = m.name;
+    if ( ((name == "write" || name == "writeln") && this.displayFormatter != "") && m.kids.length >= 1 ) {
+      let rest = [];
+      let ri = 1;
+      while (ri < m.kids.length) {
+        rest.push(m.kid(ri));
+        ri = ri + 1;
+      };
+      let text = "\"\"";
+      if ( rest.length > 0 ) {
+        text = this.formatArgs(rest, m);
+      }
+      if ( name == "writeln" ) {
+        text = ("(" + text) + " + \"\\n\")";
+      }
+      this.out.line(("rs__out = (rs__out + " + text) + ")");
+      return true;
+    }
+    if ( ((name == "println" || name == "print") || name == "eprintln") || name == "eprint" ) {
+      let text_1 = "\"\"";
+      if ( m.kids.length > 0 ) {
+        text_1 = this.formatArgs(m.kids, m);
+      } else {
+        if ( m.value.trim() != "" ) {
+          this.err(m, ("the arguments of `" + name) + "!` do not parse as expressions");
+          return true;
+        }
+      }
+      if ( name == "println" ) {
+        this.out.line("print " + text_1);
+      }
+      if ( name == "print" ) {
+        this.out.line("write " + text_1);
+      }
+      if ( name == "eprintln" || name == "eprint" ) {
+        this.out.line("rs_eprint " + text_1);
+      }
+      return true;
+    }
+    if ( name == "assert" || name == "debug_assert" ) {
+      const c = this.lowerExpr(m.kid(0), RsType.mk("bool"));
+      this.out.line(("if (! " + c.code) + ") {");
+      this.out.line("  rs_panic \"assertion failed\"");
+      this.out.line("}");
+      return true;
+    }
+    if ( (name == "assert_eq" || name == "assert_ne") || name == "debug_assert_eq" ) {
+      const a = this.lowerExpr(m.kid(0), RsType.mk("unknown"));
+      const b = this.lowerExpr(m.kid(1), a.ty);
+      let t = a.ty;
+      if ( t.isUnknown() ) {
+        t = b.ty;
+      }
+      const eq = this.compare("==", a, b, t, m);
+      if ( name == "assert_ne" ) {
+        this.out.line(("if " + eq) + " {");
+      } else {
+        this.out.line(("if (! " + eq) + ") {");
+      }
+      this.out.line("  rs_panic " + this.strLit((name + " failed")));
+      this.out.line("}");
+      return true;
+    }
+    if ( ((name == "panic" || name == "unreachable") || name == "todo") || name == "unimplemented" ) {
+      let msg = this.strLit((name + "!"));
+      if ( m.kids.length > 0 ) {
+        msg = this.formatArgs(m.kids, m);
+      }
+      this.out.line("rs_panic " + msg);
+      return true;
+    }
+    return false;
+  };
+  lowerMacroExpr (m, expect) {
+    const name = m.name;
+    if ( name == "format" ) {
+      if ( m.kids.length == 0 ) {
+        this.err(m, "the arguments of `format!` do not parse as expressions");
+        return this.unit();
+      }
+      return RsExpr.of(this.formatArgs(m.kids, m), this.ownedString());
+    }
+    if ( name == "vec" ) {
+      const arr = new RustNode("array");
+      if ( m.hasMod("repeat") ) {
+        arr.kind = "array_repeat";
+      }
+      arr.line = m.line;
+      arr.col = m.col;
+      // Loop start
+      for ( const k of m.kids) {
+        arr.add(k);
+      }
+      if ( m.kids.length == 0 && m.value.trim() != "" ) {
+        this.err(m, "the elements of `vec!` do not parse as expressions");
+      }
+      if ( m.kids.length == 0 ) {
+        return this.emptyCollection(expect, m);
+      }
+      return this.lowerArray(arr, expect);
+    }
+    if ( this.lowerMacroStmt(m) ) {
+      return RsExpr.of("", RsType.mk("never"));
+    }
+    this.unsupported(m, ("the macro `" + name) + "!`");
+    return this.unit();
+  };
+  formatArgs (kids, at) {
+    const fmtN = kids[0];
+    if ( fmtN.kind != "lit" || false == fmtN.hasMod("str") ) {
+      this.err(at, "the first argument of a formatting macro must be a string literal");
+      return "\"\"";
+    }
+    const fmt = fmtN.value;
+    let args = [];
+    let i = 1;
+    while (i < kids.length) {
+      const a = this.lowerExpr(kids[i], RsType.mk("unknown"));
+      args.push(a);
+      i = i + 1;
+    };
+    return this.formatString(fmt, args, at);
+  };
+  formatString (fmt, args, at) {
+    let parts = [];
+    let lit = "";
+    const cs = Array.from(fmt, (rg_c) => rg_c.codePointAt(0));
+    const n = cs.length;
+    let i = 0;
+    let next = 0;
+    while (i < n) {
+      const c = cs[i];
+      if ( (c == 123 && i + 1 < n) && cs[(i + 1)] == 123 ) {
+        lit = lit + "{";
+        i = i + 2;
+        continue;
+      }
+      if ( (c == 125 && i + 1 < n) && cs[(i + 1)] == 125 ) {
+        lit = lit + "}";
+        i = i + 2;
+        continue;
+      }
+      if ( c == 123 ) {
+        let j = i + 1;
+        let spec = "";
+        while (j < n && cs[j] != 125) {
+          spec = spec + String.fromCharCode(cs[j]);
+          j = j + 1;
+        };
+        i = j + 1;
+        if ( lit != "" ) {
+          parts.push(this.strLit(lit));
+          lit = "";
+        }
+        const colon = spec.indexOf(":");
+        let argName = spec;
+        let fspec = "";
+        if ( colon >= 0 ) {
+          argName = spec.substring(0, colon );
+          fspec = spec.substring(colon + 1, spec.length );
+        }
+        let val = RsExpr.of("\"\"", RsType.mk("string"));
+        if ( argName == "" ) {
+          if ( next < args.length ) {
+            val = args[next];
+          } else {
+            this.err(at, "more `{}` than arguments");
+          }
+          next = next + 1;
+        } else {
+          const fc = Array.from(argName, (rg_c) => rg_c.codePointAt(0))[0];
+          if ( fc >= 48 && fc <= 57 ) {
+            const idx = (isNaN( parseInt(argName) ) ? undefined : parseInt(argName));
+            if ( idx < args.length ) {
+              val = args[idx];
+            }
+          } else {
+            const l = this.scope.lookup(argName);
+            if ( typeof(l) === "undefined" ) {
+              this.err(at, ("unknown name `" + argName) + "` in a format string");
+            } else {
+              const lv = l;
+              val = RsExpr.of(lv.rname, lv.ty);
+              val.simple = true;
+            }
+          }
+        }
+        parts.push(this.formatValue(val, fspec, at));
+        continue;
+      }
+      lit = lit + String.fromCharCode(c);
+      i = i + 1;
+    };
+    if ( lit != "" ) {
+      parts.push(this.strLit(lit));
+    }
+    if ( parts.length == 0 ) {
+      return "\"\"";
+    }
+    let acc = parts[0];
+    let k = 1;
+    while (k < parts.length) {
+      acc = ((("(" + acc) + " + ") + parts[k]) + ")";
+      k = k + 1;
+    };
+    if ( parts.length == 1 ) {
+      const only = parts[0];
+      if ( only.substring(0, 1 ) != "\"" ) {
+        return ("(\"\" + " + only) + ")";
+      }
+    }
+    return acc;
+  };
+  formatValue (v, spec, at) {
+    const debug = spec.indexOf("?") >= 0;
+    let s = spec.split("?").join("");
+    s = s.split("#").join("");
+    let prec = -1;
+    const dot = s.indexOf(".");
+    if ( dot >= 0 ) {
+      const ps = s.substring(dot + 1, s.length );
+      prec = (isNaN( parseInt(ps) ) ? undefined : parseInt(ps));
+      s = s.substring(0, dot );
+    }
+    let align = "";
+    let fill = " ";
+    const cs = Array.from(s, (rg_c) => rg_c.codePointAt(0));
+    if ( cs.length >= 2 ) {
+      const c1 = cs[1];
+      if ( (c1 == 60 || c1 == 62) || c1 == 94 ) {
+        fill = String.fromCharCode(cs[0]);
+        align = String.fromCharCode(c1);
+        s = s.substring(2, s.length );
+      }
+    }
+    const cs2 = Array.from(s, (rg_c) => rg_c.codePointAt(0));
+    if ( align == "" && cs2.length >= 1 ) {
+      const c0 = cs2[0];
+      if ( (c0 == 60 || c0 == 62) || c0 == 94 ) {
+        align = String.fromCharCode(c0);
+        s = s.substring(1, s.length );
+      }
+    }
+    let zero = false;
+    if ( s.length > 1 && s.substring(0, 1 ) == "0" ) {
+      zero = true;
+      s = s.substring(1, s.length );
+    }
+    let width = 0;
+    if ( s.length > 0 ) {
+      width = (isNaN( parseInt(s) ) ? undefined : parseInt(s));
+    }
+    let code = "";
+    if ( debug ) {
+      const tv = this.bindTemp(v, v.ty, "d");
+      code = this.dbgCode(tv, v.ty);
+    } else {
+      if ( prec >= 0 && v.ty.kind == "double" ) {
+        code = ((("(rs_fmt_prec " + v.code) + " ") + (prec.toString())) + ")";
+      } else {
+        code = this.fmtDisplay(v, "");
+      }
+    }
+    if ( width > 0 ) {
+      const num = v.ty.kind == "int" || v.ty.kind == "double";
+      if ( align == "" ) {
+        if ( num ) {
+          align = ">";
+        } else {
+          align = "<";
+        }
+      }
+      if ( zero ) {
+        return ((("(RsFmt.padZero(" + code) + " ") + (width.toString())) + "))";
+      }
+      return ((((((("(RsFmt.pad(" + code) + " ") + (width.toString())) + " ") + this.strLit(align)) + " ") + this.strLit(fill)) + "))";
+    }
+    return code;
+  };
+  fmtDisplay (v, prec) {
+    const k = v.ty.kind;
+    if ( k == "string" || k == "char" ) {
+      return v.code;
+    }
+    if ( k == "int" ) {
+      return ("(to_string " + v.code) + ")";
+    }
+    if ( k == "bool" ) {
+      return ("(? " + v.code) + " \"true\" \"false\")";
+    }
+    if ( k == "named" && ( typeof(this.structs[v.ty.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, v.ty.name) ) ) {
+      if ( false == this.hasFmt(v.ty, "Display") ) {
+        this.err(new RustNode("none"), ("`" + v.ty.name) + "` has no Display impl");
+      }
+      const r = this.bindTemp(v, v.ty, "d");
+      return ("(" + r) + ".rs_display())";
+    }
+    if ( k == "named" && ( typeof(this.enums[v.ty.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, v.ty.name) ) ) {
+      if ( this.hasFmt(v.ty, "Display") ) {
+        const r2 = this.bindTemp(v, v.ty, "d");
+        return ((("(" + this.implClass(v.ty.name)) + ".displayOf(") + r2) + "))";
+      }
+      this.err(new RustNode("none"), ("`" + v.ty.name) + "` has no Display impl");
+    }
+    return ("(rs_fmt " + v.code) + ")";
+  };
+  lowerVariantLit (n, en, vn) {
+    const e = ( Object.prototype.hasOwnProperty.call(this.enums, en) ? this.enums[en] : undefined );
+    const v = e.variant(vn);
+    if ( typeof(v) === "undefined" ) {
+      this.err(n, ((("no variant `" + vn) + "` in `") + en) + "`");
+      return this.unit();
+    }
+    const vv = v;
+    let byName = {};
+    // Loop start
+    for ( const fi of n.kids) {
+      if ( fi.kind != "field_init" ) {
+        continue;
+      }
+      let ft = RsType.mk("unknown");
+      // Loop start
+      for ( const f of vv.fields) {
+        if ( f.name == fi.name ) {
+          ft = f.ty;
+        }
+      }
+      let val = RsExpr.of("", ft);
+      if ( fi.hasMod("shorthand") ) {
+        const l = this.scope.lookup(fi.name);
+        if ( typeof(l) === "undefined" ) {
+          this.err(fi, ("unknown name `" + fi.name) + "`");
+          continue;
+        }
+        const lv = l;
+        val = RsExpr.of(lv.rname, lv.ty);
+      } else {
+        val = this.lowerExprCopy(fi.kid(0), ft);
+      }
+      byName[fi.name] = val.code;
+    }
+    let args = [];
+    // Loop start
+    for ( const f2 of vv.fields) {
+      if ( ( typeof(byName[f2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(byName, f2.name) ) ) {
+        args.push(( Object.prototype.hasOwnProperty.call(byName, f2.name) ? byName[f2.name] : undefined ));
+      } else {
+        this.err(n, ("missing field `" + f2.name) + "`");
+      }
+    }
+    return RsExpr.of((((("(new " + this.caseType(en, vn)) + "(") + args.join(" ")) + "))"), RsType.named(en));
+  };
+  variantCtorValue (e, v, at) {
+    let ps = [];
+    let as = [];
+    const ft = RsType.mk("fn");
+    let i = 0;
+    // Loop start
+    for ( const f of v.fields) {
+      const pn = "p" + (i.toString());
+      ps.push(this.declText(pn, f.ty));
+      as.push(pn);
+      ft.args.push(f.ty);
+      i = i + 1;
+    }
+    ft.args.push(RsType.named(e.name));
+    const code = ((((((("(fn:" + this.className(e.name)) + " (") + ps.join(" ")) + ") {\n") + this.out.ind) + "  return (new ") + this.caseType(e.name, v.name)) + (((("(" + as.join(" ")) + "))\n") + this.out.ind) + "})");
+    return RsExpr.of(code, ft);
+  };
+  needsOpen (pat, t) {
+    const k = pat.kind;
+    if ( k == "pat_tuple_struct" || k == "pat_struct" ) {
+      const pn = this.lastSeg(pat.kid(0));
+      if ( (pn == "Ok" || pn == "Err") && t.kind == "result" ) {
+        return true;
+      }
+      if ( pn == "Some" && t.kind == "opt" ) {
+        return this.needsOpen(pat.kid(1), t.arg(0));
+      }
+      if ( this.isDataEnum(t) ) {
+        return true;
+      }
+      if ( t.kind == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+        const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+        let i = 1;
+        while (i < pat.kids.length) {
+          const sub = pat.kid(i);
+          let fname = "f" + ((i - 1).toString());
+          let subPat = sub;
+          if ( k == "pat_struct" ) {
+            fname = sub.name;
+            subPat = sub.kid(0);
+          }
+          const f = s.field(fname);
+          if ( (typeof(f) !== "undefined" && f != null )  ) {
+            const ff = f;
+            if ( this.needsOpen(subPat, ff.ty) ) {
+              return true;
+            }
+          }
+          i = i + 1;
+        };
+      }
+      return false;
+    }
+    if ( k == "pat_ident" && pat.kids.length > 0 ) {
+      return this.needsOpen(pat.kid(0), t);
+    }
+    if ( (k == "pat_paren" || k == "pat_ref") || k == "pat_box" ) {
+      return this.needsOpen(pat.kid(0), t);
+    }
+    if ( k == "pat_tuple" ) {
+      let ti = 0;
+      // Loop start
+      for ( const sp of pat.kids) {
+        if ( this.needsOpen(sp, t.arg(ti)) ) {
+          return true;
+        }
+        ti = ti + 1;
+      }
+    }
+    if ( k == "pat_or" ) {
+      // Loop start
+      for ( const alt of pat.kids) {
+        if ( this.needsOpen(alt, t) ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  patOpen (pat, subj0, t) {
+    const k = pat.kind;
+    const subj = subj0;
+    if ( k == "pat_wild" || k == "pat_rest" ) {
+      return 0;
+    }
+    if ( (k == "pat_paren" || k == "pat_ref") || k == "pat_box" ) {
+      return this.patOpen(pat.kid(0), subj, t);
+    }
+    if ( k == "pat_ident" ) {
+      if ( this.isUnitVariantName(pat.name, t) ) {
+        this.out.line(("if " + this.condText(this.patCond(
+          pat,
+          subj,
+          t
+        ))) + " {");
+        this.out.indent();
+        return 1;
+      }
+      let n0 = 0;
+      if ( pat.kids.length > 0 ) {
+        n0 = this.patOpen(pat.kid(0), subj, t);
+      }
+      const l = this.declare(pat.name, t);
+      let code = subj;
+      if ( this.isCopyStruct(t) ) {
+        code = ("(" + subj) + ".rs_clone())";
+      }
+      this.out.line((("def " + this.declText(l.rname, t)) + " ") + code);
+      return n0;
+    }
+    if ( k == "pat_tuple" ) {
+      if ( t.kind != "tuple" ) {
+        this.unsupported(pat, "a tuple pattern on a value that is not a tuple");
+        return 0;
+      }
+      let opened = 0;
+      let ti = 0;
+      // Loop start
+      for ( const sp of pat.kids) {
+        opened = opened + this.patOpen(
+          sp,
+          ((subj + ".f") + (ti.toString())),
+          t.arg(ti)
+        );
+        ti = ti + 1;
+      }
+      return opened;
+    }
+    if ( k == "pat_tuple_struct" || k == "pat_struct" ) {
+      const pn = this.lastSeg(pat.kid(0));
+      if ( pn == "Some" && t.kind == "opt" ) {
+        this.out.line(("if (!null? " + subj) + ") {");
+        this.out.indent();
+        const u = this.tmp("u");
+        this.out.line(((("def " + this.declText(u, t.arg(0))) + " (unwrap ") + subj) + ")");
+        return 1 + this.patOpen(pat.kid(1), u, t.arg(0));
+      }
+      if ( (pn == "Ok" || pn == "Err") && t.kind == "result" ) {
+        if ( pn == "Ok" ) {
+          this.out.line(("if " + subj) + ".ok {");
+        } else {
+          this.out.line(("if (! " + subj) + ".ok) {");
+        }
+        this.out.indent();
+        if ( pn == "Ok" ) {
+          const __REGx1 = t.arg(0);
+          if ( __REGx1.kind == "unit" ) {
+            return 1;
+          }
+          return 1 + this.patOpen(pat.kid(1), (subj + ".v"), t.arg(0));
+        }
+        return 1 + this.patOpen(pat.kid(1), (subj + ".e"), t.arg(1));
+      }
+      if ( this.isDataEnum(t) ) {
+        const e = ( Object.prototype.hasOwnProperty.call(this.enums, t.name) ? this.enums[t.name] : undefined );
+        const v = e.variant(pn);
+        if ( typeof(v) === "undefined" ) {
+          this.err(pat, ((("no variant `" + pn) + "` in `") + t.name) + "`");
+          return 0;
+        }
+        const vv = v;
+        let cs = subj;
+        if ( cs.indexOf(".") >= 0 || cs.indexOf("(") >= 0 ) {
+          cs = this.tmp("cs");
+          this.out.line((((("def " + cs) + ":") + this.className(t.name)) + " ") + subj);
+        }
+        const x = this.tmp("x");
+        this.out.line(((("case " + cs) + " ") + x) + ((":" + this.caseType(t.name, pn)) + " {"));
+        this.out.indent();
+        let opened2 = 1;
+        let i = 1;
+        while (i < pat.kids.length) {
+          const sub = pat.kid(i);
+          i = i + 1;
+          let fname = "";
+          let subPat = sub;
+          if ( k == "pat_struct" ) {
+            fname = sub.name;
+            subPat = sub.kid(0);
+          } else {
+            if ( sub.kind == "pat_rest" ) {
+              continue;
+            }
+            fname = "f" + ((i - 2).toString());
+          }
+          let ft = RsType.mk("unknown");
+          let found = false;
+          // Loop start
+          for ( const f of vv.fields) {
+            if ( f.name == fname ) {
+              ft = f.ty;
+              found = true;
+            }
+          }
+          if ( false == found ) {
+            this.err(sub, ((("no field `" + fname) + "` in `") + pn) + "`");
+            continue;
+          }
+          opened2 = opened2 + this.patOpen(
+            subPat,
+            ((x + ".") + this.fieldName(fname)),
+            ft
+          );
+        };
+        return opened2;
+      }
+      if ( t.kind == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+        const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+        let opened3 = 0;
+        let j = 1;
+        while (j < pat.kids.length) {
+          const sub2 = pat.kid(j);
+          j = j + 1;
+          let fname2 = "f" + ((j - 2).toString());
+          let subPat2 = sub2;
+          if ( k == "pat_struct" ) {
+            fname2 = sub2.name;
+            subPat2 = sub2.kid(0);
+          }
+          if ( sub2.kind == "pat_rest" ) {
+            continue;
+          }
+          const f2 = s.field(fname2);
+          if ( typeof(f2) === "undefined" ) {
+            this.err(sub2, ("no field `" + fname2) + "`");
+            continue;
+          }
+          const ff2 = f2;
+          opened3 = opened3 + this.patOpen(
+            subPat2,
+            ((subj + ".") + this.fieldName(fname2)),
+            ff2.ty
+          );
+        };
+        return opened3;
+      }
+    }
+    const cond = this.patCond(pat, subj, t);
+    if ( cond == "true" ) {
+      this.bindPattern(pat, subj, t);
+      return 0;
+    }
+    this.out.line(("if " + this.condText(cond)) + " {");
+    this.out.indent();
+    this.bindPattern(pat, subj, t);
+    return 1;
+  };
+  closeBlocks (n) {
+    let i = 0;
+    while (i < n) {
+      this.out.dedent();
+      this.out.line("}");
+      i = i + 1;
+    };
+  };
+  ownedString () {
+    const t = RsType.mk("string");
+    t.name = "String";
+    return t;
+  };
+  isCopy (t) {
+    if ( t.isRef && false == t.isMutRef ) {
+      return true;
+    }
+    const k = t.kind;
+    if ( (((((((k == "int" || k == "double") || k == "bool") || k == "char") || k == "unit") || k == "never") || k == "unknown") || k == "fn") || k == "none" ) {
+      return true;
+    }
+    if ( k == "string" ) {
+      return t.name != "String";
+    }
+    if ( t.shared ) {
+      return false;
+    }
+    if ( ((k == "vec" || k == "map") || k == "set") || k == "result" ) {
+      return false;
+    }
+    if ( k == "opt" ) {
+      return this.isCopy(t.arg(0));
+    }
+    if ( k == "tuple" ) {
+      // Loop start
+      for ( const a of t.args) {
+        if ( false == this.isCopy(a) ) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if ( k == "named" ) {
+      if ( ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+        const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+        return s.derivesTrait("Copy");
+      }
+      if ( ( typeof(this.enums[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, t.name) ) ) {
+        const e = ( Object.prototype.hasOwnProperty.call(this.enums, t.name) ? this.enums[t.name] : undefined );
+        return e.derives.indexOf("Copy") >= 0;
+      }
+      if ( t.isDyn ) {
+        return false;
+      }
+    }
+    return true;
+  };
+  noteMove (n0, t) {
+    let n = n0;
+    while (n.kind == "paren") {
+      n = n.kid(0);
+    };
+    if ( this.isCopy(t) ) {
+      return;
+    }
+    if ( n.kind == "path_expr" ) {
+      const p = n.kid(0);
+      if ( p.kids.length != 1 ) {
+        return;
+      }
+      const s = p.kid(0);
+      const l = this.scope.lookup(s.name);
+      if ( typeof(l) === "undefined" ) {
+        return;
+      }
+      const lv = l;
+      if ( lv.isAlias ) {
+        return;
+      }
+      lv.moved = true;
+      lv.movedLine = n.line;
+      lv.movedCol = n.col;
+      return;
+    }
+    if ( n.kind == "field" ) {
+      let base = n.kid(0);
+      while (base.kind == "field" || base.kind == "paren") {
+        base = base.kid(0);
+      };
+      if ( base.kind == "path_expr" && this.lastSeg(base.kid(0)) == "self" ) {
+        this.err(n, ("cannot move out of `self." + n.name) + "`, which is behind a reference: use `.clone()` or `std::mem::take`");
+      }
+      return;
+    }
+    if ( n.kind == "index" ) {
+      this.err(n, "cannot move out of an index of a Vec: use `.clone()`, or borrow it with `&`");
+    }
+  };
+  movedSnapshot () {
+    let list = [];
+    // Loop start
+    for ( const l of this.fnLocals) {
+      if ( l.moved ) {
+        list.push(l);
+      }
+    }
+    return list;
+  };
+  movedRestore (list) {
+    // Loop start
+    for ( const l of this.fnLocals) {
+      l.moved = false;
+    }
+    // Loop start
+    for ( const m of list) {
+      m.moved = true;
+    }
+  };
+  movedUnion (a, b) {
+    let list = [];
+    // Loop start
+    for ( const x of a) {
+      list.push(x);
+    }
+    // Loop start
+    for ( const y of b) {
+      if ( list.indexOf(y) < 0 ) {
+        list.push(y);
+      }
+    }
+    return list;
+  };
+  blockDiverges (b) {
+    if ( b.kind != "block" ) {
+      return this.divergesAll(b);
+    }
+    const n = b.kids.length;
+    if ( n == 0 ) {
+      return false;
+    }
+    const last = b.kid((n - 1));
+    if ( last.kind != "expr_stmt" ) {
+      return false;
+    }
+    const e = last.kid(0);
+    if ( this.divergesAll(e) ) {
+      return true;
+    }
+    if ( e.kind == "if" ) {
+      const el = e.kid(2);
+      if ( el.isNone() ) {
+        return false;
+      }
+      return this.blockDiverges(e.kid(1)) && this.blockDiverges(el);
+    }
+    if ( e.kind == "block" ) {
+      return this.blockDiverges(e);
+    }
+    return false;
+  };
+  checkLoopMoves (before, firstInside, body) {
+    if ( this.blockDiverges(body) ) {
+      return;
+    }
+    const n = this.fnLocals.length;
+    let k = 0;
+    while (k < n) {
+      const l = this.fnLocals[k];
+      k = k + 1;
+      if ( (l.moved && l.order < firstInside) && before.indexOf(l) < 0 ) {
+        this.err(body, ((("value `" + l.name) + "` moved in a previous iteration of the loop (moved at line ") + (l.movedLine.toString())) + ")");
+        l.moved = false;
+      }
+    };
+  };
+  omapClass (t) {
+    const plain = RsType.of2("map", t.arg(0), t.arg(1));
+    const name = "RsOMap_" + this.mangleKey(plain);
+    if ( ( typeof(this.genNames[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, name) ) ) {
+      return name;
+    }
+    this.genNames[name] = true;
+    const kt = this.rtype(t.arg(0));
+    const vt = this.rtype(t.arg(1));
+    let lines = [];
+    lines.push(("class " + name) + " {");
+    lines.push(("  def order:[" + kt) + "]");
+    lines.push(((("  def vals:[" + kt) + ":") + vt) + "]");
+    lines.push(((("  fn put:void (k:" + kt) + " v:") + vt) + ") {");
+    lines.push("    if (false == (has vals k)) {");
+    lines.push("      push order k");
+    lines.push("    }");
+    lines.push("    set vals k v");
+    lines.push("  }");
+    lines.push(("  fn del:void (k:" + kt) + ") {");
+    lines.push("    if (has vals k) {");
+    lines.push("      def i:int (indexOf order k)");
+    lines.push("      remove_index order i");
+    lines.push("      rs_map_remove vals k");
+    lines.push("    }");
+    lines.push("  }");
+    lines.push(("  fn rs_clone:" + name) + " () {");
+    lines.push(((("    def o:" + name) + " (new ") + name) + "())");
+    lines.push("    def n:int (array_length order)");
+    lines.push("    def i:int 0");
+    lines.push("    while (i < n) {");
+    lines.push(("      def k:" + kt) + " (itemAt order i)");
+    lines.push(("      def v:" + vt) + " (unwrap (get vals k))");
+    lines.push(("      o.put(k " + this.cloneCode("v", t.arg(1))) + ")");
+    lines.push("      i = i + 1");
+    lines.push("    }");
+    lines.push("    return o");
+    lines.push("  }");
+    lines.push("}");
+    this.genOut.push(lines.join("\n"));
+    return name;
+  };
+  isOrderedMap (t) {
+    return (t.kind == "map" || t.kind == "entry") && t.name == "ordered";
+  };
+  mapR (m, t) {
+    if ( this.isOrderedMap(t) ) {
+      return m + ".vals";
+    }
+    return m;
+  };
+  mapSetLine (m, t, k, v) {
+    if ( this.isOrderedMap(t) ) {
+      return ((((m + ".put(") + k) + " ") + v) + ")";
+    }
+    return (((("set " + m) + " ") + k) + " ") + v;
+  };
+  mapKeysCode (m, t) {
+    if ( this.isOrderedMap(t) ) {
+      return m + ".order";
+    }
+    const __REGx1 = t.arg(0);
+    if ( __REGx1.kind == "int" ) {
+      return ("(rs_int_keys " + m) + ")";
+    }
+    return ("(keys " + m) + ")";
+  };
+  initSuffix (t) {
+    if ( t.kind == "map" && t.name == "ordered" ) {
+      return " " + this.defaultValue(t);
+    }
+    return "";
+  };
+  isPreludeOp (name, argc) {
+    if ( false == this.preludeLoaded ) {
+      this.preludeOps = RustPreludeOps.arities();
+      this.preludeRets = RustPreludeOps.returns();
+      this.preludeLoaded = true;
+    }
+    if ( false == ( typeof(this.preludeOps[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.preludeOps, name) ) ) {
+      return false;
+    }
+    return ( Object.prototype.hasOwnProperty.call(this.preludeOps, name) ? this.preludeOps[name] : undefined ) == argc;
+  };
+  preludeOpCall (name, args, n) {
+    const ret = ( Object.prototype.hasOwnProperty.call(this.preludeRets, name) ? this.preludeRets[name] : undefined );
+    let rt = RsType.mk("unit");
+    if ( ret == "int" ) {
+      rt = RsType.mk("int");
+    }
+    if ( ret == "double" ) {
+      rt = RsType.mk("double");
+    }
+    if ( ret == "boolean" ) {
+      rt = RsType.mk("bool");
+    }
+    if ( ret == "string" ) {
+      rt = this.ownedString();
+    }
+    let codes = [];
+    // Loop start
+    for ( const a of args) {
+      const v = this.lowerExpr(a, RsType.mk("unknown"));
+      codes.push(v.code);
+    }
+    let op = name;
+    if ( name == "to_uppercase" ) {
+      op = "rs_upper";
+    }
+    if ( name == "to_lowercase" ) {
+      op = "rs_lower";
+    }
+    let code = ((("(" + op) + " ") + codes.join(" ")) + ")";
+    if ( codes.length == 0 ) {
+      code = ("(" + op) + ")";
+    }
+    if ( ret == "void" ) {
+      this.out.line(code);
+      return this.unit();
+    }
+    return RsExpr.of(code, rt);
+  };
+  placePath (n0) {
+    let n = n0;
+    while (n.kind == "paren" || n.kind == "unary" && n.name == "*") {
+      n = n.kid(0);
+    };
+    if ( n.kind == "path_expr" ) {
+      const p = n.kid(0);
+      if ( p.kids.length == 1 ) {
+        return this.lastSeg(p);
+      }
+      return "";
+    }
+    if ( n.kind == "field" ) {
+      const b = this.placePath(n.kid(0));
+      if ( b == "" ) {
+        return "";
+      }
+      return (b + ".") + n.name;
+    }
+    return "";
+  };
+  pathsOverlap (a, b) {
+    if ( a == b ) {
+      return true;
+    }
+    if ( a.indexOf(b + ".") == 0 ) {
+      return true;
+    }
+    return b.indexOf(a + ".") == 0;
+  };
+  checkCallBorrows (recv, recvMut, recvBorrows, args, at) {
+    let paths = [];
+    let muts = [];
+    if ( recvBorrows ) {
+      const rp = this.placePath(recv);
+      if ( rp != "" ) {
+        paths.push(rp);
+        muts.push(recvMut);
+      }
+    }
+    // Loop start
+    for ( const a of args) {
+      if ( a.kind == "unary" && (a.name == "&mut" || a.name == "&") ) {
+        const ap = this.placePath(a.kid(0));
+        if ( ap != "" ) {
+          paths.push(ap);
+          muts.push(a.name == "&mut");
+        }
+      }
+    }
+    const n = paths.length;
+    let i_1 = 0;
+    while (i_1 < n) {
+      let j = i_1 + 1;
+      while (j < n) {
+        const pi = paths[i_1];
+        const pj = paths[j];
+        if ( this.pathsOverlap(pi, pj) && (muts[i_1] || muts[j]) ) {
+          if ( muts[i_1] && muts[j] ) {
+            this.err(at, ("cannot borrow `" + pj) + "` as mutable more than once at a time");
+          } else {
+            this.err(at, ("cannot borrow `" + pj) + "` as mutable because it is also borrowed as immutable");
+          }
+          return;
+        }
+        j = j + 1;
+      };
+      i_1 = i_1 + 1;
+    };
+  };
+  checkIterMutation (recvN, at) {
+    const p = this.placePath(recvN);
+    if ( p == "" ) {
+      return;
+    }
+    // Loop start
+    for ( const r of this.iterRoots) {
+      if ( r != "" && this.pathsOverlap(r, p) ) {
+        this.err(at, ("cannot borrow `" + p) + "` as mutable because it is also borrowed as immutable by the `for` loop over it");
+        return;
+      }
+    }
+  };
+  needsBox (t) {
+    if ( false == t.isMutRef ) {
+      return false;
+    }
+    const k = t.kind;
+    if ( k == "map" && t.name == "ordered" ) {
+      return false;
+    }
+    return ((((((k == "int" || k == "double") || k == "bool") || k == "string") || k == "char") || k == "vec") || k == "map") || k == "set";
+  };
+  hasBoxed (f) {
+    // Loop start
+    for ( const p of f.params) {
+      if ( p.boxed ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  boxClass (t) {
+    const plain = t.copy();
+    plain.isRef = false;
+    plain.isMutRef = false;
+    const name = "RsBox_" + this.mangleKey(plain);
+    if ( false == ( typeof(this.genNames[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, name) ) ) {
+      this.genNames[name] = true;
+      const decl = this.fieldDecl("v", plain);
+      this.genOut.push(((("class " + name) + " {\n  def ") + decl) + "\n}");
+    }
+    return name;
+  };
+  boxedCall (head, f, args, owner, extra, at) {
+    const env = this.methodEnv(owner);
+    let codes = [];
+    let places = [];
+    let boxes = [];
+    let btypes = [];
+    let i = 0;
+    // Loop start
+    for ( const a of args) {
+      let p = RsParam.unknown();
+      if ( i < f.params.length ) {
+        p = f.params[i];
+      }
+      const pty = this.subst(p.ty, env);
+      if ( p.boxed ) {
+        let place = a;
+        if ( place.kind == "unary" && place.name == "&mut" ) {
+          place = place.kid(0);
+        }
+        const cur = this.lowerExpr(place, pty);
+        const bn = this.tmp("box");
+        const bc = this.boxClass(pty);
+        this.out.line(((("def " + bn) + ":") + bc) + ((" (new " + bc) + ")"));
+        this.out.line((bn + ".v = ") + cur.code);
+        codes.push(bn);
+        places.push(place);
+        boxes.push(bn);
+        btypes.push(pty);
+      } else {
+        const v = this.lowerExprCopy(a, pty);
+        const c = this.coerce(v, pty, a);
+        codes.push(c.code);
+      }
+      i = i + 1;
+    }
+    const ret = this.subst(f.ret, env);
+    const call = (head + codes.join(" ")) + ")";
+    let result = this.unit();
+    if ( ret.kind == "unit" || ret.kind == "never" ) {
+      this.out.line(call);
+    } else {
+      const rn = this.tmp("ret");
+      this.out.line(((("def " + this.declText(rn, ret)) + " (") + call) + ")");
+      result = this.simpleExpr(rn, ret);
+    }
+    let k = 0;
+    while (k < places.length) {
+      this.assignTo(places[k], this.simpleExpr((boxes[k] + ".v"), btypes[k]));
+      k = k + 1;
+    };
+    return result;
+  };
+}
+RustLower.isRustFile = function(name) {
+  const n = name.length;
+  if ( n < 3 ) {
+    return false;
+  }
+  return name.substring(n - 3, n ) == ".rs";
+};
+RustLower.moduleClassFor = function(name) {
+  let base = name;
+  const slash = base.lastIndexOf("/");
+  if ( slash >= 0 ) {
+    base = base.substring(slash + 1, base.length );
+  }
+  const dot = base.lastIndexOf(".");
+  if ( dot > 0 ) {
+    base = base.substring(0, dot );
+  }
+  let outS = "";
+  const cs = Array.from(base, (rg_c) => rg_c.codePointAt(0));
+  // Loop start
+  for ( const c of cs) {
+    if ( (c >= 48 && c <= 57 || c >= 65 && c <= 90) || c >= 97 && c <= 122 ) {
+      outS = outS + String.fromCharCode(c);
+    } else {
+      outS = outS + "_";
+    }
+  }
+  return "RsMod_" + outS;
+};
 class CompilerResults  {
   constructor() {
     this.ctx = undefined;
@@ -81494,7 +94539,27 @@ class VirtualCompiler  {
     const sourceFileDir = require("path").dirname((theFilePath + "/") + the_file);
     langFileDirs.push(sourceFileDir);
     const c = operatorsOf_17.readc95file_18(env, theFilePath, the_file);
-    const code = new SourceCode(c);
+    let mainSource = c;
+    let rustOriginal = "";
+    if ( RustLower.isRustFile(the_file) ) {
+      rustOriginal = mainSource;
+      const rl = new RustLower();
+      mainSource = rl.translate(mainSource, the_file);
+      if ( rl.errors.length > 0 ) {
+        cli.printHeader();
+        // Loop start
+        for ( const rerr of rl.errors) {
+          console.log(cli.error(rerr));
+        }
+        res.hasErrors = true;
+        res.errorMessage = "Rust lowering failed for " + the_file;
+        return res;
+      }
+      if ( ( typeof(params.flags["rust-show-rgr"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "rust-show-rgr") ) ) {
+        console.log(mainSource);
+      }
+    }
+    const code = new SourceCode(mainSource);
     code.filename = the_file;
     const parser = new RangerLispParser(code);
     if ( ( typeof(params.flags["no-op-transform"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-op-transform") ) ) {
@@ -81608,6 +94673,7 @@ class VirtualCompiler  {
       }
     }
     const appCtx = new RangerAppWriterContext();
+    ModuleFunctions.hoist(root, the_file, appCtx);
     appCtx.env = env;
     appCtx.libraryPaths = langFileDirs;
     appCtx.compilerSettings["package"] = package_name;
@@ -81790,6 +94856,14 @@ class VirtualCompiler  {
     cli.printCompilationInfo();
     console.log(cli.divider());
     console.log("");
+    if ( rustOriginal != "" && the_lang == "rust" ) {
+      wr.raw(rustOriginal, false);
+      res.target_dir = the_target_dir;
+      res.fileSystem = fileSystem;
+      res.ctx = appCtx;
+      cli.printSuccess((the_target_dir + "/") + the_target);
+      return res;
+    }
     try {
       flowParser.mergeImports(node, appCtx, wr);
       const lang_str = operatorsOf_17.readc95file_18(
@@ -82583,8 +95657,24 @@ operatorsOfInputEnv_17.filec95exists_18 = function(env, path, name) {
 };
 class operatorsOf_17  {
 }
-operatorsOf_17.findc95file_18 = function(env, path, name) {
+operatorsOf_17.findc95file_18 = function(env, path0, name0) {
   let res_1;
+  let path = path0;
+  let name = name0;
+  const slash = name0.lastIndexOf("/");
+  if ( slash > 0 ) {
+    const dir = name0.substring(0, slash );
+    name = name0.substring(slash + 1, name0.length );
+    if ( path0 == "/" || path0 == "" ) {
+      path = "/" + dir;
+    } else {
+      if ( path0.substring(path0.length - 1, path0.length ) == "/" ) {
+        path = path0 + dir;
+      } else {
+        path = (path0 + "/") + dir;
+      }
+    }
+  }
   if ( path == "/" ) {
     const files = operatorsOf.filter_19(env.filesystem.files, ((item, index) => { 
       return item.name == name;

@@ -1,0 +1,6 @@
+fn area:double (r:double) {
+  return (3.0 * (square(r)))
+}
+fn square:double (x:double) {
+  return (x * x)
+}

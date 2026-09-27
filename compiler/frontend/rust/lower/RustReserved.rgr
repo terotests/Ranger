@@ -1,0 +1,148 @@
+; SPDX-License-Identifier: MIT
+
+; Names the Rust lowering must not use unchanged (ISSUES.md #98).
+;
+; A static method named like an operator cannot be called, and a local named
+; like one can be read as a call. The list over-approximates on purpose: it is
+; every identifier that starts a line in compiler/Lang.rgr or lib/stdops.rgr,
+; the Ranger keywords, and the names found by probing. Renaming a harmless
+; name costs nothing; missing a real collision breaks the build.
+;
+; Regenerate with the snippet in PLAN_RUST_SYNTAX.md §8 when Lang.rgr grows.
+
+class RustReserved {
+  sfn build:[string:boolean] () {
+    def parts:[string]
+    push parts "ArrayList ByteArrayOutputStream Constructor DispatchQueue Double Enum"
+    push parts "Err Extends FILE False File Function I Import List M_PI Map None Ok"
+    push parts "PrintWriter ProcessBuilder Runtime Self Some String StringBuilder"
+    push parts "System T Thread True _ a abs absolute abstract acc acos alignas"
+    push parts "alignof all and and_eq annotation_keywors any array_extract"
+    push parts "array_length as ascii asin asm assert associatedtype async"
+    push parts "async_read_file at atan2 auto await b base begin_dispatch_turn bin"
+    push parts "bit_and bit_not bit_or bit_shl bit_shr bit_ushr bit_xor bitand bitor"
+    push parts "bool boolean borrowing break buf buffer_alloc buffer_copy buffer_fill"
+    push parts "buffer_from_string buffer_get buffer_length buffer_read_file"
+    push parts "buffer_set buffer_slice buffer_to_base64 buffer_to_string"
+    push parts "buffer_write_file byte bytearray bytes c cCurrentPath c_data callable"
+    push parts "candidate case cast catch ccode ceil ch ch2 chan char charAt"
+    push parts "char_length charcode checked childEnv chr class classmethod clear"
+    push parts "clear_screen clone cmd code commands companion compile compl complex"
+    push parts "const const_cast constexpr consuming contains continue correctly cos"
+    push parts "count covariant cp cpp cpp_old crate create_dir create_immutable_array"
+    push parts "create_immutable_hash csharp cur current_directory d dart data"
+    push parts "debugger decimal decltype def default defer deferred defn deinit del"
+    push parts "delattr delegate delete dict dir dir_exists do doc does double"
+    push parts "double2str double_buffer_alloc double_buffer_copy double_buffer_fill"
+    push parts "double_buffer_get double_buffer_length double_buffer_set dynamic"
+    push parts "dynamic_cast e elif else empty end end_dispatch_turn endsWith enum"
+    push parts "enumerate env_var environment err errData errPipe error_msg es5 es6"
+    push parts "eval event except exe exec exit explicit export extends extension"
+    push parts "extern external extra f fabs factory fallthrough false fclose field"
+    push parts "file file_exists file_mtime fileprivate filter final finally find"
+    push parts "find_process first fixed float floor flow fmt fn for forEach forSome"
+    push parts "foreach format friend from frozenset fun func function get get_option"
+    push parts "get_required_option getattr getch gitdoc global globals go go_idea"
+    push parts "golang_wait goto group guard h has has_option hasattr hash help hex hh"
+    push parts "hide hide_cursor http_get_header http_get_method http_get_param"
+    push parts "http_get_path http_get_query http_send http_send_buffer"
+    push parts "http_send_bytes http_set_header http_set_status i id idiv if if_cpp"
+    push parts "if_csharp if_dart if_go if_java if_javascript if_kotlin if_php"
+    push parts "if_python if_rust if_scala if_swift impl implements implicit import in"
+    push parts "indexOf indexOfFrom info init inline inout input insert"
+    push parts "install_directory instanceof int int2double int64_t int_buffer_alloc"
+    push parts "int_buffer_copy int_buffer_fill int_buffer_get int_buffer_length"
+    push parts "int_buffer_set interface internal is isinstance iso_add_days"
+    push parts "iso_between iso_compare issubclass itemAt iter java java7 join kbhit"
+    push parts "keys kotlin lambda language last lastIndexOf last_index late lateinit"
+    push parts "lazy len length let library lift list llvm locals lock long make map"
+    push parts "map_clear match max md5 means memoryview min mixin mkdir move_cursor"
+    push parts "msg msvcrt mutable n name namespace native new next nim nl noexcept"
+    push parts "nonisolated nonlocal normalize not not_eq null nullify nullptr object"
+    push parts "oct off on on_keypress open operator operator_new operators opt or"
+    push parts "or_eq ord os out outPipe output outputFile override p package panic"
+    push parts "params part parts pass path_dirname pb php poll_keypress pos"
+    push parts "precedencegroup print private proc_hibernate proc_start proc_stop"
+    push parts "proc_wakeup property protected protocol psi public push pushString"
+    push parts "python r_key_lock r_key_queue r_map_get_val r_windows_key_process"
+    push parts "r_windows_key_reader raise ramger random range ranger rawbytechar re"
+    push parts "read read_file read_file_sync readonly record ref regex_test register"
+    push parts "reified reinterpret_cast remove removeLast remove_index repeat replace"
+    push parts "repr required res reserved_words result ret rethrow rethrows return"
+    push parts "reverse reversed round rs run_process_result rust s sbyte scala se"
+    push parts "sealed select self set set_at set_exit_code setattr sets sfn sha256"
+    push parts "shape shell_arg shell_arg_cnt short show show_cursor si signed simply"
+    push parts "sin size size_t sizeof sleep_ms slice sofar some sort sorted sqrt"
+    push parts "sse_is_connected sse_send stackalloc start startsWith static"
+    push parts "static_assert static_cast staticmethod std stderr stdout str"
+    push parts "str2double str2int str_append strfromcode strictfp string strlen"
+    push parts "strsplit struct subscript substring sum super suspend swift swift3"
+    push parts "swift6 switch sync synchronized system systemclass t tailrec tan"
+    push parts "targets template templates theDir this thread_local throw throws time"
+    push parts "timer toString to_charbuffer to_chars to_double to_int to_lowercase"
+    push parts "to_string to_uppercase toplevel_keywords trailing trait transient trim"
+    push parts "trim_right true try ts tuple type typealias typedef typeid typename"
+    push parts "typeof uint uint32_t uint64_t ulong unchecked union unsafe unsigned"
+    push parts "unwrap use ushort using utf8_substring v val value var vararg variant"
+    push parts "vars virtual void volatile w wait wall_clock_ms wchar_t when where"
+    push parts "while with workingDirectory wrap write write_file xor xor_eq yield zip"
+    def names:[string:boolean]
+    for parts line:string i {
+      def words:[string] (strsplit line " ")
+      for words w:string j {
+        set names w true
+      }
+    }
+    return names
+  }
+
+  ; Operator names, from the operator declarations of Lang.rgr, stdops.rgr
+  ; and RsPrelude.rgr. A LOCAL named like an operator hides it: once a
+  ; local named `keys` exists, a later `(keys m)` reads the local.
+  sfn operatorNames:[string:boolean] () {
+    def parts:[string]
+    push parts "M_PI acos array_extract array_length asin async_read_file at atan2"
+    push parts "bit_and bit_not bit_or bit_shl bit_shr bit_ushr bit_xor break"
+    push parts "buffer_alloc buffer_copy buffer_fill buffer_from_string buffer_get"
+    push parts "buffer_length buffer_read_file buffer_set buffer_slice"
+    push parts "buffer_to_base64 buffer_to_string buffer_write_file case cast ccode"
+    push parts "ceil charAt char_length charcode clear clear_screen const contains"
+    push parts "continue cos create_dir create_immutable_array create_immutable_hash"
+    push parts "current_directory def default dir_exists double2str"
+    push parts "double_buffer_alloc double_buffer_copy double_buffer_fill"
+    push parts "double_buffer_get double_buffer_length double_buffer_set empty"
+    push parts "endsWith env_var error_msg except exit fabs file_exists file_mtime"
+    push parts "first floor for get get_option get_required_option gitdoc golang_wait"
+    push parts "has has_option hide_cursor http_get_header http_get_method"
+    push parts "http_get_param http_get_path http_get_query http_send http_send_buffer"
+    push parts "http_send_bytes http_set_header http_set_status idiv if if_cpp"
+    push parts "if_csharp if_dart if_go if_java if_javascript if_kotlin if_php"
+    push parts "if_python if_rust if_scala if_swift indexOf indexOfFrom insert"
+    push parts "install_directory int2double int_buffer_alloc int_buffer_copy"
+    push parts "int_buffer_fill int_buffer_get int_buffer_length int_buffer_set"
+    push parts "iso_add_days iso_between iso_compare itemAt join keys last lastIndexOf"
+    push parts "last_index length let lift make map_clear match max md5 move_cursor"
+    push parts "normalize nullify on_keypress path_dirname poll_keypress print push"
+    push parts "pushString random rawbytechar read_file read_file_sync regex_test"
+    push parts "remove removeLast remove_index replace ret return reverse rs_abs"
+    push parts "rs_byte_len rs_byte_slice rs_ceil rs_char_code rs_char_count"
+    push parts "rs_char_from rs_dbg rs_div rs_f2i rs_find_bytes rs_floor rs_fmt"
+    push parts "rs_fmt_dbg_f64 rs_fmt_prec rs_i2f rs_lower rs_map_len rs_map_remove"
+    push parts "rs_max rs_min rs_neg rs_panic rs_pow rs_powi rs_rem rs_sqrt rs_str_cmp"
+    push parts "rs_upper rs_wrap_u16 rs_wrap_u8 run_process_result set set_at"
+    push parts "set_exit_code sfn sha256 shell_arg shell_arg_cnt show_cursor sin size"
+    push parts "sleep_ms sort sqrt sse_is_connected sse_send startsWith str2double"
+    push parts "str2int str_append strfromcode strlen strsplit substring switch tan"
+    push parts "throw timer toString to_charbuffer to_chars to_double to_int"
+    push parts "to_lowercase to_string to_uppercase trim trim_right try unwrap use"
+    push parts "utf8_substring var wait wall_clock_ms while wrap write write_file"
+    def names:[string:boolean]
+    for parts line:string i {
+      def words:[string] (strsplit line " ")
+      for words w:string j {
+        set names w true
+      }
+    }
+    return names
+  }
+}

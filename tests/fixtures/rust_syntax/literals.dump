@@ -1,0 +1,115 @@
+(file
+  (fn lits
+    #(attr doc " outer doc" [sugared])
+    #(attr doc " block doc " [sugared])
+    (generics)
+    (params)
+    (ret)
+    (where)
+    (block
+      (let
+        (pat_ident i)
+        (none)
+        (array
+          (lit 1 "1" [int])
+          (lit 1_000 "1000" [int])
+          (lit 0xff_u8 "0xff" [int u8])
+          (lit 0o17 "0o17" [int])
+          (lit 0b1010 "0b1010" [int])
+          (lit 7i64 "7" [int i64])
+          (lit 3usize "3" [int usize]))
+        (none))
+      (let
+        (pat_ident f)
+        (none)
+        (array
+          (lit 1.5 "1.5" [float])
+          (lit 2.0f32 "2.0" [float f32])
+          (lit 3e10 "3e10" [float])
+          (lit 4.5E-3 "4.5E-3" [float])
+          (lit 5f64 "5" [float f64])
+          (lit 6. "6." [float]))
+        (none))
+      (let
+        (pat_ident s)
+        (none)
+        (array
+          (lit "\"plain\"" "plain" [str])
+          (lit "\"esc\\n\\t\\\\\\\"\\'\\0\"" "esc\n\t\\\"'\0" [str])
+          (lit "\"\\x41\\u{e9}\"" "Aé" [str])
+          (lit "\"line\\\n              continued\"" "linecontinued" [str])
+          (lit "r\"raw \\n\"" "raw \\n" [str])
+          (lit "r#\"has \"quotes\"\"#" "has \"quotes\"" [str])
+          (lit "r##\"#\"##" "#" [str]))
+        (none))
+      (let
+        (pat_ident b)
+        (none)
+        (array
+          (lit b'a' "a" [byte])
+          (lit b'\n' "\n" [byte]))
+        (none))
+      (let
+        (pat_ident bs)
+        (none)
+        (array
+          (lit "b\"bytes\"" "bytes" [bytestr])
+          (lit "br\"raw bytes\"" "raw bytes" [bytestr]))
+        (none))
+      (let
+        (pat_ident cs)
+        (none)
+        (lit "c\"c string\"" "c string" [cstr])
+        (none))
+      (let
+        (pat_ident c)
+        (none)
+        (array
+          (lit 'a' "a" [char])
+          (lit '\'' "'" [char])
+          (lit '\u{e9}' "é" [char])
+          (lit 'é' "é" [char])
+          (lit '😀' "😀" [char]))
+        (none))
+      (let
+        (pat_ident l)
+        (ref_type 'static
+          (path_type
+            (path
+              (seg str))))
+        (lit "\"é\"" "é" [str])
+        (none))
+      (let
+        (pat_ident type)
+        (none)
+        (lit 1 "1" [int])
+        (none))
+      (let
+        (pat_ident t)
+        (none)
+        (field 1
+          (field 0
+            (path_expr
+              (path
+                (seg x)))))
+        (none))
+      (let
+        (pat_ident range)
+        (none)
+        (range ..
+          (lit 1 "1" [int])
+          (lit 2 "2" [int]))
+        (none))
+      (let
+        (pat_ident m)
+        (none)
+        (method max
+          (lit 1 "1" [int])
+          (args)
+          (lit 2 "2" [int]))
+        (none))
+      (let
+        (pat_ident é)
+        (none)
+        (lit "\"unicode ident\"" "unicode ident" [str])
+        (none)))))

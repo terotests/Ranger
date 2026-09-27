@@ -1,0 +1,42 @@
+; SPDX-License-Identifier: MIT
+; A function can return a function (ISSUES.md #103): a static method, an
+; instance method and a lambda each hand back a lambda that captured their
+; arguments, and the caller calls it and passes it on.
+class FnReturn {
+  sfn adder:(fn:int (p0:int)) (k:int) {
+    def f:(fn:int (p0:int)) (fn:int (x:int) {
+      return (x + k)
+    })
+    return f
+  }
+  sfn scaler:(fn:int (p0:int)) (m:int) {
+    return (fn:int (x:int) {
+      return (x * m)
+    })
+  }
+  fn offset:(fn:int (p0:int)) (d:int) {
+    return (fn:int (x:int) {
+      return (x - d)
+    })
+  }
+  sfn apply:int (g:(fn:int (p0:int)) v:int) {
+    return (g(v))
+  }
+  sfn main:void () {
+    def a:(fn:int (p0:int)) (FnReturn.adder(10))
+    print ("adder " + (to_string (FnReturn.apply(a 5))))
+    print ("again " + (to_string (a(1))))
+    def s:(fn:int (p0:int)) (FnReturn.scaler(3))
+    print ("scaler " + (to_string (s(7))))
+    def o:FnReturn (new FnReturn())
+    def d:(fn:int (p0:int)) (o.offset(2))
+    print ("offset " + (to_string (d(9))))
+    def mk:(fn:(fn:int (y:int)) (x:int)) (fn:(fn:int (y:int)) (x:int) {
+      return (fn:int (y:int) {
+        return (x + y)
+      })
+    })
+    def add2:(fn:int (y:int)) (mk(2))
+    print ("curried " + (to_string (add2(40))))
+  }
+}

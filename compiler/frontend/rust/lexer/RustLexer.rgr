@@ -1,0 +1,710 @@
+; SPDX-License-Identifier: MIT
+
+; Lexer for Rust source (PLAN_RUST_SYNTAX.md, stage R0).
+;
+; Reads the whole Rust token grammar, not only the Ranger subset: raw strings,
+; byte and C strings, char literals against lifetimes, nested block comments,
+; doc comments. The subset is enforced later, where the message can name the
+; construct.
+;
+; Punctuation is emitted ONE CHARACTER per token, with `joint` set when the
+; next character follows without whitespace -- the model of proc_macro's
+; Spacing::Joint. The parser glues `::`, `->`, `>>=` … back together where an
+; operator is expected, so `Vec<Vec<T>>` closes two generic lists without the
+; lexer having to know it is in a type.
+;
+; The source is read as UTF-8 bytes (`to_charbuffer`), so offsets are byte
+; offsets on every target and a non-ASCII identifier or string is copied
+; whole.
+
+class RustToken {
+  ; ident | lifetime | int | float | str | char | punct | doc | eof
+  def kind:string ""
+  ; the source text of the token, exactly as written
+  def text:string ""
+  ; str / char: the value with escapes resolved. doc: the comment text
+  ; without its `///` / `//!` / `/**` marker. int / float: the digits
+  ; without `_`. ident: the name without an `r#` prefix.
+  def value:string ""
+  ; int / float: a type suffix (`u8`, `f64`), else ""
+  ; str: "b" for b"…", "c" for c"…", "" otherwise; char: "b" for b'…'
+  ; doc: "outer" (/// or /**) or "inner" (//! or /*!)
+  def suffix:string ""
+  def raw:boolean false
+  def joint:boolean false
+  def start:int 0
+  def end:int 0
+  def line:int 0
+  def col:int 0
+
+  fn is:boolean (k:string t:string) {
+    if (kind != k) {
+      return false
+    }
+    return (text == t)
+  }
+}
+
+class RustLexer {
+  def src:string ""
+  def buf:charbuffer (to_charbuffer "")
+  def len:int 0
+  def i:int 0
+  def line:int 1
+  def line_start:int 0
+  def tokens:[RustToken]
+  def errors:[string]
+
+  Constructor (source:string) {
+    src = source
+    buf = (to_charbuffer source)
+    len = (length buf)
+  }
+
+  fn error:void (msg:string) {
+    push errors (((("line " + (to_string line)) + ":") + (to_string ((i - line_start) + 1))) + (": " + msg))
+  }
+
+  static fn isIdentStart:boolean (c:int) {
+    if ((c >= 97) && (c <= 122)) {
+      return true
+    }
+    if ((c >= 65) && (c <= 90)) {
+      return true
+    }
+    if (c == 95) {
+      return true
+    }
+    ; any byte of a multi-byte UTF-8 sequence: Rust accepts XID_Start
+    ; identifiers, and a stray non-ASCII byte outside a literal is an error
+    ; rustc reports anyway
+    return (c >= 128)
+  }
+
+  static fn isIdentChar:boolean (c:int) {
+    if (RustLexer.isIdentStart(c)) {
+      return true
+    }
+    return ((c >= 48) && (c <= 57))
+  }
+
+  static fn isDigit:boolean (c:int) {
+    return ((c >= 48) && (c <= 57))
+  }
+
+  static fn isHexDigit:boolean (c:int) {
+    if ((c >= 48) && (c <= 57)) {
+      return true
+    }
+    if ((c >= 97) && (c <= 102)) {
+      return true
+    }
+    return ((c >= 65) && (c <= 70))
+  }
+
+  static fn hexValue:int (c:int) {
+    if ((c >= 48) && (c <= 57)) {
+      return (c - 48)
+    }
+    if ((c >= 97) && (c <= 102)) {
+      return (c - 87)
+    }
+    if ((c >= 65) && (c <= 70)) {
+      return (c - 55)
+    }
+    return 0
+  }
+
+  fn at:int (p:int) {
+    if (p < len) {
+      def c:int (charAt buf p)
+      return c
+    }
+    return 0
+  }
+
+  fn text:string (a:int b:int) {
+    return (substring buf a b)
+  }
+
+  fn newToken:RustToken (kind:string a:int) {
+    def t:RustToken (new RustToken ())
+    t.kind = kind
+    t.start = a
+    t.end = i
+    t.line = line
+    t.col = (a - line_start) + 1
+    t.text = (substring buf a i)
+    push tokens t
+    return t
+  }
+
+  ; Counts the newlines in [a, b) so a token spanning lines (a string, a block
+  ; comment) keeps the line numbers of what follows right.
+  fn countLines:void (a:int b:int) {
+    def p:int a
+    while (p < b) {
+      if ((charAt buf p) == 10) {
+        line = line + 1
+        line_start = p + 1
+      }
+      p = p + 1
+    }
+  }
+
+  fn tokenize:[RustToken] () {
+    ; a shebang line, but not an inner attribute `#![…]`
+    if ((this.at(0) == 35) && (this.at(1) == 33) && (this.at(2) != 91)) {
+      while ((i < len) && (this.at(i) != 10)) {
+        i = i + 1
+      }
+    }
+    while (i < len) {
+      def c:int (this.at(i))
+      if ((c == 32) || (c == 9) || (c == 13)) {
+        i = i + 1
+        continue
+      }
+      if (c == 10) {
+        i = i + 1
+        line = line + 1
+        line_start = i
+        continue
+      }
+      if ((c == 47) && (this.at((i + 1)) == 47)) {
+        this.lineComment()
+        continue
+      }
+      if ((c == 47) && (this.at((i + 1)) == 42)) {
+        this.blockComment()
+        continue
+      }
+      if (this.tryPrefixedLiteral()) {
+        continue
+      }
+      if (RustLexer.isIdentStart(c)) {
+        this.ident()
+        continue
+      }
+      if (RustLexer.isDigit(c)) {
+        this.number()
+        continue
+      }
+      if (c == 34) {
+        this.quoted(i "")
+        continue
+      }
+      if (c == 39) {
+        this.charOrLifetime()
+        continue
+      }
+      this.punct()
+    }
+    def eof:RustToken (this.newToken("eof" i))
+    eof.text = ""
+    return tokens
+  }
+
+  fn lineComment:void () {
+    def a:int i
+    while ((i < len) && (this.at(i) != 10)) {
+      i = i + 1
+    }
+    ; `///x` is outer doc, `////x` is a plain comment, `//!x` is inner doc
+    def c2:int (this.at((a + 2)))
+    def c3:int (this.at((a + 3)))
+    if ((c2 == 47) && (c3 != 47)) {
+      def t:RustToken (this.newToken("doc" a))
+      t.suffix = "outer"
+      t.value = (this.text((a + 3) i))
+      return
+    }
+    if (c2 == 33) {
+      def t2:RustToken (this.newToken("doc" a))
+      t2.suffix = "inner"
+      t2.value = (this.text((a + 3) i))
+    }
+  }
+
+  fn blockComment:void () {
+    def a:int i
+    def startLine:int line
+    def startLineStart:int line_start
+    def depth:int 0
+    while (i < len) {
+      def c:int (this.at(i))
+      if ((c == 47) && (this.at((i + 1)) == 42)) {
+        depth = depth + 1
+        i = i + 2
+        continue
+      }
+      if ((c == 42) && (this.at((i + 1)) == 47)) {
+        depth = depth - 1
+        i = i + 2
+        if (depth == 0) {
+          break
+        }
+        continue
+      }
+      if (c == 10) {
+        line = line + 1
+        line_start = i + 1
+      }
+      i = i + 1
+    }
+    if (depth != 0) {
+      this.error("unterminated block comment")
+    }
+    ; `/** x */` is outer doc; `/**/` and `/*** x */` are plain comments
+    def c2:int (this.at((a + 2)))
+    def c3:int (this.at((a + 3)))
+    def kind:string ""
+    if ((c2 == 42) && (c3 != 42) && (c3 != 47)) {
+      kind = "outer"
+    }
+    if (c2 == 33) {
+      kind = "inner"
+    }
+    if (kind != "") {
+      def endLine:int line
+      def endLineStart:int line_start
+      line = startLine
+      line_start = startLineStart
+      def t:RustToken (this.newToken("doc" a))
+      t.suffix = kind
+      def e:int (i - 2)
+      if (e < (a + 3)) {
+        e = a + 3
+      }
+      t.value = (this.text((a + 3) e))
+      line = endLine
+      line_start = endLineStart
+    }
+  }
+
+  ; b"…" b'…' br"…" r"…" r#"…"# c"…" cr"…" and the raw identifier r#name.
+  ; Returns false when the letter starts an ordinary identifier.
+  fn tryPrefixedLiteral:boolean () {
+    def c:int (this.at(i))
+    def c1:int (this.at((i + 1)))
+    def c2:int (this.at((i + 2)))
+    def a:int i
+    if (c == 98) {
+      if (c1 == 34) {
+        i = i + 1
+        this.quoted(a "b")
+        return true
+      }
+      if (c1 == 39) {
+        i = i + 1
+        this.charLiteral(a "b")
+        return true
+      }
+      if ((c1 == 114) && ((c2 == 34) || (c2 == 35))) {
+        i = i + 2
+        return (this.rawString(a "b"))
+      }
+      return false
+    }
+    if (c == 99) {
+      if (c1 == 34) {
+        i = i + 1
+        this.quoted(a "c")
+        return true
+      }
+      if ((c1 == 114) && ((c2 == 34) || (c2 == 35))) {
+        i = i + 2
+        return (this.rawString(a "c"))
+      }
+      return false
+    }
+    if (c == 114) {
+      if (c1 == 34) {
+        i = i + 1
+        return (this.rawString(a ""))
+      }
+      if (c1 == 35) {
+        if (c2 == 34) {
+          i = i + 1
+          return (this.rawString(a ""))
+        }
+        if (c2 == 35) {
+          i = i + 1
+          return (this.rawString(a ""))
+        }
+        if (RustLexer.isIdentStart(c2)) {
+          i = i + 2
+          while ((i < len) && (RustLexer.isIdentChar((this.at(i))))) {
+            i = i + 1
+          }
+          def t:RustToken (this.newToken("ident" a))
+          t.raw = true
+          t.value = (this.text((a + 2) i))
+          this.markJoint(t)
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  ; At the first `#` or `"` after the `r`. `a` is where the literal began.
+  fn rawString:boolean (a:int prefix:string) {
+    def hashes:int 0
+    while (this.at(i) == 35) {
+      hashes = hashes + 1
+      i = i + 1
+    }
+    if (this.at(i) != 34) {
+      ; `r#` not followed by a string: let the identifier path have it
+      i = a
+      return false
+    }
+    i = i + 1
+    def vs:int i
+    def ve:int -1
+    def startLine:int line
+    def startLineStart:int line_start
+    while (i < len) {
+      if (this.at(i) == 34) {
+        def k:int 0
+        while ((k < hashes) && (this.at(((i + 1) + k)) == 35)) {
+          k = k + 1
+        }
+        if (k == hashes) {
+          ve = i
+          i = (i + 1) + hashes
+          break
+        }
+      }
+      i = i + 1
+    }
+    if (ve < 0) {
+      this.error("unterminated raw string")
+      ve = len
+    }
+    def endLine:int line
+    line = startLine
+    def endLineStart:int line_start
+    line_start = startLineStart
+    def t:RustToken (this.newToken("str" a))
+    t.raw = true
+    t.suffix = prefix
+    t.value = (this.text(vs ve))
+    line = endLine
+    line_start = endLineStart
+    this.countLines(vs ve)
+    this.literalSuffix(t)
+    return true
+  }
+
+  fn ident:void () {
+    def a:int i
+    while ((i < len) && (RustLexer.isIdentChar((this.at(i))))) {
+      i = i + 1
+    }
+    def t:RustToken (this.newToken("ident" a))
+    t.value = t.text
+    this.markJoint(t)
+  }
+
+  fn number:void () {
+    def a:int i
+    def isFloat:boolean false
+    def c:int (this.at(i))
+    def c1:int (this.at((i + 1)))
+    ; a tuple index after `.` (`x.0.1`) is two integers, never a float
+    def afterDot:boolean false
+    def n:int (array_length tokens)
+    if (n > 0) {
+      def prev:RustToken (itemAt tokens (n - 1))
+      if ((prev.kind == "punct") && (prev.text == ".") && (prev.end == a)) {
+        afterDot = true
+      }
+    }
+    if ((c == 48) && ((c1 == 120) || (c1 == 111) || (c1 == 98))) {
+      i = i + 2
+      while ((i < len) && ((RustLexer.isHexDigit((this.at(i)))) || (this.at(i) == 95))) {
+        ; `0b1010u8`: the hex-digit test would eat the `u`… no: u is not hex.
+        ; It would eat `b`/`e`/`f` of a suffix only after a binary/octal
+        ; literal, which rustc rejects anyway.
+        i = i + 1
+      }
+    } {
+      this.digits()
+      if (false == afterDot) {
+        ; `1.5`, `1.` -- but not `1..2`, `1.foo()`, `1._x`
+        if ((this.at(i) == 46) && (this.at((i + 1)) != 46) && (false == (RustLexer.isIdentStart((this.at((i + 1))))))) {
+          isFloat = true
+          i = i + 1
+          if (RustLexer.isDigit((this.at(i)))) {
+            this.digits()
+          }
+        }
+        def e:int (this.at(i))
+        if ((e == 101) || (e == 69)) {
+          def e1:int (this.at((i + 1)))
+          def e2:int (this.at((i + 2)))
+          if ((RustLexer.isDigit(e1)) || (((e1 == 43) || (e1 == 45)) && (RustLexer.isDigit(e2)))) {
+            isFloat = true
+            i = i + 2
+            this.digits()
+          }
+        }
+      }
+    }
+    def numEnd:int i
+    ; type suffix: u8, i64, usize, f32, f64 … (any identifier; rustc checks it)
+    if (RustLexer.isIdentStart((this.at(i)))) {
+      while ((i < len) && (RustLexer.isIdentChar((this.at(i))))) {
+        i = i + 1
+      }
+    }
+    def kind:string "int"
+    if (isFloat) {
+      kind = "float"
+    }
+    def t:RustToken (this.newToken(kind a))
+    t.suffix = (this.text(numEnd i))
+    if ((t.suffix == "f32") || (t.suffix == "f64")) {
+      if ((c != 48) || ((c1 != 120) && (c1 != 111) && (c1 != 98))) {
+        t.kind = "float"
+      }
+    }
+    t.value = (join (strsplit (this.text(a numEnd)) "_") "")
+    this.markJoint(t)
+  }
+
+  fn digits:void () {
+    while ((i < len) && ((RustLexer.isDigit((this.at(i)))) || (this.at(i) == 95))) {
+      i = i + 1
+    }
+  }
+
+  ; At the opening `"`. `a` is where the literal began (before a prefix).
+  fn quoted:void (a:int prefix:string) {
+    i = i + 1
+    def startLine:int line
+    def startLineStart:int line_start
+    def vs:int i
+    def closed:boolean false
+    while (i < len) {
+      def c:int (this.at(i))
+      if (c == 92) {
+        i = i + 2
+        continue
+      }
+      if (c == 34) {
+        closed = true
+        break
+      }
+      i = i + 1
+    }
+    def ve:int i
+    if (closed) {
+      i = i + 1
+    } {
+      this.error("unterminated string literal")
+      ve = len
+      i = len
+    }
+    def endLine:int line
+    def endLineStart:int line_start
+    line = startLine
+    line_start = startLineStart
+    def t:RustToken (this.newToken("str" a))
+    t.suffix = prefix
+    t.value = (this.unescape(vs ve))
+    line = endLine
+    line_start = endLineStart
+    this.countLines(vs ve)
+    this.literalSuffix(t)
+  }
+
+  ; A literal may carry a suffix (`"x"suffix` is reserved but lexes); a
+  ; suffix is kept out of `value` and makes the token span it.
+  fn literalSuffix:void (t:RustToken) {
+    if (RustLexer.isIdentStart((this.at(i)))) {
+      while ((i < len) && (RustLexer.isIdentChar((this.at(i))))) {
+        i = i + 1
+      }
+      t.end = i
+      t.text = (substring buf t.start i)
+    }
+    this.markJoint(t)
+  }
+
+  ; `'a'`, `'\n'`, `'😀'` are chars; `'a`, `'static`, `'label:` are lifetimes.
+  fn charOrLifetime:void () {
+    def a:int i
+    def c1:int (this.at((i + 1)))
+    if (c1 == 92) {
+      this.charLiteral(a "")
+      return
+    }
+    ; the length of the (possibly multi-byte) character after the quote
+    def w:int 1
+    if (c1 >= 240) {
+      w = 4
+    } {
+      if (c1 >= 224) {
+        w = 3
+      } {
+        if (c1 >= 192) {
+          w = 2
+        }
+      }
+    }
+    if (this.at(((i + 1) + w)) == 39) {
+      this.charLiteral(a "")
+      return
+    }
+    if (RustLexer.isIdentStart(c1)) {
+      i = i + 1
+      while ((i < len) && (RustLexer.isIdentChar((this.at(i))))) {
+        i = i + 1
+      }
+      def t:RustToken (this.newToken("lifetime" a))
+      t.value = (this.text((a + 1) i))
+      this.markJoint(t)
+      return
+    }
+    this.charLiteral(a "")
+  }
+
+  ; At the opening `'`. `a` is where the literal began.
+  fn charLiteral:void (a:int prefix:string) {
+    i = i + 1
+    def vs:int i
+    while (i < len) {
+      def c:int (this.at(i))
+      if (c == 92) {
+        i = i + 2
+        continue
+      }
+      if ((c == 39) || (c == 10)) {
+        break
+      }
+      i = i + 1
+    }
+    def ve:int i
+    if (this.at(i) == 39) {
+      i = i + 1
+    } {
+      this.error("unterminated character literal")
+    }
+    def t:RustToken (this.newToken("char" a))
+    t.suffix = prefix
+    t.value = (this.unescape(vs ve))
+    this.literalSuffix(t)
+  }
+
+  ; Resolves the escapes of a string or char literal between [a, b).
+  fn unescape:string (a:int b:int) {
+    def out:string ""
+    def runStart:int a
+    def p:int a
+    while (p < b) {
+      def c:int (this.at(p))
+      if (c != 92) {
+        p = p + 1
+        continue
+      }
+      out = out + (this.text(runStart p))
+      def e:int (this.at((p + 1)))
+      p = p + 2
+      if (e == 110) {
+        out = out + "\n"
+      }
+      if (e == 116) {
+        out = out + "\t"
+      }
+      if (e == 114) {
+        out = out + (strfromcode 13)
+      }
+      if (e == 48) {
+        out = out + (strfromcode 0)
+      }
+      if (e == 92) {
+        out = out + "\\"
+      }
+      if (e == 39) {
+        out = out + "'"
+      }
+      if (e == 34) {
+        out = out + "\""
+      }
+      if (e == 120) {
+        def v:int (((RustLexer.hexValue((this.at(p)))) * 16) + (RustLexer.hexValue((this.at((p + 1))))))
+        out = out + (strfromcode v)
+        p = p + 2
+      }
+      if ((e == 117) && (this.at(p) == 123)) {
+        p = p + 1
+        def cp:int 0
+        while ((p < b) && (this.at(p) != 125)) {
+          def h:int (this.at(p))
+          if (h != 95) {
+            cp = (cp * 16) + (RustLexer.hexValue(h))
+          }
+          p = p + 1
+        }
+        p = p + 1
+        out = out + (strfromcode cp)
+      }
+      if (e == 10) {
+        ; a line continuation: the newline and the leading whitespace of the
+        ; next line are dropped
+        while ((p < b) && ((this.at(p) == 32) || (this.at(p) == 9) || (this.at(p) == 10) || (this.at(p) == 13))) {
+          p = p + 1
+        }
+      }
+      if ((e == 13) && (this.at(p) == 10)) {
+        p = p + 1
+        while ((p < b) && ((this.at(p) == 32) || (this.at(p) == 9) || (this.at(p) == 10) || (this.at(p) == 13))) {
+          p = p + 1
+        }
+      }
+      runStart = p
+    }
+    out = out + (this.text(runStart b))
+    return out
+  }
+
+  fn punct:void () {
+    def a:int i
+    def c:int (this.at(i))
+    i = i + 1
+    def isKnown:boolean false
+    ; ; , . ( ) { } [ ] @ # ~ ? : $ = ! < > - & | + * / ^ %
+    if ((c == 59) || (c == 44) || (c == 46) || (c == 40) || (c == 41) || (c == 123) || (c == 125) || (c == 91) || (c == 93)) {
+      isKnown = true
+    }
+    if ((c == 64) || (c == 35) || (c == 126) || (c == 63) || (c == 58) || (c == 36) || (c == 61) || (c == 33)) {
+      isKnown = true
+    }
+    if ((c == 60) || (c == 62) || (c == 45) || (c == 38) || (c == 124) || (c == 43) || (c == 42) || (c == 47) || (c == 94) || (c == 37)) {
+      isKnown = true
+    }
+    if (false == isKnown) {
+      this.error(("unexpected character '" + (this.text(a i))) + "'")
+      return
+    }
+    def t:RustToken (this.newToken("punct" a))
+    this.markJoint(t)
+  }
+
+  ; A token is joint when the next source byte is punctuation that could
+  ; continue an operator. The parser only glues punct tokens, so marking an
+  ; identifier or literal joint is harmless and keeps the rule simple.
+  fn markJoint:void (t:RustToken) {
+    if (i >= len) {
+      return
+    }
+    def n:int (this.at(i))
+    if ((n == 32) || (n == 9) || (n == 10) || (n == 13)) {
+      return
+    }
+    t.joint = true
+  }
+}

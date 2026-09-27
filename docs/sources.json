@@ -251,6 +251,16 @@
       "summary": "The ACE code editor component of the browser.",
       "status": "legacy",
       "reason": "Only lib/DOMLib.rgr imports this file, and that file is legacy too."
+    },
+    {
+      "id": "rust-prelude",
+      "file": "lib/rust/RsPrelude.rgr",
+      "title": "Rust module runtime",
+      "always": false,
+      "import": "rust/RsPrelude.rgr",
+      "summary": "Imported by the Ranger source rgrc writes for a strict `.rs` module. Gives Rust's meaning to integer division, casts, `{}` formatting, byte offsets in strings and the float methods, so every target prints what the rustc build prints.",
+      "status": "legacy",
+      "reason": "Internal runtime: only the Ranger source rgrc writes for a .rs module imports it, so it gets no reference page. PLAN_RUST_SYNTAX.md describes it."
     }
   ]
 }

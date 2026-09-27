@@ -1,0 +1,11 @@
+   the x3
+   fox x2
+ brown x1
+3: the, fox, dog
+4: over, lazy
+5: quick, brown, jumps
+squares [1, 4, 16, 25, 49, 64, 100]
+sum 259 evens 4 max Some(100)
+<25><49><64><100>
+5! = 120
+any > 90: true, all > 0: true

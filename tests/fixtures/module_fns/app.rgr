@@ -1,0 +1,22 @@
+Import "geometry.rgr"
+
+fn twice:int (x:int) {
+  return (x * 2)
+}
+
+class Counter {
+  def n:int 0
+  fn bump:int () {
+    n = ((twice(n)) + 1)
+    return n
+  }
+}
+
+fn main:void () {
+  print (to_string (twice(21)))
+  print (to_string (area(2.0)))
+  print (to_string (geometry.square(3.0)))
+  def c:Counter (new Counter())
+  c.bump()
+  print (to_string (c.bump()))
+}

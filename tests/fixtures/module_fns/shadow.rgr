@@ -1,0 +1,16 @@
+fn twice:int (x:int) {
+  return (x * 2)
+}
+class shadow {
+  sfn greet:string () {
+    return "hi"
+  }
+}
+fn main:void () {
+  def twice:(fn:int (x:int)) (fn:int (x:int) {
+    return (x * 3)
+  })
+  print (to_string (twice(5)))
+  print (shadow.greet())
+  print (to_string (shadow.twice(5)))
+}

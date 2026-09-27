@@ -236,6 +236,11 @@ class RangerAppWriterContext {
 
   def langFilePath:string ""
   def libraryPaths:[string]
+  ; top-level functions (ISSUES.md #104), kept on the root context:
+  ; function name -> the module classes that declare it, "|"-separated
+  def moduleFunctions:[string:string]
+  ; source file -> its module class
+  def fileModules:[string:string]
   def outputPath ""
 
   def counters:TypeCounts (new TypeCounts)

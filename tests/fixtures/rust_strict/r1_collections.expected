@@ -1,0 +1,15 @@
+len 5 first 0 last 16
+sum 129
+found at 3
+no 7
+missing 99
+popped Some(16) len 4
+empty false
+héllo wörld chars 11
+upper HÉLLO WÖRLD
+contains true starts true
+words 2 wörld
+[pad]
+count 4
+parsed 43
+hi x! true

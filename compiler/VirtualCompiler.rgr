@@ -10,6 +10,7 @@ Import "CmdParams.rgr"
 Import "RangerDocGenerator.rgr"
 Import "StaticAnalysis.rgr"
 Import "RangerLLVMPipeline.rgr"
+Import "./frontend/rust/lower/RustLower.rgr"
 
 defn CreateFolder (folder fname) (create_folder (unwrap folder) fname)
 defn CreateFolder (folder fname) (create_folder folder fname)
@@ -779,7 +780,28 @@ class tester {
     push langFileDirs sourceFileDir
 
     def c:string (read_file env theFilePath the_file)    
-    def code:SourceCode (new SourceCode ((unwrap c)))
+    def mainSource:string (unwrap c)
+    ; A `.rs` entry file (PLAN_RUST_SYNTAX.md) is lowered to Ranger source
+    ; first; from here on it is read like any other file.
+    def rustOriginal:string ""
+    if (RustLower.isRustFile(the_file)) {
+      rustOriginal = mainSource
+      def rl:RustLower (new RustLower())
+      mainSource = (rl.translate(mainSource the_file))
+      if ((array_length rl.errors) > 0) {
+        cli.printHeader()
+        for rl.errors rerr:string ri {
+          print (cli.error(rerr))
+        }
+        res.hasErrors = true
+        res.errorMessage = "Rust lowering failed for " + the_file
+        return res
+      }
+      if (has params.flags "rust-show-rgr") {
+        print mainSource
+      }
+    }
+    def code:SourceCode (new SourceCode (mainSource))
 
     code.filename = the_file
     def parser:RangerLispParser (new RangerLispParser (code))
@@ -907,6 +929,8 @@ class tester {
 
     ; --- context for the compilation ---
     def appCtx@(lives):RangerAppWriterContext (new RangerAppWriterContext()))
+    ; top-level functions join the file's module class (ISSUES.md #104)
+    ModuleFunctions.hoist(root the_file appCtx)
     appCtx.env = env
     appCtx.libraryPaths = langFileDirs
     set appCtx.compilerSettings "package" package_name
@@ -1121,6 +1145,18 @@ class tester {
     cli.printCompilationInfo()
     print (cli.divider())
     print ""
+
+    ; A strict `.rs` module is its own Rust output (PLAN_RUST_SYNTAX.md §7):
+    ; it passed the subset and move checks above, and rustc is the authority
+    ; on the rest.
+    if ((rustOriginal != "") && (the_lang == "rust")) {
+      wr.raw(rustOriginal false)
+      res.target_dir = the_target_dir
+      res.fileSystem = fileSystem
+      res.ctx = appCtx
+      cli.printSuccess((the_target_dir + "/") + the_target)
+      return res
+    }
 
     try {
 

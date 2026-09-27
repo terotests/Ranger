@@ -1,0 +1,1095 @@
+; SPDX-License-Identifier: MIT
+
+; Runtime support for Rust-syntax modules (PLAN_RUST_SYNTAX.md).
+;
+; A `.rs` module is translated to Ranger (compiler/frontend/rust/lower) and
+; imports this file. Rust fixes semantics that Ranger's own operators leave to
+; the target -- integer division and remainder truncate toward zero, `as`
+; truncates a float, `{}` prints a float in its shortest round-trip form and
+; never in exponent notation -- and every target must print what the native
+; Rust build prints. The operators here give each of those one meaning.
+;
+; Most are type-overloaded (`rs_div` on two ints, on two doubles), so the
+; translator can emit one name and leave the choice to Ranger's type checker.
+
+operators {
+
+  ; ------------------------------------------------------------ arithmetic
+
+  ; Integer division truncates toward zero (Python's `//` floors). Every
+  ; target is spelled out: an operator with a `* @macro` template ignores its
+  ; per-target ones.
+  rs_div _:int (a:int b:int) {
+    templates {
+      ranger ( "(rs_div " (e 1) " " (e 2) ")" )
+      es6 ( "Math.trunc(" (e 1) " / " (e 2) ")" )
+      python ( "rs_idiv(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+def rs_idiv(a, b):
+    q = abs(a) // abs(b)
+    return q if (a >= 0) == (b >= 0) else -q
+"))
+      dart ( "(" (e 1) " ~/ " (e 2) ")" )
+      php ( "intdiv(" (e 1) ", " (e 2) ")" )
+      * ( "(" (e 1) " / " (e 2) ")" )
+    }
+  }
+  rs_div _:double (a:double b:double) {
+    templates {
+      * @macro(true) ( "(" "(" (e 1) ")" " / " "(" (e 2) ")" ")" )
+    }
+  }
+
+  ; The remainder has the sign of the dividend (Python's `%` has the sign of
+  ; the divisor).
+  rs_rem _:int (a:int b:int) {
+    templates {
+      ranger ( "(rs_rem " (e 1) " " (e 2) ")" )
+      python ( "rs_irem(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+def rs_irem(a, b):
+    r = abs(a) % abs(b)
+    return r if a >= 0 else -r
+"))
+      * ( "(" (e 1) " % " (e 2) ")" )
+    }
+  }
+  rs_rem _:double (a:double b:double) {
+    templates {
+      ranger ( "(rs_rem" " " (e 1) " " (e 2) ")" )
+      python ( "math.fmod(" (e 1) ", " (e 2) ")" (imp "math") )
+      go ( "math.Mod(" (e 1) ", " (e 2) ")" (imp "math") )
+      cpp ( "std::fmod(" (e 1) ", " (e 2) ")" (imp "<cmath>") )
+      * ( "(" (e 1) " % " (e 2) ")" )
+    }
+  }
+
+  rs_neg _:int (a:int) {
+    templates {
+      * @macro(true) ( "(0 - " "(" (e 1) ")" ")" )
+    }
+  }
+  rs_neg _:double (a:double) {
+    templates {
+      * @macro(true) ( "(0.0 - " "(" (e 1) ")" ")" )
+    }
+  }
+
+  rs_abs _:int (a:int) {
+    templates {
+      * @macro(true) ( "(? (" "(" (e 1) ")" " < 0) (0 - " "(" (e 1) ")" ") " "(" (e 1) ")" ")" )
+    }
+  }
+  rs_abs _:double (a:double) {
+    templates {
+      * @macro(true) ( "(? (" "(" (e 1) ")" " < 0.0) (0.0 - " "(" (e 1) ")" ") " "(" (e 1) ")" ")" )
+    }
+  }
+
+  rs_min _:int (a:int b:int) {
+    templates {
+      * @macro(true) ( "(? (" "(" (e 1) ")" " < " "(" (e 2) ")" ") " "(" (e 1) ")" " " "(" (e 2) ")" ")" )
+    }
+  }
+  rs_min _:double (a:double b:double) {
+    templates {
+      * @macro(true) ( "(? (" "(" (e 1) ")" " < " "(" (e 2) ")" ") " "(" (e 1) ")" " " "(" (e 2) ")" ")" )
+    }
+  }
+  rs_max _:int (a:int b:int) {
+    templates {
+      * @macro(true) ( "(? (" "(" (e 1) ")" " > " "(" (e 2) ")" ") " "(" (e 1) ")" " " "(" (e 2) ")" ")" )
+    }
+  }
+  rs_max _:double (a:double b:double) {
+    templates {
+      * @macro(true) ( "(? (" "(" (e 1) ")" " > " "(" (e 2) ")" ") " "(" (e 1) ")" " " "(" (e 2) ")" ")" )
+    }
+  }
+
+  rs_sqrt _:double (a:double) {
+    templates {
+      * @macro(true) ( "(sqrt " "(" (e 1) ")" ")" )
+    }
+  }
+  rs_floor _:double (a:double) {
+    templates {
+      * @macro(true) ( "(floor " "(" (e 1) ")" ")" )
+    }
+  }
+  rs_ceil _:double (a:double) {
+    templates {
+      * @macro(true) ( "(ceil " "(" (e 1) ")" ")" )
+    }
+  }
+  rs_powi _:double (a:double n:int) {
+    templates {
+      ranger ( "(rs_powi" " " (e 1) " " (e 2) ")" )
+      es6 ( "Math.pow(" (e 1) ", " (e 2) ")" )
+      python ( "float(" (e 1) " ** " (e 2) ")" )
+      go ( "math.Pow(" (e 1) ", float64(" (e 2) "))" (imp "math") )
+      cpp ( "std::pow(" (e 1) ", (double)" (e 2) ")" (imp "<cmath>") )
+      * ( "Math.pow(" (e 1) ", " (e 2) ")" )
+    }
+  }
+  rs_pow _:int (a:int n:int) {
+    templates {
+      ranger ( "(rs_pow" " " (e 1) " " (e 2) ")" )
+      es6 ( "Math.pow(" (e 1) ", " (e 2) ")" )
+      python ( "(" (e 1) " ** " (e 2) ")" )
+      go ( "rs_ipow(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+func rs_ipow(a int64, n int64) int64 {
+	r := int64(1)
+	for i := int64(0); i < n; i++ {
+		r *= a
+	}
+	return r
+}
+"))
+      cpp ( "rs_ipow(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+inline long long rs_ipow(long long a, long long n) {
+    long long r = 1;
+    for (long long i = 0; i < n; i++) { r *= a; }
+    return r;
+}
+"))
+      * ( "Math.pow(" (e 1) ", " (e 2) ")" )
+    }
+  }
+
+  ; ----------------------------------------------------------------- casts
+
+  ; `x as i64` on a float truncates toward zero (`to_int` floors).
+  rs_f2i _:int (a:double) {
+    templates {
+      ranger ( "(rs_f2i" " " (e 1) ")" )
+      es6 ( "Math.trunc(" (e 1) ")" )
+      python ( "int(" (e 1) ")" )
+      go ( "rs_f2i(" (e 1) ")"
+(create_polyfill "
+func rs_f2i(x float64) int64 {
+	return int64(x)
+}
+"))
+      cpp ( "(long long)(" (e 1) ")" )
+      * ( "Math.trunc(" (e 1) ")" )
+    }
+  }
+  rs_i2f _:double (a:int) {
+    templates {
+      * @macro(true) ( "(to_double " "(" (e 1) ")" ")" )
+    }
+  }
+  rs_wrap_u8 _:int (a:int) {
+    templates {
+      * @macro(true) ( "(bit_and " "(" (e 1) ")" " 255)" )
+    }
+  }
+  rs_wrap_u16 _:int (a:int) {
+    templates {
+      * @macro(true) ( "(bit_and " "(" (e 1) ")" " 65535)" )
+    }
+  }
+
+  ; A Rust `char` is a one-character string here; these cross to and from
+  ; its code point.
+  rs_char_code _:int (c:string) {
+    templates {
+      * @macro(true) ( "(itemAt (to_chars " "(" (e 1) ")" ") 0)" )
+    }
+  }
+  rs_char_from _:string (code:int) {
+    templates {
+      es6 ( "String.fromCodePoint(" (e 1) ")" )
+      python ( "chr(" (e 1) ")" )
+      go ( "string(rune(" (e 1) "))" )
+      * @macro(true) ( "(strfromcode " "(" (e 1) ")" ")" )
+    }
+  }
+
+  ; ------------------------------------------------------------ formatting
+
+  ; `{}` of a float: shortest round-trip digits, never an exponent, no
+  ; trailing `.0` -- what Rust's Display writes.
+  rs_fmt _:string (a:double) {
+    templates {
+      ranger ( "(rs_fmt" " " (e 1) ")" )
+      es6 ( "rs_f64(" (e 1) ")"
+(create_polyfill "
+function rs_expand_exp(s) {
+  var neg = s.charAt(0) === '-';
+  if (neg) { s = s.slice(1); }
+  var parts = s.toLowerCase().split('e');
+  var mant = parts[0];
+  var exp = parseInt(parts[1], 10);
+  var dot = mant.indexOf('.');
+  var digits = mant.replace('.', '');
+  var intLen = (dot < 0 ? mant.length : dot) + exp;
+  var out;
+  if (intLen <= 0) { out = '0.' + '0'.repeat(-intLen) + digits; }
+  else if (intLen >= digits.length) { out = digits + '0'.repeat(intLen - digits.length); }
+  else { out = digits.slice(0, intLen) + '.' + digits.slice(intLen); }
+  return (neg ? '-' : '') + out;
+}
+function rs_f64(x) {
+  if (Number.isNaN(x)) { return 'NaN'; }
+  if (x === Infinity) { return 'inf'; }
+  if (x === -Infinity) { return '-inf'; }
+  if (x === 0 && 1 / x < 0) { return '-0'; }
+  var s = String(x);
+  return s.indexOf('e') < 0 ? s : rs_expand_exp(s);
+}
+"))
+      python ( "rs_f64(" (e 1) ")"
+(create_polyfill "
+def rs_f64(x):
+    import math
+    if math.isnan(x):
+        return 'NaN'
+    if math.isinf(x):
+        return 'inf' if x > 0 else '-inf'
+    s = repr(float(x))
+    if 'e' in s:
+        neg = s.startswith('-')
+        if neg:
+            s = s[1:]
+        mant, exp = s.split('e')
+        exp = int(exp)
+        dot = mant.find('.')
+        digits = mant.replace('.', '')
+        int_len = (len(mant) if dot < 0 else dot) + exp
+        if int_len <= 0:
+            s = '0.' + '0' * (-int_len) + digits
+        elif int_len >= len(digits):
+            s = digits + '0' * (int_len - len(digits))
+        else:
+            s = digits[:int_len] + '.' + digits[int_len:]
+        if neg:
+            s = '-' + s
+    if s.endswith('.0'):
+        s = s[:-2]
+    return s
+"))
+      go ( "rs_f64(" (e 1) ")" (imp "strconv") (imp "math")
+(create_polyfill "
+func rs_f64(x float64) string {
+	if math.IsNaN(x) {
+		return \"NaN\"
+	}
+	if math.IsInf(x, 1) {
+		return \"inf\"
+	}
+	if math.IsInf(x, -1) {
+		return \"-inf\"
+	}
+	return strconv.FormatFloat(x, 'f', -1, 64)
+}
+"))
+      cpp ( "rs_f64(" (e 1) ")" (imp "<charconv>") (imp "<cmath>") (imp "<string>")
+(create_polyfill "
+inline std::string rs_f64(double x) {
+    if (std::isnan(x)) { return \"NaN\"; }
+    if (std::isinf(x)) { return x > 0 ? \"inf\" : \"-inf\"; }
+    char buf[400];
+    auto r = std::to_chars(buf, buf + sizeof(buf), x, std::chars_format::fixed);
+    return std::string(buf, r.ptr);
+}
+"))
+      rust ( "format!(\"{}\", " (e 1) ")" )
+      * ( "rs_f64(" (e 1) ")" )
+    }
+  }
+  rs_fmt _:string (a:int) {
+    templates {
+      ranger ( "(rs_fmt " (e 1) ")" )
+      python ( "str(" (e 1) ")" )
+      go ( "strconv.FormatInt(int64(" (e 1) "), 10)" (imp "strconv") )
+      cpp ( "std::to_string(" (e 1) ")" (imp "<string>") )
+      rust ( (e 1) ".to_string()" )
+      java7 ( "String.valueOf(" (e 1) ")" )
+      kotlin ( (e 1) ".toString()" )
+      scala ( (e 1) ".toString" )
+      dart ( (e 1) ".toString()" )
+      csharp ( (e 1) ".ToString()" )
+      swift3 ( "String(" (e 1) ")" )
+      swift6 ( "String(" (e 1) ")" )
+      php ( "strval(" (e 1) ")" )
+      * ( "String(" (e 1) ")" )
+    }
+  }
+  rs_fmt _:string (a:boolean) {
+    templates {
+      ranger ( "(rs_fmt " (e 1) ")" )
+      python ( "('true' if " (e 1) " else 'false')" )
+      go ( "strconv.FormatBool(" (e 1) ")" (imp "strconv") )
+      cpp ( "std::string(" (e 1) " ? \"true\" : \"false\")" (imp "<string>") )
+      rust ( (e 1) ".to_string()" )
+      php ( "(" (e 1) " ? 'true' : 'false')" )
+      * ( "(" (e 1) " ? \"true\" : \"false\")" )
+    }
+  }
+  rs_fmt _:string (a:string) {
+    templates {
+      ranger ( "(rs_fmt " (e 1) ")" )
+      * ( (e 1) )
+    }
+  }
+
+  ; `{:.N}` of a float: N decimals, a tie rounded to even as Rust does
+  ; (JavaScript's toFixed rounds a tie up).
+  rs_fmt_prec _:string (a:double p:int) {
+    templates {
+      ranger ( "(rs_fmt_prec" " " (e 1) " " (e 2) ")" )
+      es6 ( "rs_f64_prec(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+function rs_f64_prec(x, p) {
+  var m = Math.pow(10, p);
+  var y = x * m;
+  var t = Math.trunc(y);
+  if (Math.abs(y - t) === 0.5 && Number.isSafeInteger(t)) {
+    var n = (Math.abs(t) % 2 === 0) ? t : t + Math.sign(y);
+    return (n / m).toFixed(p);
+  }
+  return x.toFixed(p);
+}
+"))
+      python ( "format(" (e 1) ", '.' + str(" (e 2) ") + 'f')" )
+      go ( "strconv.FormatFloat(" (e 1) ", 'f', int(" (e 2) "), 64)" (imp "strconv") )
+      cpp ( "rs_f64_prec(" (e 1) ", " (e 2) ")" (imp "<cstdio>") (imp "<string>")
+(create_polyfill "
+inline std::string rs_f64_prec(double x, long long p) {
+    char buf[400];
+    std::snprintf(buf, sizeof(buf), \"%.*f\", (int)p, x);
+    return std::string(buf);
+}
+"))
+      rust ( "format!(\"{:.*}\", " (e 2) " as usize, " (e 1) ")" )
+      * ( "rs_f64_prec(" (e 1) ", " (e 2) ")" )
+    }
+  }
+
+  ; `{:?}` of a string: quoted, with Rust's escapes.
+  rs_dbg _:string (a:string) {
+    templates {
+      * @macro(true) ( "(\"\\\"\" + ((replace (replace (replace (replace " "(" (e 1) ")" " \"\\\\\" \"\\\\\\\\\") \"\\\"\" \"\\\\\\\"\") \"\\n\" \"\\\\n\") \"\\t\" \"\\\\t\") + \"\\\"\"))" )
+    }
+  }
+  rs_dbg _:string (a:double) {
+    templates {
+      * @macro(true) ( "(rs_fmt_dbg_f64 " "(" (e 1) ")" ")" )
+    }
+  }
+  rs_dbg _:string (a:int) {
+    templates {
+      * @macro(true) ( "(to_string " "(" (e 1) ")" ")" )
+    }
+  }
+  rs_dbg _:string (a:boolean) {
+    templates {
+      * @macro(true) ( "(? " "(" (e 1) ")" " \"true\" \"false\")" )
+    }
+  }
+
+  ; `{:?}` of a float keeps the `.0` Display drops.
+  rs_fmt_dbg_f64 _:string (a:double) {
+    templates {
+      * @macro(true) ( "(RsFmt.dbgF64(" "(" (e 1) ")" "))" )
+    }
+  }
+
+  ; `panic!`: the message on stderr and exit status 101, as Rust does. Not
+  ; a Ranger `throw`, which callers would have to catch.
+  rs_panic _:void (msg:string) {
+    templates {
+      ranger ( "rs_panic " (e 1) )
+      es6 ( "process.stderr.write(" (e 1) " + \"\\n\"); process.exit(101);" )
+      python ( "sys.stderr.write(" (e 1) " + \"\\n\"); sys.exit(101)" (imp "sys") )
+      go ( "fmt.Fprintln(os.Stderr, " (e 1) "); os.Exit(101)" (imp "fmt") (imp "os") )
+      cpp ( "std::cerr << " (e 1) " << std::endl; std::exit(101);" (imp "<iostream>") (imp "<cstdlib>") )
+      rust ( "panic!(\"{}\", " (e 1) ");" )
+      java7 ( "System.err.println(" (e 1) "); System.exit(101);" )
+      kotlin ( "System.err.println(" (e 1) "); kotlin.system.exitProcess(101)" )
+      csharp ( "System.Console.Error.WriteLine(" (e 1) "); System.Environment.Exit(101);" )
+      * ( "process.stderr.write(" (e 1) " + \"\\n\"); process.exit(101);" )
+    }
+  }
+
+  ; Ordering of strings: Ranger's `<` / `>` take numbers only.
+  rs_str_cmp _:int (a:string b:string) {
+    templates {
+      ranger ( "(rs_str_cmp " (e 1) " " (e 2) ")" )
+      es6 ( "(" (e 1) " < " (e 2) " ? -1 : (" (e 1) " > " (e 2) " ? 1 : 0))" )
+      python ( "(-1 if " (e 1) " < " (e 2) " else (1 if " (e 1) " > " (e 2) " else 0))" )
+      go ( "int64(strings.Compare(" (e 1) ", " (e 2) "))" (imp "strings") )
+      cpp ( "(long long)((" (e 1) ").compare(" (e 2) ") < 0 ? -1 : ((" (e 1) ").compare(" (e 2) ") > 0 ? 1 : 0))" )
+      rust ( "(match " (e 1) ".cmp(&" (e 2) ") { std::cmp::Ordering::Less => -1, std::cmp::Ordering::Equal => 0, _ => 1 })" )
+      java7 ( "Integer.signum(" (e 1) ".compareTo(" (e 2) "))" )
+      kotlin ( "Integer.signum(" (e 1) ".compareTo(" (e 2) "))" )
+      csharp ( "System.Math.Sign(string.CompareOrdinal(" (e 1) ", " (e 2) "))" )
+      * ( "(" (e 1) " < " (e 2) " ? -1 : (" (e 1) " > " (e 2) " ? 1 : 0))" )
+    }
+  }
+
+  rs_map_len _:int (m:[K:T]) {
+    templates {
+      ranger ( "(rs_map_len " (e 1) ")" )
+      es6 ( "Object.keys(" (e 1) ").length" )
+      python ( "len(" (e 1) ")" )
+      go ( "int64(len(" (e 1) "))" )
+      cpp ( "(long long)(" (e 1) ").size()" )
+      rust ( "(" (e 1) ".len() as i64)" )
+      java7 ( (e 1) ".size()" )
+      kotlin ( (e 1) ".size" )
+      csharp ( (e 1) ".Count" )
+      dart ( (e 1) ".length" )
+      php ( "count(" (e 1) ")" )
+      swift6 ( (e 1) ".count" )
+      * ( "Object.keys(" (e 1) ").length" )
+    }
+  }
+
+  ; Removing a key: Ranger has no operator for it.
+  rs_map_remove _:void (m:[K:T] k:K) {
+    templates {
+      ranger ( "rs_map_remove " (e 1) " " (e 2) )
+      es6 ( "delete " (e 1) "[" (e 2) "];" )
+      python ( (e 1) ".pop(" (e 2) ", None)" )
+      go ( "delete(" (e 1) ", " (e 2) ")" )
+      cpp ( "rs_map_erase(" (e 1) ", " (e 2) ");"
+(create_polyfill "
+template <class M, class K>
+inline void rs_map_erase(M& m, const K& k) {
+    for (auto it = m.entries.begin(); it != m.entries.end(); ++it) {
+        if (it->first == k) {
+            m.entries.erase(it);
+            m.rehash_();
+            return;
+        }
+    }
+}
+"))
+      rust ( (e 1) ".remove(&" (e 2) ");" )
+      java7 ( (e 1) ".remove(" (e 2) ");" )
+      kotlin ( (e 1) ".remove(" (e 2) ")" )
+      csharp ( (e 1) ".Remove(" (e 2) ");" )
+      dart ( (e 1) ".remove(" (e 2) ");" )
+      php ( "unset(" (e 1) "[" (e 2) "]);" )
+      swift6 ( (e 1) ".removeValue(forKey: " (e 2) ")" )
+      * ( "delete " (e 1) "[" (e 2) "];" )
+    }
+  }
+
+  ; ---------------------------------------------------------------- strings
+
+  ; Rust's `find` answers a BYTE offset; `indexOf` answers the target's own
+  ; unit, so the prefix before the hit is measured in UTF-8.
+  rs_find_bytes _:int (s:string p:string) {
+    templates {
+      * @macro(true) ( "(RsStr.findBytes(" "(" (e 1) ")" " " "(" (e 2) ")" "))" )
+    }
+  }
+  rs_byte_slice _:string (s:string a:int b:int) {
+    templates {
+      * @macro(true) ( "(substring (to_charbuffer " "(" (e 1) ")" ") " "(" (e 2) ")" " " "(" (e 3) ")" ")" )
+    }
+  }
+  rs_byte_len _:int (s:string) {
+    templates {
+      * @macro(true) ( "(length (to_charbuffer " "(" (e 1) ")" "))" )
+    }
+  }
+  ; Unicode case mapping. The C++ target's to_uppercase maps ASCII only; the
+  ; polyfill covers Latin-1, Latin Extended-A, Greek and Cyrillic.
+  rs_upper _:string (s:string) {
+    templates {
+      ranger ( "(rs_upper " (e 1) ")" )
+      cpp ( "rs_case(" (e 1) ", true)" (imp "<string>")
+(create_polyfill "
+inline long rs_case_map(long c, bool up) {
+    if (up) {
+        if (c >= 'a' && c <= 'z') { return c - 32; }
+        if ((c >= 0xE0 && c <= 0xFE && c != 0xF7)) { return c - 32; }
+        if (c == 0xFF) { return 0x178; }
+        if (c >= 0x100 && c <= 0x17F && c != 0x130 && c != 0x131 && c != 0x138 && c != 0x149 && c != 0x17F) {
+            bool oddLow = (c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E);
+            if (oddLow) { return (c % 2 == 0) ? c - 1 : c; }
+            return (c % 2 == 1) ? c - 1 : c;
+        }
+        if (c >= 0x3B1 && c <= 0x3C9 && c != 0x3C2) { return c - 32; }
+        if (c >= 0x430 && c <= 0x44F) { return c - 32; }
+        if (c >= 0x450 && c <= 0x45F) { return c - 80; }
+        return c;
+    }
+    if (c >= 'A' && c <= 'Z') { return c + 32; }
+    if ((c >= 0xC0 && c <= 0xDE && c != 0xD7)) { return c + 32; }
+    if (c == 0x178) { return 0xFF; }
+    if (c >= 0x100 && c <= 0x17F && c != 0x130 && c != 0x131 && c != 0x138 && c != 0x149 && c != 0x17F) {
+        bool oddLow = (c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E);
+        if (oddLow) { return (c % 2 == 1) ? c + 1 : c; }
+        return (c % 2 == 0) ? c + 1 : c;
+    }
+    if (c >= 0x391 && c <= 0x3A9 && c != 0x3A2) { return c + 32; }
+    if (c >= 0x410 && c <= 0x42F) { return c + 32; }
+    if (c >= 0x400 && c <= 0x40F) { return c + 80; }
+    return c;
+}
+inline std::string rs_case(const std::string& s, bool up) {
+    std::string out;
+    size_t i = 0;
+    while (i < s.size()) {
+        unsigned char b = (unsigned char)s[i];
+        long c = b;
+        size_t n = 1;
+        if (b >= 0xF0) { c = b & 0x07; n = 4; }
+        else if (b >= 0xE0) { c = b & 0x0F; n = 3; }
+        else if (b >= 0xC0) { c = b & 0x1F; n = 2; }
+        for (size_t k = 1; k < n && i + k < s.size(); k++) { c = (c << 6) | ((unsigned char)s[i + k] & 0x3F); }
+        i += n;
+        if (up && c == 0xDF) { out += \"SS\"; continue; }
+        long m = rs_case_map(c, up);
+        if (m < 0x80) { out += (char)m; }
+        else if (m < 0x800) { out += (char)(0xC0 | (m >> 6)); out += (char)(0x80 | (m & 0x3F)); }
+        else if (m < 0x10000) { out += (char)(0xE0 | (m >> 12)); out += (char)(0x80 | ((m >> 6) & 0x3F)); out += (char)(0x80 | (m & 0x3F)); }
+        else { out += (char)(0xF0 | (m >> 18)); out += (char)(0x80 | ((m >> 12) & 0x3F)); out += (char)(0x80 | ((m >> 6) & 0x3F)); out += (char)(0x80 | (m & 0x3F)); }
+    }
+    return out;
+}
+"))
+      ; strings.ToUpper maps one rune to one rune; Rust special casing writes
+      ; ß as SS
+      go ( "strings.ReplaceAll(strings.ToUpper(" (e 1) "), \"ß\", \"SS\")" (imp "strings") )
+      * @macro(true) ( "(to_uppercase " "(" (e 1) ")" ")" )
+    }
+  }
+  rs_lower _:string (s:string) {
+    templates {
+      ranger ( "(rs_lower " (e 1) ")" )
+      cpp ( "rs_case(" (e 1) ", false)" (imp "<string>") )
+      * @macro(true) ( "(to_lowercase " "(" (e 1) ")" ")" )
+    }
+  }
+
+  rs_char_count _:int (s:string) {
+    templates {
+      * @macro(true) ( "(array_length (to_chars " "(" (e 1) ")" "))" )
+    }
+  }
+  ; ------------------------------------------------------- float methods
+  ; `x.round()` rounds half away from zero; `x.trunc()`, `x.ln()`,
+  ; `x.exp()`, `x.log10()`, `x.powf(y)` and `x.signum()` are the libm ones.
+
+  rs_round _:double (a:double) {
+    templates {
+      ranger ( "(rs_round " (e 1) ")" )
+      es6 ( "rs_round(" (e 1) ")"
+(create_polyfill "
+function rs_round(x) {
+  const a = Math.abs(x);
+  let r = Math.floor(a);
+  if (a - r >= 0.5) { r += 1; }
+  return x < 0 ? -r : r;
+}
+"))
+      python ( "rs_round(" (e 1) ")" (imp "math")
+(create_polyfill "
+def rs_round(x):
+    if not math.isfinite(x):
+        return x
+    a = abs(x)
+    r = math.floor(a)
+    if a - r >= 0.5:
+        r += 1
+    return math.copysign(float(r), x)
+"))
+      go ( "math.Round(" (e 1) ")" (imp "math") )
+      cpp ( "std::round(" (e 1) ")" (imp "<cmath>") )
+      * ( "Math.round(" (e 1) ")" )
+    }
+  }
+  rs_trunc _:double (a:double) {
+    templates {
+      ranger ( "(rs_trunc " (e 1) ")" )
+      es6 ( "Math.trunc(" (e 1) ")" )
+      python ( "rs_trunc(" (e 1) ")" (imp "math")
+(create_polyfill "
+def rs_trunc(x):
+    if not math.isfinite(x):
+        return x
+    return math.copysign(float(math.trunc(x)), x)
+"))
+      go ( "math.Trunc(" (e 1) ")" (imp "math") )
+      cpp ( "std::trunc(" (e 1) ")" (imp "<cmath>") )
+      * ( "Math.floor(" (e 1) ")" )
+    }
+  }
+  rs_ln _:double (a:double) {
+    templates {
+      ranger ( "(rs_ln " (e 1) ")" )
+      es6 ( "Math.log(" (e 1) ")" )
+      python ( "math.log(" (e 1) ")" (imp "math") )
+      go ( "math.Log(" (e 1) ")" (imp "math") )
+      cpp ( "std::log(" (e 1) ")" (imp "<cmath>") )
+      * ( "Math.log(" (e 1) ")" )
+    }
+  }
+  rs_exp _:double (a:double) {
+    templates {
+      ranger ( "(rs_exp " (e 1) ")" )
+      es6 ( "Math.exp(" (e 1) ")" )
+      python ( "math.exp(" (e 1) ")" (imp "math") )
+      go ( "math.Exp(" (e 1) ")" (imp "math") )
+      cpp ( "std::exp(" (e 1) ")" (imp "<cmath>") )
+      * ( "Math.exp(" (e 1) ")" )
+    }
+  }
+  rs_log10 _:double (a:double) {
+    templates {
+      ranger ( "(rs_log10 " (e 1) ")" )
+      es6 ( "Math.log10(" (e 1) ")" )
+      python ( "math.log10(" (e 1) ")" (imp "math") )
+      go ( "math.Log10(" (e 1) ")" (imp "math") )
+      cpp ( "std::log10(" (e 1) ")" (imp "<cmath>") )
+      * ( "Math.log10(" (e 1) ")" )
+    }
+  }
+  rs_powf _:double (a:double b:double) {
+    templates {
+      ranger ( "(rs_powf " (e 1) " " (e 2) ")" )
+      es6 ( "Math.pow(" (e 1) ", " (e 2) ")" )
+      python ( "math.pow(" (e 1) ", " (e 2) ")" (imp "math") )
+      go ( "math.Pow(" (e 1) ", " (e 2) ")" (imp "math") )
+      cpp ( "std::pow(" (e 1) ", " (e 2) ")" (imp "<cmath>") )
+      * ( "Math.pow(" (e 1) ", " (e 2) ")" )
+    }
+  }
+  ; 1.0 for +0.0 and positive numbers, -1.0 for -0.0 and negative ones, NaN
+  ; for NaN
+  rs_signum _:double (a:double) {
+    templates {
+      ranger ( "(rs_signum " (e 1) ")" )
+      es6 ( "rs_signum(" (e 1) ")"
+(create_polyfill "
+function rs_signum(x) {
+  if (x !== x) { return x; }
+  return (x < 0 || Object.is(x, -0)) ? -1 : 1;
+}
+"))
+      python ( "(" (e 1) " if math.isnan(" (e 1) ") else math.copysign(1.0, " (e 1) "))" (imp "math") )
+      go ( "rs_signum(" (e 1) ")" (imp "math")
+(create_polyfill "
+func rs_signum(x float64) float64 {
+	if math.IsNaN(x) {
+		return x
+	}
+	return math.Copysign(1, x)
+}
+"))
+      cpp ( "(std::isnan(" (e 1) ") ? " (e 1) " : std::copysign(1.0, " (e 1) "))" (imp "<cmath>") )
+      * ( "Math.signum(" (e 1) ")" )
+    }
+  }
+
+  ; ------------------------------------------------------------ map keys
+
+  ; The keys of an int-keyed map (Ranger's `keys` takes string keys). On
+  ; JavaScript the map is an object, whose keys come back as strings.
+  rs_int_keys _:[int] (m:[int:T]) {
+    templates {
+      ranger ( "(rs_int_keys " (e 1) ")" )
+      es6 ( "Object.keys(" (e 1) ").map(Number)" )
+      python ( "list(" (e 1) ".keys())" )
+      go ( "rs_int_keys(" (e 1) ")"
+(create_polyfill "
+func rs_int_keys[V any](m map[int64]V) []int64 {
+	res := make([]int64, 0, len(m))
+	for k := range m {
+		res = append(res, k)
+	}
+	return res
+}
+"))
+      cpp ( "rs_int_keys(" (e 1) ")" (imp "<vector>")
+(create_polyfill "
+template< typename M >
+std::vector<int> rs_int_keys( const M & m ) {
+    std::vector<int> res;
+    for (auto it = m.begin(); it != m.end(); ++it) {
+        res.push_back(it->first);
+    }
+    return res;
+}
+"))
+      rust ( (e 1) ".keys().cloned().collect::<Vec<i64>>()" )
+      * ( "new ArrayList<>(" (e 1) ".keySet())" )
+    }
+  }
+
+  ; ---------------------------------------------------------------- stderr
+
+  ; `eprintln!`: a line on standard error.
+  rs_eprint _:void (s:string) {
+    templates {
+      ranger ( "rs_eprint " (e 1) nl )
+      es6 ( "console.error(" (e 1) ");" nl )
+      python ( "print(" (e 1) ", file=sys.stderr)" nl (imp "sys") )
+      go ( "fmt.Fprintln(os.Stderr, " (e 1) ")" nl (imp "fmt") (imp "os") )
+      cpp ( "std::cerr << " (e 1) " << std::endl;" nl (imp "<iostream>") )
+      * ( "System.err.println(" (e 1) ");" nl )
+    }
+  }
+}
+
+
+class RsFmt {
+  ; `{:?}` of a char: quoted with ', escapes as Rust writes them.
+  sfn dbgChar:string (c:string) {
+    if (c == "\\") {
+      return "'\\\\'"
+    }
+    if (c == "'") {
+      return "'\\''"
+    }
+    if (c == "\n") {
+      return "'\\n'"
+    }
+    if (c == "\t") {
+      return "'\\t'"
+    }
+    if (c == "\r") {
+      return "'\\r'"
+    }
+    return (("'" + c) + "'")
+  }
+
+  ; `{:>8}`, `{:<8}`, `{:^8}` with a fill character; the width counts code
+  ; points, as Rust's does.
+  sfn pad:string (s:string width:int align:string fill:string) {
+    def n:int (rs_char_count s)
+    if (n >= width) {
+      return s
+    }
+    def total:int (width - n)
+    def left:int 0
+    if (align == ">") {
+      left = total
+    }
+    if (align == "^") {
+      left = (rs_div total 2)
+    }
+    def right:int (total - left)
+    return (((RsStr.repeat(fill left)) + s) + (RsStr.repeat(fill right)))
+  }
+
+  ; `{:08}`: zeros after the sign.
+  sfn padZero:string (s:string width:int) {
+    def n:int (rs_char_count s)
+    if (n >= width) {
+      return s
+    }
+    def zeros:string (RsStr.repeat("0" (width - n)))
+    if ((strlen s) > 0) {
+      def first:string (substring s 0 1)
+      if ((first == "-") || (first == "+")) {
+        return ((first + zeros) + (substring s 1 (strlen s)))
+      }
+    }
+    return (zeros + s)
+  }
+
+  sfn dbgF64:string (x:double) {
+    def s:string (rs_fmt x)
+    if ((indexOf s ".") >= 0) {
+      return s
+    }
+    if ((s == "NaN") || (s == "inf") || (s == "-inf")) {
+      return s
+    }
+    return (s + ".0")
+  }
+}
+
+class RsStr {
+  ; `s.parse::<i64>()`: an optional sign and decimal digits, nothing else
+  ; (no spaces, no trailing text), within i64.
+  sfn parseI64@(optional):int (s:string) {
+    def none@(optional):int
+    def cs:[int] (to_chars s)
+    def n:int (array_length cs)
+    if (n == 0) {
+      return none
+    }
+    def i:int 0
+    def first:int (itemAt cs 0)
+    if ((first == 43) || (first == 45)) {
+      i = 1
+    }
+    if (i >= n) {
+      return none
+    }
+    if ((n - i) > 19) {
+      return none
+    }
+    while (i < n) {
+      def c:int (itemAt cs i)
+      if ((c < 48) || (c > 57)) {
+        return none
+      }
+      i = i + 1
+    }
+    def r@(optional):int (to_int s)
+    return r
+  }
+
+  ; Rust's ParseIntError text for `s`.
+  sfn parseIntErr:string (s:string) {
+    if ((strlen s) == 0) {
+      return "cannot parse integer from empty string"
+    }
+    if ((s == "-") || (s == "+")) {
+      return "invalid digit found in string"
+    }
+    def cs:[int] (to_chars s)
+    def i:int 0
+    def n:int (array_length cs)
+    def first:int (itemAt cs 0)
+    if ((first == 43) || (first == 45)) {
+      i = 1
+    }
+    while (i < n) {
+      def c:int (itemAt cs i)
+      if ((c < 48) || (c > 57)) {
+        return "invalid digit found in string"
+      }
+      i = i + 1
+    }
+    if (first == 45) {
+      return "number too small to fit in target type"
+    }
+    return "number too large to fit in target type"
+  }
+
+  ; `s.parse::<f64>()`: sign, digits with at most one dot, an optional
+  ; exponent; "inf", "infinity" and "NaN" as Rust spells them.
+  sfn parseF64@(optional):double (s:string) {
+    def none@(optional):double
+    def low:string (to_lowercase s)
+    def body:string low
+    if (((strlen low) > 0) && (((substring low 0 1) == "+") || ((substring low 0 1) == "-"))) {
+      body = (substring low 1 (strlen low))
+    }
+    if ((body == "inf") || (body == "infinity") || (body == "nan")) {
+      def sp@(optional):double (to_double s)
+      if (null? sp) {
+        def neg:boolean ((substring low 0 1) == "-")
+        if (body == "nan") {
+          return none
+        }
+        def big:double 1.0
+        def k:int 0
+        while (k < 400) {
+          big = (big * 10.0)
+          k = k + 1
+        }
+        if neg {
+          big = (0.0 - big)
+        }
+        def bo@(optional):double big
+        return bo
+      }
+      return sp
+    }
+    def cs:[int] (to_chars body)
+    def n:int (array_length cs)
+    def digits:int 0
+    def dots:int 0
+    def i:int 0
+    while ((i < n) && ((itemAt cs i) != 101)) {
+      def c:int (itemAt cs i)
+      if (c == 46) {
+        dots = dots + 1
+      } {
+        if ((c < 48) || (c > 57)) {
+          return none
+        }
+        digits = digits + 1
+      }
+      i = i + 1
+    }
+    if ((digits == 0) || (dots > 1)) {
+      return none
+    }
+    if (i < n) {
+      i = i + 1
+      if ((i < n) && (((itemAt cs i) == 43) || ((itemAt cs i) == 45))) {
+        i = i + 1
+      }
+      if (i >= n) {
+        return none
+      }
+      while (i < n) {
+        def e:int (itemAt cs i)
+        if ((e < 48) || (e > 57)) {
+          return none
+        }
+        i = i + 1
+      }
+    }
+    def r@(optional):double (to_double s)
+    return r
+  }
+
+  sfn parseFloatErr:string (s:string) {
+    if ((strlen s) == 0) {
+      return "cannot parse float from empty string"
+    }
+    return "invalid float literal"
+  }
+
+  ; `s.repeat(n)`
+  sfn repeat:string (s:string n:int) {
+    def r:string ""
+    def i:int 0
+    while (i < n) {
+      r = r + s
+      i = i + 1
+    }
+    return r
+  }
+
+  ; Code points `a` up to `b` of `s`.
+  sfn codeSlice:string (s:string a:int b:int) {
+    return (utf8_substring s a b)
+  }
+
+  ; `s.split_whitespace()`: the runs between White_Space characters.
+  sfn splitWhitespace:[string] (s:string) {
+    def res:[string]
+    def cs:[int] (to_chars s)
+    def n:int (array_length cs)
+    def start:int -1
+    def i:int 0
+    while (i < n) {
+      def ch:string (rs_char_from (itemAt cs i))
+      if (RsChar.isWhitespace(ch)) {
+        if (start >= 0) {
+          push res (utf8_substring s start i)
+          start = -1
+        }
+      } {
+        if (start < 0) {
+          start = i
+        }
+      }
+      i = i + 1
+    }
+    if (start >= 0) {
+      push res (utf8_substring s start n)
+    }
+    return res
+  }
+
+  ; The UTF-8 byte offset of the first `p` in `s`, or -1.
+  sfn findBytes:int (s:string p:string) {
+    def idx:int (indexOf s p)
+    if (idx < 0) {
+      return -1
+    }
+    def head:string (substring s 0 idx)
+    return (length (to_charbuffer head))
+  }
+}
+
+class RsChar {
+  ; `c.is_ascii_digit()`, `c.is_numeric()` (for the digits Rust's is_numeric
+  ; and ASCII agree on)
+  sfn isAsciiDigit:boolean (c:string) {
+    def k:int (rs_char_code c)
+    return ((k >= 48) && (k <= 57))
+  }
+
+  sfn isAsciiAlpha:boolean (c:string) {
+    def k:int (rs_char_code c)
+    return (((k >= 65) && (k <= 90)) || ((k >= 97) && (k <= 122)))
+  }
+
+  sfn isAsciiUpper:boolean (c:string) {
+    def k:int (rs_char_code c)
+    return ((k >= 65) && (k <= 90))
+  }
+
+  sfn isAsciiLower:boolean (c:string) {
+    def k:int (rs_char_code c)
+    return ((k >= 97) && (k <= 122))
+  }
+
+  sfn isAsciiAlnum:boolean (c:string) {
+    return ((RsChar.isAsciiAlpha(c)) || (RsChar.isAsciiDigit(c)))
+  }
+
+  sfn asciiUpper:string (c:string) {
+    if (RsChar.isAsciiLower(c)) {
+      return (rs_char_from ((rs_char_code c) - 32))
+    }
+    return c
+  }
+
+  sfn asciiLower:string (c:string) {
+    if (RsChar.isAsciiUpper(c)) {
+      return (rs_char_from ((rs_char_code c) + 32))
+    }
+    return c
+  }
+
+  sfn isAsciiSpace:boolean (c:string) {
+    def k:int (rs_char_code c)
+    return ((k == 32) || (k == 9) || (k == 10) || (k == 12) || (k == 13))
+  }
+
+  ; Rust's White_Space property.
+  sfn isWhitespace:boolean (c:string) {
+    def k:int (rs_char_code c)
+    if (((k >= 9) && (k <= 13)) || (k == 32) || (k == 133) || (k == 160) || (k == 5760)) {
+      return true
+    }
+    if (((k >= 8192) && (k <= 8202)) || (k == 8232) || (k == 8233) || (k == 8239) || (k == 8287) || (k == 12288)) {
+      return true
+    }
+    return false
+  }
+
+  ; A cased letter changes under one of the case maps; letters without case
+  ; are taken from the large scripts that have none (kana, CJK, Hangul).
+  ; Rust's `is_alphabetic` covers every script: this is the subset the
+  ; targets can test without a Unicode table.
+  sfn isAlphabetic:boolean (c:string) {
+    def k:int (rs_char_code c)
+    if (k < 128) {
+      return (RsChar.isAsciiAlpha(c))
+    }
+    if ((rs_upper c) != (rs_lower c)) {
+      return true
+    }
+    if ((k == 170) || (k == 186) || (k == 223)) {
+      return true
+    }
+    return (((k >= 12353) && (k <= 12543)) || ((k >= 13312) && (k <= 40959)) || ((k >= 44032) && (k <= 55215)))
+  }
+
+  sfn isAlphanumeric:boolean (c:string) {
+    return ((RsChar.isAlphabetic(c)) || (RsChar.isAsciiDigit(c)))
+  }
+
+  sfn isUppercase:boolean (c:string) {
+    return ((rs_lower c) != c)
+  }
+
+  sfn isLowercase:boolean (c:string) {
+    def k:int (rs_char_code c)
+    if (k == 223) {
+      return true
+    }
+    return ((rs_upper c) != c)
+  }
+}

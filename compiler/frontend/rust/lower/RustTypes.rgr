@@ -1,0 +1,380 @@
+; SPDX-License-Identifier: MIT
+
+; Types and declarations of a Rust module, as the lowering sees them
+; (PLAN_RUST_SYNTAX.md, stage R1).
+;
+; The lowering writes Ranger source text. It needs types for the choices Rust
+; makes by type and Ranger spells differently -- a `Some(x)` needs an optional
+; variable, a Copy struct is copied where Ranger would share it, a generic is
+; written once per instantiation -- so it keeps a small type for every
+; expression it translates. Where it cannot tell, the type is `unknown` and the
+; choice is left to Ranger's own type checker through the overloaded
+; operators of lib/rust/RsPrelude.rgr.
+
+Import "../ast/RustAst.rgr"
+
+class RsType {
+  ; int double bool string char unit vec map set opt tuple named fn param
+  ; unknown never result
+  def kind:string "unknown"
+  ; named: the struct / enum / trait-union name; param: the generic name
+  def name:string ""
+  def args:[RsType]
+  def isRef:boolean false
+  def isMutRef:boolean false
+  def weak:boolean false
+  ; the type came through Rc / RefCell / Box
+  def shared:boolean false
+  ; a `dyn Trait` / `impl Trait` / generic bounded by a trait
+  def isDyn:boolean false
+
+  Constructor (k:string) {
+    kind = k
+  }
+
+  sfn mk:RsType (k:string) {
+    return (new RsType(k))
+  }
+
+  sfn named:RsType (n:string) {
+    def t:RsType (new RsType("named"))
+    t.name = n
+    return t
+  }
+
+  sfn of1:RsType (k:string a:RsType) {
+    def t:RsType (new RsType(k))
+    push t.args a
+    return t
+  }
+
+  sfn of2:RsType (k:string a:RsType b:RsType) {
+    def t:RsType (new RsType(k))
+    push t.args a
+    push t.args b
+    return t
+  }
+
+  fn arg:RsType (i:int) {
+    if (i < (array_length args)) {
+      def a:RsType (itemAt args i)
+      return a
+    }
+    return (new RsType("unknown"))
+  }
+
+  fn is:boolean (k:string) {
+    return (kind == k)
+  }
+
+  fn isUnknown:boolean () {
+    return (kind == "unknown")
+  }
+
+  fn isPrim:boolean () {
+    return ((kind == "int") || (kind == "double") || (kind == "bool") || (kind == "string") || (kind == "char") || (kind == "unit"))
+  }
+
+  fn copy:RsType () {
+    def t:RsType (new RsType(kind))
+    t.name = name
+    for args a:RsType i {
+      push t.args (a.copy())
+    }
+    t.isRef = isRef
+    t.isMutRef = isMutRef
+    t.weak = weak
+    t.shared = shared
+    t.isDyn = isDyn
+    return t
+  }
+
+  ; A readable key, also the suffix of a monomorphized name.
+  fn key:string () {
+    if ((array_length args) == 0) {
+      if (kind == "named") {
+        return name
+      }
+      if (kind == "param") {
+        return name
+      }
+      return kind
+    }
+    def parts:[string]
+    for args a:RsType i {
+      push parts (a.key())
+    }
+    def head:string kind
+    if (kind == "named") {
+      head = name
+    }
+    return ((head + "_") + (join parts "_"))
+  }
+
+  fn sameAs:boolean (o:RsType) {
+    return ((this.key()) == (o.key()))
+  }
+
+  ; Rust's own spelling, for messages.
+  fn rust:string () {
+    if (kind == "int") {
+      return "i64"
+    }
+    if (kind == "double") {
+      return "f64"
+    }
+    if (kind == "bool") {
+      return "bool"
+    }
+    if (kind == "string") {
+      return "String"
+    }
+    if (kind == "char") {
+      return "char"
+    }
+    if (kind == "unit") {
+      return "()"
+    }
+    def parts:[string]
+    for args a:RsType i {
+      push parts (a.rust())
+    }
+    if (kind == "vec") {
+      return (("Vec<" + (join parts ", ")) + ">")
+    }
+    if (kind == "map") {
+      return (("HashMap<" + (join parts ", ")) + ">")
+    }
+    if (kind == "opt") {
+      return (("Option<" + (join parts ", ")) + ">")
+    }
+    if (kind == "tuple") {
+      return (("(" + (join parts ", ")) + ")")
+    }
+    if ((kind == "named") || (kind == "param")) {
+      if ((array_length parts) > 0) {
+        return (((name + "<") + (join parts ", ")) + ">")
+      }
+      return name
+    }
+    return kind
+  }
+}
+
+class RsField {
+  def name:string ""
+  def ty:RsType (new RsType("unknown"))
+  def node@(optional):RustNode
+}
+
+class RsParam {
+  def name:string ""
+  def ty:RsType (new RsType("unknown"))
+  def pat@(optional):RustNode
+  ; `&mut` of a value type (a Vec on Go, a String or a number everywhere):
+  ; passed in an RsBox so the caller sees the change
+  def boxed:boolean false
+
+  sfn unknown:RsParam () {
+    return (new RsParam())
+  }
+}
+
+class RsFn {
+  def name:string ""
+  ; the name the Ranger output uses (mangled when it collides)
+  def rname:string ""
+  def generics:[string]
+  ; generic name -> trait names it is bounded by
+  def bounds:[string:string]
+  def params:[RsParam]
+  def ret:RsType (new RsType("unit"))
+  def hasSelf:boolean false
+  def selfMut:boolean false
+  def selfByValue:boolean false
+  ; "" for a free function, else the struct / enum / trait it belongs to
+  def owner:string ""
+  def fromTrait:string ""
+  def hasBody:boolean true
+  ; generics of the impl block the method is in
+  def ownerGenerics:[string]
+  def node@(optional):RustNode
+}
+
+class RsVariant {
+  def name:string ""
+  ; unit tuple named
+  def shape:string "unit"
+  def fields:[RsField]
+  def disc:int 0
+}
+
+class RsStruct {
+  def name:string ""
+  def generics:[string]
+  def fields:[RsField]
+  def isTuple:boolean false
+  def derives:[string]
+  def methods:[RsFn]
+  def traits:[string]
+  def node@(optional):RustNode
+
+  fn derivesTrait:boolean (t:string) {
+    for derives d:string i {
+      if (d == t) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn field@(optional):RsField (n:string) {
+    def none@(optional):RsField
+    for fields f:RsField i {
+      if (f.name == n) {
+        def r@(optional):RsField
+        r = f
+        return r
+      }
+    }
+    return none
+  }
+
+  fn method@(optional):RsFn (n:string) {
+    def none@(optional):RsFn
+    for methods m:RsFn i {
+      if (m.name == n) {
+        def r@(optional):RsFn
+        r = m
+        return r
+      }
+    }
+    return none
+  }
+}
+
+class RsEnum {
+  def name:string ""
+  def generics:[string]
+  def variants:[RsVariant]
+  ; every variant is a unit variant
+  def plain:boolean true
+  def derives:[string]
+  def methods:[RsFn]
+  def traits:[string]
+
+  fn variant@(optional):RsVariant (n:string) {
+    def none@(optional):RsVariant
+    for variants v:RsVariant i {
+      if (v.name == n) {
+        def r@(optional):RsVariant
+        r = v
+        return r
+      }
+    }
+    return none
+  }
+
+  fn method@(optional):RsFn (n:string) {
+    def none@(optional):RsFn
+    for methods m:RsFn i {
+      if (m.name == n) {
+        def r@(optional):RsFn
+        r = m
+        return r
+      }
+    }
+    return none
+  }
+}
+
+class RsTrait {
+  def name:string ""
+  def methods:[RsFn]
+  ; the struct / enum names that implement it
+  def implementors:[string]
+
+  fn method@(optional):RsFn (n:string) {
+    def none@(optional):RsFn
+    for methods m:RsFn i {
+      if (m.name == n) {
+        def r@(optional):RsFn
+        r = m
+        return r
+      }
+    }
+    return none
+  }
+}
+
+class RsConst {
+  def name:string ""
+  def ty:RsType (new RsType("unknown"))
+  def node@(optional):RustNode
+}
+
+; A local variable in scope during the lowering of one function.
+class RsLocal {
+  def name:string ""
+  def rname:string ""
+  def ty:RsType (new RsType("unknown"))
+  ; move tracking (R3): moved and where; declared at which position of the
+  ; function's local list (to tell loop-carried moves apart)
+  def moved:boolean false
+  def movedLine:int 0
+  def movedCol:int 0
+  def order:int 0
+  ; an alias (a match binding in a guard, `self`) is not tracked
+  def isAlias:boolean false
+  ; an element binding of `for x in v.iter_mut()`: `*x = …` writes back
+  def iterVec:string ""
+  def iterIdx:string ""
+  ; bound to a map slot (`let v = m.entry(k).or_insert(…)`): changes to a
+  ; collection held there are stored back
+  def slotMap:string ""
+  def slotKey:string ""
+  def slotTy:RsType (new RsType("unknown"))
+}
+
+class RsScope {
+  def vars:[string:RsLocal]
+  def parent@(optional):RsScope
+
+  fn lookup@(optional):RsLocal (n:string) {
+    if (has vars n) {
+      def v@(optional):RsLocal (get vars n)
+      return v
+    }
+    if (!null? parent) {
+      def p:RsScope (unwrap parent)
+      def found@(optional):RsLocal (p.lookup(n))
+      return found
+    }
+    def none@(optional):RsLocal
+    return none
+  }
+}
+
+; What an expression lowered to.
+class RsExpr {
+  def code:string ""
+  def ty:RsType (new RsType("unknown"))
+  ; a plain name or a field path, safe to repeat and to assign to
+  def simple:boolean false
+
+  sfn of:RsExpr (c:string t:RsType) {
+    def e:RsExpr (new RsExpr())
+    e.code = c
+    e.ty = t
+    return e
+  }
+}
+
+; A monomorphized instance: a generic function or struct with its type
+; arguments.
+class RsInst {
+  def name:string ""
+  def fnDef@(optional):RsFn
+  def ty:RsType (new RsType("unknown"))
+  def env:[string:RsType]
+}

@@ -208,8 +208,26 @@ operator type:void all {
     return (r.exists(path name))
   }
 
-  fn find_file@(optional weak):InputFSFile (env:InputEnv path:string name:string) {
+  fn find_file@(optional weak):InputFSFile (env:InputEnv path0:string name0:string) {
     def res@(optional):InputFSFile
+    ; `Import "rust/RsPrelude.rgr"`: the directory part of the name is a
+    ; folder below the path
+    def path:string path0
+    def name:string name0
+    def slash:int (lastIndexOf name0 "/")
+    if (slash > 0) {
+      def dir:string (substring name0 0 slash)
+      name = (substring name0 (slash + 1) (strlen name0))
+      if ((path0 == "/") || (path0 == "")) {
+        path = ("/" + dir)
+      } {
+        if ((substring path0 ((strlen path0) - 1) (strlen path0)) == "/") {
+          path = (path0 + dir)
+        } {
+          path = ((path0 + "/") + dir)
+        }
+      }
+    }
     if( path == '/' ){
       def files (filter env.filesystem.files {
         return item.name == name

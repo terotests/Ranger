@@ -1,0 +1,120 @@
+(file
+  (use
+    (use_glob ranger::prelude))
+  (enum Color
+    #(attr derive "(Clone, Copy, PartialEq)")
+    (generics)
+    (where)
+    (variant Red
+      (fields_unit)
+      (none))
+    (variant Green
+      (fields_unit)
+      (none))
+    (variant Blue
+      (fields_unit)
+      (none)))
+  (struct Point
+    #(attr derive "(Clone, Copy, Default)")
+    (generics)
+    (where)
+    (fields_named
+      (field x
+        (path_type
+          (path
+            (seg int))))
+      (field y
+        (path_type
+          (path
+            (seg int))))))
+  (struct App
+    (generics)
+    (where)
+    (fields_named
+      (field items
+        (path_type
+          (path
+            (seg Vec
+              (args
+                (path_type
+                  (path
+                    (seg string))))))))))
+  (impl
+    (generics)
+    (none)
+    (path_type
+      (path
+        (seg App)))
+    (where)
+    (fn new
+      (generics)
+      (params)
+      (ret
+        (path_type
+          (path
+            (seg App))))
+      (where)
+      (block
+        (expr_stmt
+          (struct_lit
+            (path
+              (seg App))
+            (field_init items
+              (macro_call vec [[]))
+            (none)))))
+    (fn greet
+      #(attr doc " Greets someone." [sugared])
+      #(attr doc [sugared])
+      #(attr doc " # Parameters" [sugared])
+      #(attr doc [sugared])
+      #(attr doc " * `name` - Who to greet." [sugared])
+      #(attr ranger::doc "(since = \"1.2\")")
+      (generics)
+      (params
+        (self_param [&]
+          (none))
+        (param
+          (pat_ident name)
+          (ref_type
+            (path_type
+              (path
+                (seg str))))))
+      (ret
+        (path_type
+          (path
+            (seg string))))
+      (where)
+      (block
+        (expr_stmt
+          (macro_call format "\"hello {}\", name" [(]
+            (lit "\"hello {}\"" "hello {}" [str])
+            (path_expr
+              (path
+                (seg name))))))))
+  (mod legacy [inline]
+    (macro_item ranger::import_rgr "\"legacy\"" [(]
+      (lit "\"legacy\"" "legacy" [str])))
+  (fn main
+    (generics)
+    (params)
+    (ret)
+    (where)
+    (block
+      (let
+        (pat_ident app)
+        (none)
+        (call
+          (path_expr
+            (path
+              (seg App)
+              (seg new))))
+        (none))
+      (expr_stmt [;]
+        (macro_call println "\"{}\", app.greet(\"world\")" [(]
+          (lit "\"{}\"" "{}" [str])
+          (method greet
+            (path_expr
+              (path
+                (seg app)))
+            (args)
+            (lit "\"world\"" "world" [str])))))))

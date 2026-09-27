@@ -311,6 +311,19 @@ extension RangerFlowParser {
           print "  -> file read OK, importFileDir=" + importFileDir
         }
       }
+      ; A `.rs` module (PLAN_RUST_SYNTAX.md) is lowered to Ranger source
+      ; first; from here on it is read like any other file.
+      if (RustLower.isRustFile(import_file)) {
+        def rl:RustLower (new RustLower())
+        def lowered:string (rl.translate(source_code import_file))
+        if ((array_length rl.errors) > 0) {
+          for rl.errors rerr:string ri {
+            ctx.addError(node rerr)
+          }
+          return
+        }
+        source_code = lowered
+      }
       def code:SourceCode (new SourceCode ( source_code ))
       code.filename = import_file
       def parser:RangerLispParser (new RangerLispParser (code))
@@ -327,6 +340,8 @@ extension RangerFlowParser {
       }
 
       def rn:CodeNode (unwrap parser.rootNode)
+      ; top-level functions join the file's module class (ISSUES.md #104)
+      ModuleFunctions.hoist(rn import_file ctx)
       
       ; Add the imported file's directory to library paths for recursive imports
       if ((strlen importFileDir) > 0) {

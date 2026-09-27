@@ -1,0 +1,425 @@
+(file
+  (fn exprs
+    (generics)
+    (params)
+    (ret)
+    (where)
+    (block
+      (let
+        (pat_ident a)
+        (none)
+        (bin ||
+          (bin &&
+            (bin ==
+              (bin <<
+                (bin +
+                  (bin *
+                    (cast
+                      (unary -
+                        (field y
+                          (path_expr
+                            (path
+                              (seg x)))))
+                      (path_type
+                        (path
+                          (seg u32))))
+                    (lit 2 "2" [int]))
+                  (lit 1 "1" [int]))
+                (lit 3 "3" [int]))
+              (lit 4 "4" [int]))
+            (path_expr
+              (path
+                (seg b))))
+          (unary !
+            (path_expr
+              (path
+                (seg c)))))
+        (none))
+      (let
+        (pat_ident b)
+        (none)
+        (bin |
+          (bin &
+            (path_expr
+              (path
+                (seg a)))
+            (lit 1 "1" [int]))
+          (bin ^
+            (lit 2 "2" [int])
+            (lit 3 "3" [int])))
+        (none))
+      (let
+        (pat_ident r)
+        (none)
+        (range ..=
+          (lit 1 "1" [int])
+          (path_expr
+            (path
+              (seg n))))
+        (none))
+      (let
+        (pat_ident r2)
+        (none)
+        (range ..
+          (none)
+          (path_expr
+            (path
+              (seg n))))
+        (none))
+      (let
+        (pat_ident r3)
+        (none)
+        (range ..
+          (path_expr
+            (path
+              (seg a)))
+          (none))
+        (none))
+      (let
+        (pat_ident full)
+        (none)
+        (range ..
+          (none)
+          (none))
+        (none))
+      (let
+        (pat_ident v)
+        (path_type
+          (path
+            (seg Vec
+              (args
+                (path_type
+                  (path
+                    (seg Vec
+                      (args
+                        (path_type
+                          (path
+                            (seg u8)))))))))))
+        (method collect
+          (method map
+            (method iter
+              (path_expr
+                (path
+                  (seg x)))
+              (args))
+            (args)
+            (closure
+              (closure_params
+                (param
+                  (pat_ident a)
+                  (none)))
+              (none)
+              (bin +
+                (path_expr
+                  (path
+                    (seg a)))
+                (lit 1 "1" [int]))))
+          (args
+            (path_type
+              (path
+                (seg Vec
+                  (args
+                    (infer_type)))))))
+        (none))
+      (let
+        (pat_ident s)
+        (none)
+        (struct_lit
+          (path
+            (seg S))
+          (field_init a
+            (lit 1 "1" [int]))
+          (field_init b [shorthand])
+          (call
+            (path_expr
+              (path
+                (seg Default)
+                (seg default)))))
+        (none))
+      (let
+        (pat_ident t)
+        (none)
+        (tuple
+          (lit 1 "1" [int]))
+        (none))
+      (let
+        (pat_ident u)
+        (none)
+        (tuple)
+        (none))
+      (let
+        (pat_ident p)
+        (none)
+        (bin *
+          (paren
+            (bin +
+              (path_expr
+                (path
+                  (seg a)))
+              (path_expr
+                (path
+                  (seg b)))))
+          (path_expr
+            (path
+              (seg c))))
+        (none))
+      (let
+        (pat_ident arr)
+        (none)
+        (array
+          (lit 1 "1" [int])
+          (lit 2 "2" [int])
+          (lit 3 "3" [int]))
+        (none))
+      (let
+        (pat_ident rep)
+        (none)
+        (array_repeat
+          (lit 0u8 "0" [int u8])
+          (lit 16 "16" [int]))
+        (none))
+      (let
+        (pat_ident c)
+        (none)
+        (closure [move]
+          (closure_params
+            (param
+              (pat_ident x)
+              (path_type
+                (path
+                  (seg i32))))
+            (param
+              (pat_tuple
+                (pat_ident a)
+                (pat_ident b))
+              (tuple_type
+                (path_type
+                  (path
+                    (seg u8)))
+                (path_type
+                  (path
+                    (seg u8))))))
+          (path_type
+            (path
+              (seg i32)))
+          (block
+            (expr_stmt
+              (path_expr
+                (path
+                  (seg x))))))
+        (none))
+      (let
+        (pat_ident d)
+        (none)
+        (closure
+          (closure_params)
+          (none)
+          (lit 42 "42" [int]))
+        (none))
+      (let
+        (pat_ident e)
+        (none)
+        (block [async move]
+          (expr_stmt
+            (lit 1 "1" [int])))
+        (none))
+      (let
+        (pat_ident f)
+        (none)
+        (await
+          (try
+            (path_expr
+              (path
+                (seg x)))))
+        (none))
+      (let
+        (pat_ident g)
+        (none)
+        (unary &mut
+          (unary *
+            (path_expr
+              (path
+                (seg x)))))
+        (none))
+      (let
+        (pat_ident h)
+        (none)
+        (unary "&raw const"
+          (path_expr
+            (path
+              (seg x))))
+        (none))
+      (let
+        (pat_ident i)
+        (none)
+        (call
+          (path_expr
+            (path
+              (seg Vec
+                (args
+                  (path_type
+                    (path
+                      (seg u8)))))
+              (seg with_capacity)))
+          (lit 4 "4" [int]))
+        (none))
+      (let
+        (pat_ident j)
+        (none)
+        (path_expr
+          (qpath
+            (path_type
+              (path
+                (seg T)))
+            (path
+              (seg Trait))
+            (seg CONST)))
+        (none))
+      (let
+        (pat_ident k)
+        (none)
+        (field 1
+          (field 0
+            (field field
+              (path_expr
+                (path
+                  (seg obj))))))
+        (none))
+      (let
+        (pat_ident l)
+        (none)
+        (index
+          (index
+            (path_expr
+              (path
+                (seg a)))
+            (path_expr
+              (path
+                (seg i))))
+          (path_expr
+            (path
+              (seg j))))
+        (none))
+      (let
+        (pat_ident m)
+        (none)
+        (call
+          (call
+            (path_expr
+              (path
+                (seg f)))
+            (lit 1 "1" [int]))
+          (lit 2 "2" [int]))
+        (none))
+      (expr_stmt [;]
+        (assign +=
+          (path_expr
+            (path
+              (seg a)))
+          (bin >>
+            (path_expr
+              (path
+                (seg b)))
+            (lit 2 "2" [int]))))
+      (expr_stmt [;]
+        (assign =
+          (path_expr
+            (path
+              (seg a)))
+          (assign =
+            (path_expr
+              (path
+                (seg b)))
+            (path_expr
+              (path
+                (seg c))))))
+      (expr_stmt [;]
+        (assign =
+          (field z
+            (field y
+              (path_expr
+                (path
+                  (seg x)))))
+          (lit 1 "1" [int])))
+      (let
+        (pat_ident n)
+        (none)
+        (if
+          (path_expr
+            (path
+              (seg a)))
+          (block
+            (expr_stmt
+              (lit 1 "1" [int])))
+          (block
+            (expr_stmt
+              (lit 2 "2" [int]))))
+        (none))
+      (let
+        (pat_ident o)
+        (none)
+        (match
+          (path_expr
+            (path
+              (seg x)))
+          (arm
+            (pat_wild)
+            (none)
+            (lit 0 "0" [int])))
+        (none))
+      (let
+        (pat_ident q)
+        (none)
+        (block [unsafe]
+          (expr_stmt
+            (unary *
+              (path_expr
+                (path
+                  (seg p))))))
+        (none))
+      (let
+        (pat_ident w)
+        (none)
+        (loop
+          (block
+            (expr_stmt [;]
+              (break
+                (lit 7 "7" [int])))))
+        (none))
+      (let
+        (pat_ident label)
+        (none)
+        (block 'a
+          (expr_stmt [;]
+            (break 'a
+              (lit 1 "1" [int]))))
+        (none))
+      (expr_stmt [;]
+        (macro_call println "\"{} {:?}\", a, b" [(]
+          (lit "\"{} {:?}\"" "{} {:?}" [str])
+          (path_expr
+            (path
+              (seg a)))
+          (path_expr
+            (path
+              (seg b)))))
+      (let
+        (pat_ident v)
+        (none)
+        (macro_call vec "0; n" [[ repeat]
+          (lit 0 "0" [int])
+          (path_expr
+            (path
+              (seg n))))
+        (none))
+      (let
+        (pat_ident fmt)
+        (none)
+        (macro_call format "\"{x}\"" [(]
+          (lit "\"{x}\"" "{x}" [str]))
+        (none))
+      (let
+        (pat_ident unparsed)
+        (none)
+        (macro_call quote "some tokens #here" [(])
+        (none)))))

@@ -1,0 +1,394 @@
+(file
+  #(attr doc " Crate docs." [inner sugared])
+  #(attr allow "(dead_code)" [inner])
+  (use
+    (use_group std::collections
+      (use_name HashMap)
+      (use_name hash_map::Entry "E")
+      (use_glob)))
+  (use
+    (use_name ::core::fmt))
+  (mod inner [pub(crate)])
+  (mod nested [inline]
+    (fn f [pub]
+      (generics)
+      (params)
+      (ret)
+      (where)
+      (block)))
+  (extern_crate alloc "a")
+  (struct Point [pub]
+    #(attr doc " A point." [sugared])
+    #(attr derive "(Clone, Copy, Default)")
+    (generics)
+    (where)
+    (fields_named
+      (field x [pub]
+        (path_type
+          (path
+            (seg i64))))
+      (field y
+        #(attr ranger::weak)
+        (path_type
+          (path
+            (seg i64))))))
+  (struct Pair
+    (generics
+      (type_param T
+        (bounds)
+        (none)))
+    (where
+      (where_pred
+        (path_type
+          (path
+            (seg T)))
+        (bounds
+          (path_type
+            (path
+              (seg Clone))))))
+    (fields_tuple
+      (field 0 [pub]
+        (path_type
+          (path
+            (seg T))))
+      (field 1
+        (path_type
+          (path
+            (seg T))))))
+  (struct Unit
+    (generics)
+    (where)
+    (fields_unit))
+  (enum Shape
+    (generics
+      (lifetime_param 'a
+        (bounds))
+      (type_param T
+        (bounds
+          (path_type
+            (path
+              (seg fmt)
+              (seg Debug)))
+          (path_type [?]
+            (path
+              (seg Sized))))
+        (tuple_type)))
+    (where)
+    (variant Circle
+      (fields_named
+        (field r
+          (path_type
+            (path
+              (seg f64)))))
+      (none))
+    (variant Rect
+      (fields_tuple
+        (field 0
+          (path_type
+            (path
+              (seg f64))))
+        (field 1
+          (path_type
+            (path
+              (seg f64)))))
+      (none))
+    (variant Named
+      (fields_tuple
+        (field 0
+          (ref_type 'a
+            (path_type
+              (path
+                (seg T))))))
+      (none))
+    (variant Empty
+      (fields_unit)
+      (lit 3 "3" [int])))
+  (trait Area [pub]
+    (generics)
+    (bounds
+      (path_type
+        (path
+          (seg fmt)
+          (seg Debug))))
+    (where)
+    (const SIDES
+      (path_type
+        (path
+          (seg usize)))
+      (none))
+    (type_alias Out
+      (generics)
+      (bounds
+        (path_type
+          (path
+            (seg Copy)))
+        (lifetime 'static))
+      (where)
+      (none))
+    (fn area
+      (generics)
+      (params
+        (self_param [&]
+          (none)))
+      (ret
+        (path_type
+          (path
+            (seg f64))))
+      (where)
+      (none))
+    (fn scaled
+      (generics)
+      (params
+        (self_param [& mut]
+          (none))
+        (param
+          (pat_ident k)
+          (path_type
+            (path
+              (seg f64)))))
+      (ret
+        (path_type
+          (path
+            (seg f64))))
+      (where)
+      (block
+        (expr_stmt
+          (path_expr
+            (path
+              (seg k)))))))
+  (impl
+    (generics
+      (type_param T
+        (bounds)
+        (none)))
+    (path_type
+      (path
+        (seg Area)))
+    (path_type
+      (path
+        (seg Pair
+          (args
+            (path_type
+              (path
+                (seg T)))))))
+    (where
+      (where_pred
+        (path_type
+          (path
+            (seg T)))
+        (bounds
+          (path_type
+            (path
+              (seg Clone)))
+          (path_type
+            (path
+              (seg fmt)
+              (seg Debug))))))
+    (const SIDES
+      (path_type
+        (path
+          (seg usize)))
+      (lit 2 "2" [int]))
+    (type_alias Out
+      (generics)
+      (bounds)
+      (where)
+      (path_type
+        (path
+          (seg u8))))
+    (fn area
+      (generics)
+      (params
+        (self_param [&]
+          (none)))
+      (ret
+        (path_type
+          (path
+            (seg f64))))
+      (where)
+      (block
+        (expr_stmt
+          (lit 0.0 "0.0" [float])))))
+  (impl
+    (generics
+      (lifetime_param 'a
+        (bounds)))
+    (none)
+    (path_type
+      (path
+        (seg Point)))
+    (where)
+    (fn new [const pub]
+      (generics)
+      (params
+        (param
+          (pat_ident x)
+          (path_type
+            (path
+              (seg i64))))
+        (param
+          (pat_ident y)
+          (path_type
+            (path
+              (seg i64)))))
+      (ret
+        (path_type
+          (path
+            (seg Self))))
+      (where)
+      (block
+        (expr_stmt
+          (struct_lit
+            (path
+              (seg Point))
+            (field_init x [shorthand])
+            (field_init y [shorthand])
+            (none)))))
+    (fn by_value
+      (generics)
+      (params
+        (self_param
+          (none))
+        (param
+          (pat_ident other)
+          (ref_type 'a [mut]
+            (path_type
+              (path
+                (seg Point))))))
+      (ret
+        (impl_type
+          (path_type
+            (path
+              (seg Iterator
+                (args
+                  (binding Item
+                    (path_type
+                      (path
+                        (seg i64))))))))
+          (lifetime 'a)))
+      (where)
+      (block
+        (expr_stmt
+          (call
+            (path_expr
+              (path
+                (seg std)
+                (seg iter)
+                (seg empty))))))))
+  (impl [unsafe]
+    (generics)
+    (path_type
+      (path
+        (seg Send)))
+    (path_type
+      (path
+        (seg Unit)))
+    (where))
+  (impl [!]
+    (generics)
+    (path_type
+      (path
+        (seg Sync)))
+    (path_type
+      (path
+        (seg Unit)))
+    (where))
+  (type_alias Map
+    (generics
+      (type_param K
+        (bounds)
+        (none))
+      (type_param V
+        (bounds)
+        (none)))
+    (bounds)
+    (where)
+    (path_type
+      (path
+        (seg HashMap
+          (args
+            (path_type
+              (path
+                (seg K)))
+            (path_type
+              (path
+                (seg V))))))))
+  (const MAX
+    (path_type
+      (path
+        (seg usize)))
+    (bin <<
+      (lit 1 "1" [int])
+      (lit 10 "10" [int])))
+  (static COUNT [mut]
+    (path_type
+      (path
+        (seg u32)))
+    (lit 0 "0" [int]))
+  (fn fetch [async]
+    (generics
+      (const_param N
+        (path_type
+          (path
+            (seg usize)))
+        (none)))
+    (params
+      (param
+        (pat_ident buf)
+        (array_type
+          (path_type
+            (path
+              (seg u8)))
+          (path_expr
+            (path
+              (seg N))))))
+    (ret
+      (path_type
+        (path
+          (seg Result
+            (args
+              (tuple_type)
+              (path_type
+                (path
+                  (seg Box
+                    (args
+                      (dyn_type
+                        (path_type
+                          (path
+                            (seg std)
+                            (seg error)
+                            (seg Error)))
+                        (path_type
+                          (path
+                            (seg Send)))))))))))))
+    (where)
+    (block
+      (expr_stmt
+        (call
+          (path_expr
+            (path
+              (seg Ok)))
+          (tuple)))))
+  (extern_block "C"
+    (fn abs
+      (generics)
+      (params
+        (param
+          (pat_ident x)
+          (path_type
+            (path
+              (seg i32)))))
+      (ret
+        (path_type
+          (path
+            (seg i32))))
+      (where)
+      (none)))
+  (macro_rules twice "($e:expr) => { $e + $e };")
+  (macro_item thread_local "static X: u8 = 1;" [{])
+  (fn main
+    (generics)
+    (params)
+    (ret)
+    (where)
+    (block)))

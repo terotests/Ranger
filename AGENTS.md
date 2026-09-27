@@ -72,6 +72,15 @@ follow them exactly.
 - A user program compiled without `-d` is written to `bin/<name>.js` under the
   current directory. That is program output, not the compiler; `bin/output.js`
   is ignored and must not be committed.
+- New compiler code goes into a category folder with subcategories, not the
+  flat `compiler/` directory (as `compiler/apidoc/` and `compiler/ast/`
+  already are). Example: the Rust frontend is `compiler/frontend/rust/` with
+  `lexer/`, `ast/`, `parser/`, `lower/` and `cli/` below it.
+- `.rs` files are strict Rust modules (docs/plans/PLAN_RUST_SYNTAX.md):
+  `rgrc` lowers them to Ranger, and `tests/rust-strict.test.ts` checks each
+  target's output against rustc's. After changing a `rust` template in
+  `Lang.rgr`, run `node scripts/gen-rust-prelude-ops.js` to regenerate the
+  prelude crate's `runtime/rust/ranger/src/ops.rs`.
 - `npm run selfhost:check:<target>` compiles the compiler for a target and
   runs that target's compiler or syntax check over it (`cpp`, `go`, `java`,
   `python`, `rust`, `llvm`, …).
@@ -153,6 +162,11 @@ Short form:
   `return (this.helper())` still works and is what older code says. A callee
   that is **not** dotted — a lambda held in a local — still needs its own
   parentheses: `return (fn1(3))`. See ISSUES.md #63.
+- **Top-level functions.** A `fn` at the top level of `geometry.rgr` is the
+  static method `geometry.fn`; `area(r)` without a receiver finds it from any
+  file unless a local, parameter or method of the caller has that name, or two
+  modules define it (ISSUES.md #104). A top-level `fn main:void ()` is the
+  entry point.
 - **One statement per line.** `{ def c:int 5 return c }` is a parse error.
 - **Never start a statement with a parenthesised receiver.** Bind first:
   `def recv:T (expr)` then `recv.method()`. Inside an expression it is fine,

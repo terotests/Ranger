@@ -53,7 +53,18 @@ const env = {
         data: "",
         is_folder: true,
         base64bin: false,
-        folders: [],
+        // the runtime a lowered `.rs` module imports (`rust/RsPrelude.rgr`);
+        // not a library a program imports itself, so not in libFiles
+        folders: [
+          {
+            name: "rust",
+            data: "",
+            is_folder: true,
+            base64bin: false,
+            folders: [],
+            files: [vfsFile("RsPrelude.rgr", readRgr("lib/rust/RsPrelude.rgr"))],
+          },
+        ],
         files: libFiles.map((name) => vfsFile(name, readRgr(path.join("lib", name)))),
       },
     ],
