@@ -8,8 +8,11 @@
 // PATH the test also rebuilds the program natively and checks the recording
 // is still what rustc prints, so a stale .expected cannot hide a divergence.
 //
-// Each program is compiled with `rgrc` for es6, python, go and cpp and run;
-// a target whose toolchain is missing is skipped.
+// Each program is compiled with `rgrc` for es6, python, go, cpp, java7,
+// kotlin, csharp (mcs + mono), dart, scala and php and run; a target whose
+// toolchain is missing is skipped. The JVM targets run with
+// -Dstdout.encoding=UTF-8 and mono with LANG=C.UTF-8, so non-ASCII output is
+// written as UTF-8.
 //
 // tests/fixtures/rust_strict/errors/<name>.rs must be REFUSED by rgrc with
 // the message in <name>.expected (a substring). tests/fixtures/rust_strict/
@@ -47,6 +50,12 @@ const TOOLS: Record<string, boolean> = {
   python: has("python3 --version"),
   go: has("go version"),
   cpp: has("g++ --version"),
+  java7: has("javac -version") && has("java -version"),
+  kotlin: has("kotlinc -version") && has("java -version"),
+  csharp: has("mcs --version") && has("mono --version"),
+  dart: has("dart --version"),
+  scala: has("scalac -version") && has("scala -version"),
+  php: has("php --version"),
 };
 
 function run(cmd: string, args: string[], cwd = ROOT, env?: NodeJS.ProcessEnv) {
@@ -91,7 +100,20 @@ function rustcOutput(file: string, name: string): string {
   return run(bin, []).stdout;
 }
 
-const EXT: Record<string, string> = { es6: "js", python: "py", go: "go", cpp: "cpp" };
+const EXT: Record<string, string> = {
+  es6: "js",
+  python: "py",
+  go: "go",
+  cpp: "cpp",
+  java7: "java",
+  kotlin: "kt",
+  csharp: "cs",
+  dart: "dart",
+  scala: "scala",
+  php: "php",
+};
+
+const UTF8_JAVA = "-Dstdout.encoding=UTF-8";
 
 function compileAndRun(file: string, name: string, target: string) {
   const dir = path.join(OUT, name, target);
@@ -112,6 +134,43 @@ function compileAndRun(file: string, name: string, target: string) {
   if (target === "es6") return { ok: true, out: run("node", [prog]).stdout };
   if (target === "python") return { ok: true, out: run("python3", [prog]).stdout };
   if (target === "go") return { ok: true, out: run("go", ["run", outName], dir).stdout };
+  if (target === "php") return { ok: true, out: run("php", [prog]).stdout };
+  if (target === "dart") {
+    const d = run("dart", ["run", prog], dir);
+    if (d.stderr.includes("Error: ")) return { ok: false, out: d.stderr };
+    return { ok: true, out: d.stdout };
+  }
+  if (target === "java7") {
+    // one .java file per class; the entry point is the one with `main`
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".java"));
+    const j = run("javac", ["-nowarn", "-d", dir, ...files], dir);
+    if (j.status !== 0) return { ok: false, out: j.stderr };
+    const main = files.find((f) => fs.readFileSync(path.join(dir, f), "utf8").includes("static void main"));
+    if (!main) return { ok: false, out: "no class with main" };
+    return { ok: true, out: run("java", [UTF8_JAVA, "-cp", dir, main.replace(/\.java$/, "")], dir).stdout };
+  }
+  if (target === "kotlin") {
+    const jar = path.join(dir, `${name}.jar`);
+    const k = run("kotlinc", [prog, "-include-runtime", "-d", jar], dir);
+    if (!fs.existsSync(jar)) return { ok: false, out: k.stderr };
+    return { ok: true, out: run("java", [UTF8_JAVA, "-jar", jar], dir).stdout };
+  }
+  if (target === "csharp") {
+    const exe = path.join(dir, `${name}.exe`);
+    const m = run("mcs", [`-out:${exe}`, prog], dir);
+    if (m.status !== 0) return { ok: false, out: m.stdout + m.stderr };
+    return { ok: true, out: run("mono", [exe], dir, { ...process.env, LANG: "C.UTF-8" }).stdout };
+  }
+  if (target === "scala") {
+    const s = run("scalac", ["-nowarn", "-d", dir, prog], dir);
+    if (s.status !== 0) return { ok: false, out: s.stdout + s.stderr };
+    const obj = /^object (\w+) extends App/m.exec(fs.readFileSync(prog, "utf8"));
+    if (!obj) return { ok: false, out: "no application object" };
+    return {
+      ok: true,
+      out: run("scala", ["-cp", dir, obj[1]], dir, { ...process.env, JAVA_OPTS: UTF8_JAVA }).stdout,
+    };
+  }
   const bin = path.join(dir, name);
   const g = run("g++", ["-std=c++17", "-O1", "-o", bin, prog]);
   if (g.status !== 0) return { ok: false, out: g.stderr };

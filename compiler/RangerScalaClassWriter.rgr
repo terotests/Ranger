@@ -347,6 +347,11 @@ Import "ForLoopAnalysis.rgr"
         }
         if(ctx.isDefinedClass(node.type_name)) {
           def scNC:RangerAppClassDesc (ctx.findClass(node.type_name))
+          ; a union is Any, as writeTypeDef writes it
+          if scNC.is_union {
+            wr.out("Any" false)
+            return
+          }
           if (scNC.is_type_param || (ctx.isNativeGenericInstance(scNC))) {
             wr.out((this.scClassRef(scNC ctx)) false)
             return
@@ -420,6 +425,42 @@ Import "ForLoopAnalysis.rgr"
       wr.out((this.adjustType(part)) false)
     }
   }
+  ; Whether an initializer already yields an Option: an optional name, a
+  ; call of a function returning one, the null literal.
+  fn scalaExprIsOptional:boolean (inNode:CodeNode) {
+    def node:CodeNode inNode
+    while (node.expression && ((array_length node.children) == 1)) {
+      node = (node.getFirst())
+    }
+    if ((node.hasFlag("optional")) || (inNode.hasFlag("optional"))) {
+      return true
+    }
+    if (node.value_type == RangerNodeType.NoType) {
+      return true
+    }
+    if (node.vref == "null") {
+      return true
+    }
+    if node.hasParamDesc {
+      def pd:RangerAppParamDesc node.paramDesc
+      def pdNN@(optional):CodeNode pd.nameNode
+      if (!null? pdNN) {
+        if (pdNN.hasFlag("optional")) {
+          return true
+        }
+      }
+    }
+    if (!null? node.fnDesc) {
+      def fd:RangerAppFunctionDesc (unwrap node.fnDesc)
+      def fdNN@(optional):CodeNode fd.nameNode
+      if (!null? fdNN) {
+        if (fdNN.hasFlag("optional")) {
+          return true
+        }
+      }
+    }
+    return false
+  }
   fn writeVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
 
@@ -446,7 +487,21 @@ Import "ForLoopAnalysis.rgr"
         wr.out("= " false)
         ctx.setInExpr()
         def value:CodeNode (node.getThird())
+        ; an Option local takes a plain value as Some(value)
+        def someWrap:boolean false
+        def optName:CodeNode (unwrap p.nameNode)
+        if ((optName.hasFlag("optional")) && ((optName.value_type != RangerNodeType.Array) && (optName.value_type != RangerNodeType.Hash))) {
+          if ((this.scalaExprIsOptional(value)) == false) {
+            someWrap = true
+          }
+        }
+        if someWrap {
+          wr.out("Some(" false)
+        }
         this.WalkNode(value ctx wr)
+        if someWrap {
+          wr.out(")" false)
+        }
         ctx.unsetInExpr()
       } {
         def b_inited:boolean false
@@ -865,6 +920,15 @@ Import "ForLoopAnalysis.rgr"
       wr.createTag("imports")
       init_done = true
       wr.createTag("beginning")
+      ; Scala 2 has no top-level defs, so the operator polyfills, written to
+      ; the file's utilities slice, are wrapped in an object that the whole
+      ; file imports. file_end is still empty here, so its first line closes
+      ; the object ahead of the application object.
+      wr.out("import RgPoly._" true)
+      def polyWr:CodeWriter (wr.getTag("utilities"))
+      polyWr.out("object RgPoly {" true)
+      def polyEnd:CodeWriter (wr.getTag("file_end"))
+      polyEnd.out("}" true)
     }
     this.writeScalaNativeEnums(ctx wr)
     this.writeScalaTraitDefs(ctx wr)
@@ -909,7 +973,18 @@ Import "ForLoopAnalysis.rgr"
             wr.out(", " false)
           }
           written = written + 1
-          wr.out((arg.name + " : ") false)
+          ; a class parameter named like a field is ambiguous to scalac
+          ; ("ambiguous reference to overloaded definition" at this.f0 = f0),
+          ; so it takes another name, which the constructor body reads
+          for cl.variables cVar:RangerAppParamDesc cvi {
+            if (cVar.name == arg.name) {
+              arg.compiledName = (arg.name + "__c")
+            }
+          }
+          if ((strlen arg.compiledName) == 0) {
+            arg.compiledName = arg.name
+          }
+          wr.out((arg.compiledName + " : ") false)
           this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
         }
         wr.out(")" false)
@@ -1009,6 +1084,21 @@ Import "ForLoopAnalysis.rgr"
       }
       wr.indent(-1)
       wr.out("}" true)
+    } {
+      ; a class with nothing in it (a unit variant of a Rust enum) is still
+      ; a type that code tests and constructs
+      if ((array_length cl.static_methods) == 0) {
+        def emptyIfaces:[string] (scalaTraits.basesOf((unwrap cl) ctx))
+        wr.out(("class " + (this.scClassRef((unwrap cl) ctx))) false)
+        for emptyIfaces eName:string ei {
+          if (ei == 0) {
+            wr.out((" extends " + eName) false)
+          } {
+            wr.out((" with " + eName) false)
+          }
+        }
+        wr.out(" {}" true)
+      }
     }
 
     def b_has_non_main_static false

@@ -447,6 +447,33 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       ; writing `prop.vref` here spelled it the old way. Every other writer
       ; walks the node, which reads the descriptor list GetProperty attaches.
       wr.out('->' false)
+      ; a property is `->name`, never `->$name` (PHP reads that as a
+      ; variable holding the property name), which WalkNode writes for a
+      ; name with a descriptor
+      if ((array_length prop.children) == 0) {
+        if ((array_length prop.nsp) > 0) {
+          for prop.nsp np:RangerAppParamDesc npi {
+            if (npi > 0) {
+              wr.out("->" false)
+            }
+            if ((strlen np.compiledName) > 0) {
+              wr.out(np.compiledName false)
+            } {
+              wr.out((itemAt prop.ns npi) false)
+            }
+          }
+          return
+        }
+        if prop.hasParamDesc {
+          def propP:RangerAppParamDesc prop.paramDesc
+          wr.out(propP.compiledName false)
+          return
+        }
+        if ((array_length prop.ns) > 0) {
+          wr.out((join prop.ns "->") false)
+          return
+        }
+      }
       this.WalkNode(prop ctx wr)
   }
   

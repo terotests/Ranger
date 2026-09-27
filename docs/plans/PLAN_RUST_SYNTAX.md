@@ -1,7 +1,8 @@
 # PLAN_RUST_SYNTAX — strict Rust modules beside `.rgr` modules
 
 > **Status: stages R0–R5 done (§9.1–§9.3): `rgrc file.rs` compiles a strict
-> module, its output equals the rustc build's on es6, python, go and cpp, move
+> module, its output equals the rustc build's on es6, python, go, cpp, java7,
+> kotlin, csharp, dart, scala and php (§9.2.1), move
 > and borrow errors are reported, the `ranger` prelude crate exists, and
 > rustdoc is read as the API documentation. R6 onwards is design.** Measurements in §5 and the rustc checks in §2 were run
 > on this checkout with rustc 1.94.1.
@@ -421,7 +422,8 @@ does the same as a standalone tool.
 
 `tests/rust-strict.test.ts` builds each `tests/fixtures/rust_strict/*.rs`
 with rustc, checks the recorded output, then compiles and runs the same file
-for es6, python, go and cpp:
+for es6, python, go, cpp, java7, kotlin, csharp, dart, scala and php (a target
+whose toolchain is missing is skipped):
 
 | Fixture | Covers |
 | --- | --- |
@@ -430,6 +432,36 @@ for es6, python, go and cpp:
 | r3_moves | programs rustc accepts with moves, clones and `&mut` parameters of value types (boxed and written back) |
 | r4_prelude, r4_strings, r4_helpers | the prelude's type names, `Map`, operator functions; the §5 table; char tests, float methods, padded `{:>8}` / `{:05}` formatting |
 | ex_traits, ex_enums, ex_results, ex_iterators, ex_ownership, ex_strings | the playground's Rust examples, written as idiomatic Rust: `dyn Trait`, derived `PartialOrd`, `use Enum::*`, recursive enums, `ok_or` / `map_err` / `map_or`, `parse::<i64>()`, `Ordering::then`, `for` over `take` / `skip` / `enumerate` chains |
+
+#### 9.2.1 The other targets
+
+`lib/rust/RsPrelude.rgr` spells each runtime operator per target. On Java,
+Kotlin and Scala `{}` of a float is `Double.toString` through `BigDecimal`
+(shortest digits since JDK 19) and `{:.N}` is `BigDecimal.setScale` with
+`HALF_EVEN` on the exact binary value. C# (mono's `R` format is not always
+the shortest), Dart and PHP compute the exact decimal expansion of the double
+themselves -- C# and PHP with a base-10^9 digit array, Dart with `BigInt` --
+and round it half to even; C# also derives the shortest digits from it.
+These were compared with Python's `repr` / `Decimal` over 3000 random and
+edge-case doubles.
+
+Getting the fixtures through also fixed target writers:
+
+- Java: `==` on two boxed numbers of type-parameter type compared references
+  (`rg_eq`); `while true` without a `break` made the next statement
+  unreachable in the Rust frontend's own Java build.
+- Scala: operator polyfills were top-level `def`s, which Scala 2 does not
+  allow; they are now members of `object RgPoly`, imported by the file. A
+  class parameter named like a field was ambiguous; an `Option` local
+  initialized with a plain value needs `Some(...)`; a class without fields or
+  methods (a unit enum variant) was not written; `Int.toInt()` does not
+  compile.
+- PHP: `(expr).field` was written `->$field`; the array `indexOf` answered
+  `false` on a miss, which `>= 0` accepts.
+- C#: `Math.Ceiling`, not `Math.Ceil`. Dart and Scala got a `write` (print
+  without newline) template.
+
+Swift has no templates: there is no Swift toolchain here to check them with.
 
 `errors/` holds constructs outside the subset and `borrow/` holds programs
 rustc rejects (use after move, a move in one branch or in a loop, moving out

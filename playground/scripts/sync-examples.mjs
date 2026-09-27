@@ -18,22 +18,15 @@ const outDir = path.join(rangerRoot, "playground/public/examples");
  */
 /**
  * Strict Rust modules (docs/plans/PLAN_RUST_SYNTAX.md). Their output is
- * checked against rustc on JavaScript, Python, Go and C++
- * (tests/rust-strict.test.ts), and the Rust target writes the module as it is.
- * The runtime the lowering uses, lib/rust/RsPrelude.rgr, has no templates for
- * the other targets yet.
+ * checked against rustc on JavaScript, Python, Go, C++, Java, Kotlin, C#,
+ * Dart, Scala and PHP (tests/rust-strict.test.ts), and the Rust target writes
+ * the module as it is. The runtime the lowering uses, lib/rust/RsPrelude.rgr,
+ * has no Swift templates: there is no Swift toolchain to check them against.
  */
-const RUST_RUNTIME_MISSING =
-  "Rust-syntax modules run on JavaScript, TypeScript, Python, Go, C++ and Rust; " +
-  "lib/rust/RsPrelude.rgr has no templates for this target yet";
 const RUST_ONLY_TARGETS = {
-  csharp: RUST_RUNTIME_MISSING,
-  java7: RUST_RUNTIME_MISSING,
-  kotlin: RUST_RUNTIME_MISSING,
-  swift6: RUST_RUNTIME_MISSING,
-  dart: RUST_RUNTIME_MISSING,
-  php: RUST_RUNTIME_MISSING,
-  scala: RUST_RUNTIME_MISSING,
+  swift6:
+    "lib/rust/RsPrelude.rgr has no Swift templates yet; Rust-syntax modules " +
+    "run on every other target",
 };
 
 const RUST_EXAMPLES = [

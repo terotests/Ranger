@@ -49584,6 +49584,10 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
         }
         if ( ctx.isDefinedClass(node.type_name) ) {
           const scNC = ctx.findClass(node.type_name);
+          if ( scNC.is_union ) {
+            wr.out("Any", false);
+            return;
+          }
           if ( scNC.is_type_param || ctx.isNativeGenericInstance(scNC) ) {
             wr.out(this.scClassRef(scNC, ctx), false);
             return;
@@ -49658,6 +49662,40 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       wr.out(this.adjustType(part_1), false);
     }
   };
+  scalaExprIsOptional (inNode) {
+    let node = inNode;
+    while (node.expression && node.children.length == 1) {
+      node = node.getFirst();
+    };
+    if ( node.hasFlag("optional") || inNode.hasFlag("optional") ) {
+      return true;
+    }
+    if ( node.value_type == 0 ) {
+      return true;
+    }
+    if ( node.vref == "null" ) {
+      return true;
+    }
+    if ( node.hasParamDesc ) {
+      const pd = node.paramDesc;
+      const pdNN = pd.nameNode;
+      if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
+        if ( pdNN.hasFlag("optional") ) {
+          return true;
+        }
+      }
+    }
+    if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+      const fd = node.fnDesc;
+      const fdNN = fd.nameNode;
+      if ( (typeof(fdNN) !== "undefined" && fdNN != null )  ) {
+        if ( fdNN.hasFlag("optional") ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
   writeVarDef (node, ctx, wr) {
     if ( node.hasParamDesc ) {
       const p = node.paramDesc;
@@ -49680,7 +49718,20 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
         wr.out("= ", false);
         ctx.setInExpr();
         const value = node.getThird();
+        let someWrap = false;
+        const optName = p.nameNode;
+        if ( optName.hasFlag("optional") && (optName.value_type != 6 && optName.value_type != 7) ) {
+          if ( this.scalaExprIsOptional(value) == false ) {
+            someWrap = true;
+          }
+        }
+        if ( someWrap ) {
+          wr.out("Some(", false);
+        }
         this.WalkNode(value, ctx, wr);
+        if ( someWrap ) {
+          wr.out(")", false);
+        }
         ctx.unsetInExpr();
       } else {
         let b_inited = false;
@@ -50042,6 +50093,11 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       wr.createTag("imports");
       this.init_done = true;
       wr.createTag("beginning");
+      wr.out("import RgPoly._", true);
+      const polyWr = wr.getTag("utilities");
+      polyWr.out("object RgPoly {", true);
+      const polyEnd = wr.getTag("file_end");
+      polyEnd.out("}", true);
     }
     this.writeScalaNativeEnums(ctx, wr);
     this.writeScalaTraitDefs(ctx, wr);
@@ -50078,7 +50134,16 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
             wr.out(", ", false);
           }
           written = written + 1;
-          wr.out(arg.name + " : ", false);
+          // Loop start
+          for ( const cVar of cl.variables) {
+            if ( cVar.name == arg.name ) {
+              arg.compiledName = arg.name + "__c";
+            }
+          }
+          if ( arg.compiledName.length == 0 ) {
+            arg.compiledName = arg.name;
+          }
+          wr.out(arg.compiledName + " : ", false);
           this.writeTypeDef(arg.nameNode, ctx, wr);
         }
         wr.out(")", false);
@@ -50174,6 +50239,21 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
       }
       wr.indent(-1);
       wr.out("}", true);
+    } else {
+      if ( cl.static_methods.length == 0 ) {
+        const emptyIfaces = this.scalaTraits.basesOf(cl, ctx);
+        wr.out("class " + this.scClassRef(cl, ctx), false);
+        // Loop start
+        for ( let ei = 0; ei < emptyIfaces.length; ei++) {
+          var eName = emptyIfaces[ei];
+          if ( ei == 0 ) {
+            wr.out(" extends " + eName, false);
+          } else {
+            wr.out(" with " + eName, false);
+          }
+        }
+        wr.out(" {}", true);
+      }
     }
     let b_has_non_main_static = false;
     let b_had_app = false;
@@ -53175,6 +53255,32 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     const prop = node.getThird();
     this.writeCallReceiver(obj, ctx, wr);
     wr.out("->", false);
+    if ( prop.children.length == 0 ) {
+      if ( prop.nsp.length > 0 ) {
+        // Loop start
+        for ( let npi = 0; npi < prop.nsp.length; npi++) {
+          var np = prop.nsp[npi];
+          if ( npi > 0 ) {
+            wr.out("->", false);
+          }
+          if ( np.compiledName.length > 0 ) {
+            wr.out(np.compiledName, false);
+          } else {
+            wr.out(prop.ns[npi], false);
+          }
+        }
+        return;
+      }
+      if ( prop.hasParamDesc ) {
+        const propP = prop.paramDesc;
+        wr.out(propP.compiledName, false);
+        return;
+      }
+      if ( prop.ns.length > 0 ) {
+        wr.out(prop.ns.join("->"), false);
+        return;
+      }
+    }
     this.WalkNode(prop, ctx, wr);
   };
   CreateLambdaCall (node, ctx, wr) {
@@ -83357,7 +83463,8 @@ class RustParser  {
     if ( this.eatOp("::") ) {
       path = "::";
     }
-    while (true) {
+    const reading = true;
+    while (reading) {
       if ( this.isP("*") ) {
         this.pos = this.pos + 1;
         const g = this.nodeAt("use_glob", start);
@@ -86371,7 +86478,8 @@ class RustLower  {
       return base;
     }
     let k = 2;
-    while (true) {
+    const searching = true;
+    while (searching) {
       const cand = (base + "_") + (k.toString());
       if ( false == ( typeof(this.used[cand] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.used, cand) ) ) {
         this.used[cand] = true;
@@ -93179,7 +93287,8 @@ class RustLower  {
   };
   isIterChain (n) {
     let cur = n;
-    while (true) {
+    const walking = true;
+    while (walking) {
       if ( cur.kind == "paren" ) {
         cur = cur.kid(0);
         continue;

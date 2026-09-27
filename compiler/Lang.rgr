@@ -3464,7 +3464,7 @@ func r_file_mtime ( path:String, name:String ) -> Int {
                 python ( "int(os.path.getmtime(" (e 1) " + \"/\" + " (e 2) ") * 1000)" (imp "os") )
                 java7 ( "((int)(new File(" (e 1) " + \"/\" + " (e 2) ").lastModified()))" (imp "java.io.File") )
                 csharp ( "((int)(long)(System.IO.File.GetLastWriteTimeUtc(" (e 1) " + \"/\" + " (e 2) ") - new System.DateTime(1970, 1, 1)).TotalMilliseconds)" )
-                scala ( "new java.io.File(" (e 1) " + \"/\" + " (e 2) ").lastModified().toInt()" )
+                scala ( "new java.io.File(" (e 1) " + \"/\" + " (e 2) ").lastModified().toInt" )
                 php ( "(filemtime(" (e 1) ".'/'." (e 2) ") * 1000)" )
                 ranger ( "(file_mtime " (e 1) " " (e 2) ")" )
                 dart ( (imp "dart:io") "(() { try { return File((" (e 1) ") + \"/\" + (" (e 2) ")).lastModifiedSync().millisecondsSinceEpoch; } catch (_) { return 0; } })()" )
@@ -4898,7 +4898,7 @@ def r_div_f64(a, b):
                 kotlin ( "(Math.ceil(" (e 1) ")).toInt()" (imp "java.lang.Math"))
                 dart ( "(" (e 1) ").ceil()" )
                 cpp ( "(int)ceil(" (e 1) ")" (imp "<cmath>"))
-                csharp ( "(int)Math.Ceil(" (e 1) ")" (imp "System"))
+                csharp ( "(int)Math.Ceiling(" (e 1) ")" (imp "System"))
                 go ( "int64(math.Ceil(" (e 1) "))" (imp "math"))
                 php ( "ceil(" (e 1) ")" )    
                 rust ( "" (e 1) ".ceil() as i64" )
@@ -7782,7 +7782,7 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 ; answer the 0..255 the operator is declared to return
                 java7 ( "((" (e 1) "[(int)" (e 2) "]) & 0xFF)")  
                 kotlin ( "(" (e 1) "[(" (e 2) ").toInt()].toInt() and 0xFF)")    
-                scala ( "(" (e 1) "(" (e 2) ".toInt()) & 0xFF)")    
+                scala ( "(" (e 1) "(" (e 2) ".toInt) & 0xFF)")    
                 go ( (e 1) "[" (e 2) "]")  
                 swift3 ( (e 1) "[" (e 2) "]")    
                 ; Vec<u8> on Rust, so index the byte; `char` is an integer
@@ -9622,7 +9622,14 @@ int r_arr_index_of( std::vector<T> vec, T elem )  {
                  ; element -- an Rc is compared by identity, since
                  ; Rc<RefCell<T>> implements PartialEq only when T does
                  rust ( (custom _) )   
-                 php ( "array_search(" (e 2) ", " (e 1) ", true)")
+                 ; array_search answers false on a miss, and `false >= 0` holds
+                 php ( "r_arr_index_of(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+function r_arr_index_of($arr, $item) {
+  $i = array_search($item, $arr, true);
+  return $i === false ? -1 : $i;
+}
+"))
                  csharp ( (e 1) ".IndexOf(" (e 2) ")" )
                  go ( "r_indexof_arr_" (rawtype 1)  "(" (e 1) ", " (e 2) ")"
 (macro ("func r_indexof_arr_" (rawtype 1)  "( a []"  (ptr 1) (rawtype 1) ", item "  (ptr 1) (rawtype 1) " ) ( int64 ) { " nl I 
@@ -10184,6 +10191,8 @@ static class RgList {
                  php ( nl "echo " (e 1) ";" nl)
                  python ( nl "print(" (e 1) ", end='')" nl)
                  csharp ( nl "Console.Write(" (e 1) ");" nl (imp "System"))
+                 dart ( nl "stdout.write(" (e 1) ");" nl (imp "dart:io"))
+                 scala ( nl "print(" (e 1) ")" nl)
                  swift3 ( nl "print(" (e 1) ", terminator: \"\")" nl)
                  swift6 ( nl "print(" (e 1) ", terminator: \"\")" nl)
                  * ( nl "process.stdout.write(" (e 1) ");" nl)
@@ -11156,9 +11165,29 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
             }
         }
 
+        ; Java: an int, double or boolean is often an Integer / Double /
+        ; Boolean object, and `==` between two of them compares references
+        ; (Integer caches -128..127 only, so 128 == 128 was false, and two
+        ; equal Double fields were never ==). rg_eq compares numbers by value
+        ; and everything else by reference, as before.
         ==              cmdEqual:boolean ( left:T right:T ) {
             templates {
                 rust ( (custom _) )
+                java7 ( "rg_eq(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+static boolean rg_eq(Object a, Object b) {
+    if (a instanceof Number && b instanceof Number) {
+        if (a instanceof Double || b instanceof Double || a instanceof Float || b instanceof Float) {
+            return ((Number) a).doubleValue() == ((Number) b).doubleValue();
+        }
+        return ((Number) a).longValue() == ((Number) b).longValue();
+    }
+    if (a instanceof Boolean && b instanceof Boolean) {
+        return ((Boolean) a).booleanValue() == ((Boolean) b).booleanValue();
+    }
+    return a == b;
+}
+"))
                 * ( (e 1) " == " (e 2) )
             }
         }
@@ -11270,6 +11299,21 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
         !=               cmdNeq:boolean ( left:T right:T ) {
             templates {
                 rust ( (custom _) )
+                java7 ( "!rg_eq(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+static boolean rg_eq(Object a, Object b) {
+    if (a instanceof Number && b instanceof Number) {
+        if (a instanceof Double || b instanceof Double || a instanceof Float || b instanceof Float) {
+            return ((Number) a).doubleValue() == ((Number) b).doubleValue();
+        }
+        return ((Number) a).longValue() == ((Number) b).longValue();
+    }
+    if (a instanceof Boolean && b instanceof Boolean) {
+        return ((Boolean) a).booleanValue() == ((Boolean) b).booleanValue();
+    }
+    return a == b;
+}
+"))
                 * ( (e 1) " != " (e 2) )
             }
         }
