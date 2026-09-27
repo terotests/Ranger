@@ -11,7 +11,11 @@
 ;   panels    role tabpanel, state mirrors its tab, ALWAYS a tab stop even
 ;             while hidden — a panel is where Tab goes after the tab strip,
 ;             and Radix keeps that true for the inactive one too
-;   arrows    move the active tab and focus together, skip disabled, wrap
+;   arrows    move the active tab and focus together, skip disabled, wrap;
+;             only the arrows of the list's orientation (Left/Right for a
+;             horizontal list, Up/Down for a vertical one) — Radix's roving
+;             group ignores the other pair
+;   Home/End  the first / last enabled tab, activated with focus
 ;
 ; Only the active panel is in the display tree; the inactive one is still
 ; reported, so the trace can say it exists and cannot be reached.
@@ -27,6 +31,9 @@ class TabsCtl extends UiCtl {
     def value:string ""
     def rovingValue:string ""
     def listEl:EVGElement
+    ; "horizontal" (the default, and Radix's) or "vertical". Decides which
+    ; arrow pair moves and what the list reports as `aria-orientation`.
+    def orientation:string "horizontal"
 
     Constructor () {
         rootEl = (EVGElement.createDiv())
@@ -156,12 +163,40 @@ class TabsCtl extends UiCtl {
         if (from < 0) {
             return ""
         }
-        def delta:int 0
-        if (UiCtl.isNextKey(key)) {
-            delta = 1
+        ; Home and End: the first and the last ENABLED tab, the same stepping
+        ; as the arrows but from outside either end.
+        def n:int (array_length items)
+        def back:int (0 - 1)
+        if ((key == "Home") || (key == "End")) {
+            def edge:int (UiCtl.stepIndex(items n back))
+            if (key == "Home") {
+                edge = (UiCtl.stepIndex(items back 1))
+            }
+            def edgeValue:string (this.valueAtIndex(edge))
+            if (edgeValue == "") {
+                return ""
+            }
+            value = edgeValue
+            rovingValue = edgeValue
+            this.build()
+            return (this.tabTid(edgeValue))
         }
-        if (UiCtl.isPrevKey(key)) {
-            delta = -1
+        def vertical:boolean (orientation == "vertical")
+        def delta:int 0
+        if (vertical) {
+            if (key == "ArrowDown") {
+                delta = 1
+            }
+            if (key == "ArrowUp") {
+                delta = -1
+            }
+        } {
+            if (key == "ArrowRight") {
+                delta = 1
+            }
+            if (key == "ArrowLeft") {
+                delta = -1
+            }
         }
         if (delta == 0) {
             if (UiCtl.activatesOn(key)) {
@@ -236,7 +271,7 @@ class TabsCtl extends UiCtl {
 
         def listRow:UiRow (UiRow.of((this.listTid()) (EVGA11yRole.tabList()) name))
         ; On the LIST, not on the root — the root has no role at all.
-        listRow.orientation = "horizontal"
+        listRow.orientation = orientation
         listRow.parentTid = tid
         listRow.tabStop = true
         push out listRow

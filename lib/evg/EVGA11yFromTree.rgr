@@ -231,6 +231,8 @@ class EVGA11yFromTree {
             n.roleDescription = el.a11yRoleDescription
             n.description = el.a11yDescription
             n.describedBy = el.a11yDescribedBy
+            n.controls = el.a11yControls
+            n.labelledBy = el.a11yLabelledBy
             n.hasPopup = el.a11yHasPopup
             n.rowCount = el.a11yRowCount
             n.rowIndex = el.a11yRowIndex

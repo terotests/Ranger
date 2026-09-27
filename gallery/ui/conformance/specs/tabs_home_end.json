@@ -1,0 +1,26 @@
+{
+  "name": "tabs_home_end",
+  "component": "tabs",
+  "behaviours": ["home-end", "cross-axis-ignored"],
+  "fixture": {
+    "controls": [
+      {
+        "type": "tabs", "tid": "tb", "name": "Settings", "value": "a",
+        "items": [
+          { "value": "a", "name": "Account", "body": "acct" },
+          { "value": "b", "name": "Password", "body": "pwd" },
+          { "value": "c", "name": "Billing", "body": "bill" },
+          { "value": "x", "name": "Legacy", "body": "old", "disabled": true }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    { "click": "tb-tab-a" },
+    { "key": "End" },
+    { "key": "Home" },
+    { "key": "ArrowDown" },
+    { "key": "ArrowUp" },
+    { "key": "ArrowLeft" }
+  ]
+}

@@ -256,6 +256,10 @@ class EVGA11yNode {
     ; on screen as its own node (a form field's error message). Serialised as
     ; `describedby`; the DOM mirror turns it into `aria-describedby`.
     def describedBy:string ""
+    ; `aria-controls` / `aria-labelledby`: ids of other nodes. A tab controls
+    ; its panel and the panel is labelled by its tab.
+    def controls:string ""
+    def labelledBy:string ""
     ; What a reader says INSTEAD of the role: "sortable" on a draggable row.
     ; Every platform has it — aria-roledescription, UIA LocalizedControlType,
     ; AT-SPI's localized role name — because some controls are a known role
@@ -541,6 +545,12 @@ class EVGA11yTree {
         }
         if ((strlen n.describedBy) > 0) {
             out = (out + ",\"describedby\":" + (EVGA11yTree.jsonString(n.describedBy)))
+        }
+        if ((strlen n.controls) > 0) {
+            out = (out + ",\"controls\":" + (EVGA11yTree.jsonString(n.controls)))
+        }
+        if ((strlen n.labelledBy) > 0) {
+            out = (out + ",\"labelledby\":" + (EVGA11yTree.jsonString(n.labelledBy)))
         }
         if n.hasValueNow {
             out = (out + ",\"now\":" + (to_string n.valueNow))
