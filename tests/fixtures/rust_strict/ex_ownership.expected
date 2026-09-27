@@ -1,0 +1,7 @@
+bob cannot withdraw 80 (balance 50)
+alice: 70 after 2 moves
+alice: 75 after 3 moves
+bob: 50 after 2 moves
+total 125
+closed bob with 50
+1 left

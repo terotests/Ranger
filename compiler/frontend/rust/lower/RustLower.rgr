@@ -329,6 +329,14 @@ class RustLower {
     for root.kids it2:RustNode j {
       this.collectItem(it2)
     }
+    ; `use Expr::*;` / `use Shape::{Circle, Rect}`: variants named bare
+    for root.kids ut:RustNode uj {
+      if (ut.kind == "use") {
+        for ut.kids uk:RustNode uk_i {
+          this.collectUse(uk)
+        }
+      }
+    }
     ; a method named like a field of its struct is renamed: Ranger does not
     ; allow both
     for structOrder sn:string si {
@@ -917,6 +925,10 @@ class RustLower {
     if ((name == "Formatter") || (name == "Arguments")) {
       return (RsType.named("Formatter"))
     }
+    if ((name == "ParseIntError") || (name == "ParseFloatError")) {
+      ; carried as its Display text
+      return (this.ownedString())
+    }
     if (name == "Ordering") {
       def ordT:RsType (RsType.mk("int"))
       ordT.name = "Ordering"
@@ -957,6 +969,14 @@ class RustLower {
       return "void"
     }
     if (k == "vec") {
+      if ((t.arg(0)).kind == "opt") {
+        ; a Ranger array has no empty element
+        if (false == optInCollectionReported) {
+          optInCollectionReported = true
+          push errors (fileName + ": a Vec of Option is not in the Ranger subset: keep the present values (`filter_map`, `flatten`) or use a sentinel")
+        }
+        return ""
+      }
       def e:string (this.rtype((t.arg(0))))
       if (e == "") {
         return ""
@@ -1246,7 +1266,7 @@ class RustLower {
       push lines "      i = i + 1"
       push lines "    }"
     } {
-      push lines (("    def ks:[" + (this.rtype((t.arg(0))))) + "] (keys src)")
+      push lines ((("    def ks:[" + (this.rtype((t.arg(0))))) + "] ") + (this.mapKeysCode("src" (RsType.of2("map" (t.arg(0)) (t.arg(0)))))))
       push lines "    def n:int (array_length ks)"
       push lines "    def i:int 0"
       push lines "    while (i < n) {"
@@ -1965,11 +1985,43 @@ class RustLower {
       }
       push lines (((("  fn rs_eq:boolean (o:" + cname) + ") {\n    return ") + (this.andAll(conds))) + "\n  }")
     }
+    ; derived PartialOrd / Ord: fields compared in declaration order
+    if (((s.derivesTrait("PartialOrd")) || (s.derivesTrait("Ord"))) && (null? (s.method("cmp"))) && (null? (s.method("partial_cmp")))) {
+      push lines (("  fn rs_cmp:int (o:" + cname) + ") {")
+      push lines "    def c:int 0"
+      for s.fields f7:RsField k5 {
+        def fnm3:string (this.fieldName(f7.name))
+        push lines (("    c = " + (this.cmpCode(("this." + fnm3) ("o." + fnm3) (this.subst(f7.ty genericEnv))))))
+        push lines "    if (c != 0) {\n      return c\n    }"
+      }
+      push lines "    return 0"
+      push lines "  }"
+    }
     if ((s.derivesTrait("Debug")) && (false == (this.hasFmt((RsType.named(s.name)) "Debug")))) {
       push lines (this.emitDebugStruct(s cname))
     }
     push lines "}"
     return (join lines "\n")
+  }
+
+  ; `a.cmp(&b)` for a struct: its own `cmp` / `partial_cmp`, or the derived
+  ; field order. "" when the struct is not ordered.
+  fn structCmp:string (a:string b:string t:RsType) {
+    def s:RsStruct (unwrap (get structs t.name))
+    def cm@(optional):RsFn (s.method("cmp"))
+    if (!null? cm) {
+      def cmf:RsFn (unwrap cm)
+      return (((((("(" + a) + ".") + cmf.rname) + "(") + b) + "))")
+    }
+    def pc@(optional):RsFn (s.method("partial_cmp"))
+    if (!null? pc) {
+      def pcf:RsFn (unwrap pc)
+      return (((((("(unwrap (" + a) + ".") + pcf.rname) + "(") + b) + ")))")
+    }
+    if ((s.derivesTrait("PartialOrd")) || (s.derivesTrait("Ord"))) {
+      return (((("(" + a) + ".rs_cmp(") + b) + "))")
+    }
+    return ""
   }
 
   fn emitStructZero:string (s:RsStruct cname:string) {
@@ -2527,6 +2579,20 @@ class RustLower {
         out.line(("def " + (this.fieldDecl(l2.rname t))))
       } {
         out.line(((("def " + (this.declText(l2.rname t))) + " ") + c.code))
+      }
+      ; `let list = map.entry(k).or_insert_with(Vec::new)`: the Vec is a
+      ; copy on Go and C++, so its changes are stored back in the slot
+      def initM:RustNode init
+      while ((initM.kind == "unary") || (initM.kind == "paren")) {
+        initM = (initM.kid(0))
+      }
+      if ((initM.kind == "method") && ((initM.name == "or_insert") || (initM.name == "or_insert_with") || (initM.name == "or_default")) && ((t.kind == "vec") || (t.kind == "map") || (t.kind == "set"))) {
+        def bar:int (indexOf lastEntry.code "|")
+        if (bar > 0) {
+          l2.slotMap = (substring lastEntry.code 0 bar)
+          l2.slotKey = (substring lastEntry.code (bar + 1) (strlen lastEntry.code))
+          l2.slotTy = lastEntry.ty
+        }
       }
       return
     }
@@ -3236,10 +3302,60 @@ class RustLower {
 
   ; ------------------------------------------------------------------- for
 
+  ; Does `for` iterate a chain with an adaptor the plain loops do not
+  ; handle (`take`, `skip`, `filter`, `map`, `zip`, …)?
+  fn forNeedsChain:boolean (iter:RustNode) {
+    def cur:RustNode iter
+    while ((cur.kind == "method") || (cur.kind == "paren")) {
+      if (cur.kind == "paren") {
+        cur = (cur.kid(0))
+        continue
+      }
+      if ((this.isIterAdapter(cur.name)) && (cur.name != "enumerate") && (cur.name != "rev") && (cur.name != "step_by")) {
+        return true
+      }
+      ; `lines().enumerate()`, `split(…).enumerate()`: a source the plain
+      ; loop reads only bare
+      if ((cur.name == "enumerate") || (cur.name == "rev")) {
+        def inner:RustNode (cur.kid(0))
+        if ((inner.kind == "method") && ((inner.name == "lines") || (inner.name == "split") || (inner.name == "split_whitespace") || (inner.name == "char_indices"))) {
+          return true
+        }
+      }
+      cur = (cur.kid(0))
+    }
+    return false
+  }
+
+  def forPat@(optional):RustNode
+  def forBody@(optional):RustNode
+
   fn lowerFor:void (e:RustNode) {
     def pat:RustNode (e.kid(0))
     def iter:RustNode (e.kid(1))
     def body:RustNode (e.kid(2))
+    if (this.forNeedsChain(iter)) {
+      if (e.name != "") {
+        this.unsupported(e "a label on a `for` over an iterator chain")
+        return
+      }
+      ; the chain's loop, with the body as its consumer
+      def consumer:RustNode (new RustNode("method"))
+      consumer.name = "__for"
+      consumer.line = e.line
+      consumer.col = e.col
+      consumer.add(iter)
+      consumer.add((new RustNode("none")))
+      def savePat@(optional):RustNode forPat
+      def saveBody@(optional):RustNode forBody
+      forPat = pat
+      forBody = body
+      def r:RsExpr (this.lowerIterChain(consumer (RsType.mk("unit"))))
+      this.discard(r)
+      forPat = savePat
+      forBody = saveBody
+      return
+    }
     this.pushScope()
     ; a range: lo..hi, lo..=hi, optionally .rev() / .step_by(k)
     def rev:boolean false
@@ -4404,7 +4520,79 @@ class RustLower {
     for p.kids s:RustNode i {
       push list s.name
     }
+    ; a variant brought in by `use Enum::*` and not hidden by a local
+    if ((array_length list) == 1) {
+      def only:string (itemAt list 0)
+      if ((has variantAliases only) && (null? (scope.lookup(only)))) {
+        def full:[string]
+        push full (unwrap (get variantAliases only))
+        push full only
+        return full
+      }
+    }
     return list
+  }
+
+  def variantAliases:[string:string]
+  def optInCollectionReported:boolean false
+
+  ; The enum a `use` path names, "" when it names something else.
+  fn useEnum:string (path:string) {
+    def segs:[string] (strsplit path "::")
+    def keep:[string]
+    for segs sg:string i {
+      if ((sg != "") && (sg != "self") && (sg != "crate") && (sg != "super")) {
+        push keep sg
+      }
+    }
+    if ((array_length keep) != 1) {
+      return ""
+    }
+    def e:string (itemAt keep 0)
+    if (has enums e) {
+      return e
+    }
+    return ""
+  }
+
+  fn collectUse:void (u:RustNode) {
+    if (u.kind == "use_glob") {
+      def eg:string (this.useEnum(u.name))
+      if (eg != "") {
+        def en:RsEnum (unwrap (get enums eg))
+        for en.variants v:RsVariant vi {
+          set variantAliases v.name eg
+        }
+      }
+      return
+    }
+    if (u.kind == "use_group") {
+      def eg2:string (this.useEnum(u.name))
+      for u.kids c:RustNode ci {
+        if ((eg2 != "") && (c.kind == "use_name")) {
+          if ((c.value != "") && (c.value != c.name)) {
+            this.err(c "a renamed enum variant import is not in the subset")
+          }
+          set variantAliases c.name eg2
+        }
+        if ((eg2 != "") && (c.kind == "use_glob")) {
+          def en2:RsEnum (unwrap (get enums eg2))
+          for en2.variants v2:RsVariant vi2 {
+            set variantAliases v2.name eg2
+          }
+        }
+      }
+      return
+    }
+    if (u.kind == "use_name") {
+      def cut:int (lastIndexOf u.name "::")
+      if (cut > 0) {
+        def eg3:string (this.useEnum((substring u.name 0 cut)))
+        if (eg3 != "") {
+          set variantAliases (substring u.name (cut + 2) (strlen u.name)) eg3
+        }
+      }
+    }
   }
 
   fn lowerPathExpr:RsExpr (n:RustNode expect:RsType) {
@@ -4727,11 +4915,13 @@ class RustLower {
         }
         return (("(! " + eq) + ")")
       }
-      def s:RsStruct (unwrap (get structs t.name))
-      def pc@(optional):RsFn (s.method("partial_cmp"))
-      def cm@(optional):RsFn (s.method("cmp"))
-      this.err(at (("ordering `" + t.name) + "` values is stage R2"))
-      return "false"
+      def lrecv:string (this.bindTemp(l t "l"))
+      def sc:string (this.structCmp(lrecv r.code t))
+      if (sc == "") {
+        this.err(at (("`" + t.name) + "` is not ordered: derive PartialOrd or implement it"))
+        return "false"
+      }
+      return (((("(" + sc) + " ") + op) + " 0)")
     }
     if (t.kind == "opt") {
       if ((op == "==") || (op == "!=")) {
@@ -5470,6 +5660,19 @@ class RustLower {
     if (recvN.kind == "index") {
       this.assignTo(recvN (this.simpleExpr(lastVecName rv.ty)))
     }
+    ; a local bound to a map slot
+    if (recvN.kind == "path_expr") {
+      def rp:RustNode (recvN.kid(0))
+      if ((array_length rp.kids) == 1) {
+        def sl@(optional):RsLocal (scope.lookup((this.lastSeg(rp))))
+        if (!null? sl) {
+          def slot:RsLocal (unwrap sl)
+          if (slot.slotMap != "") {
+            out.line((this.mapSetLine(slot.slotMap slot.slotTy slot.slotKey slot.rname)))
+          }
+        }
+      }
+    }
   }
 
   def lastVecName:string ""
@@ -5676,6 +5879,45 @@ class RustLower {
     if (name == "is_empty") {
       return (RsExpr.of((("((strlen " + c) + ") == 0)") bt))
     }
+    if (name == "parse") {
+      ; a Result, checked as strictly as Rust checks it: JavaScript's
+      ; parseInt reads "12x" as 12
+      def target:RsType (RsType.mk("unknown"))
+      def targs:RustNode (at.kid(1))
+      if ((array_length targs.kids) > 0) {
+        target = (this.typeOf((targs.kid(0))))
+      } {
+        if ((expect.kind == "result") && (false == ((expect.arg(0)).isUnknown()))) {
+          target = (expect.arg(0))
+        }
+      }
+      if ((target.kind != "int") && (target.kind != "double")) {
+        this.err(at "`parse` needs a known number type: `parse::<i64>()` or an annotated Result")
+        return (this.unit())
+      }
+      def ps:string (this.bindTemp(rv st "s"))
+      def prt:RsType (RsType.of2("result" target (this.ownedString())))
+      def pcls:string (this.resultClass(prt))
+      def pres:string (this.tmp("res"))
+      def pv:string (this.tmp("p"))
+      def fnP:string "parseI64"
+      def fnE:string "parseIntErr"
+      def ptn:string "int"
+      if (target.kind == "double") {
+        fnP = "parseF64"
+        fnE = "parseFloatErr"
+        ptn = "double"
+      }
+      out.line((((("def " + pres) + ":") + pcls) + ((" (new " + pcls) + ")")))
+      out.line((((((("def " + pv) + "@(optional):") + ptn) + " (RsStr.") + fnP) + "(") + (ps + "))")))
+      out.line((("if (!null? " + pv) + ") {"))
+      out.line((("  " + pres) + ".ok = true"))
+      out.line((((("  " + pres) + ".v = (unwrap ") + pv) + ")"))
+      out.line("} {")
+      out.line((((((("  " + pres) + ".e = (RsStr.") + fnE) + "(") + ps) + "))"))
+      out.line("}")
+      return (this.simpleExpr(pres prt))
+    }
     if ((name == "cmp") || (name == "partial_cmp")) {
       def o:RsExpr (this.arg0(args st))
       def a0:string (this.bindTemp(rv st "a"))
@@ -5794,6 +6036,13 @@ class RustLower {
     if (name == "to_uppercase") {
       return (RsExpr.of((("(rs_upper " + c) + ")") rv.ty))
     }
+    ; `c.to_uppercase().collect::<String>()`: a char is held as its text
+    if ((name == "collect") || (name == "to_string")) {
+      return (RsExpr.of(c (this.ownedString())))
+    }
+    if (name == "len_utf8") {
+      return (RsExpr.of((("(rs_byte_len " + c) + ")") (RsType.mk("int"))))
+    }
     if (name == "to_lowercase") {
       return (RsExpr.of((("(rs_lower " + c) + ")") rv.ty))
     }
@@ -5859,6 +6108,34 @@ class RustLower {
     if ((name == "round") || (name == "trunc") || (name == "ln") || (name == "exp") || (name == "log10") || (name == "signum")) {
       return (RsExpr.of((((("(rs_" + name) + " ") + c) + ")") t))
     }
+    ; Ordering is an int: -1, 0, 1
+    if ((name == "then") || (name == "then_with")) {
+      def first:string (this.bindTemp(rv t "ord"))
+      def nextV:RsExpr (RsExpr.of("" t))
+      def nl:[string]
+      def ni:string ""
+      if (name == "then") {
+        nextV = (this.captureExpr((itemAt args 0) t))
+      } {
+        nextV = (this.captureClosure((itemAt args 0) ([] _:RsExpr ()) t))
+      }
+      nl = lastCaptured
+      ni = lastCapturedInd
+      def ov:string (this.tmp("ord"))
+      out.line(((("def " + ov) + ":int ") + first))
+      out.line((("if (" + ov) + " == 0) {"))
+      out.indent()
+      out.addIndented(nl ni)
+      out.line((((ov + " = ") + nextV.code)))
+      out.dedent()
+      out.line("}")
+      def ordT:RsType (RsType.mk("int"))
+      ordT.name = "Ordering"
+      return (this.simpleExpr(ov ordT))
+    }
+    if (name == "reverse") {
+      return (RsExpr.of((("(0 - " + c) + ")") t))
+    }
     this.unsupported(at (("the number method `" + name) + "`"))
     return (this.unit())
   }
@@ -5882,6 +6159,107 @@ class RustLower {
     }
     if (name == "is_none") {
       return (RsExpr.of((("(null? " + o) + ")") (RsType.mk("bool"))))
+    }
+    ; the combinators: the closure runs only on the branch that needs it, so
+    ; its statements are written inside that branch
+    if ((name == "ok_or") || (name == "ok_or_else")) {
+      def errV:RsExpr (RsExpr.of("" (RsType.mk("unknown"))))
+      def errLines:[string]
+      if (name == "ok_or") {
+        errV = (this.captureExpr((itemAt args 0) (this.resultErrOf(expect))))
+      } {
+        errV = (this.captureClosure((itemAt args 0) ([] _:RsExpr ()) (this.resultErrOf(expect))))
+      }
+      errLines = lastCaptured
+      def et:RsType errV.ty
+      if (et.kind == "string") {
+        et = (this.ownedString())
+      }
+      def rt:RsType (RsType.of2("result" inner et))
+      def cls:string (this.resultClass(rt))
+      def res:string (this.tmp("res"))
+      out.line((((("def " + res) + ":") + cls) + ((" (new " + cls) + ")")))
+      out.line((("if (!null? " + o) + ") {"))
+      out.line((("  " + res) + ".ok = true"))
+      out.line((((("  " + res) + ".v = ") + (this.unionSafe((("(unwrap " + o) + ")") inner)))))
+      out.line("} {")
+      out.indent()
+      out.addIndented(errLines lastCapturedInd)
+      out.line((((res + ".e = ") + (this.unionSafe(errV.code et)))))
+      out.dedent()
+      out.line("}")
+      return (this.simpleExpr(res rt))
+    }
+    if ((name == "map") || (name == "and_then") || (name == "filter")) {
+      def some:RsExpr (this.simpleExpr((("(unwrap " + o) + ")") inner))
+      def fv:RsExpr (this.captureClosure((itemAt args 0) ([] _:RsExpr (some)) (RsType.mk("unknown"))))
+      def fLines:[string] lastCaptured
+      def fInd:string lastCapturedInd
+      def outT:RsType (RsType.of1("opt" fv.ty))
+      if (name == "and_then") {
+        outT = fv.ty
+      }
+      if (name == "filter") {
+        outT = t
+      }
+      def mo:string (this.tmp("o"))
+      out.line(("def " + (this.declText(mo outT))))
+      out.line((("if (!null? " + o) + ") {"))
+      out.indent()
+      out.addIndented(fLines fInd)
+      if (name == "filter") {
+        out.line((("if " + (this.condText(fv.code))) + " {"))
+        out.line((((("  " + mo) + " = ") + o)))
+        out.line("}")
+      } {
+        out.line((((mo + " = ") + (this.unionSafe(fv.code (outT.arg(0)))))))
+      }
+      out.dedent()
+      out.line("}")
+      return (this.simpleExpr(mo outT))
+    }
+    if ((name == "unwrap_or_else") || (name == "map_or") || (name == "map_or_else")) {
+      ; the value when present (mapped for map_or), else the default
+      def someV:RsExpr (this.simpleExpr((("(unwrap " + o) + ")") inner))
+      def dflt:RsExpr (RsExpr.of("" (RsType.mk("unknown"))))
+      def dLines:[string]
+      def dInd:string ""
+      if (name == "unwrap_or_else") {
+        dflt = (this.captureClosure((itemAt args 0) ([] _:RsExpr ()) inner))
+        dLines = lastCaptured
+        dInd = lastCapturedInd
+      } {
+        if (name == "map_or") {
+          dflt = (this.captureExpr((itemAt args 0) expect))
+        } {
+          dflt = (this.captureClosure((itemAt args 0) ([] _:RsExpr ()) expect))
+        }
+        dLines = lastCaptured
+        dInd = lastCapturedInd
+        someV = (this.captureClosure((itemAt args 1) ([] _:RsExpr (someV)) dflt.ty))
+      }
+      def sLines:[string]
+      if (name != "unwrap_or_else") {
+        sLines = lastCaptured
+      }
+      def vt2:RsType dflt.ty
+      if (name == "unwrap_or_else") {
+        vt2 = inner
+      }
+      def mv:string (this.tmp("v"))
+      out.line(("def " + (this.tempDecl(mv vt2))))
+      out.line((("if (!null? " + o) + ") {"))
+      out.indent()
+      out.addIndented(sLines lastCapturedInd)
+      out.line((((mv + " = ") + someV.code)))
+      out.dedent()
+      out.line("} {")
+      out.indent()
+      out.addIndented(dLines dInd)
+      out.line((((mv + " = ") + dflt.code)))
+      out.dedent()
+      out.line("}")
+      return (this.simpleExpr(mv vt2))
     }
     this.unsupported(at (("the Option method `" + name) + "` (stage R2)"))
     return (this.unit())
@@ -5935,6 +6313,95 @@ class RustLower {
       out.line((((("  " + o) + " = ") + r) + ".") + field)
       out.line("}")
       return (this.simpleExpr(o ot))
+    }
+    if ((name == "map_or") || (name == "unwrap_or_else")) {
+      def okV:RsExpr (this.simpleExpr((r + ".v") vt))
+      def dfl:RsExpr (RsExpr.of("" (RsType.mk("unknown"))))
+      def dl:[string]
+      def dInd2:string ""
+      def sl:[string]
+      def sInd:string ""
+      if (name == "map_or") {
+        dfl = (this.captureExpr((itemAt args 0) expect))
+        dl = lastCaptured
+        dInd2 = lastCapturedInd
+        okV = (this.captureClosure((itemAt args 1) ([] _:RsExpr (okV)) dfl.ty))
+        sl = lastCaptured
+        sInd = lastCapturedInd
+      } {
+        def errArg:RsExpr (this.simpleExpr((r + ".e") (t.arg(1))))
+        dfl = (this.captureClosure((itemAt args 0) ([] _:RsExpr (errArg)) vt))
+        dl = lastCaptured
+        dInd2 = lastCapturedInd
+      }
+      def rvT:RsType dfl.ty
+      if (name == "unwrap_or_else") {
+        rvT = vt
+      }
+      def mv2:string (this.tmp("v"))
+      out.line(("def " + (this.tempDecl(mv2 rvT))))
+      out.line((("if " + r) + ".ok {"))
+      out.indent()
+      out.addIndented(sl sInd)
+      out.line((((mv2 + " = ") + okV.code)))
+      out.dedent()
+      out.line("} {")
+      out.indent()
+      out.addIndented(dl dInd2)
+      out.line((((mv2 + " = ") + dfl.code)))
+      out.dedent()
+      out.line("}")
+      return (this.simpleExpr(mv2 rvT))
+    }
+    if ((name == "map_err") || (name == "map")) {
+      def arg:RsExpr (this.simpleExpr((r + ".e") (t.arg(1))))
+      if (name == "map") {
+        arg = (this.simpleExpr((r + ".v") vt))
+      }
+      def want:RsType (RsType.mk("unknown"))
+      if ((name == "map_err") && (expect.kind == "result")) {
+        want = (expect.arg(1))
+      }
+      def fv2:RsExpr (this.captureClosure((itemAt args 0) ([] _:RsExpr (arg)) want))
+      def fl:[string] lastCaptured
+      def fi:string lastCapturedInd
+      def nvt:RsType vt
+      def net:RsType (t.arg(1))
+      if (name == "map_err") {
+        net = fv2.ty
+        if (net.kind == "string") {
+          net = (this.ownedString())
+        }
+      } {
+        nvt = fv2.ty
+      }
+      def nrt:RsType (RsType.of2("result" nvt net))
+      def ncls:string (this.resultClass(nrt))
+      def nres:string (this.tmp("res"))
+      out.line((((("def " + nres) + ":") + ncls) + ((" (new " + ncls) + ")")))
+      out.line((("if " + r) + ".ok {"))
+      out.indent()
+      out.line((nres + ".ok = true"))
+      if (name == "map") {
+        out.addIndented(fl fi)
+        out.line((((nres + ".v = ") + (this.unionSafe(fv2.code nvt)))))
+      } {
+        if (vt.kind != "unit") {
+          out.line((((nres + ".v = ") + r) + ".v"))
+        }
+      }
+      out.dedent()
+      out.line("} {")
+      out.indent()
+      if (name == "map_err") {
+        out.addIndented(fl fi)
+        out.line((((nres + ".e = ") + (this.unionSafe(fv2.code net)))))
+      } {
+        out.line((((nres + ".e = ") + r) + ".e"))
+      }
+      out.dedent()
+      out.line("}")
+      return (this.simpleExpr(nres nrt))
     }
     this.unsupported(at (("the Result method `" + name) + "`"))
     return (this.unit())
@@ -6601,6 +7068,42 @@ class RustLower {
     return v
   }
 
+  ; Lowers `f(args)` / an expression into a separate buffer: its statements
+  ; go in `lastCaptured` for the caller to place inside the branch that
+  ; runs it.
+  def lastCaptured:[string]
+  def lastCapturedInd:string ""
+
+  fn captureClosure:RsExpr (f:RustNode args:[RsExpr] expect:RsType) {
+    def saveOut:RustOut out
+    out = (new RustOut())
+    out.ind = saveOut.ind
+    def v:RsExpr (this.applyClosure(f args expect))
+    lastCaptured = out.lines
+    lastCapturedInd = saveOut.ind
+    out = saveOut
+    return v
+  }
+
+  fn captureExpr:RsExpr (e:RustNode expect:RsType) {
+    def saveOut:RustOut out
+    out = (new RustOut())
+    out.ind = saveOut.ind
+    def v:RsExpr (this.lowerExprCopy(e expect))
+    lastCaptured = out.lines
+    lastCapturedInd = saveOut.ind
+    out = saveOut
+    return v
+  }
+
+  ; The error type a Result is expected to carry, or unknown.
+  fn resultErrOf:RsType (expect:RsType) {
+    if (expect.kind == "result") {
+      return (expect.arg(1))
+    }
+    return (RsType.mk("unknown"))
+  }
+
   ; ------------------------------------------------------ iterator chains
 
   fn isIterConsumer:boolean (n:string) {
@@ -6928,7 +7431,7 @@ class RustLower {
               mode = "pairs"
               elemT = (RsType.of2("tuple" (bt.arg(0)) (bt.arg(1))))
               def kc:string (((("(itemAt " + seq) + " ") + cur2) + ")")
-              elemCode = ((((((("(new " + (this.tupleClass(elemT))) + "(") + kc) + " (unwrap (get ") + (this.mapR(m bt))) + " ") + kc) + ")))")
+              elemCode = ((((((("(new " + (this.tupleClass(elemT))) + "(") + kc) + " (unwrap (get ") + (this.mapR(m bt))) + " ") + kc) + "))))")
             }
           }
         } {
@@ -7147,6 +7650,22 @@ class RustLower {
       out.line(((res + " = ") + fv.code))
       return (this.simpleExpr(res ft))
     }
+    if (name == "__for") {
+      ; `for pat in <chain> { body }`: the body runs where the element is
+      def fp:RustNode (unwrap forPat)
+      def fb:RustNode (unwrap forBody)
+      def saveStart:int loopStart
+      def saveInd:string loopInd
+      this.pushScope()
+      this.bindForPattern(fp e.code e.ty)
+      this.pushLoop("" "")
+      this.lowerLoopBody(fb)
+      this.popLoop()
+      this.popScope()
+      loopStart = saveStart
+      loopInd = saveInd
+      return (this.unit())
+    }
     if (name == "for_each") {
       def bv:RsExpr (this.applyClosure((itemAt args 0) ([] _:RsExpr (e)) (RsType.mk("unit"))))
       this.discard(bv)
@@ -7218,6 +7737,10 @@ class RustLower {
   ; -1 / 0 / 1 comparing two values of a numeric or string type.
   fn cmpCode:string (a:string b:string t:RsType) {
     if ((t.kind == "named") && (has structs t.name)) {
+      def sc:string (this.structCmp(a b t))
+      if (sc != "") {
+        return sc
+      }
       return (((("(" + a) + ".cmp(") + b) + "))")
     }
     if ((t.kind == "string") || (t.kind == "char")) {
@@ -8168,6 +8691,10 @@ class RustLower {
   fn mapKeysCode:string (m:string t:RsType) {
     if (this.isOrderedMap(t)) {
       return (m + ".order")
+    }
+    if ((t.arg(0)).kind == "int") {
+      ; Ranger's `keys` takes string keys
+      return (("(rs_int_keys " + m) + ")")
     }
     return (("(keys " + m) + ")")
   }

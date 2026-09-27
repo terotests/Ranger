@@ -429,6 +429,7 @@ for es6, python, go and cpp:
 | r2_enums, r2_traits, r2_closures, r2_closure_return, r2_results, r2_maps | data enums (as `shape` / `case`), traits and `dyn Trait`, generics (monomorphized), closures, functions returning closures and iterator chains, `Result` / `?`, `HashMap` / `BTreeMap` / sets |
 | r3_moves | programs rustc accepts with moves, clones and `&mut` parameters of value types (boxed and written back) |
 | r4_prelude, r4_strings, r4_helpers | the prelude's type names, `Map`, operator functions; the §5 table; char tests, float methods, padded `{:>8}` / `{:05}` formatting |
+| ex_traits, ex_enums, ex_results, ex_iterators, ex_ownership, ex_strings | the playground's Rust examples, written as idiomatic Rust: `dyn Trait`, derived `PartialOrd`, `use Enum::*`, recursive enums, `ok_or` / `map_err` / `map_or`, `parse::<i64>()`, `Ordering::then`, `for` over `take` / `skip` / `enumerate` chains |
 
 `errors/` holds constructs outside the subset and `borrow/` holds programs
 rustc rejects (use after move, a move in one branch or in a loop, moving out
@@ -474,6 +475,11 @@ R4 adds `runtime/rust/ranger`:
 - The lowering writes a `Map` as a class with the key order beside the map
   (`RsOMap_K_V`): Ranger's map on Go iterates in random order. `HashMap`
   stays a plain map, as Rust leaves its order unspecified.
+- `rgrc -l=rust file.rs` writes the module as it is (§7): it has passed the
+  subset and move checks, and rustc decides the rest.
+- A `Vec` of `Option` is refused: a Ranger array has no empty element.
+  `str::parse` answers a `Result` and accepts what Rust accepts (JavaScript's
+  `parseInt("12x")` is 12); the error carries its Display text.
 - Strings follow §5 on every target: `chars()` and `.chars().count()` are
   code points, `bytes()`, `as_bytes()[i]` and `.as_bytes().len()` are UTF-8
   bytes, and `find` / `&s[a..b]` use byte offsets. `to_uppercase` applies

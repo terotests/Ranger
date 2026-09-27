@@ -329,6 +329,11 @@ class RsLocal {
   ; an element binding of `for x in v.iter_mut()`: `*x = …` writes back
   def iterVec:string ""
   def iterIdx:string ""
+  ; bound to a map slot (`let v = m.entry(k).or_insert(…)`): changes to a
+  ; collection held there are stored back
+  def slotMap:string ""
+  def slotKey:string ""
+  def slotTy:RsType (new RsType("unknown"))
 }
 
 class RsScope {

@@ -2165,8 +2165,13 @@ class RangerFlowParser {
     }
     lambdaArgs.children.forEach({
       def item2 (at callParams.children index)
-      if ( item2.eval_type_name != item.type_name ) {
-        ; missing: union types handling
+      ; the method-argument rule first: a subclass, a shape case for its
+      ; family, a union member are all accepted there
+      def acceptedLikeMethodArg:boolean false
+      if ((item.type_name != "") && (item2.eval_type_name != item.type_name)) {
+        acceptedLikeMethodArg = (this.areEqualTypes(item item2 ctx wr))
+      }
+      if ( (item2.eval_type_name != item.type_name) && (false == acceptedLikeMethodArg) ) {
         if( item.type_name != 'Any' ) {
           ctx.addError( item2 ( 'Argument of wrong type given for the lambda parameter ' + index))
           all_matched = false

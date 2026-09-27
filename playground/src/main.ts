@@ -94,7 +94,7 @@ app.innerHTML = `
   <p id="example-desc" class="example-desc"></p>
   <main class="panes">
     <section class="pane">
-      <h2>Source (.rgr)</h2>
+      <h2 id="source-title">Source (.rgr)</h2>
       <div id="source-editor"></div>
     </section>
     <section class="pane">
@@ -115,6 +115,7 @@ const compileBtn = document.querySelector<HTMLButtonElement>("#compile-btn")!;
 const runBtn = document.querySelector<HTMLButtonElement>("#run-btn")!;
 const statusEl = document.querySelector<HTMLSpanElement>("#status")!;
 const exampleDesc = document.querySelector<HTMLParagraphElement>("#example-desc")!;
+const sourceTitle = document.querySelector<HTMLHeadingElement>("#source-title")!;
 
 const langOptionEls = new Map<TargetLanguage, HTMLOptionElement>();
 for (const opt of LANGUAGE_OPTIONS) {
@@ -156,6 +157,9 @@ function syncToolbarForLanguage() {
 syncToolbarForLanguage();
 
 const outputLang = new Compartment();
+const sourceLang = new Compartment();
+/** The source is a strict Rust module when the example is a `.rs` file. */
+let sourceIsRust = false;
 
 let debounceTimer = 0;
 let compiling = false;
@@ -213,10 +217,19 @@ function scheduleCompile() {
 function makeEditor(
   parent: HTMLElement,
   readOnly: boolean,
-  opts?: { onDocChange?: () => void; langExt?: ReturnType<typeof javascript>; useOutputLang?: boolean },
+  opts?: {
+    onDocChange?: () => void;
+    langExt?: ReturnType<typeof javascript>;
+    useOutputLang?: boolean;
+    useSourceLang?: boolean;
+  },
 ) {
   const langExt = opts?.langExt ?? javascript();
-  const langPack = opts?.useOutputLang ? outputLang.of(langExt) : langExt;
+  const langPack = opts?.useOutputLang
+    ? outputLang.of(langExt)
+    : opts?.useSourceLang
+      ? sourceLang.of(langExt)
+      : langExt;
   const extensions = [
     lineNumbers(),
     highlightActiveLine(),
@@ -245,6 +258,7 @@ function makeEditor(
 
 const sourceEditor = makeEditor(document.querySelector("#source-editor")!, false, {
   onDocChange: scheduleCompile,
+  useSourceLang: true,
 });
 const outputEditor = makeEditor(document.querySelector("#output-editor")!, true, {
   useOutputLang: true,
@@ -296,12 +310,15 @@ function updateUrl(exampleId: string) {
 async function pickExample(id: string): Promise<void> {
   const ex = examples.find((e) => e.id === id);
   if (!ex) return;
-  exampleDesc.textContent = ex.description;
+  exampleDesc.textContent = ex.description ?? "";
   syncTargetsForExample(ex);
   const res = await fetch(`${import.meta.env.BASE_URL}examples/${ex.file}`);
   const text = await res.text();
+  sourceIsRust = ex.file.endsWith(".rs");
+  sourceTitle.textContent = sourceIsRust ? "Source (.rs, strict Rust)" : "Source (.rgr)";
   sourceEditor.dispatch({
     changes: { from: 0, to: sourceEditor.state.doc.length, insert: text },
+    effects: sourceLang.reconfigure(sourceIsRust ? StreamLanguage.define(rust) : javascript()),
   });
   updateUrl(id);
   scheduleCompile();
@@ -316,6 +333,7 @@ async function doCompile(): Promise<CompileResponse | null> {
     const language = langSelect.value as TargetLanguage;
     const result = await compileRanger({
       source: sourceEditor.state.doc.toString(),
+      filename: sourceIsRust ? "playground.rs" : "playground.rgr",
       language,
       typescript: tsFlag.checked && language === "es6",
     });

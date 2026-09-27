@@ -1,0 +1,10 @@
+13 chars, 18 bytes
+Héllo Wörld 👋
+'wörld' starts at byte 7: [wörld 👋]
+👋 dlröw olléh
+"Anna" palindrome: true
+"A man, a plan, a canal: Panama" palindrome: true
+"Rust" palindrome: false
+dwwdfn dw gdzq
+1. Ada   |  36|  London  |
+2. Linus |  28| Helsinki |

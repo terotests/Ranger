@@ -8750,7 +8750,7 @@ int? rangerStr2IntPrefix(String s) {
                     "_getDoubleOrNull(" (e 1) " )"
 (create_polyfill 
 "
-Double _getDoubleOrNull ( String str ) {
+static Double _getDoubleOrNull ( String str ) {
     try {
        return (Double.parseDouble(str));
     } catch ( NullPointerException e ) {

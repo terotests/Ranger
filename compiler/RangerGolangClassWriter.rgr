@@ -109,6 +109,12 @@ class RangerGolangClassWriter {
 
   ; Declared class of a value node (new → constructed class, name → its type).
   fn goDeclaredClassOf:string (nVal:CodeNode) {
+    ; `(to _:E (new E_N …))`: a case passed where its family is expected is
+    ; an upcast whose operand is the case; Go writes the operand bare, so the
+    ; case is what needs the wrapper
+    if ((nVal.isFirstVref("to")) && ((array_length nVal.children) == 3)) {
+      return (this.goDeclaredClassOf((itemAt nVal.children 2)))
+    }
     if nVal.hasNewOper {
       def newClOpt@(optional):RangerAppClassDesc nVal.clDesc
       if (!null? newClOpt) {
@@ -1629,7 +1635,30 @@ class RangerGolangClassWriter {
           wr.out(", " false)
         }
         cnt = cnt + 1
-        this.WalkNode(n ctx wr)
+        ; a parameter typed with a union / shape family takes the member
+        ; wrapped, as a call argument does (a case holding its own family)
+        def wroteUnion:boolean false
+        ; the constructor's positional parameters (its keyword forms are
+        ; left out of the call, as they are of `pms`)
+        def ctorFn:RangerAppFunctionDesc constr
+        def positional:[RangerAppParamDesc]
+        for ctorFn.params cp:RangerAppParamDesc cpi {
+          def cpKeyword:boolean false
+          if (!null? cp.nameNode) {
+            def cpn:CodeNode (unwrap cp.nameNode)
+            cpKeyword = (cpn.hasFlag("keyword"))
+          }
+          if (false == cpKeyword) {
+            push positional cp
+          }
+        }
+        if (i < (array_length positional)) {
+          def ctorParam:RangerAppParamDesc (itemAt positional i)
+          wroteUnion = (this.goWriteUnionArg(ctorParam n ctx wr))
+        }
+        if (false == wroteUnion) {
+          this.WalkNode(n ctx wr)
+        }
       }
       wr.out(")" false)
     }
@@ -1681,11 +1710,10 @@ class RangerGolangClassWriter {
       if (i > 0) {
         wr.out(", " false)
       }
-      if(arg.value_type != RangerNodeType.NoType) {
+      ; a parameter typed with a union / shape family takes a member wrapped
+      if (false == (this.goWriteUnionValue(arg.type_name n subCtx wr))) {
         this.WalkNode(n subCtx wr)
-      } {
-        this.WalkNode(n subCtx wr)
-      }   
+      }
     }
     ctx.unsetInExpr()
     wr.out(")" false)

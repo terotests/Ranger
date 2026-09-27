@@ -68,7 +68,11 @@ const COMMENT_PREFIX: Record<TargetLanguage, string> = {
   scala: "//",
 };
 
-const SOURCE_NAME = "playground.rgr";
+/** The in-memory file the source is compiled from; its extension picks the
+ * parser (`.rs` is a strict Rust module). */
+function sourceName(filename?: string): string {
+  return filename?.endsWith(".rs") ? "playground.rs" : "playground.rgr";
+}
 
 function formatErrors(ctx: RangerAppWriterContext): string {
   const lines: string[] = [];
@@ -83,12 +87,12 @@ function formatErrors(ctx: RangerAppWriterContext): string {
   return lines.join("\n").trimEnd();
 }
 
-function withSource(base: CompileEnvDict, source: string): CompileEnvDict {
+function withSource(base: CompileEnvDict, source: string, name: string): CompileEnvDict {
   const env = structuredClone(base);
   const files = env.filesystem.files;
-  const existing = files.findIndex((f) => f.name === SOURCE_NAME);
+  const existing = files.findIndex((f) => f.name === name);
   const entry = {
-    name: SOURCE_NAME,
+    name,
     data: source,
     is_folder: false,
     base64bin: false,
@@ -134,10 +138,11 @@ export async function compileRanger(req: CompileRequest): Promise<CompileRespons
   const t0 = performance.now();
   await loadRangerCompiler();
   const baseEnv = await loadCompileEnv();
-  const env = await InputEnv.fromDictionary(withSource(baseEnv, req.source));
+  const name = sourceName(req.filename);
+  const env = await InputEnv.fromDictionary(withSource(baseEnv, req.source, name));
 
   const params = new CmdParams();
-  params.values = [SOURCE_NAME];
+  params.values = [name];
   // TypeScript is the JavaScript writer with its `typescript` flag on.
   const typescript = req.typescript || req.language === "typescript";
   const writerLanguage = req.language === "typescript" ? "es6" : req.language;

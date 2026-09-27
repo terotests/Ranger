@@ -691,6 +691,41 @@ func rs_signum(x float64) float64 {
     }
   }
 
+  ; ------------------------------------------------------------ map keys
+
+  ; The keys of an int-keyed map (Ranger's `keys` takes string keys). On
+  ; JavaScript the map is an object, whose keys come back as strings.
+  rs_int_keys _:[int] (m:[int:T]) {
+    templates {
+      ranger ( "(rs_int_keys " (e 1) ")" )
+      es6 ( "Object.keys(" (e 1) ").map(Number)" )
+      python ( "list(" (e 1) ".keys())" )
+      go ( "rs_int_keys(" (e 1) ")"
+(create_polyfill "
+func rs_int_keys[V any](m map[int64]V) []int64 {
+	res := make([]int64, 0, len(m))
+	for k := range m {
+		res = append(res, k)
+	}
+	return res
+}
+"))
+      cpp ( "rs_int_keys(" (e 1) ")" (imp "<vector>")
+(create_polyfill "
+template< typename M >
+std::vector<int> rs_int_keys( const M & m ) {
+    std::vector<int> res;
+    for (auto it = m.begin(); it != m.end(); ++it) {
+        res.push_back(it->first);
+    }
+    return res;
+}
+"))
+      rust ( (e 1) ".keys().cloned().collect::<Vec<i64>>()" )
+      * ( "new ArrayList<>(" (e 1) ".keySet())" )
+    }
+  }
+
   ; ---------------------------------------------------------------- stderr
 
   ; `eprintln!`: a line on standard error.
@@ -776,6 +811,142 @@ class RsFmt {
 }
 
 class RsStr {
+  ; `s.parse::<i64>()`: an optional sign and decimal digits, nothing else
+  ; (no spaces, no trailing text), within i64.
+  sfn parseI64@(optional):int (s:string) {
+    def none@(optional):int
+    def cs:[int] (to_chars s)
+    def n:int (array_length cs)
+    if (n == 0) {
+      return none
+    }
+    def i:int 0
+    def first:int (itemAt cs 0)
+    if ((first == 43) || (first == 45)) {
+      i = 1
+    }
+    if (i >= n) {
+      return none
+    }
+    if ((n - i) > 19) {
+      return none
+    }
+    while (i < n) {
+      def c:int (itemAt cs i)
+      if ((c < 48) || (c > 57)) {
+        return none
+      }
+      i = i + 1
+    }
+    def r@(optional):int (to_int s)
+    return r
+  }
+
+  ; Rust's ParseIntError text for `s`.
+  sfn parseIntErr:string (s:string) {
+    if ((strlen s) == 0) {
+      return "cannot parse integer from empty string"
+    }
+    if ((s == "-") || (s == "+")) {
+      return "invalid digit found in string"
+    }
+    def cs:[int] (to_chars s)
+    def i:int 0
+    def n:int (array_length cs)
+    def first:int (itemAt cs 0)
+    if ((first == 43) || (first == 45)) {
+      i = 1
+    }
+    while (i < n) {
+      def c:int (itemAt cs i)
+      if ((c < 48) || (c > 57)) {
+        return "invalid digit found in string"
+      }
+      i = i + 1
+    }
+    if (first == 45) {
+      return "number too small to fit in target type"
+    }
+    return "number too large to fit in target type"
+  }
+
+  ; `s.parse::<f64>()`: sign, digits with at most one dot, an optional
+  ; exponent; "inf", "infinity" and "NaN" as Rust spells them.
+  sfn parseF64@(optional):double (s:string) {
+    def none@(optional):double
+    def low:string (to_lowercase s)
+    def body:string low
+    if (((strlen low) > 0) && (((substring low 0 1) == "+") || ((substring low 0 1) == "-"))) {
+      body = (substring low 1 (strlen low))
+    }
+    if ((body == "inf") || (body == "infinity") || (body == "nan")) {
+      def sp@(optional):double (to_double s)
+      if (null? sp) {
+        def neg:boolean ((substring low 0 1) == "-")
+        if (body == "nan") {
+          return none
+        }
+        def big:double 1.0
+        def k:int 0
+        while (k < 400) {
+          big = (big * 10.0)
+          k = k + 1
+        }
+        if neg {
+          big = (0.0 - big)
+        }
+        def bo@(optional):double big
+        return bo
+      }
+      return sp
+    }
+    def cs:[int] (to_chars body)
+    def n:int (array_length cs)
+    def digits:int 0
+    def dots:int 0
+    def i:int 0
+    while ((i < n) && ((itemAt cs i) != 101)) {
+      def c:int (itemAt cs i)
+      if (c == 46) {
+        dots = dots + 1
+      } {
+        if ((c < 48) || (c > 57)) {
+          return none
+        }
+        digits = digits + 1
+      }
+      i = i + 1
+    }
+    if ((digits == 0) || (dots > 1)) {
+      return none
+    }
+    if (i < n) {
+      i = i + 1
+      if ((i < n) && (((itemAt cs i) == 43) || ((itemAt cs i) == 45))) {
+        i = i + 1
+      }
+      if (i >= n) {
+        return none
+      }
+      while (i < n) {
+        def e:int (itemAt cs i)
+        if ((e < 48) || (e > 57)) {
+          return none
+        }
+        i = i + 1
+      }
+    }
+    def r@(optional):double (to_double s)
+    return r
+  }
+
+  sfn parseFloatErr:string (s:string) {
+    if ((strlen s) == 0) {
+      return "cannot parse float from empty string"
+    }
+    return "invalid float literal"
+  }
+
   ; `s.repeat(n)`
   sfn repeat:string (s:string n:int) {
     def r:string ""

@@ -16799,7 +16799,11 @@ class RangerFlowParser  {
     }
     operatorsOf.forEach_7(lambdaArgs.children, ((item, index) => { 
       const item2 = callParams.children[index];
-      if ( item2.eval_type_name != item.type_name ) {
+      let acceptedLikeMethodArg = false;
+      if ( item.type_name != "" && item2.eval_type_name != item.type_name ) {
+        acceptedLikeMethodArg = this.areEqualTypes(item, item2, ctx, wr);
+      }
+      if ( item2.eval_type_name != item.type_name && false == acceptedLikeMethodArg ) {
         if ( item.type_name != "Any" ) {
           ctx.addError(item2, "Argument of wrong type given for the lambda parameter " + index);
           all_matched = false;
@@ -33495,6 +33499,12 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
     }
     if ( this.cppUnionValueCase(cl, ctx) ) {
+      if ( cl.has_constructor && ((typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null ) ) ) {
+        const vcCtor = cl.constructor_fn;
+        if ( vcCtor.params.length > 0 ) {
+          wr.out(cl.name + "() = default;", true);
+        }
+      }
       wr.out("/* a value case of a closed family compares by content */ ", true);
       wr.out(("bool operator==(const " + cl.name) + "& o) const {", true);
       wr.indent(1);
@@ -50337,6 +50347,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     }
   };
   goDeclaredClassOf (nVal) {
+    if ( nVal.isFirstVref("to") && nVal.children.length == 3 ) {
+      return this.goDeclaredClassOf(nVal.children[2]);
+    }
     if ( nVal.hasNewOper ) {
       const newClOpt = nVal.clDesc;
       if ( (typeof(newClOpt) !== "undefined" && newClOpt != null )  ) {
@@ -51622,12 +51635,33 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       }));
       let cnt = 0;
       // Loop start
-      for ( const n of pms) {
+      for ( let i = 0; i < pms.length; i++) {
+        var n = pms[i];
         if ( cnt > 0 ) {
           wr.out(", ", false);
         }
         cnt = cnt + 1;
-        this.WalkNode(n, ctx, wr);
+        let wroteUnion = false;
+        const ctorFn = constr;
+        let positional = [];
+        // Loop start
+        for ( const cp of ctorFn.params) {
+          let cpKeyword = false;
+          if ( (typeof(cp.nameNode) !== "undefined" && cp.nameNode != null )  ) {
+            const cpn = cp.nameNode;
+            cpKeyword = cpn.hasFlag("keyword");
+          }
+          if ( false == cpKeyword ) {
+            positional.push(cp);
+          }
+        }
+        if ( i < positional.length ) {
+          const ctorParam = positional[i];
+          wroteUnion = this.goWriteUnionArg(ctorParam, n, ctx, wr);
+        }
+        if ( false == wroteUnion ) {
+          this.WalkNode(n, ctx, wr);
+        }
       }
       wr.out(")", false);
     }
@@ -51678,9 +51712,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       if ( i > 0 ) {
         wr.out(", ", false);
       }
-      if ( arg.value_type != 0 ) {
-        this.WalkNode(n, subCtx, wr);
-      } else {
+      if ( false == this.goWriteUnionValue(arg.type_name, n, subCtx, wr) ) {
         this.WalkNode(n, subCtx, wr);
       }
     }
@@ -85408,6 +85440,9 @@ class RsLocal  {
     this.isAlias = false;
     this.iterVec = "";
     this.iterIdx = "";
+    this.slotMap = "";
+    this.slotKey = "";
+    this.slotTy = new RsType("unknown");
   }
 }
 class RsScope  {
@@ -85764,13 +85799,19 @@ class RustLower  {
     this.tempTypes = {};
     this.flagTargets = {};
     this.pendingFlags = [];
+    this.forPat = undefined;
+    this.forBody = undefined;
     this.armBefore = [];
     this.armAcc = [];
     this.armAny = false;
+    this.variantAliases = {};
+    this.optInCollectionReported = false;
     this.lastVecName = "";
     this.lastReturn = new RsType("unknown");
     this.lastEntry = new RsExpr();
     this.displayFormatter = "";
+    this.lastCaptured = [];
+    this.lastCapturedInd = "";
     this.loopStart = 0;
     this.loopInd = "";
     this.noMoveCheck = false;
@@ -85963,6 +86004,15 @@ class RustLower  {
     // Loop start
     for ( const it2 of root.kids) {
       this.collectItem(it2);
+    }
+    // Loop start
+    for ( const ut of root.kids) {
+      if ( ut.kind == "use" ) {
+        // Loop start
+        for ( const uk of ut.kids) {
+          this.collectUse(uk);
+        }
+      }
     }
     // Loop start
     for ( const sn of this.structOrder) {
@@ -86548,6 +86598,9 @@ class RustLower  {
     if ( name == "Formatter" || name == "Arguments" ) {
       return RsType.named("Formatter");
     }
+    if ( name == "ParseIntError" || name == "ParseFloatError" ) {
+      return this.ownedString();
+    }
     if ( name == "Ordering" ) {
       const ordT = RsType.mk("int");
       ordT.name = "Ordering";
@@ -86585,6 +86638,14 @@ class RustLower  {
       return "void";
     }
     if ( k == "vec" ) {
+      const __REGx1 = t.arg(0);
+      if ( __REGx1.kind == "opt" ) {
+        if ( false == this.optInCollectionReported ) {
+          this.optInCollectionReported = true;
+          this.errors.push(this.fileName + ": a Vec of Option is not in the Ranger subset: keep the present values (`filter_map`, `flatten`) or use a sentinel");
+        }
+        return "";
+      }
       const e = this.rtype(t.arg(0));
       if ( e == "" ) {
         return "";
@@ -86855,7 +86916,11 @@ class RustLower  {
       lines.push("      i = i + 1");
       lines.push("    }");
     } else {
-      lines.push(("    def ks:[" + this.rtype(t.arg(0))) + "] (keys src)");
+      lines.push((("    def ks:[" + this.rtype(t.arg(0))) + "] ") + this.mapKeysCode("src", RsType.of2(
+        "map",
+        t.arg(0),
+        t.arg(0)
+      )));
       lines.push("    def n:int (array_length ks)");
       lines.push("    def i:int 0");
       lines.push("    while (i < n) {");
@@ -87572,11 +87637,44 @@ class RustLower  {
       }
       lines.push(((("  fn rs_eq:boolean (o:" + cname) + ") {\n    return ") + this.andAll(conds)) + "\n  }");
     }
+    if ( ((s.derivesTrait("PartialOrd") || s.derivesTrait("Ord")) && (typeof(s.method("cmp")) === "undefined")) && (typeof(s.method("partial_cmp")) === "undefined") ) {
+      lines.push(("  fn rs_cmp:int (o:" + cname) + ") {");
+      lines.push("    def c:int 0");
+      // Loop start
+      for ( const f7 of s.fields) {
+        const fnm3 = this.fieldName(f7.name);
+        lines.push("    c = " + this.cmpCode(
+          ("this." + fnm3),
+          ("o." + fnm3),
+          this.subst(f7.ty, this.genericEnv)
+        ));
+        lines.push("    if (c != 0) {\n      return c\n    }");
+      }
+      lines.push("    return 0");
+      lines.push("  }");
+    }
     if ( s.derivesTrait("Debug") && false == this.hasFmt(RsType.named(s.name), "Debug") ) {
       lines.push(this.emitDebugStruct(s, cname));
     }
     lines.push("}");
     return lines.join("\n");
+  };
+  structCmp (a, b, t) {
+    const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+    const cm = s.method("cmp");
+    if ( (typeof(cm) !== "undefined" && cm != null )  ) {
+      const cmf = cm;
+      return ((((("(" + a) + ".") + cmf.rname) + "(") + b) + "))";
+    }
+    const pc = s.method("partial_cmp");
+    if ( (typeof(pc) !== "undefined" && pc != null )  ) {
+      const pcf = pc;
+      return ((((("(unwrap (" + a) + ".") + pcf.rname) + "(") + b) + ")))";
+    }
+    if ( s.derivesTrait("PartialOrd") || s.derivesTrait("Ord") ) {
+      return ((("(" + a) + ".rs_cmp(") + b) + "))";
+    }
+    return "";
   };
   emitStructZero (s, cname) {
     let lines = [];
@@ -88118,6 +88216,18 @@ class RustLower  {
         this.out.line("def " + this.fieldDecl(l2.rname, t));
       } else {
         this.out.line((("def " + this.declText(l2.rname, t)) + " ") + c.code);
+      }
+      let initM = init;
+      while (initM.kind == "unary" || initM.kind == "paren") {
+        initM = initM.kid(0);
+      };
+      if ( (initM.kind == "method" && ((initM.name == "or_insert" || initM.name == "or_insert_with") || initM.name == "or_default")) && ((t.kind == "vec" || t.kind == "map") || t.kind == "set") ) {
+        const bar = this.lastEntry.code.indexOf("|");
+        if ( bar > 0 ) {
+          l2.slotMap = this.lastEntry.code.substring(0, bar );
+          l2.slotKey = this.lastEntry.code.substring(bar + 1, this.lastEntry.code.length );
+          l2.slotTy = this.lastEntry.ty;
+        }
       }
       return;
     }
@@ -88749,10 +88859,51 @@ class RustLower  {
     this.loopFlags[n - 1] = flag;
     this.loopFlagKind[n - 1] = kind;
   };
+  forNeedsChain (iter) {
+    let cur = iter;
+    while (cur.kind == "method" || cur.kind == "paren") {
+      if ( cur.kind == "paren" ) {
+        cur = cur.kid(0);
+        continue;
+      }
+      if ( ((this.isIterAdapter(cur.name) && cur.name != "enumerate") && cur.name != "rev") && cur.name != "step_by" ) {
+        return true;
+      }
+      if ( cur.name == "enumerate" || cur.name == "rev" ) {
+        const inner = cur.kid(0);
+        if ( inner.kind == "method" && (((inner.name == "lines" || inner.name == "split") || inner.name == "split_whitespace") || inner.name == "char_indices") ) {
+          return true;
+        }
+      }
+      cur = cur.kid(0);
+    };
+    return false;
+  };
   lowerFor (e) {
     const pat = e.kid(0);
     const iter = e.kid(1);
     const body = e.kid(2);
+    if ( this.forNeedsChain(iter) ) {
+      if ( e.name != "" ) {
+        this.unsupported(e, "a label on a `for` over an iterator chain");
+        return;
+      }
+      const consumer = new RustNode("method");
+      consumer.name = "__for";
+      consumer.line = e.line;
+      consumer.col = e.col;
+      consumer.add(iter);
+      consumer.add(new RustNode("none"));
+      const savePat = this.forPat;
+      const saveBody = this.forBody;
+      this.forPat = pat;
+      this.forBody = body;
+      const r = this.lowerIterChain(consumer, RsType.mk("unit"));
+      this.discard(r);
+      this.forPat = savePat;
+      this.forBody = saveBody;
+      return;
+    }
     this.pushScope();
     let rev = false;
     let step = "1";
@@ -89872,7 +90023,76 @@ class RustLower  {
     for ( const s of p.kids) {
       list.push(s.name);
     }
+    if ( list.length == 1 ) {
+      const only = list[0];
+      if ( ( typeof(this.variantAliases[only] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.variantAliases, only) ) && (typeof(this.scope.lookup(only)) === "undefined") ) {
+        let full = [];
+        full.push(( Object.prototype.hasOwnProperty.call(this.variantAliases, only) ? this.variantAliases[only] : undefined ));
+        full.push(only);
+        return full;
+      }
+    }
     return list;
+  };
+  useEnum (path) {
+    const segs = path.split("::");
+    let keep = [];
+    // Loop start
+    for ( const sg of segs) {
+      if ( ((sg != "" && sg != "self") && sg != "crate") && sg != "super" ) {
+        keep.push(sg);
+      }
+    }
+    if ( keep.length != 1 ) {
+      return "";
+    }
+    const e = keep[0];
+    if ( ( typeof(this.enums[e] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, e) ) ) {
+      return e;
+    }
+    return "";
+  };
+  collectUse (u) {
+    if ( u.kind == "use_glob" ) {
+      const eg = this.useEnum(u.name);
+      if ( eg != "" ) {
+        const en = ( Object.prototype.hasOwnProperty.call(this.enums, eg) ? this.enums[eg] : undefined );
+        // Loop start
+        for ( const v of en.variants) {
+          this.variantAliases[v.name] = eg;
+        }
+      }
+      return;
+    }
+    if ( u.kind == "use_group" ) {
+      const eg2 = this.useEnum(u.name);
+      // Loop start
+      for ( const c of u.kids) {
+        if ( eg2 != "" && c.kind == "use_name" ) {
+          if ( c.value != "" && c.value != c.name ) {
+            this.err(c, "a renamed enum variant import is not in the subset");
+          }
+          this.variantAliases[c.name] = eg2;
+        }
+        if ( eg2 != "" && c.kind == "use_glob" ) {
+          const en2 = ( Object.prototype.hasOwnProperty.call(this.enums, eg2) ? this.enums[eg2] : undefined );
+          // Loop start
+          for ( const v2 of en2.variants) {
+            this.variantAliases[v2.name] = eg2;
+          }
+        }
+      }
+      return;
+    }
+    if ( u.kind == "use_name" ) {
+      const cut = u.name.lastIndexOf("::");
+      if ( cut > 0 ) {
+        const eg3 = this.useEnum(u.name.substring(0, cut ));
+        if ( eg3 != "" ) {
+          this.variantAliases[u.name.substring(cut + 2, u.name.length )] = eg3;
+        }
+      }
+    }
   };
   lowerPathExpr (n, expect) {
     const p = n.kid(0);
@@ -90181,11 +90401,13 @@ class RustLower  {
         }
         return ("(! " + eq) + ")";
       }
-      const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
-      const pc = s.method("partial_cmp");
-      const cm = s.method("cmp");
-      this.err(at, ("ordering `" + t.name) + "` values is stage R2");
-      return "false";
+      const lrecv = this.bindTemp(l, t, "l");
+      const sc = this.structCmp(lrecv, r.code, t);
+      if ( sc == "" ) {
+        this.err(at, ("`" + t.name) + "` is not ordered: derive PartialOrd or implement it");
+        return "false";
+      }
+      return ((("(" + sc) + " ") + op) + " 0)";
     }
     if ( t.kind == "opt" ) {
       if ( op == "==" || op == "!=" ) {
@@ -90915,6 +91137,23 @@ class RustLower  {
     if ( recvN.kind == "index" ) {
       this.assignTo(recvN, this.simpleExpr(this.lastVecName, rv.ty));
     }
+    if ( recvN.kind == "path_expr" ) {
+      const rp = recvN.kid(0);
+      if ( rp.kids.length == 1 ) {
+        const sl = this.scope.lookup(this.lastSeg(rp));
+        if ( (typeof(sl) !== "undefined" && sl != null )  ) {
+          const slot = sl;
+          if ( slot.slotMap != "" ) {
+            this.out.line(this.mapSetLine(
+              slot.slotMap,
+              slot.slotTy,
+              slot.slotKey,
+              slot.rname
+            ));
+          }
+        }
+      }
+    }
   };
   vecMethodInner (rv, name, args, at, expect) {
     const t = rv.ty;
@@ -91116,6 +91355,43 @@ class RustLower  {
     if ( name == "is_empty" ) {
       return RsExpr.of((("((strlen " + c) + ") == 0)"), bt);
     }
+    if ( name == "parse" ) {
+      let target = RsType.mk("unknown");
+      const targs = at.kid(1);
+      if ( targs.kids.length > 0 ) {
+        target = this.typeOf(targs.kid(0));
+      } else {
+        if ( expect.kind == "result" && false == expect.arg(0).isUnknown() ) {
+          target = expect.arg(0);
+        }
+      }
+      if ( target.kind != "int" && target.kind != "double" ) {
+        this.err(at, "`parse` needs a known number type: `parse::<i64>()` or an annotated Result");
+        return this.unit();
+      }
+      const ps = this.bindTemp(rv, st, "s");
+      const prt = RsType.of2("result", target, this.ownedString());
+      const pcls = this.resultClass(prt);
+      const pres = this.tmp("res");
+      const pv = this.tmp("p");
+      let fnP = "parseI64";
+      let fnE = "parseIntErr";
+      let ptn = "int";
+      if ( target.kind == "double" ) {
+        fnP = "parseF64";
+        fnE = "parseFloatErr";
+        ptn = "double";
+      }
+      this.out.line(((("def " + pres) + ":") + pcls) + ((" (new " + pcls) + ")"));
+      this.out.line((((((("def " + pv) + "@(optional):") + ptn) + " (RsStr.") + fnP) + "(") + (ps + "))"));
+      this.out.line(("if (!null? " + pv) + ") {");
+      this.out.line(("  " + pres) + ".ok = true");
+      this.out.line(((("  " + pres) + ".v = (unwrap ") + pv) + ")");
+      this.out.line("} {");
+      this.out.line(((((("  " + pres) + ".e = (RsStr.") + fnE) + "(") + ps) + "))");
+      this.out.line("}");
+      return this.simpleExpr(pres, prt);
+    }
     if ( name == "cmp" || name == "partial_cmp" ) {
       const o = this.arg0(args, st);
       const a0 = this.bindTemp(rv, st, "a");
@@ -91233,6 +91509,12 @@ class RustLower  {
     if ( name == "to_uppercase" ) {
       return RsExpr.of((("(rs_upper " + c) + ")"), rv.ty);
     }
+    if ( name == "collect" || name == "to_string" ) {
+      return RsExpr.of(c, this.ownedString());
+    }
+    if ( name == "len_utf8" ) {
+      return RsExpr.of((("(rs_byte_len " + c) + ")"), RsType.mk("int"));
+    }
     if ( name == "to_lowercase" ) {
       return RsExpr.of((("(rs_lower " + c) + ")"), rv.ty);
     }
@@ -91297,6 +91579,33 @@ class RustLower  {
     if ( ((((name == "round" || name == "trunc") || name == "ln") || name == "exp") || name == "log10") || name == "signum" ) {
       return RsExpr.of((((("(rs_" + name) + " ") + c) + ")"), t);
     }
+    if ( name == "then" || name == "then_with" ) {
+      const first = this.bindTemp(rv, t, "ord");
+      let nextV = RsExpr.of("", t);
+      let nl = [];
+      let ni = "";
+      if ( name == "then" ) {
+        nextV = this.captureExpr(args[0], t);
+      } else {
+        nextV = this.captureClosure(args[0], [], t);
+      }
+      nl = this.lastCaptured;
+      ni = this.lastCapturedInd;
+      const ov = this.tmp("ord");
+      this.out.line((("def " + ov) + ":int ") + first);
+      this.out.line(("if (" + ov) + " == 0) {");
+      this.out.indent();
+      this.out.addIndented(nl, ni);
+      this.out.line((ov + " = ") + nextV.code);
+      this.out.dedent();
+      this.out.line("}");
+      const ordT = RsType.mk("int");
+      ordT.name = "Ordering";
+      return this.simpleExpr(ov, ordT);
+    }
+    if ( name == "reverse" ) {
+      return RsExpr.of((("(0 - " + c) + ")"), t);
+    }
     this.unsupported(at, ("the number method `" + name) + "`");
     return this.unit();
   };
@@ -91319,6 +91628,104 @@ class RustLower  {
     }
     if ( name == "is_none" ) {
       return RsExpr.of((("(null? " + o) + ")"), RsType.mk("bool"));
+    }
+    if ( name == "ok_or" || name == "ok_or_else" ) {
+      let errV = RsExpr.of("", RsType.mk("unknown"));
+      let errLines = [];
+      if ( name == "ok_or" ) {
+        errV = this.captureExpr(args[0], this.resultErrOf(expect));
+      } else {
+        errV = this.captureClosure(args[0], [], this.resultErrOf(expect));
+      }
+      errLines = this.lastCaptured;
+      let et = errV.ty;
+      if ( et.kind == "string" ) {
+        et = this.ownedString();
+      }
+      const rt = RsType.of2("result", inner, et);
+      const cls = this.resultClass(rt);
+      const res = this.tmp("res");
+      this.out.line(((("def " + res) + ":") + cls) + ((" (new " + cls) + ")"));
+      this.out.line(("if (!null? " + o) + ") {");
+      this.out.line(("  " + res) + ".ok = true");
+      this.out.line((("  " + res) + ".v = ") + this.unionSafe((("(unwrap " + o) + ")"), inner));
+      this.out.line("} {");
+      this.out.indent();
+      this.out.addIndented(errLines, this.lastCapturedInd);
+      this.out.line((res + ".e = ") + this.unionSafe(errV.code, et));
+      this.out.dedent();
+      this.out.line("}");
+      return this.simpleExpr(res, rt);
+    }
+    if ( (name == "map" || name == "and_then") || name == "filter" ) {
+      const some = this.simpleExpr((("(unwrap " + o) + ")"), inner);
+      const fv = this.captureClosure(args[0], [some], RsType.mk("unknown"));
+      const fLines = this.lastCaptured;
+      const fInd = this.lastCapturedInd;
+      let outT = RsType.of1("opt", fv.ty);
+      if ( name == "and_then" ) {
+        outT = fv.ty;
+      }
+      if ( name == "filter" ) {
+        outT = t;
+      }
+      const mo = this.tmp("o");
+      this.out.line("def " + this.declText(mo, outT));
+      this.out.line(("if (!null? " + o) + ") {");
+      this.out.indent();
+      this.out.addIndented(fLines, fInd);
+      if ( name == "filter" ) {
+        this.out.line(("if " + this.condText(fv.code)) + " {");
+        this.out.line((("  " + mo) + " = ") + o);
+        this.out.line("}");
+      } else {
+        this.out.line((mo + " = ") + this.unionSafe(fv.code, outT.arg(0)));
+      }
+      this.out.dedent();
+      this.out.line("}");
+      return this.simpleExpr(mo, outT);
+    }
+    if ( (name == "unwrap_or_else" || name == "map_or") || name == "map_or_else" ) {
+      let someV = this.simpleExpr((("(unwrap " + o) + ")"), inner);
+      let dflt = RsExpr.of("", RsType.mk("unknown"));
+      let dLines = [];
+      let dInd = "";
+      if ( name == "unwrap_or_else" ) {
+        dflt = this.captureClosure(args[0], [], inner);
+        dLines = this.lastCaptured;
+        dInd = this.lastCapturedInd;
+      } else {
+        if ( name == "map_or" ) {
+          dflt = this.captureExpr(args[0], expect);
+        } else {
+          dflt = this.captureClosure(args[0], [], expect);
+        }
+        dLines = this.lastCaptured;
+        dInd = this.lastCapturedInd;
+        someV = this.captureClosure(args[1], [someV], dflt.ty);
+      }
+      let sLines = [];
+      if ( name != "unwrap_or_else" ) {
+        sLines = this.lastCaptured;
+      }
+      let vt2 = dflt.ty;
+      if ( name == "unwrap_or_else" ) {
+        vt2 = inner;
+      }
+      const mv = this.tmp("v");
+      this.out.line("def " + this.tempDecl(mv, vt2));
+      this.out.line(("if (!null? " + o) + ") {");
+      this.out.indent();
+      this.out.addIndented(sLines, this.lastCapturedInd);
+      this.out.line((mv + " = ") + someV.code);
+      this.out.dedent();
+      this.out.line("} {");
+      this.out.indent();
+      this.out.addIndented(dLines, dInd);
+      this.out.line((mv + " = ") + dflt.code);
+      this.out.dedent();
+      this.out.line("}");
+      return this.simpleExpr(mv, vt2);
     }
     this.unsupported(at, ("the Option method `" + name) + "` (stage R2)");
     return this.unit();
@@ -91371,6 +91778,95 @@ class RustLower  {
       this.out.line((((("  " + o) + " = ") + r) + ".") + field);
       this.out.line("}");
       return this.simpleExpr(o, ot);
+    }
+    if ( name == "map_or" || name == "unwrap_or_else" ) {
+      let okV = this.simpleExpr((r + ".v"), vt);
+      let dfl = RsExpr.of("", RsType.mk("unknown"));
+      let dl = [];
+      let dInd2 = "";
+      let sl = [];
+      let sInd = "";
+      if ( name == "map_or" ) {
+        dfl = this.captureExpr(args[0], expect);
+        dl = this.lastCaptured;
+        dInd2 = this.lastCapturedInd;
+        okV = this.captureClosure(args[1], [okV], dfl.ty);
+        sl = this.lastCaptured;
+        sInd = this.lastCapturedInd;
+      } else {
+        const errArg = this.simpleExpr((r + ".e"), t.arg(1));
+        dfl = this.captureClosure(args[0], [errArg], vt);
+        dl = this.lastCaptured;
+        dInd2 = this.lastCapturedInd;
+      }
+      let rvT = dfl.ty;
+      if ( name == "unwrap_or_else" ) {
+        rvT = vt;
+      }
+      const mv2 = this.tmp("v");
+      this.out.line("def " + this.tempDecl(mv2, rvT));
+      this.out.line(("if " + r) + ".ok {");
+      this.out.indent();
+      this.out.addIndented(sl, sInd);
+      this.out.line((mv2 + " = ") + okV.code);
+      this.out.dedent();
+      this.out.line("} {");
+      this.out.indent();
+      this.out.addIndented(dl, dInd2);
+      this.out.line((mv2 + " = ") + dfl.code);
+      this.out.dedent();
+      this.out.line("}");
+      return this.simpleExpr(mv2, rvT);
+    }
+    if ( name == "map_err" || name == "map" ) {
+      let arg = this.simpleExpr((r + ".e"), t.arg(1));
+      if ( name == "map" ) {
+        arg = this.simpleExpr((r + ".v"), vt);
+      }
+      let want = RsType.mk("unknown");
+      if ( name == "map_err" && expect.kind == "result" ) {
+        want = expect.arg(1);
+      }
+      const fv2 = this.captureClosure(args[0], [arg], want);
+      const fl = this.lastCaptured;
+      const fi = this.lastCapturedInd;
+      let nvt = vt;
+      let net = t.arg(1);
+      if ( name == "map_err" ) {
+        net = fv2.ty;
+        if ( net.kind == "string" ) {
+          net = this.ownedString();
+        }
+      } else {
+        nvt = fv2.ty;
+      }
+      const nrt = RsType.of2("result", nvt, net);
+      const ncls = this.resultClass(nrt);
+      const nres = this.tmp("res");
+      this.out.line(((("def " + nres) + ":") + ncls) + ((" (new " + ncls) + ")"));
+      this.out.line(("if " + r) + ".ok {");
+      this.out.indent();
+      this.out.line(nres + ".ok = true");
+      if ( name == "map" ) {
+        this.out.addIndented(fl, fi);
+        this.out.line((nres + ".v = ") + this.unionSafe(fv2.code, nvt));
+      } else {
+        if ( vt.kind != "unit" ) {
+          this.out.line(((nres + ".v = ") + r) + ".v");
+        }
+      }
+      this.out.dedent();
+      this.out.line("} {");
+      this.out.indent();
+      if ( name == "map_err" ) {
+        this.out.addIndented(fl, fi);
+        this.out.line((nres + ".e = ") + this.unionSafe(fv2.code, net));
+      } else {
+        this.out.line(((nres + ".e = ") + r) + ".e");
+      }
+      this.out.dedent();
+      this.out.line("}");
+      return this.simpleExpr(nres, nrt);
     }
     this.unsupported(at, ("the Result method `" + name) + "`");
     return this.unit();
@@ -92008,6 +92504,32 @@ class RustLower  {
     this.popScope();
     return v;
   };
+  captureClosure (f, args, expect) {
+    const saveOut = this.out;
+    this.out = new RustOut();
+    this.out.ind = saveOut.ind;
+    const v = this.applyClosure(f, args, expect);
+    this.lastCaptured = this.out.lines;
+    this.lastCapturedInd = saveOut.ind;
+    this.out = saveOut;
+    return v;
+  };
+  captureExpr (e, expect) {
+    const saveOut = this.out;
+    this.out = new RustOut();
+    this.out.ind = saveOut.ind;
+    const v = this.lowerExprCopy(e, expect);
+    this.lastCaptured = this.out.lines;
+    this.lastCapturedInd = saveOut.ind;
+    this.out = saveOut;
+    return v;
+  };
+  resultErrOf (expect) {
+    if ( expect.kind == "result" ) {
+      return expect.arg(1);
+    }
+    return RsType.mk("unknown");
+  };
   isIterConsumer (n) {
     const names = ["collect", "sum", "product", "count", "max", "min", "max_by_key", "min_by_key", "max_by", "min_by", "any", "all", "position", "find", "fold", "for_each", "last", "next", "nth", "rposition", "find_map"];
     return names.indexOf(n) >= 0;
@@ -92320,7 +92842,7 @@ class RustLower  {
               mode = "pairs";
               elemT = RsType.of2("tuple", bt.arg(0), bt.arg(1));
               const kc = ((("(itemAt " + seq) + " ") + cur2) + ")";
-              elemCode = ((((((("(new " + this.tupleClass(elemT)) + "(") + kc) + " (unwrap (get ") + this.mapR(m, bt)) + " ") + kc) + ")))";
+              elemCode = ((((((("(new " + this.tupleClass(elemT)) + "(") + kc) + " (unwrap (get ") + this.mapR(m, bt)) + " ") + kc) + "))))";
             }
           }
         } else {
@@ -92539,6 +93061,21 @@ class RustLower  {
       this.out.line((res + " = ") + fv.code);
       return this.simpleExpr(res, ft);
     }
+    if ( name == "__for" ) {
+      const fp = this.forPat;
+      const fb = this.forBody;
+      const saveStart = this.loopStart;
+      const saveInd = this.loopInd;
+      this.pushScope();
+      this.bindForPattern(fp, e.code, e.ty);
+      this.pushLoop("", "");
+      this.lowerLoopBody(fb);
+      this.popLoop();
+      this.popScope();
+      this.loopStart = saveStart;
+      this.loopInd = saveInd;
+      return this.unit();
+    }
     if ( name == "for_each" ) {
       const bv = this.applyClosure(args[0], [e], RsType.mk("unit"));
       this.discard(bv);
@@ -92601,6 +93138,10 @@ class RustLower  {
   };
   cmpCode (a, b, t) {
     if ( t.kind == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      const sc = this.structCmp(a, b, t);
+      if ( sc != "" ) {
+        return sc;
+      }
       return ((("(" + a) + ".cmp(") + b) + "))";
     }
     if ( t.kind == "string" || t.kind == "char" ) {
@@ -93511,6 +94052,10 @@ class RustLower  {
     if ( this.isOrderedMap(t) ) {
       return m + ".order";
     }
+    const __REGx1 = t.arg(0);
+    if ( __REGx1.kind == "int" ) {
+      return ("(rs_int_keys " + m) + ")";
+    }
     return ("(keys " + m) + ")";
   };
   initSuffix (t) {
@@ -93995,7 +94540,9 @@ class VirtualCompiler  {
     langFileDirs.push(sourceFileDir);
     const c = operatorsOf_17.readc95file_18(env, theFilePath, the_file);
     let mainSource = c;
+    let rustOriginal = "";
     if ( RustLower.isRustFile(the_file) ) {
+      rustOriginal = mainSource;
       const rl = new RustLower();
       mainSource = rl.translate(mainSource, the_file);
       if ( rl.errors.length > 0 ) {
@@ -94309,6 +94856,14 @@ class VirtualCompiler  {
     cli.printCompilationInfo();
     console.log(cli.divider());
     console.log("");
+    if ( rustOriginal != "" && the_lang == "rust" ) {
+      wr.raw(rustOriginal, false);
+      res.target_dir = the_target_dir;
+      res.fileSystem = fileSystem;
+      res.ctx = appCtx;
+      cli.printSuccess((the_target_dir + "/") + the_target);
+      return res;
+    }
     try {
       flowParser.mergeImports(node, appCtx, wr);
       const lang_str = operatorsOf_17.readc95file_18(
@@ -95102,8 +95657,24 @@ operatorsOfInputEnv_17.filec95exists_18 = function(env, path, name) {
 };
 class operatorsOf_17  {
 }
-operatorsOf_17.findc95file_18 = function(env, path, name) {
+operatorsOf_17.findc95file_18 = function(env, path0, name0) {
   let res_1;
+  let path = path0;
+  let name = name0;
+  const slash = name0.lastIndexOf("/");
+  if ( slash > 0 ) {
+    const dir = name0.substring(0, slash );
+    name = name0.substring(slash + 1, name0.length );
+    if ( path0 == "/" || path0 == "" ) {
+      path = "/" + dir;
+    } else {
+      if ( path0.substring(path0.length - 1, path0.length ) == "/" ) {
+        path = path0 + dir;
+      } else {
+        path = (path0 + "/") + dir;
+      }
+    }
+  }
   if ( path == "/" ) {
     const files = operatorsOf.filter_19(env.filesystem.files, ((item, index) => { 
       return item.name == name;

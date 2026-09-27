@@ -783,7 +783,9 @@ class tester {
     def mainSource:string (unwrap c)
     ; A `.rs` entry file (PLAN_RUST_SYNTAX.md) is lowered to Ranger source
     ; first; from here on it is read like any other file.
+    def rustOriginal:string ""
     if (RustLower.isRustFile(the_file)) {
+      rustOriginal = mainSource
       def rl:RustLower (new RustLower())
       mainSource = (rl.translate(mainSource the_file))
       if ((array_length rl.errors) > 0) {
@@ -1143,6 +1145,18 @@ class tester {
     cli.printCompilationInfo()
     print (cli.divider())
     print ""
+
+    ; A strict `.rs` module is its own Rust output (PLAN_RUST_SYNTAX.md §7):
+    ; it passed the subset and move checks above, and rustc is the authority
+    ; on the rest.
+    if ((rustOriginal != "") && (the_lang == "rust")) {
+      wr.raw(rustOriginal false)
+      res.target_dir = the_target_dir
+      res.fileSystem = fileSystem
+      res.ctx = appCtx
+      cli.printSuccess((the_target_dir + "/") + the_target)
+      return res
+    }
 
     try {
 
