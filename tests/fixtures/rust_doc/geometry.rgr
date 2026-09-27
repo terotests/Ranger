@@ -1,0 +1,107 @@
+; The .rgr twin of geometry.rs (PLAN_RUST_SYNTAX.md stage R5): the same API
+; documented with `doc { … }` tails. `-apidoc` must describe the two alike.
+
+Enum Direction ( North East South West ) doc {
+  public
+  description "The compass direction of a step."
+}
+
+class Point {
+  def x:int 0 doc {
+    public
+    description "Distance from the origin along the horizontal axis."
+  }
+  def y:int 0 doc {
+    public
+    description "Distance from the origin along the vertical axis."
+  }
+
+  sfn new_:Point (x:int y:int) {
+    def p:Point (new Point)
+    p.x = x
+    p.y = y
+    return p
+  } doc {
+    public
+    description "Makes a point."
+    param x "The horizontal coordinate."
+    param y "The vertical coordinate."
+    returns "The point at (x, y)."
+  }
+
+  fn step:Point (d:Direction) {
+    if (d == Direction.North) {
+      return (Point.new_(x (y + 1)))
+    }
+    if (d == Direction.East) {
+      return (Point.new_((x + 1) y))
+    }
+    if (d == Direction.South) {
+      return (Point.new_(x (y - 1)))
+    }
+    return (Point.new_((x - 1) y))
+  } doc {
+    public
+    description "The point one step away in a direction; see [`Direction`]."
+    see "Direction"
+    example stepExample
+  }
+} doc {
+  public
+  description "A point on the integer grid.\n\nPoints are values: they are copied, not shared."
+}
+
+class Geometry {
+  sfn manhattan:int (a:Point b:Point) {
+    def dx:int (a.x - b.x)
+    def dy:int (a.y - b.y)
+    if (dx < 0) {
+      dx = (0 - dx)
+    }
+    if (dy < 0) {
+      dy = (0 - dy)
+    }
+    return (dx + dy)
+  } doc {
+    public
+    description "The number of grid steps between two points."
+    param a "Where to start."
+    param b "Where to end."
+    returns "|dx| + |dy|"
+    since "1.2"
+    example "manhattan(Point::new(0, 0), Point::new(2, 3)) == 5"
+    category "distance"
+  }
+
+  sfn max_coord:int (p:Point) {
+    if (p.x > p.y) {
+      return p.x
+    }
+    return p.y
+  } doc {
+    public
+    description "The largest coordinate of a point."
+    throws "Panics: Never: every point has two coordinates."
+    deprecated {
+      since "1.3"
+      description "Compare x and y directly."
+    }
+  }
+
+  sfn main:void () {
+    def p:Point (Point.new_(1 2))
+    def q:Point (p.step(Direction.North))
+    print ((("(" + q.x) + ", ") + q.y) + ")"
+  }
+} doc {
+  public
+  description "Points and distances on a grid.\n\nThe functions here are the public API of the module."
+}
+
+class GeometryExamples {
+  sfn stepExample:void () {
+    def p:Point (Point.new_(0 0))
+    def q:Point (p.step(Direction.East))
+    print ("" + q.x)
+  }
+}

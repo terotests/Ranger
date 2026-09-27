@@ -1311,7 +1311,7 @@ against golden files alone.
 | Piece | Where |
 | --- | --- |
 | `doc { … }` model, reader, doc-comment renderers | `compiler/RangerDocBlock.rgr` |
-| ApiIR, builder, validation, artifacts, packaging | `compiler/RangerApiDoc.rgr` |
+| ApiIR, builder, validation, artifacts, packaging | `compiler/apidoc/` (`RangerApiDoc.rgr` and the files it imports) |
 | `DetachDocBlocks` pass, at the head of `CollectMethods` | `compiler/RangerFlowParser.rgr` |
 | `has_doc_tail` / `docNode` on a node | `compiler/CodeNodeCompilerExtensions.rgr` |
 | `has_doc` / `docBlock` on a descriptor | `compiler/RangerAppParamDesc.rgr` |
