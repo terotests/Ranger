@@ -318,6 +318,7 @@ extension RangerFlowParser {
         ; `mod x;` reads x.rs or x/mod.rs beside the declaring file (R6)
         def modBase:string importFileDir
         def modName:string (RustLower.baseName(import_file))
+        rl.setTarget((ctx.getCompilerSetting("l")))
         rl.begin(source_code modName)
         rl.setEntryName(import_file)
         while (rl.hasPendingModule()) {

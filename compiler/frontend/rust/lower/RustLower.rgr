@@ -59,6 +59,12 @@ class RustLower {
   def pendingNames:[string]
   def pendingNodes:[RustNode]
   def pendingPos:int 0
+  def usesJson:boolean false
+  def jsonN:int 0
+  def nativeN:int 0
+  ; the target being compiled for (`es6`, `cpp`, …), for `#[ranger::target]`
+  def target:string ""
+  def declLate:boolean false
   ; the file itself for an `import_rgr!`, "" for a `mod x;`
   def pendingFiles:[string]
   ; `.rgr` files included with `ranger::import_rgr!`, for the Import lines
@@ -361,6 +367,7 @@ class RustLower {
   ; A module's items; inline `mod m { … }` blocks are modules too, and a
   ; `mod m;` waits for its file.
   fn registerModule:void (root:RustNode key:string file:string dir:string) {
+    this.filterTargets(root 0)
     push modRoots root
     push modKeys key
     push modFiles file
@@ -396,6 +403,77 @@ class RustLower {
         push pendingFiles ""
       }
     }
+  }
+
+  fn setTarget:void (t:string) {
+    target = t
+  }
+
+  ; `#[ranger::target(es6, python)]` on an item or a method: the item is
+  ; there only when compiling for one of those targets (R7). rustc builds the
+  ; Rust target, and the prelude's `target` macro keeps the item only when
+  ; `rust` is listed.
+  fn targetKeeps:boolean (it:RustNode) {
+    for it.attrs a:RustNode ai {
+      if ((a.name != "ranger::target") && (a.name != "target")) {
+        continue
+      }
+      if (target == "") {
+        return true
+      }
+      def inner:string (trim a.value)
+      if ((strlen inner) >= 2) {
+        inner = (substring inner 1 ((strlen inner) - 1))
+      }
+      def keep:boolean false
+      ; bound first: the Kotlin writer cannot loop over an expression
+      def parts:[string] (strsplit inner ",")
+      for parts part:string pi {
+        def t:string (RustLower.targetAlias((trim part)))
+        if ((t == target) || ((t == "es6") && (target == "typescript"))) {
+          keep = true
+        }
+      }
+      if (keep == false) {
+        return false
+      }
+    }
+    return true
+  }
+
+  sfn targetAlias:string (t:string) {
+    if ((t == "js") || (t == "javascript")) {
+      return "es6"
+    }
+    if (t == "java") {
+      return "java7"
+    }
+    if (t == "swift") {
+      return "swift6"
+    }
+    if (t == "ts") {
+      return "typescript"
+    }
+    return t
+  }
+
+  ; Drops the items (and the methods of impl blocks) not written for the
+  ; target; `first` kids are fixed slots, not items.
+  fn filterTargets:void (root:RustNode first:int) {
+    def kept:[RustNode]
+    def i:int 0
+    for root.kids it:RustNode ki {
+      if ((i >= first) && (false == (this.targetKeeps(it)))) {
+        i = i + 1
+        continue
+      }
+      if ((i >= first) && (it.kind == "impl")) {
+        this.filterTargets(it 4)
+      }
+      push kept it
+      i = i + 1
+    }
+    root.kids = kept
   }
 
   fn isImportRgr:boolean (name:string) {
@@ -819,6 +897,9 @@ class RustLower {
     }
     if (k == "struct") {
       def s:RsStruct (unwrap (get structs it.name))
+      if (this.hasStructAttr(s "serialize")) {
+        this.addSerializeMethods(s)
+      }
       def fs:RustNode (it.kid(2))
       if (fs.kind == "fields_tuple") {
         s.isTuple = true
@@ -837,6 +918,7 @@ class RustLower {
         }
         rf.node = f
         rf.ty = (this.typeOfIn((f.kid(0)) s.generics))
+        this.fieldMarkers(f rf s)
         if (rf.ty.isRef) {
           this.unsupported(f (("a reference stored in the field `" + f.name) + "`: own the value, or share it with Rc"))
         }
@@ -984,6 +1066,55 @@ class RustLower {
       return
     }
     this.unsupported(it ("`" + (k + "`")))
+  }
+
+  ; `#[ranger::weak]` / `#[ranger::late]` on a field (R7); the struct needs
+  ; `#[ranger::fields]` or `#[ranger::serialize]`, which rustc runs to remove
+  ; them.
+  fn fieldMarkers:void (f:RustNode rf:RsField s:RsStruct) {
+    for f.attrs a:RustNode ai {
+      def an:string a.name
+      if ((an == "ranger::weak") || (an == "ranger::late")) {
+        if (false == (this.hasStructAttr(s "fields") || (this.hasStructAttr(s "serialize")))) {
+          this.err(f (("`#[" + an) + "]` on a field needs `#[ranger::fields]` on the struct: rustc runs no attribute macro on a field"))
+          return
+        }
+      }
+      if (an == "ranger::weak") {
+        if (rf.ty.kind == "opt") {
+          def w:RsType ((rf.ty.arg(0)).copy())
+          w.weak = true
+          def o:RsType (RsType.of1("opt" w))
+          rf.ty = o
+        } {
+          def w2:RsType (rf.ty.copy())
+          w2.weak = true
+          rf.ty = w2
+        }
+      }
+      if (an == "ranger::late") {
+        if (rf.ty.kind != "opt") {
+          this.err(f "`#[ranger::late]` is for an `Option` field")
+          return
+        }
+        def lt:RsType (rf.ty.copy())
+        lt.late = true
+        rf.ty = lt
+      }
+    }
+  }
+
+  fn hasStructAttr:boolean (s:RsStruct name:string) {
+    if (null? s.node) {
+      return false
+    }
+    def sn:RustNode (unwrap s.node)
+    for sn.attrs a:RustNode ai {
+      if ((a.name == ("ranger::" + name)) || (a.name == name)) {
+        return true
+      }
+    }
+    return false
   }
 
   fn noteTraitImpl:void (traitName:string owner:string it:RustNode) {
@@ -1458,7 +1589,18 @@ class RustLower {
   fn declText:string (rname:string t:RsType) {
     def s:string rname
     if (t.kind == "opt") {
-      s = s + "@(optional)"
+      ; `Option<Weak<T>>` is an optional weak reference; a late field is
+      ; optional to the generated code, present to `-strict` (R7)
+      def inner:RsType (t.arg(0))
+      if (t.late && declLate) {
+        s = s + "@(late)"
+      } {
+        if inner.weak {
+          s = s + "@(optional weak)"
+        } {
+          s = s + "@(optional)"
+        }
+      }
     } {
       if (t.weak) {
         s = s + "@(weak)"
@@ -1540,7 +1682,10 @@ class RustLower {
   ; optional object field has to be unwrapped wherever it is passed on, and
   ; on Go an optional union field does not unwrap (ISSUES.md #102).
   fn fieldDecl:string (name:string t:RsType) {
+    ; `@(late)` is for the field only; a local copy of it is optional
+    declLate = true
     def d:string (this.declText(name t))
+    declLate = false
     def dv:string (this.defaultValue(t))
     if (dv != "") {
       return ((d + " ") + dv)
@@ -2101,6 +2246,13 @@ class RustLower {
   fn emitAll:string () {
     def parts:[string]
     push parts "Import \"rust/RsPrelude.rgr\""
+    for structOrder jsn:string jsi {
+      def jst:RsStruct (unwrap (get structs jsn))
+      if (jst.serialize && (false == usesJson)) {
+        usesJson = true
+        push parts "Import \"rust/RsJson.rgr\""
+      }
+    }
     ; the `.rgr` modules the crate includes, relative to the entry file
     def entryDir:string (RustLower.dirOf(entryName))
     for rgrImports rip:string rii {
@@ -2448,6 +2600,9 @@ class RustLower {
     }
     if ((s.derivesTrait("Debug")) && (false == (this.hasFmt((RsType.named(s.name)) "Debug")))) {
       push lines (this.emitDebugStruct(s cname))
+    }
+    if s.serialize {
+      push lines (this.emitJson(s cname))
     }
     def sdoc:string ""
     if (!null? s.node) {
@@ -6043,6 +6198,14 @@ class RustLower {
       def iv:RsExpr (this.lowerExpr((itemAt args 0) expect))
       return iv
     }
+    ; `Rc::downgrade(&x)`: the object, held weakly where it is stored (R7)
+    if ((full == "Rc::downgrade") || (full == "Arc::downgrade")) {
+      def dv:RsExpr (this.lowerExpr((itemAt args 0) (RsType.mk("unknown"))))
+      def wt:RsType (dv.ty.copy())
+      wt.weak = true
+      wt.isRef = false
+      return (RsExpr.of(dv.code wt))
+    }
     if ((full == "i64::from") || (full == "i32::from") || (full == "u32::from") || (full == "usize::from") || (full == "u64::from")) {
       def xv:RsExpr (this.lowerExpr((itemAt args 0) (RsType.mk("unknown"))))
       if (xv.ty.kind == "char") {
@@ -6232,6 +6395,18 @@ class RustLower {
           def ed:string (this.bindTemp(rv t "r"))
           return (RsExpr.of((((("(" + (this.implClass(t.name))) + ".displayOf(") + ed) + "))") (RsType.mk("string"))))
         }
+      }
+      ; `w.upgrade()` on a Weak<T>: the object if it is still there (R7)
+      if ((name == "upgrade") && t.weak && ((array_length args) == 0)) {
+        def ut:RsType (t.copy())
+        ut.weak = false
+        def uo:RsType (RsType.of1("opt" ut))
+        def un:string (this.tmp("o"))
+        out.line(("def " + (this.declText(un uo))))
+        out.line(((un + " = ") + rv.code))
+        def ur:RsExpr (RsExpr.of(un uo))
+        ur.simple = true
+        return ur
       }
       ; `c.borrow().count`, `c.borrow_mut().label = …` on an Rc<RefCell<T>>:
       ; the object itself
@@ -8554,6 +8729,384 @@ class RustLower {
   ; ------------------------------------------------------------------ macros
 
   ; println! and friends: true when handled as a statement.
+  ; `ranger::native!(rust: expr, es6: "…{x}…", python: "…", …)` (R7): the
+  ; arm of the target being written, as an operator of this file. `{x}` is
+  ; the Rust local or parameter `x`, `{{` / `}}` a brace; the result type is
+  ; the one the context expects (`let n: int = native!(…)`), or none.
+  fn lowerNative:RsExpr (m:RustNode expect:RsType) {
+    def p:RustParser (new RustParser(m.value))
+    def arms:RustNode (p.parseNativeArms())
+    for p.errors pe:string pi {
+      this.err(m ("in native!: " + pe))
+    }
+    def want:string target
+    if (want == "typescript") {
+      want = "es6"
+    }
+    def code:string ""
+    def found:boolean false
+    def listed:[string]
+    for arms.kids arm:RustNode ai {
+      def an:string (RustLower.targetAlias(arm.name))
+      push listed an
+      if ((an == want) && (arm.kind == "native_arm")) {
+        def ex:RustNode (arm.kid(0))
+        if ((ex.kind != "lit") || (false == (ex.hasMod("str")))) {
+          this.err(arm (("the `" + arm.name) + "` arm of native! must be a string literal of target code"))
+          return (this.unit())
+        }
+        code = ex.value
+        found = true
+      }
+    }
+    if (false == found) {
+      this.err(m (((("native! has no arm for the target `" + want) + "` (it has ") + (join listed ", ")) + ")"))
+      return (this.unit())
+    }
+    ; the pieces of the template and the locals it reads
+    def pieces:[string]
+    def names:[string]
+    def cur:string ""
+    def i:int 0
+    def n:int (strlen code)
+    while (i < n) {
+      def c:string (substring code i (i + 1))
+      if ((c == "{") && ((i + 1) < n) && ((substring code (i + 1) (i + 2)) == "{")) {
+        cur = cur + "{"
+        i = i + 2
+        continue
+      }
+      if ((c == "}") && ((i + 1) < n) && ((substring code (i + 1) (i + 2)) == "}")) {
+        cur = cur + "}"
+        i = i + 2
+        continue
+      }
+      if (c == "{") {
+        def close:int (indexOf (substring code i n) "}")
+        if (close < 0) {
+          this.err(m "native!: an unclosed `{` in the target code (write `{{` for a brace)")
+          return (this.unit())
+        }
+        push pieces cur
+        cur = ""
+        push names (trim (substring code (i + 1) (i + close)))
+        i = i + close + 1
+        continue
+      }
+      cur = cur + c
+      i = i + 1
+    }
+    push pieces cur
+    ; the arguments, in order
+    def argCodes:[string]
+    def argTypes:[RsType]
+    for names nm:string ni {
+      def l@(optional):RsLocal (scope.lookup(nm))
+      if (null? l) {
+        this.err(m (("native!: `{" + nm) + "}` is not a local or a parameter"))
+        return (this.unit())
+      }
+      def lv:RsLocal (unwrap l)
+      push argCodes lv.rname
+      push argTypes lv.ty
+    }
+    nativeN = nativeN + 1
+    def op:string ("rs_native_" + (to_string nativeN))
+    def rt:RsType expect
+    if (rt.isUnknown()) {
+      rt = (RsType.mk("unit"))
+    }
+    def rts:string (this.rtype(rt))
+    if (rt.kind == "unit") {
+      rts = "void"
+    }
+    def params:[string]
+    def k:int 0
+    for argTypes at:RsType ati {
+      push params (this.declText(("a" + (to_string k)) at))
+      k = k + 1
+    }
+    def tpl:[string]
+    def pk:int 0
+    while (pk < (array_length pieces)) {
+      push tpl (this.rangerString((itemAt pieces pk)))
+      if (pk < (array_length names)) {
+        push tpl (("(e " + (to_string (pk + 1))) + ")")
+      }
+      pk = pk + 1
+    }
+    def tplText:string (join tpl " ")
+    def tgt:string want
+    if (tgt == "") {
+      tgt = "*"
+    }
+    push genOut (((((((((("operators {\n  " + op) + " _:") + rts) + " (") + (join params " ")) + ") {\n    templates {\n      ") + tgt) + " ( ") + tplText) + (" )\n      * ( " + (tplText + " )\n    }\n  }\n}")))
+    def call:string op
+    if ((array_length argCodes) > 0) {
+      call = (op + " ") + (join argCodes " ")
+    }
+    if (rt.kind == "unit") {
+      return (RsExpr.of(call rt))
+    }
+    return (RsExpr.of((("(" + call) + ")") rt))
+  }
+
+  ; ------------------------------------------------ #[ranger::serialize] (R7)
+
+  ; `s.to_json()` and `S::from_json(text)`, known to the type checker; the
+  ; bodies are written by emitJson, the same as the prelude crate's macro
+  ; (runtime/rust/ranger/macros) builds them for rustc.
+  fn addSerializeMethods:void (s:RsStruct) {
+    if ((array_length s.generics) > 0) {
+      this.err((unwrap s.node) "#[ranger::serialize] on a generic struct")
+      return
+    }
+    s.serialize = true
+    def tj:RsFn (new RsFn())
+    tj.name = "to_json"
+    tj.rname = "to_json"
+    tj.owner = s.name
+    tj.hasSelf = true
+    tj.hasBody = false
+    tj.ret = (this.ownedString())
+    push s.methods tj
+    def fj:RsFn (new RsFn())
+    fj.name = "from_json"
+    fj.rname = "from_json"
+    fj.owner = s.name
+    fj.hasBody = false
+    def tp:RsParam (new RsParam())
+    tp.name = "text"
+    tp.ty = (RsType.mk("string"))
+    push fj.params tp
+    fj.ret = (RsType.of2("result" (RsType.named(s.name)) (this.ownedString())))
+    push s.methods fj
+  }
+
+  fn jsonTmp:string (base:string) {
+    jsonN = jsonN + 1
+    return (("rs__j" + base) + (to_string jsonN))
+  }
+
+  fn emitJson:string (s:RsStruct cname:string) {
+    def st:RsType (RsType.named(s.name))
+    def rcls:string (this.resultClass((RsType.of2("result" st (this.ownedString())))))
+    def lines:[string]
+    push lines "  fn to_json:string () {"
+    push lines "    def o:string \"{\""
+    def first:boolean true
+    for s.fields f:RsField fi {
+      def key:string (this.rangerString((("\"" + f.name) + "\":")))
+      if (false == first) {
+        key = (this.rangerString(((",\"" + f.name) + "\":")))
+      }
+      first = false
+      push lines (("    o = (o + " + key) + ")")
+      this.jsonWrite(("this." + (this.fieldName(f.name))) f.ty lines "    ")
+    }
+    push lines "    return (o + \"}\")"
+    push lines "  }"
+    push lines ((("  sfn from_json:" + rcls) + " (text:string) {"))
+    push lines "    def p:RsJsonParser (new RsJsonParser(text))"
+    push lines "    def v:RsJsonValue (p.parse())"
+    push lines "    if p.failed {"
+    push lines ((("      def r:" + rcls) + " (new ") + (rcls + ")"))
+    push lines "      r.e = p.err"
+    push lines "      return r"
+    push lines "    }"
+    push lines (("    return (" + cname) + ".rs_from_json_value(v))")
+    push lines "  }"
+    push lines ((("  sfn rs_from_json_value:" + rcls) + " (v:RsJsonValue) {"))
+    push lines ((("    def r:" + rcls) + " (new ") + (rcls + ")"))
+    push lines "    if (v.kind != \"obj\") {"
+    push lines "      r.e = \"expected an object\""
+    push lines "      return r"
+    push lines "    }"
+    push lines ((("    def obj:" + cname) + " (new ") + (cname + ")"))
+    for s.fields f2:RsField fi2 {
+      def fv:string (this.jsonTmp("f"))
+      push lines (((("    def " + fv) + "@(optional):RsJsonValue (v.field(") + (this.rangerString(f2.name))) + "))")
+      push lines (("    if (null? " + fv) + ") {")
+      push lines (("      r.e = " + (this.rangerString((("missing field `" + f2.name) + "`")))))
+      push lines "      return r"
+      push lines "    }"
+      def fu:string (this.jsonTmp("u"))
+      push lines (((("    def " + fu) + ":RsJsonValue (unwrap ") + fv) + ")")
+      this.jsonRead(fu f2.ty ("obj." + (this.fieldName(f2.name))) (this.rangerString((("field `" + f2.name) + "`: "))) lines "    ")
+    }
+    push lines "    r.ok = true"
+    push lines "    r.v = obj"
+    push lines "    return r"
+    push lines "  }"
+    return (join lines "\n")
+  }
+
+  ; Statements that add the JSON text of `e` (of type t) to `o`.
+  fn jsonWrite:void (e:string t:RsType lines:[string] ind:string) {
+    def k:string t.kind
+    if (k == "int") {
+      push lines (((ind + "o = (o + (to_string ") + e) + "))")
+      return
+    }
+    if (k == "double") {
+      push lines (((ind + "o = (o + (RsJson.num(") + e) + ")))")
+      return
+    }
+    if (k == "bool") {
+      push lines (((ind + "o = (o + (? ") + e) + " \"true\" \"false\"))")
+      return
+    }
+    if (k == "string") {
+      push lines (((ind + "o = (o + (RsJson.quote(") + e) + ")))")
+      return
+    }
+    if ((k == "named") && (has structs t.name)) {
+      def ns:RsStruct (unwrap (get structs t.name))
+      if ns.serialize {
+        def nt:string (this.jsonTmp("n"))
+        push lines ((((ind + "def ") + nt) + ":") + (((this.rtype(t)) + " ") + e))
+        push lines (((ind + "o = (o + (") + nt) + ".to_json()))")
+        return
+      }
+    }
+    if (k == "vec") {
+      def et:RsType (t.arg(0))
+      def ev:string (this.jsonTmp("e"))
+      def iv:string (this.jsonTmp("i"))
+      push lines (ind + "o = (o + \"[\")")
+      push lines (((((((ind + "for ") + e) + " ") + ev) + ":") + (this.rtype(et))) + ((" " + iv) + " {"))
+      push lines (((ind + "  if (") + iv) + " > 0) {")
+      push lines (ind + "    o = (o + \",\")")
+      push lines (ind + "  }")
+      this.jsonWrite(ev et lines (ind + "  "))
+      push lines (ind + "}")
+      push lines (ind + "o = (o + \"]\")")
+      return
+    }
+    if (k == "opt") {
+      def it:RsType (t.arg(0))
+      push lines (((ind + "if (null? ") + e) + ") {")
+      push lines (ind + "  o = (o + \"null\")")
+      push lines (ind + "} {")
+      def uv:string (this.jsonTmp("o"))
+      push lines ((((((ind + "  def ") + uv) + ":") + (this.rtype(it))) + " (unwrap ") + (e + ")"))
+      this.jsonWrite(uv it lines (ind + "  "))
+      push lines (ind + "}")
+      return
+    }
+    this.err((new RustNode("none")) (("#[ranger::serialize]: a field of type `" + (t.rust())) + "` (i64, f64, bool, String, Vec, Option and serialized structs are)"))
+  }
+
+  ; Statements that read the JSON value `j` into `target` (of type t); an
+  ; error returns `r` with the message after `prefix` (a Ranger expression).
+  fn jsonRead:void (j:string t:RsType target:string prefix:string lines:[string] ind:string) {
+    def k:string t.kind
+    if (k == "int") {
+      push lines ((((((ind + "if ((") + j) + ".kind != \"num\") || (RsJson.hasFrac(") + j) + ".text)) || (false == (RsJson.intOk(") + (j + ".text)))) {"))
+      push lines ((((ind + "  r.e = (") + prefix) + " + \"expected an integer\")"))
+      push lines (ind + "  return r")
+      push lines (ind + "}")
+      push lines (((((ind + target) + " = (RsJson.toInt(") + j) + ".text))"))
+      return
+    }
+    if (k == "double") {
+      push lines ((((ind + "if (") + j) + ".kind != \"num\") {"))
+      push lines ((((ind + "  r.e = (") + prefix) + " + \"expected a number\")"))
+      push lines (ind + "  return r")
+      push lines (ind + "}")
+      push lines (((((ind + target) + " = (RsJson.toDouble(") + j) + ".text))"))
+      return
+    }
+    if (k == "bool") {
+      push lines ((((ind + "if (") + j) + ".kind != \"bool\") {"))
+      push lines ((((ind + "  r.e = (") + prefix) + " + \"expected a boolean\")"))
+      push lines (ind + "  return r")
+      push lines (ind + "}")
+      push lines ((((ind + target) + " = ") + j) + ".b")
+      return
+    }
+    if (k == "string") {
+      push lines ((((ind + "if (") + j) + ".kind != \"str\") {"))
+      push lines ((((ind + "  r.e = (") + prefix) + " + \"expected a string\")"))
+      push lines (ind + "  return r")
+      push lines (ind + "}")
+      push lines ((((ind + target) + " = ") + j) + ".text")
+      return
+    }
+    if ((k == "named") && (has structs t.name)) {
+      def ns:RsStruct (unwrap (get structs t.name))
+      if ns.serialize {
+        def rt:RsType (RsType.of2("result" t (this.ownedString())))
+        def rc:string (this.resultClass(rt))
+        def rv:string (this.jsonTmp("r"))
+        push lines (((((((ind + "def ") + rv) + ":") + rc) + " (") + (this.className(t.name))) + ((".rs_from_json_value(" + j) + "))"))
+        push lines ((((ind + "if (false == ") + rv) + ".ok) {"))
+        push lines ((((((ind + "  r.e = (") + prefix) + " + ") + rv) + ".e)"))
+        push lines (ind + "  return r")
+        push lines (ind + "}")
+        push lines ((((ind + target) + " = ") + rv) + ".v")
+        return
+      }
+    }
+    if (k == "vec") {
+      def et:RsType (t.arg(0))
+      push lines ((((ind + "if (") + j) + ".kind != \"arr\") {"))
+      push lines ((((ind + "  r.e = (") + prefix) + " + \"expected an array\")"))
+      push lines (ind + "  return r")
+      push lines (ind + "}")
+      def av:string (this.jsonTmp("a"))
+      push lines ((((ind + "def ") + av) + ":") + (this.rtype(t)))
+      def itv:string (this.jsonTmp("it"))
+      def iv:string (this.jsonTmp("i"))
+      push lines (((((((ind + "for ") + j) + ".items ") + itv) + ":RsJsonValue ") + iv) + " {")
+      def elv:string (this.jsonTmp("el"))
+      push lines (((ind + "  def ") + (this.fieldDecl(elv et))))
+      def ip:string (((("(" + prefix) + " + (\"item \" + ((to_string ") + iv) + ") + \": \")))")
+      this.jsonRead(itv et elv ip lines (ind + "  "))
+      push lines ((((ind + "  push ") + av) + " ") + elv)
+      push lines (ind + "}")
+      push lines ((((ind + target) + " = ") + av))
+      return
+    }
+    if (k == "opt") {
+      def it2:RsType (t.arg(0))
+      push lines ((((ind + "if (") + j) + ".kind != \"null\") {"))
+      def ov:string (this.jsonTmp("ov"))
+      push lines (((ind + "  def ") + (this.fieldDecl(ov it2))))
+      this.jsonRead(j it2 ov prefix lines (ind + "  "))
+      push lines ((((ind + "  ") + target) + " = ") + ov)
+      push lines (ind + "}")
+      return
+    }
+    this.err((new RustNode("none")) (("#[ranger::serialize]: a field of type `" + (t.rust())) + "` (i64, f64, bool, String, Vec, Option and serialized structs are)"))
+  }
+
+  ; `ranger::tree! { Node { name: "root", children: [Node { name: "a" }] } }`
+  ; (R7): a tree of structs written as one literal. A field left out keeps
+  ; its default, `[…]` is a Vec and a string literal is a String -- what the
+  ; prelude's macro fills in with `..Default::default()`, `vec!` and
+  ; `.into()`. The body is a Rust struct literal, lowered as one.
+  fn lowerTree:RsExpr (m:RustNode expect:RsType) {
+    def p:RustParser (new RustParser(m.value))
+    def body:RustNode (p.parseExpr())
+    for p.errors pe:string pi {
+      this.err(m ("in tree!: " + pe))
+    }
+    if (body.kind != "struct_lit") {
+      this.err(m "tree! holds one struct literal: `tree! { Node { field: value, children: [ … ] } }`")
+      return (this.unit())
+    }
+    return (this.lowerExpr(body expect))
+  }
+
+  ; A Ranger string literal holding `s`.
+  fn rangerString:string (s:string) {
+    def t:string (replace s "\\" "\\\\")
+    t = (replace t "\"" "\\\"")
+    t = (replace t "\n" "\\n")
+    return (("\"" + t) + "\"")
+  }
+
   fn lowerMacroStmt:boolean (m:RustNode) {
     def name:string m.name
     if (((name == "write") || (name == "writeln")) && (displayFormatter != "") && ((array_length m.kids) >= 1)) {
@@ -8571,6 +9124,13 @@ class RustLower {
         text = (("(" + text) + " + \"\\n\")")
       }
       out.line((("rs__out = (rs__out + " + text) + ")"))
+      return true
+    }
+    if ((name == "native") || (name == "ranger::native")) {
+      def nv:RsExpr (this.lowerNative(m (RsType.mk("unit"))))
+      if (nv.code != "") {
+        out.line(nv.code)
+      }
       return true
     }
     if ((name == "println") || (name == "print") || (name == "eprintln") || (name == "eprint")) {
@@ -8632,6 +9192,12 @@ class RustLower {
 
   fn lowerMacroExpr:RsExpr (m:RustNode expect:RsType) {
     def name:string m.name
+    if ((name == "native") || (name == "ranger::native")) {
+      return (this.lowerNative(m expect))
+    }
+    if ((name == "tree") || (name == "ranger::tree")) {
+      return (this.lowerTree(m expect))
+    }
     if (name == "format") {
       if ((array_length m.kids) == 0) {
         this.err(m "the arguments of `format!` do not parse as expressions")
@@ -8675,8 +9241,21 @@ class RustLower {
     def fmt:string fmtN.value
     def args:[RsExpr]
     def i:int 1
+    ; Rust evaluates the arguments left to right; written into one string
+    ; expression, a C++ `+` evaluates its operands in either order. With more
+    ; than one argument, a call is bound to a temporary first.
+    def several:boolean ((array_length kids) > 2)
     while (i < (array_length kids)) {
       def a:RsExpr (this.lowerExpr((itemAt kids i) (RsType.mk("unknown"))))
+      if (several && (false == a.simple) && ((indexOf a.code "(") >= 0)) {
+        def ak:string a.ty.kind
+        if ((false == (a.ty.isUnknown())) && (ak != "unit") && (ak != "fn") && (ak != "none")) {
+          def an:string (this.bindTemp(a a.ty "fa"))
+          def ab:RsExpr (RsExpr.of(an a.ty))
+          ab.simple = true
+          a = ab
+        }
+      }
       push args a
       i = i + 1
     }

@@ -24771,6 +24771,7 @@ class RangerFlowParser  {
         const rl = new RustLower();
         const modBase = importFileDir;
         const modName = RustLower.baseName(import_file);
+        rl.setTarget(ctx.getCompilerSetting("l"));
         rl.begin(source_code, modName);
         rl.setEntryName(import_file);
         while (rl.hasPendingModule()) {
@@ -82749,6 +82750,24 @@ class RustParser  {
     const tb = this.toks[(b - 1)];
     return this.lx.text(ta.start, tb.end);
   };
+  parseNativeArms () {
+    const n = this.node("native");
+    while (false == this.atEnd()) {
+      const before = this.pos;
+      const arm = this.node("native_arm");
+      arm.name = this.identText();
+      this.expectP(":");
+      arm.add(this.parseExpr());
+      n.add(this.done(arm));
+      if ( false == this.eatP(",") ) {
+        break;
+      }
+      if ( this.pos == before ) {
+        this.pos = this.pos + 1;
+      }
+    };
+    return this.done(n);
+  };
   parseFile () {
     const f = this.node("file");
     this.innerAttrs(f);
@@ -85307,6 +85326,7 @@ class RsType  {
     this.weak = false;
     this.shared = false;
     this.isDyn = false;
+    this.late = false;
     this.kind = k;
   }
   arg (i) {
@@ -85337,6 +85357,7 @@ class RsType  {
     t.weak = this.weak;
     t.shared = this.shared;
     t.isDyn = this.isDyn;
+    t.late = this.late;
     return t;
   };
   key () {
@@ -85485,6 +85506,7 @@ class RsStruct  {
     this.traits = [];
     this.node = undefined;
     this.rgr = false;
+    this.serialize = false;
   }
   derivesTrait (t) {
     // Loop start
@@ -86716,6 +86738,11 @@ class RustLower  {
     this.pendingNames = [];
     this.pendingNodes = [];
     this.pendingPos = 0;
+    this.usesJson = false;
+    this.jsonN = 0;
+    this.nativeN = 0;
+    this.target = "";
+    this.declLate = false;
     this.pendingFiles = [];
     this.rgrImports = [];
     this.entryName = "";
@@ -86904,6 +86931,7 @@ class RustLower  {
     this.modClass = RustLower.moduleClassFor(RustLower.moduleFileName(name));
   };
   registerModule (root, key, file, dir) {
+    this.filterTargets(root, 0);
     this.modRoots.push(root);
     this.modKeys.push(key);
     this.modFiles.push(file);
@@ -86938,6 +86966,54 @@ class RustLower  {
         this.pendingFiles.push("");
       }
     }
+  };
+  setTarget (t) {
+    this.target = t;
+  };
+  targetKeeps (it) {
+    // Loop start
+    for ( const a of it.attrs) {
+      if ( a.name != "ranger::target" && a.name != "target" ) {
+        continue;
+      }
+      if ( this.target == "" ) {
+        return true;
+      }
+      let inner = a.value.trim();
+      if ( inner.length >= 2 ) {
+        inner = inner.substring(1, inner.length - 1 );
+      }
+      let keep = false;
+      const parts = inner.split(",");
+      // Loop start
+      for ( const part of parts) {
+        const t = RustLower.targetAlias(part.trim());
+        if ( t == this.target || t == "es6" && this.target == "typescript" ) {
+          keep = true;
+        }
+      }
+      if ( keep == false ) {
+        return false;
+      }
+    }
+    return true;
+  };
+  filterTargets (root, first) {
+    let kept = [];
+    let i = 0;
+    // Loop start
+    for ( const it of root.kids) {
+      if ( i >= first && false == this.targetKeeps(it) ) {
+        i = i + 1;
+        continue;
+      }
+      if ( i >= first && it.kind == "impl" ) {
+        this.filterTargets(it, 4);
+      }
+      kept.push(it);
+      i = i + 1;
+    }
+    root.kids = kept;
   };
   isImportRgr (name) {
     return name == "import_rgr" || name == "ranger::import_rgr";
@@ -87102,9 +87178,9 @@ class RustLower  {
       }
       const ak = (this.curMod + "|") + last;
       if ( ( typeof(this.fnAlias[ak] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fnAlias, ak) ) ) {
-        const target = ( Object.prototype.hasOwnProperty.call(this.fnAlias, ak) ? this.fnAlias[ak] : undefined );
-        if ( this.hasItem(target, table) ) {
-          return target;
+        const target_1 = ( Object.prototype.hasOwnProperty.call(this.fnAlias, ak) ? this.fnAlias[ak] : undefined );
+        if ( this.hasItem(target_1, table) ) {
+          return target_1;
         }
       }
       return "";
@@ -87332,6 +87408,9 @@ class RustLower  {
     }
     if ( k == "struct" ) {
       const s = ( Object.prototype.hasOwnProperty.call(this.structs, it.name) ? this.structs[it.name] : undefined );
+      if ( this.hasStructAttr(s, "serialize") ) {
+        this.addSerializeMethods(s);
+      }
       const fs = it.kid(2);
       if ( fs.kind == "fields_tuple" ) {
         s.isTuple = true;
@@ -87352,6 +87431,7 @@ class RustLower  {
         }
         rf.node = f;
         rf.ty = this.typeOfIn(f.kid(0), s.generics);
+        this.fieldMarkers(f, rf, s);
         if ( rf.ty.isRef ) {
           this.unsupported(f, ("a reference stored in the field `" + f.name) + "`: own the value, or share it with Rc");
         }
@@ -87500,6 +87580,53 @@ class RustLower  {
     }
     this.unsupported(it, "`" + (k + "`"));
   };
+  fieldMarkers (f, rf, s) {
+    // Loop start
+    for ( let ai = 0; ai < f.attrs.length; ai++) {
+      var a = f.attrs[ai];
+      const an = a.name;
+      if ( an == "ranger::weak" || an == "ranger::late" ) {
+        if ( false == (this.hasStructAttr(s, "fields") || this.hasStructAttr(s, "serialize")) ) {
+          this.err(f, ("`#[" + an) + "]` on a field needs `#[ranger::fields]` on the struct: rustc runs no attribute macro on a field");
+          return;
+        }
+      }
+      if ( an == "ranger::weak" ) {
+        if ( rf.ty.kind == "opt" ) {
+          const w = rf.ty.arg(0).copy();
+          w.weak = true;
+          const o = RsType.of1("opt", w);
+          rf.ty = o;
+        } else {
+          const w2 = rf.ty.copy();
+          w2.weak = true;
+          rf.ty = w2;
+        }
+      }
+      if ( an == "ranger::late" ) {
+        if ( rf.ty.kind != "opt" ) {
+          this.err(f, "`#[ranger::late]` is for an `Option` field");
+          return;
+        }
+        const lt = rf.ty.copy();
+        lt.late = true;
+        rf.ty = lt;
+      }
+    }
+  };
+  hasStructAttr (s, name) {
+    if ( typeof(s.node) === "undefined" ) {
+      return false;
+    }
+    const sn = s.node;
+    // Loop start
+    for ( const a of sn.attrs) {
+      if ( a.name == "ranger::" + name || a.name == name ) {
+        return true;
+      }
+    }
+    return false;
+  };
   noteTraitImpl (traitName, owner, it) {
     if ( ( typeof(this.traits[traitName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.traits, traitName) ) ) {
       const tr = ( Object.prototype.hasOwnProperty.call(this.traits, traitName) ? this.traits[traitName] : undefined );
@@ -87545,14 +87672,14 @@ class RustLower  {
     // Loop start
     for ( const wp of wh.kids) {
       if ( wp.kind == "where_pred" ) {
-        const target = this.typeNameOf(wp.kid(0));
+        const target_1 = this.typeNameOf(wp.kid(0));
         const wb = wp.kid(1);
         // Loop start
         for ( const b2 of wb.kids) {
           if ( this.isFnBound(b2) ) {
             const bt2 = this.typeOfIn(b2, this.ownerGenerics);
-            this.fnBoundTypes[target] = bt2;
-            fnBound[target] = true;
+            this.fnBoundTypes[target_1] = bt2;
+            fnBound[target_1] = true;
           }
         }
       }
@@ -87961,7 +88088,16 @@ class RustLower  {
   declText (rname, t) {
     let s = rname;
     if ( t.kind == "opt" ) {
-      s = s + "@(optional)";
+      const inner = t.arg(0);
+      if ( t.late && this.declLate ) {
+        s = s + "@(late)";
+      } else {
+        if ( inner.weak ) {
+          s = s + "@(optional weak)";
+        } else {
+          s = s + "@(optional)";
+        }
+      }
     } else {
       if ( t.weak ) {
         s = s + "@(weak)";
@@ -88038,7 +88174,9 @@ class RustLower  {
     return out_1;
   };
   fieldDecl (name, t) {
+    this.declLate = true;
     const d = this.declText(name, t);
+    this.declLate = false;
     const dv = this.defaultValue(t);
     if ( dv != "" ) {
       return (d + " ") + dv;
@@ -88572,6 +88710,14 @@ class RustLower  {
   emitAll () {
     let parts = [];
     parts.push("Import \"rust/RsPrelude.rgr\"");
+    // Loop start
+    for ( const jsn of this.structOrder) {
+      const jst = ( Object.prototype.hasOwnProperty.call(this.structs, jsn) ? this.structs[jsn] : undefined );
+      if ( jst.serialize && false == this.usesJson ) {
+        this.usesJson = true;
+        parts.push("Import \"rust/RsJson.rgr\"");
+      }
+    }
     const entryDir = RustLower.dirOf(this.entryName);
     // Loop start
     for ( const rip of this.rgrImports) {
@@ -88940,6 +89086,9 @@ class RustLower  {
     }
     if ( s.derivesTrait("Debug") && false == this.hasFmt(RsType.named(s.name), "Debug") ) {
       lines.push(this.emitDebugStruct(s, cname));
+    }
+    if ( s.serialize ) {
+      lines.push(this.emitJson(s, cname));
     }
     let sdoc = "";
     if ( (typeof(s.node) !== "undefined" && s.node != null )  ) {
@@ -89883,15 +90032,15 @@ class RustLower  {
       this.emitReturn(e);
       return;
     }
-    let target = this.varType(_var);
-    const v = this.lowerExprCopy(e, target);
-    if ( target.isUnknown() || target.kind == "none" ) {
+    let target_1 = this.varType(_var);
+    const v = this.lowerExprCopy(e, target_1);
+    if ( target_1.isUnknown() || target_1.kind == "none" ) {
       if ( false == v.ty.isUnknown() && v.ty.kind != "never" ) {
         this.tempTypes[_var] = v.ty;
-        target = v.ty;
+        target_1 = v.ty;
       }
     }
-    const c = this.coerce(v, target, e);
+    const c = this.coerce(v, target_1, e);
     if ( c.code != "" ) {
       this.out.line((_var + " = ") + c.code);
     }
@@ -90213,8 +90362,8 @@ class RustLower  {
       return;
     }
     const kind = this.loopFlagKind[(n - 1)];
-    const target = this.flagTarget(flag);
-    const depth = this.loopIndexOf(target);
+    const target_1 = this.flagTarget(flag);
+    const depth = this.loopIndexOf(target_1);
     if ( depth == n - 2 ) {
       if ( kind == "break" ) {
         this.out.line(("if " + flag) + " {");
@@ -90261,16 +90410,16 @@ class RustLower  {
       this.err(e, "`break` outside a loop");
       return;
     }
-    let target = n - 1;
+    let target_1 = n - 1;
     if ( e.name != "" ) {
-      target = this.loopIndexOf(e.name);
-      if ( target < 0 ) {
+      target_1 = this.loopIndexOf(e.name);
+      if ( target_1 < 0 ) {
         this.err(e, "unknown label " + e.name);
         return;
       }
     }
     if ( e.kids.length > 0 ) {
-      const _var = this.loopVals[target];
+      const _var = this.loopVals[target_1];
       if ( _var == "" ) {
         this.err(e, "`break` with a value outside a `loop` expression");
         return;
@@ -90280,11 +90429,11 @@ class RustLower  {
       const c = this.coerce(v, vt, e.kid(0));
       this.out.line((_var + " = ") + c.code);
     }
-    if ( target == n - 1 ) {
+    if ( target_1 == n - 1 ) {
       this.out.line("break");
       return;
     }
-    this.labelledExit(target, "break");
+    this.labelledExit(target_1, "break");
   };
   lowerContinue (e) {
     const n = this.loopLabels.length;
@@ -90292,19 +90441,19 @@ class RustLower  {
       this.err(e, "`continue` outside a loop");
       return;
     }
-    let target = n - 1;
+    let target_1 = n - 1;
     if ( e.name != "" ) {
-      target = this.loopIndexOf(e.name);
-      if ( target < 0 ) {
+      target_1 = this.loopIndexOf(e.name);
+      if ( target_1 < 0 ) {
         this.err(e, "unknown label " + e.name);
         return;
       }
     }
-    if ( target == n - 1 ) {
+    if ( target_1 == n - 1 ) {
       this.out.line("continue");
       return;
     }
-    this.labelledExit(target, "continue");
+    this.labelledExit(target_1, "continue");
   };
   labelledExit (target, kind) {
     const n = this.loopLabels.length;
@@ -92024,49 +92173,49 @@ class RustLower  {
     return this.unit();
   };
   lowerCast (n) {
-    const target = this.typeOf(n.kid(1));
+    const target_1 = this.typeOf(n.kid(1));
     const v = this.lowerExpr(n.kid(0), RsType.mk("unknown"));
     const s = v.ty.kind;
-    const tk = target.kind;
+    const tk = target_1.kind;
     if ( tk == "int" ) {
       if ( s == "double" ) {
-        return RsExpr.of((("(rs_f2i " + v.code) + ")"), target);
+        return RsExpr.of((("(rs_f2i " + v.code) + ")"), target_1);
       }
       if ( s == "char" ) {
-        return RsExpr.of((("(rs_char_code " + v.code) + ")"), target);
+        return RsExpr.of((("(rs_char_code " + v.code) + ")"), target_1);
       }
       if ( s == "bool" ) {
-        return RsExpr.of((("(? " + v.code) + " 1 0)"), target);
+        return RsExpr.of((("(? " + v.code) + " 1 0)"), target_1);
       }
       if ( s == "named" && ( typeof(this.enums[v.ty.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, v.ty.name) ) ) {
-        return RsExpr.of(this.enumDisc(v.code, v.ty.name), target);
+        return RsExpr.of(this.enumDisc(v.code, v.ty.name), target_1);
       }
-      if ( ((target.name == "u8" || target.name == "i8") || target.name == "u16") || target.name == "i16" ) {
+      if ( ((target_1.name == "u8" || target_1.name == "i8") || target_1.name == "u16") || target_1.name == "i16" ) {
         let mask = "255";
-        if ( target.name == "u16" || target.name == "i16" ) {
+        if ( target_1.name == "u16" || target_1.name == "i16" ) {
           mask = "65535";
         }
         const wn = this.tmp("w");
         this.out.line((((("def " + wn) + ":int (bit_and ") + v.code) + (" " + mask)) + ")");
-        const wr = RsExpr.of(wn, target);
+        const wr = RsExpr.of(wn, target_1);
         wr.simple = true;
         return wr;
       }
-      return RsExpr.of(v.code, target);
+      return RsExpr.of(v.code, target_1);
     }
     if ( tk == "double" ) {
       if ( s == "int" ) {
-        return RsExpr.of((("(to_double " + v.code) + ")"), target);
+        return RsExpr.of((("(to_double " + v.code) + ")"), target_1);
       }
-      return RsExpr.of(v.code, target);
+      return RsExpr.of(v.code, target_1);
     }
     if ( tk == "char" ) {
       if ( s == "int" ) {
-        return RsExpr.of((("(rs_char_from " + v.code) + ")"), target);
+        return RsExpr.of((("(rs_char_from " + v.code) + ")"), target_1);
       }
-      return RsExpr.of(v.code, target);
+      return RsExpr.of(v.code, target_1);
     }
-    this.unsupported(n, ("a cast to `" + target.rust()) + "`");
+    this.unsupported(n, ("a cast to `" + target_1.rust()) + "`");
     return v;
   };
   enumDisc (code, en) {
@@ -92330,6 +92479,13 @@ class RustLower  {
       const iv = this.lowerExpr(args[0], expect);
       return iv;
     }
+    if ( full == "Rc::downgrade" || full == "Arc::downgrade" ) {
+      const dv = this.lowerExpr(args[0], RsType.mk("unknown"));
+      const wt = dv.ty.copy();
+      wt.weak = true;
+      wt.isRef = false;
+      return RsExpr.of(dv.code, wt);
+    }
     if ( (((full == "i64::from" || full == "i32::from") || full == "u32::from") || full == "usize::from") || full == "u64::from" ) {
       const xv = this.lowerExpr(args[0], RsType.mk("unknown"));
       if ( xv.ty.kind == "char" ) {
@@ -92341,11 +92497,11 @@ class RustLower  {
       return RsExpr.of(xv.code, RsType.mk("int"));
     }
     if ( full == "f64::from" ) {
-      const dv = this.lowerExpr(args[0], RsType.mk("unknown"));
-      if ( dv.ty.kind == "int" ) {
-        return RsExpr.of((("(to_double " + dv.code) + ")"), RsType.mk("double"));
+      const dv_1 = this.lowerExpr(args[0], RsType.mk("unknown"));
+      if ( dv_1.ty.kind == "int" ) {
+        return RsExpr.of((("(to_double " + dv_1.code) + ")"), RsType.mk("double"));
       }
-      return dv;
+      return dv_1;
     }
     if ( ((((full == "std::cmp::max" || full == "cmp::max") || full == "max") || full == "std::cmp::min") || full == "cmp::min") || full == "min" ) {
       const a = this.lowerExpr(args[0], expect);
@@ -92396,13 +92552,13 @@ class RustLower  {
     this.assignTo(b, RsExpr.of(t, av.ty));
   };
   lowerTake (full, args, at) {
-    const target = args[0];
-    const cur = this.lowerExpr(target, RsType.mk("unknown"));
+    const target_1 = args[0];
+    const cur = this.lowerExpr(target_1, RsType.mk("unknown"));
     const t = this.tmp("old");
     this.out.line((("def " + this.declText(t, cur.ty)) + " ") + cur.code);
     if ( full.indexOf("replace") >= 0 ) {
       const nv = this.lowerExpr(args[1], cur.ty);
-      this.assignTo(target, nv);
+      this.assignTo(target_1, nv);
     } else {
       let dv = this.defaultValue(cur.ty);
       if ( dv == "" ) {
@@ -92416,7 +92572,7 @@ class RustLower  {
           return RsExpr.of(t, cur.ty);
         }
       }
-      this.assignTo(target, RsExpr.of(dv, cur.ty));
+      this.assignTo(target_1, RsExpr.of(dv, cur.ty));
     }
     const r = RsExpr.of(t, cur.ty);
     r.simple = true;
@@ -92514,6 +92670,17 @@ class RustLower  {
           return RsExpr.of((((("(" + this.implClass(t.name)) + ".displayOf(") + ed) + "))"), RsType.mk("string"));
         }
       }
+      if ( (name == "upgrade" && t.weak) && args.length == 0 ) {
+        const ut = t.copy();
+        ut.weak = false;
+        const uo = RsType.of1("opt", ut);
+        const un = this.tmp("o");
+        this.out.line("def " + this.declText(un, uo));
+        this.out.line((un + " = ") + rv.code);
+        const ur = RsExpr.of(un, uo);
+        ur.simple = true;
+        return ur;
+      }
       if ( (((name == "borrow" || name == "borrow_mut") || name == "as_ref") || name == "as_mut") && args.length == 0 ) {
         return rv;
       }
@@ -92575,16 +92742,16 @@ class RustLower  {
   };
   lowerParse (parseCall, expect) {
     const s = this.lowerExpr(parseCall.kid(0), RsType.mk("string"));
-    let target = expect;
+    let target_1 = expect;
     const targs = parseCall.kid(1);
     if ( targs.kids.length > 0 ) {
-      target = this.typeOf(targs.kid(0));
+      target_1 = this.typeOf(targs.kid(0));
     }
-    if ( target.kind == "int" ) {
-      return RsExpr.of((("(unwrap (to_int (trim " + s.code) + ")))"), target);
+    if ( target_1.kind == "int" ) {
+      return RsExpr.of((("(unwrap (to_int (trim " + s.code) + ")))"), target_1);
     }
-    if ( target.kind == "double" ) {
-      return RsExpr.of((("(unwrap (to_double (trim " + s.code) + ")))"), target);
+    if ( target_1.kind == "double" ) {
+      return RsExpr.of((("(unwrap (to_double (trim " + s.code) + ")))"), target_1);
     }
     this.err(parseCall, "`parse` needs a known target type: `parse::<i64>()` or an annotated `let`");
     return this.unit();
@@ -92895,28 +93062,28 @@ class RustLower  {
       return RsExpr.of((("((strlen " + c) + ") == 0)"), bt);
     }
     if ( name == "parse" ) {
-      let target = RsType.mk("unknown");
+      let target_1 = RsType.mk("unknown");
       const targs = at.kid(1);
       if ( targs.kids.length > 0 ) {
-        target = this.typeOf(targs.kid(0));
+        target_1 = this.typeOf(targs.kid(0));
       } else {
         if ( expect.kind == "result" && false == expect.arg(0).isUnknown() ) {
-          target = expect.arg(0);
+          target_1 = expect.arg(0);
         }
       }
-      if ( target.kind != "int" && target.kind != "double" ) {
+      if ( target_1.kind != "int" && target_1.kind != "double" ) {
         this.err(at, "`parse` needs a known number type: `parse::<i64>()` or an annotated Result");
         return this.unit();
       }
       const ps = this.bindTemp(rv, st, "s");
-      const prt = RsType.of2("result", target, this.ownedString());
+      const prt = RsType.of2("result", target_1, this.ownedString());
       const pcls = this.resultClass(prt);
       const pres = this.tmp("res");
       const pv = this.tmp("p");
       let fnP = "parseI64";
       let fnE = "parseIntErr";
       let ptn = "int";
-      if ( target.kind == "double" ) {
+      if ( target_1.kind == "double" ) {
         fnP = "parseF64";
         fnE = "parseFloatErr";
         ptn = "double";
@@ -94443,36 +94610,36 @@ class RustLower  {
     const bt = RsType.mk("bool");
     const et = e.ty;
     if ( name == "collect" ) {
-      let target = expect;
+      let target_1 = expect;
       const ta = at.kid(1);
       if ( ta.kids.length > 0 ) {
-        target = this.typeOf(ta.kid(0));
+        target_1 = this.typeOf(ta.kid(0));
       }
-      if ( target.kind == "string" ) {
+      if ( target_1.kind == "string" ) {
         decls.push(("def " + res) + ":string \"\"");
         this.out.line(((((res + " = (") + res) + " + ") + e.code) + ")");
-        return this.simpleExpr(res, target);
+        return this.simpleExpr(res, target_1);
       }
-      if ( target.kind == "map" || target.kind == "set" ) {
-        decls.push(((("def " + res) + ":") + this.rtype(target)) + this.initSuffix(target));
-        if ( target.kind == "set" ) {
+      if ( target_1.kind == "map" || target_1.kind == "set" ) {
+        decls.push(((("def " + res) + ":") + this.rtype(target_1)) + this.initSuffix(target_1));
+        if ( target_1.kind == "set" ) {
           this.out.line(((("set " + res) + " ") + e.code) + " true");
         } else {
           this.out.line(this.mapSetLine(
             res,
-            target,
+            target_1,
             (e.code + ".f0"),
             (e.code + ".f1")
           ));
         }
-        return this.simpleExpr(res, target);
+        return this.simpleExpr(res, target_1);
       }
-      if ( target.kind != "vec" || target.arg(0).isUnknown() ) {
-        target = RsType.of1("vec", et);
+      if ( target_1.kind != "vec" || target_1.arg(0).isUnknown() ) {
+        target_1 = RsType.of1("vec", et);
       }
-      decls.push((("def " + res) + ":") + this.rtype(target));
+      decls.push((("def " + res) + ":") + this.rtype(target_1));
       this.out.line((("push " + res) + " ") + e.code);
-      return this.simpleExpr(res, target);
+      return this.simpleExpr(res, target_1);
     }
     if ( name == "sum" || name == "product" ) {
       let t = et;
@@ -94756,6 +94923,370 @@ class RustLower  {
     this.err(n, "`?` needs a Result or an Option");
     return this.unit();
   };
+  lowerNative (m, expect) {
+    const p = new RustParser(m.value);
+    const arms = p.parseNativeArms();
+    // Loop start
+    for ( const pe of p.errors) {
+      this.err(m, "in native!: " + pe);
+    }
+    let want = this.target;
+    if ( want == "typescript" ) {
+      want = "es6";
+    }
+    let code = "";
+    let found = false;
+    let listed = [];
+    // Loop start
+    for ( const arm of arms.kids) {
+      const an = RustLower.targetAlias(arm.name);
+      listed.push(an);
+      if ( an == want && arm.kind == "native_arm" ) {
+        const ex = arm.kid(0);
+        if ( ex.kind != "lit" || false == ex.hasMod("str") ) {
+          this.err(arm, ("the `" + arm.name) + "` arm of native! must be a string literal of target code");
+          return this.unit();
+        }
+        code = ex.value;
+        found = true;
+      }
+    }
+    if ( false == found ) {
+      this.err(m, ((("native! has no arm for the target `" + want) + "` (it has ") + listed.join(", ")) + ")");
+      return this.unit();
+    }
+    let pieces = [];
+    let names = [];
+    let cur = "";
+    let i = 0;
+    const n = code.length;
+    while (i < n) {
+      const c = code.substring(i, i + 1 );
+      if ( (c == "{" && i + 1 < n) && code.substring(i + 1, i + 2 ) == "{" ) {
+        cur = cur + "{";
+        i = i + 2;
+        continue;
+      }
+      if ( (c == "}" && i + 1 < n) && code.substring(i + 1, i + 2 ) == "}" ) {
+        cur = cur + "}";
+        i = i + 2;
+        continue;
+      }
+      if ( c == "{" ) {
+        const close = code.substring(i, n ).indexOf("}");
+        if ( close < 0 ) {
+          this.err(m, "native!: an unclosed `{` in the target code (write `{{` for a brace)");
+          return this.unit();
+        }
+        pieces.push(cur);
+        cur = "";
+        names.push(code.substring(i + 1, i + close ).trim());
+        i = (i + close) + 1;
+        continue;
+      }
+      cur = cur + c;
+      i = i + 1;
+    };
+    pieces.push(cur);
+    let argCodes = [];
+    let argTypes = [];
+    // Loop start
+    for ( const nm of names) {
+      const l = this.scope.lookup(nm);
+      if ( typeof(l) === "undefined" ) {
+        this.err(m, ("native!: `{" + nm) + "}` is not a local or a parameter");
+        return this.unit();
+      }
+      const lv = l;
+      argCodes.push(lv.rname);
+      argTypes.push(lv.ty);
+    }
+    this.nativeN = this.nativeN + 1;
+    const op = "rs_native_" + (this.nativeN.toString());
+    let rt = expect;
+    if ( rt.isUnknown() ) {
+      rt = RsType.mk("unit");
+    }
+    let rts = this.rtype(rt);
+    if ( rt.kind == "unit" ) {
+      rts = "void";
+    }
+    let params = [];
+    let k = 0;
+    // Loop start
+    for ( const at of argTypes) {
+      params.push(this.declText("a" + (k.toString()), at));
+      k = k + 1;
+    }
+    let tpl = [];
+    let pk = 0;
+    while (pk < pieces.length) {
+      tpl.push(this.rangerString(pieces[pk]));
+      if ( pk < names.length ) {
+        tpl.push(("(e " + ((pk + 1).toString())) + ")");
+      }
+      pk = pk + 1;
+    };
+    const tplText = tpl.join(" ");
+    let tgt = want;
+    if ( tgt == "" ) {
+      tgt = "*";
+    }
+    this.genOut.push(((((((((("operators {\n  " + op) + " _:") + rts) + " (") + params.join(" ")) + ") {\n    templates {\n      ") + tgt) + " ( ") + tplText) + (" )\n      * ( " + (tplText + " )\n    }\n  }\n}")));
+    let call = op;
+    if ( argCodes.length > 0 ) {
+      call = (op + " ") + argCodes.join(" ");
+    }
+    if ( rt.kind == "unit" ) {
+      return RsExpr.of(call, rt);
+    }
+    return RsExpr.of((("(" + call) + ")"), rt);
+  };
+  addSerializeMethods (s) {
+    if ( s.generics.length > 0 ) {
+      this.err(s.node, "#[ranger::serialize] on a generic struct");
+      return;
+    }
+    s.serialize = true;
+    const tj = new RsFn();
+    tj.name = "to_json";
+    tj.rname = "to_json";
+    tj.owner = s.name;
+    tj.hasSelf = true;
+    tj.hasBody = false;
+    tj.ret = this.ownedString();
+    s.methods.push(tj);
+    const fj = new RsFn();
+    fj.name = "from_json";
+    fj.rname = "from_json";
+    fj.owner = s.name;
+    fj.hasBody = false;
+    const tp = new RsParam();
+    tp.name = "text";
+    tp.ty = RsType.mk("string");
+    fj.params.push(tp);
+    fj.ret = RsType.of2("result", RsType.named(s.name), this.ownedString());
+    s.methods.push(fj);
+  };
+  jsonTmp (base) {
+    this.jsonN = this.jsonN + 1;
+    return ("rs__j" + base) + (this.jsonN.toString());
+  };
+  emitJson (s, cname) {
+    const st = RsType.named(s.name);
+    const rcls = this.resultClass(RsType.of2("result", st, this.ownedString()));
+    let lines = [];
+    lines.push("  fn to_json:string () {");
+    lines.push("    def o:string \"{\"");
+    let first = true;
+    // Loop start
+    for ( const f of s.fields) {
+      let key = this.rangerString((("\"" + f.name) + "\":"));
+      if ( false == first ) {
+        key = this.rangerString(((",\"" + f.name) + "\":"));
+      }
+      first = false;
+      lines.push(("    o = (o + " + key) + ")");
+      this.jsonWrite("this." + this.fieldName(f.name), f.ty, lines, "    ");
+    }
+    lines.push("    return (o + \"}\")");
+    lines.push("  }");
+    lines.push(("  sfn from_json:" + rcls) + " (text:string) {");
+    lines.push("    def p:RsJsonParser (new RsJsonParser(text))");
+    lines.push("    def v:RsJsonValue (p.parse())");
+    lines.push("    if p.failed {");
+    lines.push((("      def r:" + rcls) + " (new ") + (rcls + ")"));
+    lines.push("      r.e = p.err");
+    lines.push("      return r");
+    lines.push("    }");
+    lines.push(("    return (" + cname) + ".rs_from_json_value(v))");
+    lines.push("  }");
+    lines.push(("  sfn rs_from_json_value:" + rcls) + " (v:RsJsonValue) {");
+    lines.push((("    def r:" + rcls) + " (new ") + (rcls + ")"));
+    lines.push("    if (v.kind != \"obj\") {");
+    lines.push("      r.e = \"expected an object\"");
+    lines.push("      return r");
+    lines.push("    }");
+    lines.push((("    def obj:" + cname) + " (new ") + (cname + ")"));
+    // Loop start
+    for ( const f2 of s.fields) {
+      const fv = this.jsonTmp("f");
+      lines.push(((("    def " + fv) + "@(optional):RsJsonValue (v.field(") + this.rangerString(f2.name)) + "))");
+      lines.push(("    if (null? " + fv) + ") {");
+      lines.push("      r.e = " + this.rangerString((("missing field `" + f2.name) + "`")));
+      lines.push("      return r");
+      lines.push("    }");
+      const fu = this.jsonTmp("u");
+      lines.push(((("    def " + fu) + ":RsJsonValue (unwrap ") + fv) + ")");
+      this.jsonRead(
+        fu,
+        f2.ty,
+        "obj." + this.fieldName(f2.name),
+        this.rangerString((("field `" + f2.name) + "`: ")),
+        lines,
+        "    "
+      );
+    }
+    lines.push("    r.ok = true");
+    lines.push("    r.v = obj");
+    lines.push("    return r");
+    lines.push("  }");
+    return lines.join("\n");
+  };
+  jsonWrite (e, t, lines, ind) {
+    const k = t.kind;
+    if ( k == "int" ) {
+      lines.push(((ind + "o = (o + (to_string ") + e) + "))");
+      return;
+    }
+    if ( k == "double" ) {
+      lines.push(((ind + "o = (o + (RsJson.num(") + e) + ")))");
+      return;
+    }
+    if ( k == "bool" ) {
+      lines.push(((ind + "o = (o + (? ") + e) + " \"true\" \"false\"))");
+      return;
+    }
+    if ( k == "string" ) {
+      lines.push(((ind + "o = (o + (RsJson.quote(") + e) + ")))");
+      return;
+    }
+    if ( k == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      const ns = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+      if ( ns.serialize ) {
+        const nt = this.jsonTmp("n");
+        lines.push((((ind + "def ") + nt) + ":") + ((this.rtype(t) + " ") + e));
+        lines.push(((ind + "o = (o + (") + nt) + ".to_json()))");
+        return;
+      }
+    }
+    if ( k == "vec" ) {
+      const et = t.arg(0);
+      const ev = this.jsonTmp("e");
+      const iv = this.jsonTmp("i");
+      lines.push(ind + "o = (o + \"[\")");
+      lines.push(((((((ind + "for ") + e) + " ") + ev) + ":") + this.rtype(et)) + ((" " + iv) + " {"));
+      lines.push(((ind + "  if (") + iv) + " > 0) {");
+      lines.push(ind + "    o = (o + \",\")");
+      lines.push(ind + "  }");
+      this.jsonWrite(ev, et, lines, ind + "  ");
+      lines.push(ind + "}");
+      lines.push(ind + "o = (o + \"]\")");
+      return;
+    }
+    if ( k == "opt" ) {
+      const it = t.arg(0);
+      lines.push(((ind + "if (null? ") + e) + ") {");
+      lines.push(ind + "  o = (o + \"null\")");
+      lines.push(ind + "} {");
+      const uv = this.jsonTmp("o");
+      lines.push((((((ind + "  def ") + uv) + ":") + this.rtype(it)) + " (unwrap ") + (e + ")"));
+      this.jsonWrite(uv, it, lines, ind + "  ");
+      lines.push(ind + "}");
+      return;
+    }
+    this.err(new RustNode("none"), ("#[ranger::serialize]: a field of type `" + t.rust()) + "` (i64, f64, bool, String, Vec, Option and serialized structs are)");
+  };
+  jsonRead (j, t, target, prefix, lines, ind) {
+    const k = t.kind;
+    if ( k == "int" ) {
+      lines.push((((((ind + "if ((") + j) + ".kind != \"num\") || (RsJson.hasFrac(") + j) + ".text)) || (false == (RsJson.intOk(") + (j + ".text)))) {"));
+      lines.push(((ind + "  r.e = (") + prefix) + " + \"expected an integer\")");
+      lines.push(ind + "  return r");
+      lines.push(ind + "}");
+      lines.push((((ind + target) + " = (RsJson.toInt(") + j) + ".text))");
+      return;
+    }
+    if ( k == "double" ) {
+      lines.push(((ind + "if (") + j) + ".kind != \"num\") {");
+      lines.push(((ind + "  r.e = (") + prefix) + " + \"expected a number\")");
+      lines.push(ind + "  return r");
+      lines.push(ind + "}");
+      lines.push((((ind + target) + " = (RsJson.toDouble(") + j) + ".text))");
+      return;
+    }
+    if ( k == "bool" ) {
+      lines.push(((ind + "if (") + j) + ".kind != \"bool\") {");
+      lines.push(((ind + "  r.e = (") + prefix) + " + \"expected a boolean\")");
+      lines.push(ind + "  return r");
+      lines.push(ind + "}");
+      lines.push((((ind + target) + " = ") + j) + ".b");
+      return;
+    }
+    if ( k == "string" ) {
+      lines.push(((ind + "if (") + j) + ".kind != \"str\") {");
+      lines.push(((ind + "  r.e = (") + prefix) + " + \"expected a string\")");
+      lines.push(ind + "  return r");
+      lines.push(ind + "}");
+      lines.push((((ind + target) + " = ") + j) + ".text");
+      return;
+    }
+    if ( k == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      const ns = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+      if ( ns.serialize ) {
+        const rt = RsType.of2("result", t, this.ownedString());
+        const rc = this.resultClass(rt);
+        const rv = this.jsonTmp("r");
+        lines.push(((((((ind + "def ") + rv) + ":") + rc) + " (") + this.className(t.name)) + ((".rs_from_json_value(" + j) + "))"));
+        lines.push(((ind + "if (false == ") + rv) + ".ok) {");
+        lines.push(((((ind + "  r.e = (") + prefix) + " + ") + rv) + ".e)");
+        lines.push(ind + "  return r");
+        lines.push(ind + "}");
+        lines.push((((ind + target) + " = ") + rv) + ".v");
+        return;
+      }
+    }
+    if ( k == "vec" ) {
+      const et = t.arg(0);
+      lines.push(((ind + "if (") + j) + ".kind != \"arr\") {");
+      lines.push(((ind + "  r.e = (") + prefix) + " + \"expected an array\")");
+      lines.push(ind + "  return r");
+      lines.push(ind + "}");
+      const av = this.jsonTmp("a");
+      lines.push((((ind + "def ") + av) + ":") + this.rtype(t));
+      const itv = this.jsonTmp("it");
+      const iv = this.jsonTmp("i");
+      lines.push(((((((ind + "for ") + j) + ".items ") + itv) + ":RsJsonValue ") + iv) + " {");
+      const elv = this.jsonTmp("el");
+      lines.push((ind + "  def ") + this.fieldDecl(elv, et));
+      const ip = ((("(" + prefix) + " + (\"item \" + ((to_string ") + iv) + ") + \": \")))";
+      this.jsonRead(itv, et, elv, ip, lines, ind + "  ");
+      lines.push((((ind + "  push ") + av) + " ") + elv);
+      lines.push(ind + "}");
+      lines.push(((ind + target) + " = ") + av);
+      return;
+    }
+    if ( k == "opt" ) {
+      const it2 = t.arg(0);
+      lines.push(((ind + "if (") + j) + ".kind != \"null\") {");
+      const ov = this.jsonTmp("ov");
+      lines.push((ind + "  def ") + this.fieldDecl(ov, it2));
+      this.jsonRead(j, it2, ov, prefix, lines, ind + "  ");
+      lines.push((((ind + "  ") + target) + " = ") + ov);
+      lines.push(ind + "}");
+      return;
+    }
+    this.err(new RustNode("none"), ("#[ranger::serialize]: a field of type `" + t.rust()) + "` (i64, f64, bool, String, Vec, Option and serialized structs are)");
+  };
+  lowerTree (m, expect) {
+    const p = new RustParser(m.value);
+    const body = p.parseExpr();
+    // Loop start
+    for ( const pe of p.errors) {
+      this.err(m, "in tree!: " + pe);
+    }
+    if ( body.kind != "struct_lit" ) {
+      this.err(m, "tree! holds one struct literal: `tree! { Node { field: value, children: [ … ] } }`");
+      return this.unit();
+    }
+    return this.lowerExpr(body, expect);
+  };
+  rangerString (s) {
+    let t = s.split("\\").join("\\\\");
+    t = t.split("\"").join("\\\"");
+    t = t.split("\n").join("\\n");
+    return ("\"" + t) + "\"";
+  };
   lowerMacroStmt (m) {
     const name = m.name;
     if ( ((name == "write" || name == "writeln") && this.displayFormatter != "") && m.kids.length >= 1 ) {
@@ -94773,6 +95304,13 @@ class RustLower  {
         text = ("(" + text) + " + \"\\n\")";
       }
       this.out.line(("rs__out = (rs__out + " + text) + ")");
+      return true;
+    }
+    if ( name == "native" || name == "ranger::native" ) {
+      const nv = this.lowerNative(m, RsType.mk("unit"));
+      if ( nv.code != "" ) {
+        this.out.line(nv.code);
+      }
       return true;
     }
     if ( ((name == "println" || name == "print") || name == "eprintln") || name == "eprint" ) {
@@ -94832,6 +95370,12 @@ class RustLower  {
   };
   lowerMacroExpr (m, expect) {
     const name = m.name;
+    if ( name == "native" || name == "ranger::native" ) {
+      return this.lowerNative(m, expect);
+    }
+    if ( name == "tree" || name == "ranger::tree" ) {
+      return this.lowerTree(m, expect);
+    }
     if ( name == "format" ) {
       if ( m.kids.length == 0 ) {
         this.err(m, "the arguments of `format!` do not parse as expressions");
@@ -94873,8 +95417,18 @@ class RustLower  {
     const fmt = fmtN.value;
     let args = [];
     let i = 1;
+    const several = kids.length > 2;
     while (i < kids.length) {
-      const a = this.lowerExpr(kids[i], RsType.mk("unknown"));
+      let a = this.lowerExpr(kids[i], RsType.mk("unknown"));
+      if ( (several && false == a.simple) && a.code.indexOf("(") >= 0 ) {
+        const ak = a.ty.kind;
+        if ( ((false == a.ty.isUnknown() && ak != "unit") && ak != "fn") && ak != "none" ) {
+          const an = this.bindTemp(a, a.ty, "fa");
+          const ab = RsExpr.of(an, a.ty);
+          ab.simple = true;
+          a = ab;
+        }
+      }
       args.push(a);
       i = i + 1;
     };
@@ -95897,6 +96451,21 @@ RustLower.joinPath = function(dir, name) {
   }
   return (dir + "/") + name;
 };
+RustLower.targetAlias = function(t) {
+  if ( t == "js" || t == "javascript" ) {
+    return "es6";
+  }
+  if ( t == "java" ) {
+    return "java7";
+  }
+  if ( t == "swift" ) {
+    return "swift6";
+  }
+  if ( t == "ts" ) {
+    return "typescript";
+  }
+  return t;
+};
 class CompilerResults  {
   constructor() {
     this.ctx = undefined;
@@ -96132,6 +96701,17 @@ class VirtualCompiler  {
     if ( RustLower.isRustFile(the_file) ) {
       rustOriginal = mainSource;
       const rl = new RustLower();
+      const lowerLang = params.getParam("l");
+      if ( (typeof(lowerLang) !== "undefined" && lowerLang != null )  ) {
+        rl.setTarget(lowerLang);
+      } else {
+        const lowerDetected = this.detectLanguageFromExtension(the_target);
+        if ( lowerDetected.length > 0 ) {
+          rl.setTarget(lowerDetected);
+        } else {
+          rl.setTarget("es6");
+        }
+      }
       rl.begin(mainSource, the_file);
       while (rl.hasPendingModule()) {
         const modFiles = rl.nextModuleFiles();

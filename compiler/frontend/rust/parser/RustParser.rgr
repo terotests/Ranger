@@ -318,6 +318,28 @@ class RustParser {
 
   ; --------------------------------------------------------------- file
 
+  ; The arms of `ranger::native!(rust: expr, es6: "code", …)` (R7): a
+  ; `native` node whose kids are `native_arm`s named by target, each holding
+  ; its expression (a string literal for every target but rust).
+  fn parseNativeArms:RustNode () {
+    def n:RustNode (this.node("native"))
+    while (false == (this.atEnd())) {
+      def before:int pos
+      def arm:RustNode (this.node("native_arm"))
+      arm.name = (this.identText())
+      this.expectP(":")
+      arm.add((this.parseExpr()))
+      n.add((this.done(arm)))
+      if (false == (this.eatP(","))) {
+        break
+      }
+      if (pos == before) {
+        pos = pos + 1
+      }
+    }
+    return (this.done(n))
+  }
+
   fn parseFile:RustNode () {
     def f:RustNode (this.node("file"))
     this.innerAttrs(f)

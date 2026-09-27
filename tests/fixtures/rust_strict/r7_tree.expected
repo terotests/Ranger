@@ -1,0 +1,7 @@
+<page width=640>
+  <h1 bold>Report
+  <list>
+    <item>first
+    <item color=red>second
+  <footer width=320>
+6 nodes

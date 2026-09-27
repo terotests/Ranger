@@ -1,11 +1,12 @@
 # PLAN_RUST_SYNTAX — strict Rust modules beside `.rgr` modules
 
-> **Status: stages R0–R6 done (§9.1–§9.4): `rgrc file.rs` compiles a strict
+> **Status: stages R0–R7 done (§9.1–§9.5): `rgrc file.rs` compiles a strict
 > module, its output equals the rustc build's on es6, python, go, cpp, java7,
 > kotlin, csharp, dart, scala and php (§9.2.1), move
 > and borrow errors are reported, the `ranger` prelude crate exists,
 > rustdoc is read as the API documentation, and a crate can mix `.rs` and
-> `.rgr` modules (§9.4). R7 onwards is design.** Measurements in §5 and the rustc checks in §2 were run
+> `.rgr` modules (§9.4), and the Ranger attributes and macros work on every
+> target (§9.5). R8 is design.** Measurements in §5 and the rustc checks in §2 were run
 > on this checkout with rustc 1.94.1.
 
 Ranger gets a second source form: **`.rs` files that are valid Rust**. They
@@ -165,10 +166,10 @@ fn main() {
 | lambdas | closures; `Box<dyn Fn(T) -> U>` as a stored type |
 | `try` / `throw` | `Result<T, E>` and `?`, lowered to exceptions where the target has them |
 | `print x` | `println!("{}", x)`; Ranger understands `format!` / `println!` with `{}` and `{:?}` |
-| `@(weak)` | `Weak<T>` in the type (plus `#[ranger::weak]` only where the intent is not visible in the type) |
-| `@(late)` | `#[ranger::late]` on an `Option` field |
-| `@serialize` | `#[ranger::serialize]` |
-| `if_rust { … }` | `#[ranger::target(rust)] { … }` / `ranger::native!` |
+| `@(weak)` | `Weak<T>` in the type (plus `#[ranger::weak]` only where the intent is not visible in the type, with `#[ranger::fields]` on the struct) |
+| `@(late)` | `#[ranger::late]` on an `Option` field (with `#[ranger::fields]` on the struct) |
+| `@serialize` | `#[ranger::serialize]`: `to_json` / `from_json` |
+| `if_rust { … }` | `#[ranger::target(rust)]` on an item / `ranger::native!(rust: …, es6: "…")` |
 | `doc { … }` | rustdoc, §4 |
 
 ### 3.4 The subset
@@ -344,7 +345,7 @@ crate.
 | R4 | Prelude crate `ranger`: type names, ordered `Map`, the operator layer, strings per §5 | **done**, §9.2 |
 | R5 | rustdoc reading (§4) | **done**, §9.3 |
 | R6 | Mixed programs: `import_rgr!`, Rust module output, `.rgr` ↔ `.rs` imports, `Cargo.toml` packages, the §2.3 boundary | **done**, §9.4 |
-| R7 | Attributes and macros: `weak`, `late`, `serialize`, `target`, `tree!`, `native!` | each has a fixture on every target |
+| R7 | Attributes and macros: `weak`, `late`, `serialize`, `target`, `tree!`, `native!` | **done**, §9.5 |
 | R8 | A real module: port one self-contained `lib/` or gallery module to `.rs`; `cargo check` of all strict fixtures in CI | the ported module replaces its `.rgr` original and its tests pass on the targets they ran on before |
 
 ### R1 in steps
@@ -615,6 +616,47 @@ Not done in R6:
   read as unknown types.
 - An `sfn make` in a `.rgr` class cannot be called even from Ranger code
   (`Class X does not have method make`); the fixture uses `create`.
+
+### 9.5 R7 results
+
+Each has a fixture in `tests/fixtures/rust_strict/` that prints what rustc
+prints on the ten targets.
+
+| Form | Rust side (prelude crate) | Ranger side | Fixture |
+| --- | --- | --- | --- |
+| `Weak<RefCell<T>>` field, `Rc::downgrade`, `w.upgrade()` | std | `@(optional weak)` / `@(weak)`; `downgrade` is the object, `upgrade()` an optional of it | `r7_weak` |
+| `#[ranger::weak]` on a field whose type is `Option<Rc<…>>` | removed by `#[ranger::fields]` on the struct | `@(optional weak)` | `r7_weak` |
+| `#[ranger::late]` on an `Option` field | removed by `#[ranger::fields]` | `@(late)` on the field; a local copy stays optional | `r7_late` |
+| `#[ranger::target(es6, python)]` on an item or a method | kept only when `rust` is listed | kept only for the listed targets (`js`, `java`, `swift`, `ts` are aliases) | `r7_target` |
+| `ranger::native!(rust: expr, es6: "code {x}", …)` | the `rust` arm (`macro_rules!`) | an operator of the file whose template is the arm of the target; `{x}` is the local `x`, `{{` a brace; the type is the one expected (`let n: int = …`), none as a statement; a missing arm is an error | `r7_native` |
+| `ranger::tree! { Node { tag: "a", children: [Node { … }] } }` | `macro_rules!`: omitted fields `..Default::default()`, `[…]` `vec!`, values `.into()`; the structs derive `Default` | the body is a struct literal: `new` with the field defaults, then the given fields | `r7_tree` |
+| `#[ranger::serialize]` on a struct | a proc macro writes `to_json`, `from_json(&str) -> Result<Self, String>` and the `ranger::json` traits | the lowering writes the same two methods on the class, with `lib/rust/RsJson.rgr` (writer and parser) | `r7_serialize` |
+
+Notes:
+
+- rustc runs no attribute macro on a struct field ("expected non-macro
+  attribute"), so the field markers are read from, and removed by, an
+  attribute on the struct: `#[ranger::fields]`, or `#[ranger::serialize]`.
+  The lowering refuses a marker without one.
+- `tree!` is a macro this plan listed without a meaning. It is taken as the
+  declarative object tree Ranger UI code builds by hand (a node, its
+  attributes, its children), which in Rust needs a literal per level and
+  `..Default::default()` in each.
+- `serialize` does not use Ranger's `@serialize(true)` (`toDictionary` /
+  `fromDictionary` over the JSON operators): those print numbers and spacing
+  the target's way. The Rust-syntax form writes compact JSON with floats as
+  Rust's `{}` prints them, and both parsers report the same messages
+  (``missing field `y` ``, ``field `corners`: item 0: field `y`: expected
+  an integer``, `invalid JSON at 15`, positions in characters). Field types:
+  i64, f64, bool, String, Vec, Option and serialized structs.
+- With more than one argument, `println!` / `format!` bind each argument
+  that calls something to a temporary first, so it is evaluated left to
+  right as in Rust; the C++ `+` chain it was written into evaluated the calls
+  in either order (`r7_late` printed `6 3` there).
+- Writer limits worked around: the Scala writer has no `continue` in a
+  `for` loop and does not escape `object` as a method name (RsJson avoids
+  both), and the Kotlin writer cannot loop over an expression
+  (`for (strsplit s ",") p` in the compiler itself binds the list first).
 
 ## 10. Open questions
 

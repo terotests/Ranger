@@ -87,6 +87,12 @@ follow them exactly.
   Rust module for that macro (every class an `Rc<RefCell<T>>`, no inner
   attributes). Fixtures: `tests/fixtures/rust_strict/crates/`,
   `tests/fixtures/rust_mixed/` (a cargo crate with `build.rs`).
+- Ranger-only information in a `.rs` file (R7): `#[ranger::weak]` /
+  `#[ranger::late]` on fields (the struct needs `#[ranger::fields]`: rustc
+  runs no attribute macro on a field), `#[ranger::target(es6, go)]` on items,
+  `ranger::native!(rust: expr, es6: "code {x}")`, `ranger::tree! { … }` and
+  `#[ranger::serialize]` (`to_json` / `from_json`, JSON in
+  `lib/rust/RsJson.rgr` and the prelude crate's `json.rs`, kept alike).
 - `npm run selfhost:check:<target>` compiles the compiler for a target and
   runs that target's compiler or syntax check over it (`cpp`, `go`, `java`,
   `python`, `rust`, `llvm`, …).
