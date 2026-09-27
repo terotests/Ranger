@@ -800,11 +800,12 @@ describe("`example` names a function, not a string", () => {
     }
   });
 
-  it("keeps a class that holds an example AND something else", () => {
+  it("keeps the entry point when main follows an examples class", () => {
     // The removal is per class and conservative: a class is only dropped when
-    // every member is an example. A top-level `sfn` attaches to the LAST
-    // declared class, so `main` landing in an examples class must not delete
-    // the program's entry point.
+    // every member is an example. A top-level `sfn` used to attach to the
+    // LAST declared class, so `main` landed in the examples class and kept it.
+    // It now belongs to the file's module class (ISSUES.md #104): the
+    // examples class goes, and the entry point stays.
     const src = fs
       .readFileSync(path.join(ROOT, "tests/fixtures/api_docs_example.rgr"), "utf8")
       .replace(/class App \{[\s\S]*?\n\}/, "")
@@ -822,8 +823,8 @@ describe("`example` names a function, not a string", () => {
       const code = read(r.dir, "x.kt");
       // the example body is still gone
       expect(code).not.toContain("greetExample");
-      // but the class survives, because main lives in it
-      expect(code).toContain("class GreeterExamples");
+      // main is not in it any more, so the examples-only class is dropped
+      expect(code).not.toContain("class GreeterExamples");
       expect(code).toContain("fun main(");
     } finally {
       fs.rmSync(tmp, { force: true });

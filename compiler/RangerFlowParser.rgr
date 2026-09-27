@@ -2522,6 +2522,28 @@ class RangerFlowParser {
           return true
         })
     }
+    ; a top-level function of a module (ISSUES.md #104): `area(r)` is
+    ; `geometry.area(r)`
+    if (((array_length fnNode.ns) <= 1) && ((strlen fnNode.vref) > 0)) {
+      def srcFile:string ""
+      if (!null? node.code) {
+        srcFile = node.code.filename
+      }
+      def modCls:string (ModuleFunctions.resolve(fnNode.vref srcFile ctx))
+      if ((strlen modCls) > 0) {
+        if ((charAt modCls 0) == (charcode "?")) {
+          ctx.addError(node ((("`" + fnNode.vref) + "` is a function of several modules: call it as ") + (join (strsplit (substring modCls 1 (strlen modCls)) "|") ("." + fnNode.vref + " or "))) + ("." + fnNode.vref))
+          return true
+        }
+        def fname:string fnNode.vref
+        fnNode.vref = ((modCls + ".") + fname)
+        def newNs:[string]
+        push newNs modCls
+        push newNs fname
+        fnNode.ns = newNs
+        return (this.cmdLocalCall(node ctx wr))
+      }
+    }
     ; Everything that used to follow the `return false` above was unreachable
     ; -- an error report and an expects_error check that no run could ever
     ; reach. Dead on every target; javac is the only one that says so.
@@ -5040,3 +5062,4 @@ Import "FlowCollect.rgr"
 Import "FlowTypes.rgr"
 Import "FlowTree.rgr"
 Import "FlowImport.rgr"
+Import "./modules/ModuleFunctions.rgr"

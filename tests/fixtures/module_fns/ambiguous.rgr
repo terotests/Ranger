@@ -1,0 +1,7 @@
+Import "dup_a.rgr"
+Import "dup_b.rgr"
+class Main {
+  sfn main:void () {
+    print (label())
+  }
+}

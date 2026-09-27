@@ -340,6 +340,8 @@ extension RangerFlowParser {
       }
 
       def rn:CodeNode (unwrap parser.rootNode)
+      ; top-level functions join the file's module class (ISSUES.md #104)
+      ModuleFunctions.hoist(rn import_file ctx)
       
       ; Add the imported file's directory to library paths for recursive imports
       if ((strlen importFileDir) > 0) {

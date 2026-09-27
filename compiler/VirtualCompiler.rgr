@@ -927,6 +927,8 @@ class tester {
 
     ; --- context for the compilation ---
     def appCtx@(lives):RangerAppWriterContext (new RangerAppWriterContext()))
+    ; top-level functions join the file's module class (ISSUES.md #104)
+    ModuleFunctions.hoist(root the_file appCtx)
     appCtx.env = env
     appCtx.libraryPaths = langFileDirs
     set appCtx.compilerSettings "package" package_name

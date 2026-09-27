@@ -6672,6 +6672,8 @@ class RangerAppWriterContext  {
     this.opNs = [];
     this.langFilePath = "";     /* note: unused */
     this.libraryPaths = [];
+    this.moduleFunctions = {};
+    this.fileModules = {};
     this.outputPath = "";     /* note: unused */
     this.counters = new TypeCounts();
     this.parser = undefined;
@@ -17113,6 +17115,26 @@ class RangerFlowParser  {
         return true;
       }
     }
+    if ( fnNode.ns.length <= 1 && fnNode.vref.length > 0 ) {
+      let srcFile = "";
+      if ( (typeof(node.code) !== "undefined" && node.code != null )  ) {
+        srcFile = node.code.filename;
+      }
+      const modCls = ModuleFunctions.resolve(fnNode.vref, srcFile, ctx);
+      if ( modCls.length > 0 ) {
+        if ( modCls.charCodeAt(0 ) == ("?".charCodeAt(0)) ) {
+          ctx.addError(node, ((("`" + fnNode.vref) + "` is a function of several modules: call it as ") + modCls.substring(1, modCls.length ).split("|").join(("." + fnNode.vref) + " or ")) + ("." + fnNode.vref));
+          return true;
+        }
+        const fname = fnNode.vref;
+        fnNode.vref = (modCls + ".") + fname;
+        let newNs = [];
+        newNs.push(modCls);
+        newNs.push(fname);
+        fnNode.ns = newNs;
+        return this.cmdLocalCall(node, ctx, wr);
+      }
+    }
     return false;
   };
   transformImmutableAssigment (node) {
@@ -24767,6 +24789,7 @@ class RangerFlowParser  {
         fileWr.raw(source_code, false);
       }
       const rn = parser.rootNode;
+      ModuleFunctions.hoist(rn, import_file, ctx);
       if ( importFileDir.length > 0 ) {
         rootCtx.libraryPaths.push(importFileDir);
         if ( ctx.hasCompilerFlag("verbose") ) {
@@ -24789,6 +24812,133 @@ class RangerFlowParser  {
     }
   };
 }
+class ModuleFunctions  {
+}
+ModuleFunctions.moduleClassName = function(fileName) {
+  let base = fileName;
+  const slash = base.lastIndexOf("/");
+  if ( slash >= 0 ) {
+    base = base.substring(slash + 1, base.length );
+  }
+  const bslash = base.lastIndexOf("\\");
+  if ( bslash >= 0 ) {
+    base = base.substring(bslash + 1, base.length );
+  }
+  const dot = base.indexOf(".");
+  if ( dot > 0 ) {
+    base = base.substring(0, dot );
+  }
+  let out = "";
+  const cs = Array.from(base, (rg_c) => rg_c.codePointAt(0));
+  // Loop start
+  for ( const c of cs) {
+    const ok = ((c >= 48 && c <= 57 || c >= 65 && c <= 90) || c >= 97 && c <= 122) || c == 95;
+    if ( ok ) {
+      out = out + String.fromCharCode(c);
+    } else {
+      out = out + "_";
+    }
+  }
+  if ( out == "" ) {
+    out = "module";
+  }
+  const first = out.charCodeAt(0 );
+  if ( first >= 48 && first <= 57 ) {
+    out = "m_" + out;
+  }
+  return out;
+};
+ModuleFunctions.isTopLevelFunction = function(ch) {
+  if ( ch.children.length < 3 ) {
+    return false;
+  }
+  return ch.isFirstVref("fn") || ch.isFirstVref("sfn");
+};
+ModuleFunctions.hoist = function(root, fileName, ctx) {
+  let fns = [];
+  let rest = [];
+  // Loop start
+  for ( const ch of root.children) {
+    if ( ModuleFunctions.isTopLevelFunction(ch) ) {
+      fns.push(ch);
+    } else {
+      rest.push(ch);
+    }
+  }
+  if ( fns.length == 0 ) {
+    return;
+  }
+  const modName = ModuleFunctions.moduleClassName(fileName);
+  let body;
+  // Loop start
+  for ( const ch2 of rest) {
+    if ( (ch2.isFirstVref("class") && ch2.children.length >= 3) && (typeof(body) === "undefined") ) {
+      const nm = ch2.getSecond();
+      if ( nm.vref == modName ) {
+        const last = ch2.children[(ch2.children.length - 1)];
+        body = last;
+      }
+    }
+  }
+  if ( typeof(body) === "undefined" ) {
+    const src = new SourceCode(("class " + modName) + " {\n}\n");
+    src.filename = fileName;
+    const parser = new RangerLispParser(src);
+    parser.parse(false);
+    if ( (typeof(parser.rootNode) !== "undefined" && parser.rootNode != null )  ) {
+      const pr = parser.rootNode;
+      if ( pr.children.length > 0 ) {
+        const clNode = pr.children[0];
+        rest.push(clNode);
+        const last2 = clNode.children[(clNode.children.length - 1)];
+        body = last2;
+      }
+    }
+  }
+  if ( typeof(body) === "undefined" ) {
+    return;
+  }
+  const target = body;
+  const rootCtx = ctx.getRoot();
+  rootCtx.fileModules[fileName] = modName;
+  // Loop start
+  for ( const f of fns) {
+    const head = f.getFirst();
+    head.vref = "sfn";
+    target.children.push(f);
+    f.parent = target;
+    const nameNode = f.getSecond();
+    const fname = nameNode.vref;
+    if ( ( typeof(rootCtx.moduleFunctions[fname] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, fname) ) ) {
+      const prev = ( Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, fname) ? rootCtx.moduleFunctions[fname] : undefined );
+      const parts = prev.split("|");
+      if ( parts.indexOf(modName) < 0 ) {
+        rootCtx.moduleFunctions[fname] = (prev + "|") + modName;
+      }
+    } else {
+      rootCtx.moduleFunctions[fname] = modName;
+    }
+  }
+  root.children = rest;
+};
+ModuleFunctions.resolve = function(name, fileName, ctx) {
+  const rootCtx = ctx.getRoot();
+  if ( false == ( typeof(rootCtx.moduleFunctions[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, name) ) ) {
+    return "";
+  }
+  const mods = ( Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, name) ? rootCtx.moduleFunctions[name] : undefined );
+  const parts = mods.split("|");
+  if ( ( typeof(rootCtx.fileModules[fileName] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.fileModules, fileName) ) ) {
+    const own = ( Object.prototype.hasOwnProperty.call(rootCtx.fileModules, fileName) ? rootCtx.fileModules[fileName] : undefined );
+    if ( parts.indexOf(own) >= 0 ) {
+      return own;
+    }
+  }
+  if ( parts.length == 1 ) {
+    return parts[0];
+  }
+  return "?" + mods;
+};
 class TFactory  {
 }
 TFactory.new_class_signature = function(node, ctx, wr) {
@@ -93976,6 +94126,7 @@ class VirtualCompiler  {
       }
     }
     const appCtx = new RangerAppWriterContext();
+    ModuleFunctions.hoist(root, the_file, appCtx);
     appCtx.env = env;
     appCtx.libraryPaths = langFileDirs;
     appCtx.compilerSettings["package"] = package_name;

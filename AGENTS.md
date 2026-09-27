@@ -162,6 +162,11 @@ Short form:
   `return (this.helper())` still works and is what older code says. A callee
   that is **not** dotted — a lambda held in a local — still needs its own
   parentheses: `return (fn1(3))`. See ISSUES.md #63.
+- **Top-level functions.** A `fn` at the top level of `geometry.rgr` is the
+  static method `geometry.fn`; `area(r)` without a receiver finds it from any
+  file unless a local, parameter or method of the caller has that name, or two
+  modules define it (ISSUES.md #104). A top-level `fn main:void ()` is the
+  entry point.
 - **One statement per line.** `{ def c:int 5 return c }` is a parse error.
 - **Never start a statement with a parenthesised receiver.** Bind first:
   `def recv:T (expr)` then `recv.method()`. Inside an expression it is fine,
