@@ -262,6 +262,7 @@ class RsEnum {
   def derives:[string]
   def methods:[RsFn]
   def traits:[string]
+  def node@(optional):RustNode
 
   fn variant@(optional):RsVariant (n:string) {
     def none@(optional):RsVariant

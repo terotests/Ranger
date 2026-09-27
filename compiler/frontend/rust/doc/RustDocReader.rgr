@@ -1,0 +1,537 @@
+; SPDX-License-Identifier: MIT
+
+; rustdoc read as Ranger documentation (PLAN_RUST_SYNTAX.md §4, stage R5).
+;
+; The `///` lines of an item and a few attributes become the `doc { … }`
+; tail of the Ranger declaration the item lowers to, so `-apidoc` and every
+; writer's doc comments work for a `.rs` module as they do for `.rgr`:
+;
+;   text before the first `# ` heading     description
+;   `# Arguments` / `# Parameters`         param entries (`* `name` - text`)
+;   `# Returns`                            returns
+;   `# Errors`, `# Panics`                 throws
+;   `# Examples`                           a rust code block is compiled as an
+;                                          example function; `text`/`ignore`
+;                                          blocks are literal examples
+;   `# Stability`                          experimental (text kept)
+;   other headings                         kept in the description
+;   [`Name`] links                         see "Name"
+;   pub                                    public
+;   #[doc(hidden)]                         internal
+;   #[deprecated(since, note)]             deprecated { since description }
+;   #[ranger::doc(since = …, category = …, platform = …, experimental,
+;                 replaced_by = …)]        since / category / platform /
+;                                          experimental / deprecated { use }
+
+Import "../ast/RustAst.rgr"
+
+class RustDocParam {
+  def name:string ""
+  def text:string ""
+}
+
+class RustDocInfo {
+  def description:string ""
+  def params:[RustDocParam]
+  def returns:string ""
+  def throws:[string]
+  def see:[string]
+  def literalExamples:[string]
+  ; rust code blocks, compiled as example functions by the lowering
+  def codeExamples:[string]
+  ; the names the lowering gave those functions
+  def exampleNames:[string]
+  def isPublic:boolean false
+  def isInternal:boolean false
+  def isExperimental:boolean false
+  def since:string ""
+  def category:string ""
+  def platform:string ""
+  def deprecated:boolean false
+  def depSince:string ""
+  def depNote:string ""
+  def depUse:string ""
+
+  fn isEmpty:boolean () {
+    if ((strlen description) > 0) {
+      return false
+    }
+    if (((array_length params) > 0) || ((array_length throws) > 0) || ((array_length see) > 0)) {
+      return false
+    }
+    if (((array_length literalExamples) > 0) || ((array_length exampleNames) > 0)) {
+      return false
+    }
+    if (((strlen returns) > 0) || ((strlen since) > 0) || ((strlen category) > 0) || ((strlen platform) > 0)) {
+      return false
+    }
+    return (((false == isPublic) && (false == isInternal)) && ((false == isExperimental) && (false == deprecated)))
+  }
+}
+
+class RustDocReader {
+
+  ; A Ranger string literal.
+  sfn lit:string (s:string) {
+    def a:string (replace s "\\" "\\\\")
+    def b:string (replace a "\"" "\\\"")
+    def c:string (replace b "\r" "")
+    def d:string (replace c "\n" "\\n")
+    def e:string (replace d "\t" "\\t")
+    return (("\"" + e) + "\"")
+  }
+
+  ; The text of `"…"` with its escapes read.
+  sfn unquote:string (s0:string) {
+    def s:string (trim s0)
+    if ((strlen s) < 2) {
+      return s
+    }
+    if ((substring s 0 1) != "\"") {
+      return s
+    }
+    def out:string ""
+    def i:int 1
+    def n:int ((strlen s) - 1)
+    while (i < n) {
+      def c:string (substring s i (i + 1))
+      if ((c == "\\") && ((i + 1) < n)) {
+        def e:string (substring s (i + 1) (i + 2))
+        if (e == "n") {
+          out = out + "\n"
+        } {
+          if (e == "t") {
+            out = out + "\t"
+          } {
+            out = out + e
+          }
+        }
+        i = i + 2
+        continue
+      }
+      out = out + c
+      i = i + 1
+    }
+    return out
+  }
+
+  ; `(since = "1.2", experimental, note = "…")` as key -> value; a bare flag
+  ; maps to "".
+  sfn attrArgs:[string:string] (value:string) {
+    def res:[string:string]
+    def v:string (trim value)
+    if (((strlen v) >= 2) && ((substring v 0 1) == "(")) {
+      v = (substring v 1 ((strlen v) - 1))
+    }
+    ; split on commas outside quotes
+    def parts:[string]
+    def cur:string ""
+    def inQ:boolean false
+    def i:int 0
+    def n:int (strlen v)
+    while (i < n) {
+      def c:string (substring v i (i + 1))
+      if (inQ) {
+        cur = cur + c
+        if ((c == "\\") && ((i + 1) < n)) {
+          cur = cur + (substring v (i + 1) (i + 2))
+          i = i + 2
+          continue
+        }
+        if (c == "\"") {
+          inQ = false
+        }
+      } {
+        if (c == "\"") {
+          inQ = true
+          cur = cur + c
+        } {
+          if (c == ",") {
+            push parts cur
+            cur = ""
+          } {
+            cur = cur + c
+          }
+        }
+      }
+      i = i + 1
+    }
+    if ((strlen (trim cur)) > 0) {
+      push parts cur
+    }
+    for parts p:string pi {
+      def eq:int (indexOf p "=")
+      if (eq > 0) {
+        set res (trim (substring p 0 eq)) (RustDocReader.unquote((substring p (eq + 1) (strlen p))))
+      } {
+        def flag:string (trim p)
+        if ((strlen flag) > 0) {
+          set res flag ""
+        }
+      }
+    }
+    return res
+  }
+
+  ; The doc text of the item: its `///` lines (or `#[doc = "…"]`), one
+  ; leading space taken off each.
+  sfn docLines:[string] (attrs:[RustNode]) {
+    def lines:[string]
+    for attrs a:RustNode i {
+      if (a.name != "doc") {
+        continue
+      }
+      def v:string a.value
+      if ((indexOf a.mods "sugared") >= 0) {
+        def parts:[string] (strsplit v "\n")
+        for parts ln:string li {
+          if (((strlen ln) > 0) && ((substring ln 0 1) == " ")) {
+            push lines (substring ln 1 (strlen ln))
+          } {
+            push lines ln
+          }
+        }
+        continue
+      }
+      def t:string (trim v)
+      if (((strlen t) > 0) && ((substring t 0 1) == "=")) {
+        def txt:string (RustDocReader.unquote((substring t 1 (strlen t))))
+        def parts2:[string] (strsplit txt "\n")
+        for parts2 ln2:string lj {
+          if (((strlen ln2) > 0) && ((substring ln2 0 1) == " ")) {
+            push lines (substring ln2 1 (strlen ln2))
+          } {
+            push lines ln2
+          }
+        }
+      }
+    }
+    return lines
+  }
+
+  sfn joinTrim:string (lines:[string]) {
+    def a:int 0
+    def b:int (array_length lines)
+    while ((a < b) && ((strlen (trim (itemAt lines a))) == 0)) {
+      a = a + 1
+    }
+    while ((b > a) && ((strlen (trim (itemAt lines (b - 1)))) == 0)) {
+      b = b - 1
+    }
+    def keep:[string]
+    def i:int a
+    while (i < b) {
+      push keep (itemAt lines i)
+      i = i + 1
+    }
+    return (join keep "\n")
+  }
+
+  ; `* `name` - text`, `- `name`: text`, `* name - text`, with the lines
+  ; under a bullet continuing it.
+  sfn readParams:void (info:RustDocInfo lines:[string]) {
+    def cur@(optional):RustDocParam
+    for lines raw:string i {
+      def ln:string (trim raw)
+      if ((strlen ln) == 0) {
+        continue
+      }
+      def first:string (substring ln 0 1)
+      if ((first == "*") || (first == "-")) {
+        def rest:string (trim (substring ln 1 (strlen ln)))
+        def name:string ""
+        def text:string ""
+        if (((strlen rest) > 0) && ((substring rest 0 1) == "`")) {
+          def close:int (indexOf (substring rest 1 (strlen rest)) "`")
+          if (close >= 0) {
+            name = (substring rest 1 (close + 1))
+            text = (substring rest (close + 2) (strlen rest))
+          }
+        } {
+          def sp:int (indexOf rest " ")
+          if (sp > 0) {
+            name = (substring rest 0 sp)
+            text = (substring rest sp (strlen rest))
+          } {
+            name = rest
+          }
+        }
+        text = (trim text)
+        ; the separator: `-`, `:`, `–`
+        if (((strlen text) > 0) && (((substring text 0 1) == "-") || ((substring text 0 1) == ":"))) {
+          text = (trim (substring text 1 (strlen text)))
+        }
+        def p:RustDocParam (new RustDocParam())
+        p.name = name
+        p.text = text
+        push info.params p
+        cur = p
+        continue
+      }
+      if (!null? cur) {
+        def cp:RustDocParam (unwrap cur)
+        cp.text = ((cp.text + " ") + ln)
+      }
+    }
+  }
+
+  ; Code fences of a section: rust ones are code examples, the others
+  ; literal.
+  sfn readExamples:void (info:RustDocInfo lines:[string] textOut:[string]) {
+    def inFence:boolean false
+    def isCode:boolean false
+    def buf:[string]
+    for lines raw:string i {
+      def ln:string (trim raw)
+      if ((strlen ln) >= 3) {
+        if ((substring ln 0 3) == "```") {
+          if (inFence) {
+            def body:string (join buf "\n")
+            if isCode {
+              push info.codeExamples body
+            } {
+              push info.literalExamples body
+            }
+            def emptyBuf:[string]
+            buf = emptyBuf
+            inFence = false
+            continue
+          }
+          inFence = true
+          def lang:string (trim (substring ln 3 (strlen ln)))
+          isCode = ((lang == "") || (lang == "rust") || ((indexOf lang "rust,") == 0) || (lang == "no_run") || (lang == "should_panic"))
+          if ((indexOf lang "ignore") >= 0) {
+            isCode = false
+          }
+          continue
+        }
+      }
+      if inFence {
+        ; `# hidden` lines of a doctest are code too
+        def hidden:boolean (raw == "#")
+        if (((strlen raw) >= 2) && ((substring raw 0 2) == "# ")) {
+          hidden = true
+        }
+        if (isCode && hidden) {
+          if (raw == "#") {
+            push buf ""
+          } {
+            push buf (substring raw 2 (strlen raw))
+          }
+        } {
+          push buf raw
+        }
+      } {
+        push textOut raw
+      }
+    }
+  }
+
+  ; [`Name`] and [`Name::item`] links: the names, once each.
+  sfn readLinks:void (info:RustDocInfo text0:string) {
+    def text:string text0
+    def at:int (indexOf text "[`")
+    while (at >= 0) {
+      def restS:string (substring text (at + 2) (strlen text))
+      def close:int (indexOf restS "`]")
+      if (close < 0) {
+        return
+      }
+      def name:string (substring restS 0 close)
+      if (((strlen name) > 0) && ((indexOf info.see name) < 0) && ((indexOf name " ") < 0)) {
+        push info.see name
+      }
+      text = (substring restS (close + 2) (strlen restS))
+      at = (indexOf text "[`")
+    }
+  }
+
+  sfn read:RustDocInfo (attrs:[RustNode] isPub:boolean) {
+    def info:RustDocInfo (new RustDocInfo())
+    info.isPublic = isPub
+    def lines:[string] (RustDocReader.docLines(attrs))
+    ; sections
+    def desc:[string]
+    def section:string ""
+    def secLines:[string]
+    def i:int 0
+    def n:int (array_length lines)
+    def inFence:boolean false
+    while (i <= n) {
+      def ln:string ""
+      def isHeading:boolean false
+      if (i < n) {
+        ln = (itemAt lines i)
+        def tl:string (trim ln)
+        if (((strlen tl) >= 3) && ((substring tl 0 3) == "```")) {
+          inFence = (false == inFence)
+        }
+        if ((false == inFence) && ((strlen ln) > 2) && ((substring ln 0 2) == "# ")) {
+          isHeading = true
+        }
+      }
+      if ((i == n) || isHeading) {
+        ; close the section read so far
+        def low:string (to_lowercase section)
+        if (section == "") {
+          for secLines d:string di {
+            push desc d
+          }
+        } {
+          if ((low == "arguments") || (low == "parameters") || (low == "params")) {
+            RustDocReader.readParams(info secLines)
+          } {
+            if (low == "returns") {
+              info.returns = (RustDocReader.joinTrim(secLines))
+            } {
+              if ((low == "errors") || (low == "panics")) {
+                def t:string (RustDocReader.joinTrim(secLines))
+                if (low == "panics") {
+                  t = ("Panics: " + t)
+                }
+                push info.throws t
+              } {
+                if ((low == "examples") || (low == "example")) {
+                  def leftover:[string]
+                  RustDocReader.readExamples(info secLines leftover)
+                } {
+                  if (low == "stability") {
+                    info.isExperimental = true
+                  }
+                  push desc ""
+                  push desc ("# " + section)
+                  for secLines d2:string dj {
+                    push desc d2
+                  }
+                }
+              }
+            }
+          }
+        }
+        if (i == n) {
+          i = i + 1
+          continue
+        }
+        section = (trim (substring ln 2 (strlen ln)))
+        def emptyL:[string]
+        secLines = emptyL
+        i = i + 1
+        continue
+      }
+      push secLines ln
+      i = i + 1
+    }
+    info.description = (RustDocReader.joinTrim(desc))
+    RustDocReader.readLinks(info (join lines "\n"))
+    ; attributes
+    for attrs a:RustNode ai {
+      if ((a.name == "doc") && ((indexOf a.mods "sugared") < 0)) {
+        def dargs:[string:string] (RustDocReader.attrArgs(a.value))
+        if (has dargs "hidden") {
+          info.isInternal = true
+          info.isPublic = false
+        }
+      }
+      if (a.name == "deprecated") {
+        info.deprecated = true
+        def dv:string (trim a.value)
+        if (((strlen dv) > 0) && ((substring dv 0 1) == "=")) {
+          info.depNote = (RustDocReader.unquote((substring dv 1 (strlen dv))))
+        } {
+          def dp:[string:string] (RustDocReader.attrArgs(dv))
+          if (has dp "since") {
+            info.depSince = (unwrap (get dp "since"))
+          }
+          if (has dp "note") {
+            info.depNote = (unwrap (get dp "note"))
+          }
+        }
+      }
+      if ((a.name == "ranger::doc") || (a.name == "ranger :: doc")) {
+        def rp:[string:string] (RustDocReader.attrArgs(a.value))
+        if (has rp "since") {
+          info.since = (unwrap (get rp "since"))
+        }
+        if (has rp "category") {
+          info.category = (unwrap (get rp "category"))
+        }
+        if (has rp "platform") {
+          info.platform = (unwrap (get rp "platform"))
+        }
+        if (has rp "experimental") {
+          info.isExperimental = true
+        }
+        if (has rp "replaced_by") {
+          info.deprecated = true
+          info.depUse = (unwrap (get rp "replaced_by"))
+        }
+      }
+    }
+    return info
+  }
+
+  ; The `doc { … }` tail, starting with " doc {", or "" when there is
+  ; nothing to say. `ind` is the indentation of the declaration.
+  sfn tail:string (info:RustDocInfo ind:string) {
+    if (info.isEmpty()) {
+      return ""
+    }
+    def b:string ((ind + "  ") + "")
+    def lines:[string]
+    push lines " doc {"
+    if info.isPublic {
+      push lines (b + "public")
+    }
+    if info.isInternal {
+      push lines (b + "internal")
+    }
+    if info.isExperimental {
+      push lines (b + "experimental")
+    }
+    if ((strlen info.description) > 0) {
+      push lines ((b + "description ") + (RustDocReader.lit(info.description)))
+    }
+    for info.params p:RustDocParam pi {
+      push lines (((b + "param ") + p.name) + (" " + (RustDocReader.lit(p.text))))
+    }
+    if ((strlen info.returns) > 0) {
+      push lines ((b + "returns ") + (RustDocReader.lit(info.returns)))
+    }
+    for info.throws t:string ti {
+      push lines ((b + "throws ") + (RustDocReader.lit(t)))
+    }
+    if ((strlen info.since) > 0) {
+      push lines ((b + "since ") + (RustDocReader.lit(info.since)))
+    }
+    for info.see s:string si {
+      push lines ((b + "see ") + (RustDocReader.lit(s)))
+    }
+    for info.exampleNames en:string ei {
+      push lines ((b + "example ") + en)
+    }
+    for info.literalExamples le:string li {
+      push lines ((b + "example ") + (RustDocReader.lit(le)))
+    }
+    if ((strlen info.category) > 0) {
+      push lines ((b + "category ") + (RustDocReader.lit(info.category)))
+    }
+    if ((strlen info.platform) > 0) {
+      push lines ((b + "platform ") + (RustDocReader.lit(info.platform)))
+    }
+    if info.deprecated {
+      push lines (b + "deprecated {")
+      if ((strlen info.depSince) > 0) {
+        push lines (((b + "  since ") + (RustDocReader.lit(info.depSince))))
+      }
+      if ((strlen info.depUse) > 0) {
+        push lines (((b + "  use ") + (RustDocReader.lit(info.depUse))))
+      }
+      if ((strlen info.depNote) > 0) {
+        push lines (((b + "  description ") + (RustDocReader.lit(info.depNote))))
+      }
+      push lines (b + "}")
+    }
+    push lines (ind + "}")
+    return (join lines "\n")
+  }
+}

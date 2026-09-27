@@ -85376,6 +85376,7 @@ class RsEnum  {
     this.derives = [];
     this.methods = [];
     this.traits = [];
+    this.node = undefined;
   }
   variant (n) {
     let none;
@@ -85748,6 +85749,500 @@ RustPreludeOps.returns = function() {
   m["write_file"] = "void";
   return m;
 };
+class RustDocParam  {
+  constructor() {
+    this.name = "";
+    this.text = "";
+  }
+}
+class RustDocInfo  {
+  constructor() {
+    this.description = "";
+    this.params = [];
+    this.returns = "";
+    this.throws = [];
+    this.see = [];
+    this.literalExamples = [];
+    this.codeExamples = [];
+    this.exampleNames = [];
+    this.isPublic = false;
+    this.isInternal = false;
+    this.isExperimental = false;
+    this.since = "";
+    this.category = "";
+    this.platform = "";
+    this.deprecated = false;
+    this.depSince = "";
+    this.depNote = "";
+    this.depUse = "";
+  }
+  isEmpty () {
+    if ( this.description.length > 0 ) {
+      return false;
+    }
+    if ( (this.params.length > 0 || this.throws.length > 0) || this.see.length > 0 ) {
+      return false;
+    }
+    if ( this.literalExamples.length > 0 || this.exampleNames.length > 0 ) {
+      return false;
+    }
+    if ( ((this.returns.length > 0 || this.since.length > 0) || this.category.length > 0) || this.platform.length > 0 ) {
+      return false;
+    }
+    return (false == this.isPublic && false == this.isInternal) && (false == this.isExperimental && false == this.deprecated);
+  };
+}
+class RustDocReader  {
+}
+RustDocReader.lit = function(s) {
+  const a = s.split("\\").join("\\\\");
+  const b = a.split("\"").join("\\\"");
+  const c = b.split("\r").join("");
+  const d = c.split("\n").join("\\n");
+  const e = d.split("\t").join("\\t");
+  return ("\"" + e) + "\"";
+};
+RustDocReader.unquote = function(s0) {
+  const s = s0.trim();
+  if ( s.length < 2 ) {
+    return s;
+  }
+  if ( s.substring(0, 1 ) != "\"" ) {
+    return s;
+  }
+  let out = "";
+  let i = 1;
+  const n = s.length - 1;
+  while (i < n) {
+    const c = s.substring(i, i + 1 );
+    if ( c == "\\" && i + 1 < n ) {
+      const e = s.substring(i + 1, i + 2 );
+      if ( e == "n" ) {
+        out = out + "\n";
+      } else {
+        if ( e == "t" ) {
+          out = out + "\t";
+        } else {
+          out = out + e;
+        }
+      }
+      i = i + 2;
+      continue;
+    }
+    out = out + c;
+    i = i + 1;
+  };
+  return out;
+};
+RustDocReader.attrArgs = function(value) {
+  let res = {};
+  let v = value.trim();
+  if ( v.length >= 2 && v.substring(0, 1 ) == "(" ) {
+    v = v.substring(1, v.length - 1 );
+  }
+  let parts = [];
+  let cur = "";
+  let inQ = false;
+  let i = 0;
+  const n = v.length;
+  while (i < n) {
+    const c = v.substring(i, i + 1 );
+    if ( inQ ) {
+      cur = cur + c;
+      if ( c == "\\" && i + 1 < n ) {
+        cur = cur + v.substring(i + 1, i + 2 );
+        i = i + 2;
+        continue;
+      }
+      if ( c == "\"" ) {
+        inQ = false;
+      }
+    } else {
+      if ( c == "\"" ) {
+        inQ = true;
+        cur = cur + c;
+      } else {
+        if ( c == "," ) {
+          parts.push(cur);
+          cur = "";
+        } else {
+          cur = cur + c;
+        }
+      }
+    }
+    i = i + 1;
+  };
+  if ( cur.trim().length > 0 ) {
+    parts.push(cur);
+  }
+  // Loop start
+  for ( const p of parts) {
+    const eq = p.indexOf("=");
+    if ( eq > 0 ) {
+      res[p.substring(0, eq ).trim()] = RustDocReader.unquote(p.substring(eq + 1, p.length ));
+    } else {
+      const flag = p.trim();
+      if ( flag.length > 0 ) {
+        res[flag] = "";
+      }
+    }
+  }
+  return res;
+};
+RustDocReader.docLines = function(attrs) {
+  let lines = [];
+  // Loop start
+  for ( const a of attrs) {
+    if ( a.name != "doc" ) {
+      continue;
+    }
+    const v = a.value;
+    if ( a.mods.indexOf("sugared") >= 0 ) {
+      const parts = v.split("\n");
+      // Loop start
+      for ( const ln of parts) {
+        if ( ln.length > 0 && ln.substring(0, 1 ) == " " ) {
+          lines.push(ln.substring(1, ln.length ));
+        } else {
+          lines.push(ln);
+        }
+      }
+      continue;
+    }
+    const t = v.trim();
+    if ( t.length > 0 && t.substring(0, 1 ) == "=" ) {
+      const txt = RustDocReader.unquote(t.substring(1, t.length ));
+      const parts2 = txt.split("\n");
+      // Loop start
+      for ( const ln2 of parts2) {
+        if ( ln2.length > 0 && ln2.substring(0, 1 ) == " " ) {
+          lines.push(ln2.substring(1, ln2.length ));
+        } else {
+          lines.push(ln2);
+        }
+      }
+    }
+  }
+  return lines;
+};
+RustDocReader.joinTrim = function(lines) {
+  let a = 0;
+  let b = lines.length;
+  while (a < b && lines[a].trim().length == 0) {
+    a = a + 1;
+  };
+  while (b > a && lines[(b - 1)].trim().length == 0) {
+    b = b - 1;
+  };
+  let keep = [];
+  let i = a;
+  while (i < b) {
+    keep.push(lines[i]);
+    i = i + 1;
+  };
+  return keep.join("\n");
+};
+RustDocReader.readParams = function(info, lines) {
+  let cur;
+  // Loop start
+  for ( const raw of lines) {
+    const ln = raw.trim();
+    if ( ln.length == 0 ) {
+      continue;
+    }
+    const first = ln.substring(0, 1 );
+    if ( first == "*" || first == "-" ) {
+      const rest = ln.substring(1, ln.length ).trim();
+      let name = "";
+      let text = "";
+      if ( rest.length > 0 && rest.substring(0, 1 ) == "`" ) {
+        const close = rest.substring(1, rest.length ).indexOf("`");
+        if ( close >= 0 ) {
+          name = rest.substring(1, close + 1 );
+          text = rest.substring(close + 2, rest.length );
+        }
+      } else {
+        const sp = rest.indexOf(" ");
+        if ( sp > 0 ) {
+          name = rest.substring(0, sp );
+          text = rest.substring(sp, rest.length );
+        } else {
+          name = rest;
+        }
+      }
+      text = text.trim();
+      if ( text.length > 0 && (text.substring(0, 1 ) == "-" || text.substring(0, 1 ) == ":") ) {
+        text = text.substring(1, text.length ).trim();
+      }
+      const p = new RustDocParam();
+      p.name = name;
+      p.text = text;
+      info.params.push(p);
+      cur = p;
+      continue;
+    }
+    if ( (typeof(cur) !== "undefined" && cur != null )  ) {
+      const cp = cur;
+      cp.text = (cp.text + " ") + ln;
+    }
+  }
+};
+RustDocReader.readExamples = function(info, lines, textOut) {
+  let inFence = false;
+  let isCode = false;
+  let buf = [];
+  // Loop start
+  for ( const raw of lines) {
+    const ln = raw.trim();
+    if ( ln.length >= 3 ) {
+      if ( ln.substring(0, 3 ) == "```" ) {
+        if ( inFence ) {
+          const body = buf.join("\n");
+          if ( isCode ) {
+            info.codeExamples.push(body);
+          } else {
+            info.literalExamples.push(body);
+          }
+          let emptyBuf = [];
+          buf = emptyBuf;
+          inFence = false;
+          continue;
+        }
+        inFence = true;
+        const lang = ln.substring(3, ln.length ).trim();
+        isCode = (((lang == "" || lang == "rust") || lang.indexOf("rust,") == 0) || lang == "no_run") || lang == "should_panic";
+        if ( lang.indexOf("ignore") >= 0 ) {
+          isCode = false;
+        }
+        continue;
+      }
+    }
+    if ( inFence ) {
+      let hidden = raw == "#";
+      if ( raw.length >= 2 && raw.substring(0, 2 ) == "# " ) {
+        hidden = true;
+      }
+      if ( isCode && hidden ) {
+        if ( raw == "#" ) {
+          buf.push("");
+        } else {
+          buf.push(raw.substring(2, raw.length ));
+        }
+      } else {
+        buf.push(raw);
+      }
+    } else {
+      textOut.push(raw);
+    }
+  }
+};
+RustDocReader.readLinks = function(info, text0) {
+  let text = text0;
+  let at = text.indexOf("[`");
+  while (at >= 0) {
+    const restS = text.substring(at + 2, text.length );
+    const close = restS.indexOf("`]");
+    if ( close < 0 ) {
+      return;
+    }
+    const name = restS.substring(0, close );
+    if ( (name.length > 0 && info.see.indexOf(name) < 0) && name.indexOf(" ") < 0 ) {
+      info.see.push(name);
+    }
+    text = restS.substring(close + 2, restS.length );
+    at = text.indexOf("[`");
+  };
+};
+RustDocReader.read = function(attrs, isPub) {
+  const info = new RustDocInfo();
+  info.isPublic = isPub;
+  const lines = RustDocReader.docLines(attrs);
+  let desc = [];
+  let section = "";
+  let secLines = [];
+  let i = 0;
+  const n = lines.length;
+  let inFence = false;
+  while (i <= n) {
+    let ln = "";
+    let isHeading = false;
+    if ( i < n ) {
+      ln = lines[i];
+      const tl = ln.trim();
+      if ( tl.length >= 3 && tl.substring(0, 3 ) == "```" ) {
+        inFence = false == inFence;
+      }
+      if ( (false == inFence && ln.length > 2) && ln.substring(0, 2 ) == "# " ) {
+        isHeading = true;
+      }
+    }
+    if ( i == n || isHeading ) {
+      const low = section.toLowerCase();
+      if ( section == "" ) {
+        // Loop start
+        for ( const d of secLines) {
+          desc.push(d);
+        }
+      } else {
+        if ( (low == "arguments" || low == "parameters") || low == "params" ) {
+          RustDocReader.readParams(info, secLines);
+        } else {
+          if ( low == "returns" ) {
+            info.returns = RustDocReader.joinTrim(secLines);
+          } else {
+            if ( low == "errors" || low == "panics" ) {
+              let t = RustDocReader.joinTrim(secLines);
+              if ( low == "panics" ) {
+                t = "Panics: " + t;
+              }
+              info.throws.push(t);
+            } else {
+              if ( low == "examples" || low == "example" ) {
+                let leftover = [];
+                RustDocReader.readExamples(info, secLines, leftover);
+              } else {
+                if ( low == "stability" ) {
+                  info.isExperimental = true;
+                }
+                desc.push("");
+                desc.push("# " + section);
+                // Loop start
+                for ( const d2 of secLines) {
+                  desc.push(d2);
+                }
+              }
+            }
+          }
+        }
+      }
+      if ( i == n ) {
+        i = i + 1;
+        continue;
+      }
+      section = ln.substring(2, ln.length ).trim();
+      let emptyL = [];
+      secLines = emptyL;
+      i = i + 1;
+      continue;
+    }
+    secLines.push(ln);
+    i = i + 1;
+  };
+  info.description = RustDocReader.joinTrim(desc);
+  RustDocReader.readLinks(info, lines.join("\n"));
+  // Loop start
+  for ( const a of attrs) {
+    if ( a.name == "doc" && a.mods.indexOf("sugared") < 0 ) {
+      const dargs = RustDocReader.attrArgs(a.value);
+      if ( ( typeof(dargs["hidden"] ) != "undefined" && Object.prototype.hasOwnProperty.call(dargs, "hidden") ) ) {
+        info.isInternal = true;
+        info.isPublic = false;
+      }
+    }
+    if ( a.name == "deprecated" ) {
+      info.deprecated = true;
+      const dv = a.value.trim();
+      if ( dv.length > 0 && dv.substring(0, 1 ) == "=" ) {
+        info.depNote = RustDocReader.unquote(dv.substring(1, dv.length ));
+      } else {
+        const dp = RustDocReader.attrArgs(dv);
+        if ( ( typeof(dp["since"] ) != "undefined" && Object.prototype.hasOwnProperty.call(dp, "since") ) ) {
+          info.depSince = ( Object.prototype.hasOwnProperty.call(dp, "since") ? dp["since"] : undefined );
+        }
+        if ( ( typeof(dp["note"] ) != "undefined" && Object.prototype.hasOwnProperty.call(dp, "note") ) ) {
+          info.depNote = ( Object.prototype.hasOwnProperty.call(dp, "note") ? dp["note"] : undefined );
+        }
+      }
+    }
+    if ( a.name == "ranger::doc" || a.name == "ranger :: doc" ) {
+      const rp = RustDocReader.attrArgs(a.value);
+      if ( ( typeof(rp["since"] ) != "undefined" && Object.prototype.hasOwnProperty.call(rp, "since") ) ) {
+        info.since = ( Object.prototype.hasOwnProperty.call(rp, "since") ? rp["since"] : undefined );
+      }
+      if ( ( typeof(rp["category"] ) != "undefined" && Object.prototype.hasOwnProperty.call(rp, "category") ) ) {
+        info.category = ( Object.prototype.hasOwnProperty.call(rp, "category") ? rp["category"] : undefined );
+      }
+      if ( ( typeof(rp["platform"] ) != "undefined" && Object.prototype.hasOwnProperty.call(rp, "platform") ) ) {
+        info.platform = ( Object.prototype.hasOwnProperty.call(rp, "platform") ? rp["platform"] : undefined );
+      }
+      if ( ( typeof(rp["experimental"] ) != "undefined" && Object.prototype.hasOwnProperty.call(rp, "experimental") ) ) {
+        info.isExperimental = true;
+      }
+      if ( ( typeof(rp["replaced_by"] ) != "undefined" && Object.prototype.hasOwnProperty.call(rp, "replaced_by") ) ) {
+        info.deprecated = true;
+        info.depUse = ( Object.prototype.hasOwnProperty.call(rp, "replaced_by") ? rp["replaced_by"] : undefined );
+      }
+    }
+  }
+  return info;
+};
+RustDocReader.tail = function(info, ind) {
+  if ( info.isEmpty() ) {
+    return "";
+  }
+  const b = (ind + "  ") + "";
+  let lines = [];
+  lines.push(" doc {");
+  if ( info.isPublic ) {
+    lines.push(b + "public");
+  }
+  if ( info.isInternal ) {
+    lines.push(b + "internal");
+  }
+  if ( info.isExperimental ) {
+    lines.push(b + "experimental");
+  }
+  if ( info.description.length > 0 ) {
+    lines.push((b + "description ") + RustDocReader.lit(info.description));
+  }
+  // Loop start
+  for ( const p of info.params) {
+    lines.push(((b + "param ") + p.name) + (" " + RustDocReader.lit(p.text)));
+  }
+  if ( info.returns.length > 0 ) {
+    lines.push((b + "returns ") + RustDocReader.lit(info.returns));
+  }
+  // Loop start
+  for ( const t of info.throws) {
+    lines.push((b + "throws ") + RustDocReader.lit(t));
+  }
+  if ( info.since.length > 0 ) {
+    lines.push((b + "since ") + RustDocReader.lit(info.since));
+  }
+  // Loop start
+  for ( const s of info.see) {
+    lines.push((b + "see ") + RustDocReader.lit(s));
+  }
+  // Loop start
+  for ( const en of info.exampleNames) {
+    lines.push((b + "example ") + en);
+  }
+  // Loop start
+  for ( const le of info.literalExamples) {
+    lines.push((b + "example ") + RustDocReader.lit(le));
+  }
+  if ( info.category.length > 0 ) {
+    lines.push((b + "category ") + RustDocReader.lit(info.category));
+  }
+  if ( info.platform.length > 0 ) {
+    lines.push((b + "platform ") + RustDocReader.lit(info.platform));
+  }
+  if ( info.deprecated ) {
+    lines.push(b + "deprecated {");
+    if ( info.depSince.length > 0 ) {
+      lines.push((b + "  since ") + RustDocReader.lit(info.depSince));
+    }
+    if ( info.depUse.length > 0 ) {
+      lines.push((b + "  use ") + RustDocReader.lit(info.depUse));
+    }
+    if ( info.depNote.length > 0 ) {
+      lines.push((b + "  description ") + RustDocReader.lit(info.depNote));
+    }
+    lines.push(b + "}");
+  }
+  lines.push(ind + "}");
+  return lines.join("\n");
+};
 class RustLower  {
   constructor() {
     this.errors = [];
@@ -85794,6 +86289,8 @@ class RustLower  {
     this.genericEnv = {};
     this.fnLocals = [];
     this.clonerOut = [];
+    this.moduleDoc = new RustDocInfo();
+    this.docExamples = {};
     this.fnNameOverride = "";
     this.hoistQueue = [];
     this.tempTypes = {};
@@ -85926,9 +86423,18 @@ class RustLower  {
     if ( this.errors.length > 0 ) {
       return "";
     }
+    this.moduleDoc = RustDocReader.read(root.attrs, false);
+    this.addDocExamples(root);
+    if ( this.errors.length > 0 ) {
+      return "";
+    }
     this.collect(root);
     if ( this.errors.length > 0 ) {
       return "";
+    }
+    const camel = RustLower.moduleCamelFor(name);
+    if ( ((false == ( typeof(this.structs[camel] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, camel) ) && false == ( typeof(this.enums[camel] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, camel) )) && false == ( typeof(this.traits[camel] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.traits, camel) )) && this.className(camel) == camel ) {
+      this.modClass = camel;
     }
     const text = this.emitAll();
     if ( this.errors.length > 0 ) {
@@ -85988,6 +86494,7 @@ class RustLower  {
         e.name = it.name;
         e.derives = this.deriveList(it.attrs);
         e.generics = this.genericNames(it.kid(0));
+        e.node = it;
         this.enums[it.name] = e;
         this.enumOrder.push(it.name);
       }
@@ -86762,7 +87269,7 @@ class RustLower  {
       }
       lines.push(((("    return (new " + name) + "(") + cargs.join(" ")) + "))");
       lines.push("  }");
-      lines.push("}");
+      lines.push("}" + this.helperDoc((("A Rust tuple `" + t.rust()) + "`: its parts are f0, f1, …")));
       this.genOut.push(lines.join("\n"));
     }
     return name;
@@ -87285,7 +87792,7 @@ class RustLower  {
         lines.push("  def " + this.fieldDecl("e", et));
       }
       lines.push(((("  sfn zeroOf:" + name) + " () {\n    return (new ") + name) + ")\n  }");
-      lines.push("}");
+      lines.push("}" + this.helperDoc((("A Rust `" + t.rust()) + "`: when ok, the value is v; else the error is e")));
       this.genOut.push(lines.join("\n"));
     }
     return name;
@@ -87377,7 +87884,11 @@ class RustLower  {
       for ( const v of e.variants) {
         names.push(v.name);
       }
-      lines.push(((("Enum " + cname) + " ( ") + names.join(" ")) + " )");
+      let edoc = "";
+      if ( (typeof(e.node) !== "undefined" && e.node != null )  ) {
+        edoc = this.docTail(e.node, "");
+      }
+      lines.push((((("Enum " + cname) + " ( ") + names.join(" ")) + " )") + edoc);
     } else {
       lines.push(("shape " + cname) + " {");
       // Loop start
@@ -87579,7 +88090,11 @@ class RustLower  {
     lines.push(("class " + cname) + " {");
     // Loop start
     for ( const f of s.fields) {
-      lines.push("  def " + this.fieldDecl(this.fieldName(f.name), this.subst(f.ty, this.genericEnv)));
+      let fdoc = "";
+      if ( (typeof(f.node) !== "undefined" && f.node != null )  ) {
+        fdoc = this.docTail(f.node, "  ");
+      }
+      lines.push(("  def " + this.fieldDecl(this.fieldName(f.name), this.subst(f.ty, this.genericEnv))) + fdoc);
     }
     if ( s.isTuple ) {
       let ps = [];
@@ -87656,7 +88171,11 @@ class RustLower  {
     if ( s.derivesTrait("Debug") && false == this.hasFmt(RsType.named(s.name), "Debug") ) {
       lines.push(this.emitDebugStruct(s, cname));
     }
-    lines.push("}");
+    let sdoc = "";
+    if ( (typeof(s.node) !== "undefined" && s.node != null )  ) {
+      sdoc = this.docTail(s.node, "");
+    }
+    lines.push("}" + sdoc);
     return lines.join("\n");
   };
   structCmp (a, b, t) {
@@ -87911,8 +88430,120 @@ class RustLower  {
       let noEnv = {};
       this.genericEnv = noEnv;
     };
-    lines.push("}");
+    // Loop start
+    for ( const pfn of this.fnOrder) {
+      const pf = ( Object.prototype.hasOwnProperty.call(this.fns, pfn) ? this.fns[pfn] : undefined );
+      if ( (typeof(pf.node) !== "undefined" && pf.node != null )  ) {
+        const pfNode = pf.node;
+        if ( pfNode.hasMod("pub") ) {
+          this.moduleDoc.isPublic = true;
+        }
+      }
+    }
+    lines.push("}" + RustDocReader.tail(this.moduleDoc, ""));
     return lines.join("\n");
+  };
+  docKey (n) {
+    return ((n.line.toString()) + ":") + (n.col.toString());
+  };
+  helperDoc (text) {
+    const info = new RustDocInfo();
+    const descText = text;
+    info.isPublic = true;
+    info.description = descText;
+    return RustDocReader.tail(info, "");
+  };
+  docTail (n, ind) {
+    const info = RustDocReader.read(n.attrs, n.hasMod("pub"));
+    const key = this.docKey(n);
+    if ( ( typeof(this.docExamples[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.docExamples, key) ) ) {
+      const names = ( Object.prototype.hasOwnProperty.call(this.docExamples, key) ? this.docExamples[key] : undefined ).split(" ");
+      // Loop start
+      for ( const en of names) {
+        info.exampleNames.push(en);
+      }
+    }
+    return RustDocReader.tail(info, ind);
+  };
+  addDocExamples (root) {
+    let items = [];
+    // Loop start
+    for ( const it of root.kids) {
+      items.push(it);
+      if ( it.kind == "impl" ) {
+        // Loop start
+        for ( const m of it.kids) {
+          if ( m.kind == "fn" ) {
+            items.push(m);
+          }
+        }
+      }
+    }
+    let src = "";
+    let made = 0;
+    // Loop start
+    for ( const item of items) {
+      const info = RustDocReader.read(item.attrs, false);
+      if ( info.codeExamples.length == 0 ) {
+        continue;
+      }
+      let names = [];
+      // Loop start
+      for ( let ci = 0; ci < info.codeExamples.length; ci++) {
+        var code = info.codeExamples[ci];
+        if ( code.indexOf("fn main") >= 0 ) {
+          continue;
+        }
+        made = made + 1;
+        const fname = (("doc_example_" + this.docExampleStem(item.name)) + "_") + ((ci + 1).toString());
+        names.push(fname);
+        let keep = [];
+        const codeLines = code.split("\n");
+        // Loop start
+        for ( const cl of codeLines) {
+          const tcl = cl.trim();
+          if ( tcl.length >= 4 && tcl.substring(0, 4 ) == "use " ) {
+            continue;
+          }
+          keep.push(cl);
+        }
+        src = ((((src + "fn ") + fname) + "() {\n") + keep.join("\n")) + "\n}\n";
+      }
+      if ( names.length > 0 ) {
+        this.docExamples[this.docKey(item)] = names.join(" ");
+      }
+    }
+    if ( made == 0 ) {
+      return;
+    }
+    const p = new RustParser(src);
+    const exRoot = p.parseFile();
+    // Loop start
+    for ( let ei = 0; ei < p.errors.length; ei++) {
+      var e = p.errors[ei];
+      this.errors.push((this.fileName + ": in a doc example: ") + e);
+    }
+    // Loop start
+    for ( const ex of exRoot.kids) {
+      root.add(ex);
+    }
+  };
+  docExampleStem (n) {
+    let out_1 = "";
+    const cs = Array.from(n, (rg_c) => rg_c.codePointAt(0));
+    // Loop start
+    for ( let i = 0; i < cs.length; i++) {
+      var c = cs[i];
+      if ( c >= 65 && c <= 90 ) {
+        if ( i > 0 ) {
+          out_1 = out_1 + "_";
+        }
+        out_1 = out_1 + String.fromCharCode(c + 32);
+      } else {
+        out_1 = out_1 + String.fromCharCode(c);
+      }
+    }
+    return out_1;
   };
   emitConst (c) {
     this.beginFn();
@@ -88101,7 +88732,11 @@ class RustLower  {
       var b = this.out.lines[j];
       lines.push(b);
     }
-    lines.push("  }");
+    let fnDoc = "";
+    if ( ((this.fnNameOverride == "" && f.fromTrait == "") && false == isFmt) && ((typeof(f.node) !== "undefined" && f.node != null ) ) ) {
+      fnDoc = this.docTail(f.node, "  ");
+    }
+    lines.push("  }" + fnDoc);
     return lines.join("\n");
   };
   lowerBody (body, ret) {
@@ -94029,7 +94664,7 @@ class RustLower  {
     lines.push("    }");
     lines.push("    return o");
     lines.push("  }");
-    lines.push("}");
+    lines.push("}" + this.helperDoc("A ranger::Map: the keys in insertion order are `order`, the values `vals`"));
     this.genOut.push(lines.join("\n"));
     return name;
   };
@@ -94286,6 +94921,22 @@ RustLower.isRustFile = function(name) {
     return false;
   }
   return name.substring(n - 3, n ) == ".rs";
+};
+RustLower.moduleCamelFor = function(name) {
+  const fallback = RustLower.moduleClassFor(name);
+  const stem = fallback.substring(6, fallback.length );
+  const parts = stem.split("_");
+  let out = "";
+  // Loop start
+  for ( const pt of parts) {
+    if ( pt.length > 0 ) {
+      out = out + (pt.substring(0, 1 ).toUpperCase() + pt.substring(1, pt.length ));
+    }
+  }
+  if ( out == "" || out.charCodeAt(0 ) >= 48 && out.charCodeAt(0 ) <= 57 ) {
+    return fallback;
+  }
+  return out;
 };
 RustLower.moduleClassFor = function(name) {
   let base = name;

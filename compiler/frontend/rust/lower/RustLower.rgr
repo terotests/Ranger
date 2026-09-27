@@ -23,6 +23,7 @@ Import "RustTypes.rgr"
 Import "RustOut.rgr"
 Import "RustReserved.rgr"
 Import "RustPreludeOps.rgr"
+Import "../doc/RustDocReader.rgr"
 
 class RustLower {
   def errors:[string]
@@ -213,7 +214,26 @@ class RustLower {
     return ((substring name (n - 3) n) == ".rs")
   }
 
-  ; The module class: `RsMod_<file name>`.
+  ; The module class, which holds the free functions: the file name in
+  ; UpperCamelCase (`geometry.rs` -> `Geometry`, `word_count.rs` ->
+  ; `WordCount`), so the API documentation names the module. The
+  ; `RsMod_<file>` form when that name is taken or reserved.
+  sfn moduleCamelFor:string (name:string) {
+    def fallback:string (RustLower.moduleClassFor(name))
+    def stem:string (substring fallback 6 (strlen fallback))
+    def parts:[string] (strsplit stem "_")
+    def out:string ""
+    for parts pt:string i {
+      if ((strlen pt) > 0) {
+        out = out + ((to_uppercase (substring pt 0 1)) + (substring pt 1 (strlen pt)))
+      }
+    }
+    if ((out == "") || (((charAt out 0) >= 48) && ((charAt out 0) <= 57))) {
+      return fallback
+    }
+    return out
+  }
+
   sfn moduleClassFor:string (name:string) {
     def base:string name
     def slash:int (lastIndexOf base "/")
@@ -248,9 +268,20 @@ class RustLower {
     if ((array_length errors) > 0) {
       return ""
     }
+    ; rustdoc (R5): `//!` for the module class, and each `# Examples` code
+    ; block of an item compiled as an example function
+    moduleDoc = (RustDocReader.read(root.attrs false))
+    this.addDocExamples(root)
+    if ((array_length errors) > 0) {
+      return ""
+    }
     this.collect(root)
     if ((array_length errors) > 0) {
       return ""
+    }
+    def camel:string (RustLower.moduleCamelFor(name))
+    if ((false == (has structs camel)) && (false == (has enums camel)) && (false == (has traits camel)) && ((this.className(camel)) == camel)) {
+      modClass = camel
     }
     def text:string (this.emitAll())
     if ((array_length errors) > 0) {
@@ -312,6 +343,7 @@ class RustLower {
         e.name = it.name
         e.derives = (this.deriveList(it.attrs))
         e.generics = (this.genericNames((it.kid(0))))
+        e.node = it
         set enums it.name e
         push enumOrder it.name
       }
@@ -1095,7 +1127,7 @@ class RustLower {
       }
       push lines (((("    return (new " + name) + "(") + (join cargs " ")) + "))")
       push lines "  }"
-      push lines "}"
+      push lines ("}" + (this.helperDoc((("A Rust tuple `" + (t.rust())) + "`: its parts are f0, f1, …"))))
       push genOut (join lines "\n")
     }
     return name
@@ -1645,7 +1677,7 @@ class RustLower {
         push lines ("  def " + (this.fieldDecl("e" et)))
       }
       push lines (((("  sfn zeroOf:" + name) + " () {\n    return (new ") + name) + ")\n  }")
-      push lines "}"
+      push lines ("}" + (this.helperDoc((("A Rust `" + (t.rust())) + "`: when ok, the value is v; else the error is e"))))
       push genOut (join lines "\n")
     }
     return name
@@ -1745,7 +1777,11 @@ class RustLower {
       for e.variants v:RsVariant i {
         push names v.name
       }
-      push lines (((("Enum " + cname) + " ( ") + (join names " ")) + " )")
+      def edoc:string ""
+      if (!null? e.node) {
+        edoc = (this.docTail((unwrap e.node) ""))
+      }
+      push lines ((((("Enum " + cname) + " ( ") + (join names " ")) + " )") + edoc)
     } {
       push lines (("shape " + cname) + " {")
       for e.variants v2:RsVariant j {
@@ -1937,7 +1973,11 @@ class RustLower {
     def lines:[string]
     push lines (("class " + cname) + " {")
     for s.fields f:RsField i {
-      push lines ("  def " + (this.fieldDecl((this.fieldName(f.name)) (this.subst(f.ty genericEnv)))))
+      def fdoc:string ""
+      if (!null? f.node) {
+        fdoc = (this.docTail((unwrap f.node) "  "))
+      }
+      push lines (("  def " + (this.fieldDecl((this.fieldName(f.name)) (this.subst(f.ty genericEnv))))) + fdoc)
     }
     if (s.isTuple) {
       ; a tuple struct is built by calling it: `Pair(a, b)`
@@ -2000,7 +2040,11 @@ class RustLower {
     if ((s.derivesTrait("Debug")) && (false == (this.hasFmt((RsType.named(s.name)) "Debug")))) {
       push lines (this.emitDebugStruct(s cname))
     }
-    push lines "}"
+    def sdoc:string ""
+    if (!null? s.node) {
+      sdoc = (this.docTail((unwrap s.node) ""))
+    }
+    push lines ("}" + sdoc)
     return (join lines "\n")
   }
 
@@ -2263,8 +2307,130 @@ class RustLower {
       def noEnv:[string:RsType]
       genericEnv = noEnv
     }
-    push lines "}"
+    ; the module is public when it has public functions
+    for fnOrder pfn:string pfi {
+      def pf:RsFn (unwrap (get fns pfn))
+      if (!null? pf.node) {
+        def pfNode:RustNode (unwrap pf.node)
+        if (pfNode.hasMod("pub")) {
+          moduleDoc.isPublic = true
+        }
+      }
+    }
+    push lines ("}" + (RustDocReader.tail(moduleDoc "")))
     return (join lines "\n")
+  }
+
+  ; ---------------------------------------------------------- rustdoc (R5)
+
+  def moduleDoc:RustDocInfo (new RustDocInfo())
+  ; item position -> the example functions made from its doctests
+  def docExamples:[string:string]
+
+  fn docKey:string (n:RustNode) {
+    return (((to_string n.line) + ":") + (to_string n.col))
+  }
+
+  ; A generated class that stands for a Rust type in a signature (a Result,
+  ; a tuple, a Map) is public: a documented public function may take or
+  ; return it, and the API documentation has to name it.
+  fn helperDoc:string (text:string) {
+    def info:RustDocInfo (new RustDocInfo())
+    ; not folded into the `new`: the Rust build passes `info` on as `&mut`,
+    ; and a folded local is bound without `mut`
+    def descText:string text
+    info.isPublic = true
+    info.description = descText
+    return (RustDocReader.tail(info ""))
+  }
+
+  ; The ` doc { … }` tail of an item, or "".
+  fn docTail:string (n:RustNode ind:string) {
+    def info:RustDocInfo (RustDocReader.read(n.attrs (n.hasMod("pub"))))
+    def key:string (this.docKey(n))
+    if (has docExamples key) {
+      def names:[string] (strsplit (unwrap (get docExamples key)) " ")
+      for names en:string ei {
+        push info.exampleNames en
+      }
+    }
+    return (RustDocReader.tail(info ind))
+  }
+
+  ; Each rust code block under `# Examples` becomes a free function
+  ; `doc_example_<item>_<n>`, lowered with the module (so it is type
+  ; checked, as `cargo test` checks a doctest) and named by the item's
+  ; `example` entry. Lines that `use` the crate are left out: every item is
+  ; in scope already.
+  fn addDocExamples:void (root:RustNode) {
+    def items:[RustNode]
+    for root.kids it:RustNode i {
+      push items it
+      if (it.kind == "impl") {
+        for it.kids m:RustNode j {
+          if (m.kind == "fn") {
+            push items m
+          }
+        }
+      }
+    }
+    def src:string ""
+    def made:int 0
+    for items item:RustNode k {
+      def info:RustDocInfo (RustDocReader.read(item.attrs false))
+      if ((array_length info.codeExamples) == 0) {
+        continue
+      }
+      def names:[string]
+      for info.codeExamples code:string ci {
+        if ((indexOf code "fn main") >= 0) {
+          continue
+        }
+        made = made + 1
+        def fname:string ((((("doc_example_" + (this.docExampleStem(item.name))) + "_") + (to_string (ci + 1)))))
+        push names fname
+        def keep:[string]
+        def codeLines:[string] (strsplit code "\n")
+        for codeLines cl:string cli {
+          def tcl:string (trim cl)
+          if (((strlen tcl) >= 4) && ((substring tcl 0 4) == "use ")) {
+            continue
+          }
+          push keep cl
+        }
+        src = (((((src + "fn ") + fname) + "() {\n") + (join keep "\n")) + "\n}\n")
+      }
+      if ((array_length names) > 0) {
+        set docExamples (this.docKey(item)) (join names " ")
+      }
+    }
+    if (made == 0) {
+      return
+    }
+    def p:RustParser (new RustParser(src))
+    def exRoot:RustNode (p.parseFile())
+    for p.errors e:string ei {
+      push errors (((fileName + ": in a doc example: ") + e))
+    }
+    for exRoot.kids ex:RustNode xi {
+      root.add(ex)
+    }
+  }
+
+  fn docExampleStem:string (n:string) {
+    def out:string ""
+    def cs:[int] (to_chars n)
+    for cs c:int i {
+      if ((c >= 65) && (c <= 90)) {
+        if (i > 0) {
+          out = out + "_"
+        }
+        out = out + (strfromcode (c + 32))
+      } {
+        out = out + (strfromcode c)
+      }
+    }
+    return out
   }
 
   fn emitConst:string (c:RsConst) {
@@ -2451,7 +2617,11 @@ class RustLower {
     for out.lines b:string j {
       push lines b
     }
-    push lines "  }"
+    def fnDoc:string ""
+    if ((fnNameOverride == "") && (f.fromTrait == "") && (false == isFmt) && (!null? f.node)) {
+      fnDoc = (this.docTail((unwrap f.node) "  "))
+    }
+    push lines ("  }" + fnDoc)
     return (join lines "\n")
   }
 
@@ -8662,7 +8832,7 @@ class RustLower {
     push lines "    }"
     push lines "    return o"
     push lines "  }"
-    push lines "}"
+    push lines ("}" + (this.helperDoc("A ranger::Map: the keys in insertion order are `order`, the values `vals`")))
     push genOut (join lines "\n")
     return name
   }

@@ -1,9 +1,9 @@
 # PLAN_RUST_SYNTAX — strict Rust modules beside `.rgr` modules
 
-> **Status: stages R0–R4 done (§9.1, §9.2): `rgrc file.rs` compiles a strict
+> **Status: stages R0–R5 done (§9.1–§9.3): `rgrc file.rs` compiles a strict
 > module, its output equals the rustc build's on es6, python, go and cpp, move
-> and borrow errors are reported, and the `ranger` prelude crate exists. R5
-> onwards is design.** Measurements in §5 and the rustc checks in §2 were run
+> and borrow errors are reported, the `ranger` prelude crate exists, and
+> rustdoc is read as the API documentation. R6 onwards is design.** Measurements in §5 and the rustc checks in §2 were run
 > on this checkout with rustc 1.94.1.
 
 Ranger gets a second source form: **`.rs` files that are valid Rust**. They
@@ -312,7 +312,7 @@ exempt. It exists for fast feedback; it does not replace `cargo check`.
 | Parser: items, attributes, statements, expressions with Rust precedence, patterns, types, macro invocations | `compiler/frontend/rust/parser/RustParser.rgr` |
 | Span check: children ordered and inside their parent, nothing dropped between list elements | `compiler/frontend/rust/parser/RustSpanCheck.rgr` |
 | Command line driver `rustparse [-dump] [-check] files…` | `compiler/frontend/rust/cli/RustParseMain.rgr` |
-| Doc comment reader (§4) → `RangerDocBlock` | R5, `compiler/frontend/rust/doc/` |
+| Doc comment reader (§4) → `doc { … }` tails | R5, `compiler/frontend/rust/doc/RustDocReader.rgr` |
 | Lowering Rust AST → CodeNode, subset checks (§3.4), block-expression lowering (§6) | R1, `compiler/frontend/rust/lower/` |
 | Move and borrow check (§7) | R3, in the lowering (`lower/RustLower.rgr`, the "moves" and "borrows" sections) |
 | Runtime operators the lowering writes (`rs_div`, `rs_fmt`, byte offsets, …) | `lib/rust/RsPrelude.rgr` |
@@ -339,7 +339,7 @@ crate.
 | R2 | The rest of the subset: data enums, traits, generics, closures, `Result` / `?`, `HashMap` | **done**, §9.2 |
 | R3 | Move and borrow check (§7, §3.4) | **done**, §9.2 |
 | R4 | Prelude crate `ranger`: type names, ordered `Map`, the operator layer, strings per §5 | **done**, §9.2 |
-| R5 | rustdoc reading (§4) | `-apidoc` output for a `.rs` module equals the one for its `.rgr` twin |
+| R5 | rustdoc reading (§4) | **done**, §9.3 |
 | R6 | Mixed programs: `import_rgr!`, Rust module output, `.rgr` ↔ `.rs` imports, `Cargo.toml` packages, the §2.3 boundary | a crate with both forms builds with `cargo build` and with `rgrc` for es6 and cpp, with the same output |
 | R7 | Attributes and macros: `weak`, `late`, `serialize`, `target`, `tree!`, `native!` | each has a fixture on every target |
 | R8 | A real module: port one self-contained `lib/` or gallery module to `.rs`; `cargo check` of all strict fixtures in CI | the ported module replaces its `.rgr` original and its tests pass on the targets they ran on before |
@@ -484,6 +484,39 @@ R4 adds `runtime/rust/ranger`:
   code points, `bytes()`, `as_bytes()[i]` and `.as_bytes().len()` are UTF-8
   bytes, and `find` / `&s[a..b]` use byte offsets. `to_uppercase` applies
   Rust's special casing of ß on Go and C++ too.
+
+### 9.3 R5 results
+
+The lowering writes the rustdoc of each item as the `doc { … }` tail of the
+declaration it lowers to (`compiler/frontend/rust/doc/RustDocReader.rgr`), so
+`-apidoc` and every writer's doc comments see a `.rs` module as they see
+`.rgr`. The §4 table is implemented as written, with these choices:
+
+- `pub` is `public`; `#[doc(hidden)]` is `internal`; items that are neither
+  get no visibility entry.
+- `# Panics` is a `throws` entry prefixed `Panics:`; a heading the table does
+  not name stays in the description; `# Stability` also marks the item
+  experimental.
+- A rust code block under `# Examples` is lowered as a free function
+  `doc_example_<item>_<n>` (its `use` lines dropped, since every item of the
+  module is in scope) and named by an `example` entry, so it is type checked
+  like a doctest and written into each target's doc comment in that target's
+  code. A `text` or `ignore` block is a literal example; a block with its own
+  `fn main` is left out.
+- `//!` documents the module class. The module class is named after the file
+  (`geometry.rs` -> `Geometry`), falling back to `RsMod_<file>` when the name
+  is taken.
+- The classes the lowering generates for types in signatures (a Result, a
+  tuple, a `Map`, an instance of a generic struct) are public, so a
+  documented public function may take or return them.
+
+`tests/rust-doc.test.ts` compiles `tests/fixtures/rust_doc/geometry.rs` and its
+hand-written twin `geometry.rgr` with `-apidoc`: `api.md` is identical and the
+public entries of `api.json` are equal. rustc builds the `.rs` file with the
+prelude crate, `#[ranger::doc(…)]` included.
+
+Not read yet: docs on traits and their methods (a trait has no Ranger class
+to carry them), on enum variants, and `#[doc = include_str!(…)]`.
 
 ## 10. Open questions
 
