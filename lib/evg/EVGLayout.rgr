@@ -187,6 +187,17 @@ class EVGLayout {
         ; wrote was never resolved. Any retained tree that is laid out more than
         ; once had the same bug; a document that is laid out once did not, which
         ; is why it survived this long.
+        ;
+        ; A NEW PAGE SIZE is a new layout for every kept subtree too. The
+        ; root's viewport is what the last pass was given; when it differs, a
+        ; `vw` or `vh` anywhere below may mean something else, and nothing a
+        ; kept box compares — what the flow hands it — need have changed. The
+        ; stylesheet catches this for the trees it styles (a resize is a new
+        ; generation, so every element is layout-dirty); a tree with no sheet,
+        ; or one laid out without re-applying it, has only this.
+        if (root.hasLayout && ((root.viewportW != pageWidth) || (root.viewportH != pageHeight))) {
+            root.forgetLayout()
+        }
         root.resetLayoutState()
         
         ; Resolve root dimensions
@@ -387,7 +398,7 @@ class EVGLayout {
         if element.keepLayout {
             if (element.hasLayout && element.layoutClean) {
                 if ((((element.lastParentW == parentWidth) && (element.lastParentH == parentHeight))
-                     && (element.lastFlex == element.hasFlexWidth)) && (element.lastFlexW == element.calculatedFlexWidth)) {
+                     && (element.lastFlex == element.hasFlexWidth)) && ((element.lastFlexW == element.calculatedFlexWidth) && (element.lastFlexH == element.calculatedFlexHeight))) {
                     ; The box is at (parentX, parentY): the flow wrote it there
                     ; before this call, or means it at the origin to move it
                     ; after. What is under it follows by the difference between
@@ -422,14 +433,19 @@ class EVGLayout {
             }
             ; Laid out for real: what the root's reset left in place goes,
             ; but not what the parent has just handed down — the flex width,
-            ; and the box's place, which the flow wrote before this call.
+            ; the flex height, and the box's place, which the flow wrote before
+            ; this call.
             def flex:boolean element.hasFlexWidth
             def flexW:double element.calculatedFlexWidth
+            def flexHSet:boolean element.hasFlexHeight
+            def flexH:double element.calculatedFlexHeight
             def bx:double element.calculatedX
             def by:double element.calculatedY
             element.resetLayoutNow()
             element.hasFlexWidth = flex
             element.calculatedFlexWidth = flexW
+            element.hasFlexHeight = flexHSet
+            element.calculatedFlexHeight = flexH
             element.calculatedX = bx
             element.calculatedY = by
         }
@@ -440,6 +456,7 @@ class EVGLayout {
         element.lastParentH = parentHeight
         element.lastFlex = element.hasFlexWidth
         element.lastFlexW = element.calculatedFlexWidth
+        element.lastFlexH = element.calculatedFlexHeight
         element.resolveUnits(parentWidth parentHeight)
         ; `display: none` has no box and lays out nothing under it.
         if (element.isHidden()) {
@@ -528,6 +545,12 @@ class EVGLayout {
                 height = element.calculatedFlexHeight
                 autoHeight = false
             }
+        }
+        ; Column-axis flex shrink squeezed a declared height: the squeezed one
+        ; wins, as `hasFlexWidth` does for the width.
+        if element.hasFlexHeight {
+            height = element.calculatedFlexHeight
+            autoHeight = false
         }
 
         ; For image elements, calculate dimensions based on aspect ratio
@@ -1576,8 +1599,14 @@ class EVGLayout {
                                 if (finalH < 0.0) {
                                     finalH = 0.0
                                 }
+                                ; Said with a flag, as `hasFlexWidth` says it
+                                ; along a row: clearing `height.isSet` here
+                                ; destroyed the declaration, so the next pass
+                                ; saw an auto-height child and never shrank it
+                                ; again — which only looked right while the
+                                ; stale flex height was never cleared.
                                 c.calculatedFlexHeight = finalH
-                                c.height.isSet = false
+                                c.hasFlexHeight = true
                             }
                             js = (js + 1)
                         }
@@ -2368,6 +2397,50 @@ class EVGLayout {
         }
         if (crossBox > rowHeight) {
             effectiveRowHeight = crossBox
+        }
+
+        ; ALIGN-ITEMS: STRETCH IN A ROW WHOSE HEIGHT IS NOT KNOWN YET. The flow
+        ; hands a stretch item the row's inner height before the row has one,
+        ; so in an auto-height row that is nothing, and the item came out its
+        ; content height — a 1px vertical rule came out 0px tall. It used to
+        ; look right from the second layout on, because the row's inner height
+        ; from the LAST pass was still there to be read; now that a pass starts
+        ; from nothing (`EVGElement.resetLayoutNow`), the line is measured here
+        ; and each stretch item that is shorter than it is laid out again at
+        ; the line's height, which is what CSS does.
+        if (isColumn == false) {
+            def si:int 0
+            while (si < elementCount) {
+                def sel:EVGElement (itemAt rowElements si)
+                if (((this.crossAlignOf(sel verticalAlignVal)) == "stretch") && (sel.height.isSet == false)) {
+                    def target:double ((effectiveRowHeight - sel.box.marginTopPx) - sel.box.marginBottomPx)
+                    if ((target > (sel.calculatedHeight + 0.01)) && ((sel.isHidden()) == false)) {
+                        def sx:double sel.calculatedX
+                        def sy:double sel.calculatedY
+                        sel.calculatedFlexHeight = target
+                        ; A kept item resets itself when its handed height
+                        ; differs from last time; anything else has only its
+                        ; children to clear — its own units were resolved
+                        ; against the row, and must not be again.
+                        if (sel.keepLayout == false) {
+                            def sk:int 0
+                            while (sk < (sel.getChildCount())) {
+                                def skid:EVGElement (sel.getChild(sk))
+                                skid.resetLayoutState()
+                                sk = (sk + 1)
+                            }
+                        }
+                        def wasRowS:boolean layingOutAlongRow
+                        def wasShrinkS:boolean columnCrossShrinks
+                        layingOutAlongRow = true
+                        columnCrossShrinks = (this.crossShrinksUnder(parent))
+                        this.layoutElement(sel sx sy sel.lastParentW sel.lastParentH)
+                        layingOutAlongRow = wasRowS
+                        columnCrossShrinks = wasShrinkS
+                    }
+                }
+                si = (si + 1)
+            }
         }
         
         ; align-items: baseline — line the row up on the text baselines rather

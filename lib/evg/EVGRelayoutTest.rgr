@@ -1,0 +1,375 @@
+; SPDX-License-Identifier: MIT
+
+; ==============================================================================
+; EVGRelayoutTest — the same tree laid out again at a new page size
+; ==============================================================================
+;
+; A retained tree is laid out many times, and when the window changes size it
+; is laid out at a size it has never had. What comes out must be what a FRESH
+; copy of the tree laid out once at that size would give: nothing computed at
+; the old size may be read back as an input at the new one.
+;
+; Found in the EVGUI Separator demo, whose page is this shape:
+;
+;   .pg    { display:flex; flex-wrap:wrap; gap:16px }   cards in a wrapping row
+;   .card  { flex-direction:column; width:418px; height:248px }
+;   .stage { flex-grow:1 }                              grown to the card
+;   .menu  { flex-direction:row; align-items:stretch }  columns + 1px rules
+;   @media (max-width:600px) { .card { width:100%; height:auto } … }
+;
+; (The demo's columns are `width: 30%` only under the media rule. Here they
+; always are: a property a media rule set is not put back by the sheet when
+; the rule stops matching, which is the sheet's business and not what this
+; file tests.)
+;
+; Laid out at 900 and then at 332, two answers from the first pass came back:
+;
+;   1. `.stage` kept the height the column's flex-grow gave it
+;      (`calculatedFlexHeight`), so every card stayed 248px tall after the
+;      phone rules made it `height: auto`.
+;   2. `.menu`, auto-height, read its old `calculatedInnerHeight` as the
+;      height to stretch its items to, so the columns whose text now wrapped
+;      onto three lines kept their one-line height and the rules with them.
+;
+; The demo worked around it by clearing those fields itself before every
+; fresh layout. This holds the engine to doing it.
+;
+; --- WHAT IS ASSERTED ---------------------------------------------------------
+;
+;   * 900 → 332 → 900: after each pass every element's rectangle equals the
+;     one a fresh identical tree gets at that size.
+;   * In each pass the menu's rules and columns are as tall as the menu row
+;     (align-items: stretch in an auto-height row, which on a FIRST layout
+;     used to leave a 1px rule 0px tall — it only came right on later
+;     passes, from the stale inner height in 2. above).
+;   * The same with the cards kept (`keepLayout`).
+;   * A column that shrinks declared heights gives the same answer on every
+;     pass. It used to by accident: the shrink cleared `height.isSet` and the
+;     next pass reused the stale flex height, so clearing that height (the
+;     fix above) needs the shrink to keep the declaration.
+;   * A kept box with no stylesheet whose child is sized in `vw` is laid out
+;     again at a new page size, though nothing the flow hands the box changed.
+;   * And the cache still does its job: the same size twice, nothing changed,
+;     and the kept boxes are answered from what they hold.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGLayout.rgr"
+Import "EVGStyleSheet.rgr"
+
+class RelayoutCheck {
+    def passed:int 0
+    def failed:int 0
+    def shown:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn css:string () {
+        def s:string ""
+        s = (s + ".pg { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 16px; padding: 24px; width: 100%; }\n")
+        s = (s + ".card { display: flex; flex-direction: column; flex-wrap: nowrap; width: 418px; height: 248px; border: 1px solid #e4e4e7; }\n")
+        s = (s + ".cap { height: 40px; line-height: 40px; padding: 0 16px; font-size: 12px; }\n")
+        s = (s + ".stage { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: center; justify-content: center; flex-grow: 1; padding: 16px 24px; }\n")
+        s = (s + ".menu { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: stretch; gap: 16px; }\n")
+        s = (s + ".mcol { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; width: 30%; }\n")
+        s = (s + ".txt { font-size: 14px; line-height: 20px; }\n")
+        s = (s + ".rule { width: 1px; flex-shrink: 0; align-self: stretch; background-color: #e4e4e7; }\n")
+        s = (s + ".vwbox { display: flex; flex-direction: column; width: 300px; }\n")
+        s = (s + ".vwkid { width: 10vw; height: 5vw; }\n")
+        s = (s + "@media (max-width: 600px) {\n")
+        s = (s + "  .pg { padding: 12px; gap: 12px; }\n")
+        s = (s + "  .card { width: 100%; height: auto; }\n")
+        s = (s + "  .stage { padding: 20px 16px; }\n")
+        s = (s + "  .menu { gap: 10px; width: 100%; }\n")
+        s = (s + "}\n")
+        return s
+    }
+
+    fn div:EVGElement (cls:string) {
+        def d (EVGElement.createDiv())
+        d.className = cls
+        return d
+    }
+
+    fn text:EVGElement (t:string) {
+        def d (this.div("txt"))
+        d.textContent = t
+        return d
+    }
+
+    fn menuCol:EVGElement (a:string b:string) {
+        def c (this.div("mcol"))
+        c.addChild((this.text(a)))
+        c.addChild((this.text(b)))
+        return c
+    }
+
+    fn card:EVGElement (caption:string withMenu:boolean) {
+        def c (this.div("card"))
+        def cap (this.div("cap"))
+        cap.textContent = caption
+        c.addChild(cap)
+        def stage (this.div("stage"))
+        if withMenu {
+            def menu (this.div("menu"))
+            menu.addChild((this.menuCol("Blog" "Latest posts and updates from the team")))
+            menu.addChild((this.div("rule")))
+            menu.addChild((this.menuCol("Docs" "Guides and reference for every component")))
+            menu.addChild((this.div("rule")))
+            menu.addChild((this.menuCol("Source" "The code on GitHub")))
+            stage.addChild(menu)
+        } {
+            stage.addChild((this.text("A short line")))
+        }
+        c.addChild(stage)
+        return c
+    }
+
+    ; No width of its own in the sheet: the page gives it one.
+    fn build:EVGElement (keep:boolean) {
+        def pg (this.div("pg"))
+        def c1 (this.card("Horizontal" false))
+        def c2 (this.card("Vertical" true))
+        def c3 (this.card("Menu" true))
+        def vb (this.div("vwbox"))
+        vb.addChild((this.div("vwkid")))
+        vb.addChild((this.div("vwkid")))
+        if keep {
+            c1.keepLayout = true
+            c2.keepLayout = true
+            c3.keepLayout = true
+            vb.keepLayout = true
+        }
+        pg.addChild(c1)
+        pg.addChild(c2)
+        pg.addChild(c3)
+        pg.addChild(vb)
+        return pg
+    }
+
+    fn layoutAt:void (root:EVGElement sheet:EVGStyleSheet w:double) {
+        sheet.applyTreeIn(root "" w 640.0 false)
+        def lay (new EVGLayout())
+        lay.setPageSize(w 640.0)
+        lay.layout(root)
+    }
+
+    fn freshAt:EVGElement (keep:boolean w:double) {
+        def root (this.build(keep))
+        def sheet (new EVGStyleSheet())
+        sheet.parse((this.css()))
+        this.layoutAt(root sheet w)
+        return root
+    }
+
+    fn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 0.01)
+    }
+
+    fn rect:string (e:EVGElement) {
+        def s:string ((to_string e.calculatedX) + "," + (to_string e.calculatedY))
+        s = (s + " " + (to_string e.calculatedWidth) + "x" + (to_string e.calculatedHeight))
+        return s
+    }
+
+    ; Mismatches under `a` against `b`, walked in step; the first few named.
+    fn diff:int (a:EVGElement b:EVGElement path:string) {
+        def bad:int 0
+        def same:boolean (((this.near(a.calculatedX b.calculatedX)) && (this.near(a.calculatedY b.calculatedY)))
+            && ((this.near(a.calculatedWidth b.calculatedWidth)) && (this.near(a.calculatedHeight b.calculatedHeight))))
+        if (same == false) {
+            bad = 1
+            if (shown < 12) {
+                shown = (shown + 1)
+                def got:string (this.rect(a))
+                def want:string (this.rect(b))
+                print ("       " + path + " " + a.className + " got " + got + "  want " + want)
+            }
+        }
+        def i:int 0
+        while (i < (a.getChildCount())) {
+            bad = (bad + (this.diff((a.getChild(i)) (b.getChild(i)) ((path + "/") + (to_string i)))))
+            i = (i + 1)
+        }
+        return bad
+    }
+
+    ; Every item of each `.menu` row as tall as the row: align-items:
+    ; stretch, which in an auto-height row can only be answered once the
+    ; row has measured its line.
+    fn spans:boolean (root:EVGElement) {
+        def good:boolean true
+        def c:int 1
+        while (c <= 2) {
+            def card:EVGElement (root.getChild(c))
+            def stage:EVGElement (card.getChild(1))
+            def menu:EVGElement (stage.getChild(0))
+            def k:int 0
+            while (k < (menu.getChildCount())) {
+                def it:EVGElement (menu.getChild(k))
+                if ((this.near(it.calculatedHeight menu.calculatedInnerHeight)) == false) {
+                    good = false
+                    print ("       " + it.className + " is " + (to_string it.calculatedHeight) + " in a " + (to_string menu.calculatedInnerHeight) + "px row")
+                }
+                k = (k + 1)
+            }
+            c = (c + 1)
+        }
+        return good
+    }
+
+    fn sweep:void (keep:boolean label:string) {
+        def root (this.build(keep))
+        def sheet (new EVGStyleSheet())
+        sheet.parse((this.css()))
+        def widths:[double] ([] _:double (900.0 332.0 900.0 332.0))
+        def i:int 0
+        while (i < (array_length widths)) {
+            def w:double (itemAt widths i)
+            this.layoutAt(root sheet w)
+            shown = 0
+            def bad:int (this.diff(root (this.freshAt(keep w)) "root"))
+            def name:string (label + " pass " + (to_string (i + 1)) + " at " + (to_string w) + " matches a fresh tree")
+            this.ok(name (bad == 0))
+            this.ok((label + " pass " + (to_string (i + 1)) + ": the rules and columns span the menu row")
+                (this.spans(root)))
+            i = (i + 1)
+        }
+    }
+
+    fn run:void () {
+        print "EVGRelayoutTest"
+
+        this.sweep(false "plain tree:")
+        this.sweep(true "kept cards:")
+
+        ; The cache still answers a relayout at the same size.
+        def root (this.build(true))
+        def sheet (new EVGStyleSheet())
+        sheet.parse((this.css()))
+        this.layoutAt(root sheet 900.0)
+        this.layoutAt(root sheet 900.0)
+        def allSkipped:boolean true
+        def k:int 0
+        while (k < (root.getChildCount())) {
+            def kid:EVGElement (root.getChild(k))
+            if (kid.layoutSkipped == false) {
+                allSkipped = false
+            }
+            k = (k + 1)
+        }
+        this.ok("same size twice: every kept box is answered from its last layout" allSkipped)
+        shown = 0
+        this.ok("…and the answer is the fresh one"
+            ((this.diff(root (this.freshAt(true 900.0)) "root")) == 0))
+
+        this.shrunkTwice()
+        this.keptInViewport()
+
+        print ""
+        print ((("passed=" + (to_string passed)) + " failed=") + (to_string failed))
+        if (failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+
+    ; A column that shrinks declared heights to fit. The shrink is the
+    ; column's answer this pass, not a new declaration: laid out a second
+    ; time the children are still `height: 80px` and are shrunk again.
+    fn shrinkTree:EVGElement () {
+        def col (EVGElement.createDiv())
+        col.setAttribute("display" "flex")
+        col.setAttribute("flex-direction" "column")
+        col.setAttribute("flex-wrap" "nowrap")
+        col.setAttribute("height" "100px")
+        def a (EVGElement.createDiv())
+        a.setAttribute("height" "80px")
+        def b (EVGElement.createDiv())
+        b.setAttribute("height" "80px")
+        col.addChild(a)
+        col.addChild(b)
+        def pg (EVGElement.createDiv())
+        pg.setAttribute("width" "100%")
+        pg.addChild(col)
+        return pg
+    }
+
+    fn plainAt:void (root:EVGElement w:double) {
+        def lay (new EVGLayout())
+        lay.setPageSize(w 640.0)
+        lay.layout(root)
+    }
+
+    fn shrunkTwice:void () {
+        def t (this.shrinkTree())
+        this.plainAt(t 900.0)
+        def first:int (this.diff(t (this.freshShrink(900.0)) "root"))
+        this.plainAt(t 900.0)
+        shown = 0
+        def second:int (this.diff(t (this.freshShrink(900.0)) "root"))
+        this.plainAt(t 332.0)
+        shown = 0
+        def third:int (this.diff(t (this.freshShrink(332.0)) "root"))
+        this.ok("a column that shrinks its children: the same on every pass"
+            (((first + second) + third) == 0))
+    }
+
+    fn freshShrink:EVGElement (w:double) {
+        def t (this.shrinkTree())
+        this.plainAt(t w)
+        return t
+    }
+
+    ; A kept box with no stylesheet to mark it dirty: nothing the flow hands
+    ; it depends on the page, but its children are sized in `vw`, so a new
+    ; page size is a new layout for it however clean it says it is.
+    fn keptInViewport:void () {
+        def pg (EVGElement.createDiv())
+        def box (EVGElement.createDiv())
+        box.setAttribute("width" "300px")
+        box.setAttribute("height" "100px")
+        def kid (EVGElement.createDiv())
+        kid.setAttribute("width" "10vw")
+        kid.setAttribute("height" "20px")
+        box.addChild(kid)
+        pg.addChild(box)
+        box.keepLayout = true
+        this.plainAt(pg 900.0)
+        box.layoutClean = true
+        kid.layoutClean = true
+        this.plainAt(pg 900.0)
+        this.ok("a clean kept box at the same page size is answered from its last layout"
+            box.layoutSkipped)
+        this.plainAt(pg 332.0)
+        this.ok("…and at a new page size is laid out again (10vw of 332)"
+            (this.near(kid.calculatedWidth 33.2)))
+        box.layoutClean = true
+        kid.layoutClean = true
+        this.plainAt(pg 332.0)
+        this.ok("…after which the same size is answered from it again"
+            box.layoutSkipped)
+    }
+
+    sfn m@(main):void () {
+        def c (new RelayoutCheck())
+        c.run()
+    }
+}

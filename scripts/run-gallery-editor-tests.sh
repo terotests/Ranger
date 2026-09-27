@@ -168,6 +168,11 @@ SUITES=(
   evg:component:test
   evg:stylecache:test
   evg:invalidate:test
+  # The same retained tree laid out again at another page size must come
+  # out as a fresh tree laid out once at that size — nothing from the last
+  # pass read back as input. Found in the Separator demo, whose cards kept
+  # their desktop height on a phone.
+  evg:relayout:test
   evg:adopt:check
   # Pan, pinch and the wheel, against a canvas that is not one: the two-finger
   # pinch is the gesture no headless driver will send, and the anchor — the

@@ -510,6 +510,8 @@ class EVGElement {
     def lastParentH:double 0.0
     def lastFlex:boolean false
     def lastFlexW:double 0.0
+    ; …and the height the parent handed down (grown, stretched or shrunk).
+    def lastFlexH:double 0.0
     def hasIntrinsicMin:boolean false
     def hasIntrinsicMax:boolean false
     def intrinsicMin:double 0.0
@@ -1006,6 +1008,10 @@ class EVGElement {
     ; Column-axis flex grow (and row alignItems:stretch) target height, resolved
     ; by EVGLayout and consumed by layoutElement when height is not explicitly set.
     def calculatedFlexHeight:double 0.0
+    ; Whether the column's flex-shrink DECIDED that height, over a declared
+    ; one — the same flag `hasFlexWidth` is along a row, for the same reason:
+    ; the pass used to say so by clearing `height.isSet`.
+    def hasFlexHeight:boolean false
     ; Distance from this element's top border edge down to the baseline of its
     ; FIRST line of text, and the matching descent. Filled in by EVGLayout for
     ; text nodes from their real font metrics, and propagated up from the first
@@ -1436,9 +1442,29 @@ class EVGElement {
     ; be answered from what it holds, and resets it itself when not.
     fn resetLayoutState:void () {
         if (keepLayout && (hasLayout && layoutClean)) {
+            ; Except the height the parent hands down, which the parent works
+            ; out again this pass if it still holds; left in place, one that no
+            ; longer does would be read back as this box's input — see
+            ; `resetLayoutNow` — and would match `lastFlexH`.
+            calculatedFlexHeight = 0.0
+            hasFlexHeight = false
             return
         }
         this.resetLayoutNow()
+    }
+
+    ; Nothing under here has been laid out, as far as `keepLayout` is
+    ; concerned. `EVGLayout.layout` says so when the page size changed: a
+    ; `vw` or `vh` anywhere in a kept subtree means something else now,
+    ; though nothing the flow hands the subtree's root need have changed.
+    fn forgetLayout:void () {
+        hasLayout = false
+        def i:int 0
+        while (i < (array_length children)) {
+            def child:EVGElement (itemAt children i)
+            child.forgetLayout()
+            i = (i + 1)
+        }
     }
 
     fn resetLayoutNow:void () {
@@ -1459,6 +1485,19 @@ class EVGElement {
         calculatedFlexWidth = 0.0
         hasFlexWidth = false
         hasDefiniteHeight = false
+        ; And the rest of what the last pass computed, which the layout reads
+        ; back as INPUT when it is still there: a flex-grown or stretched
+        ; height is adopted by `layoutElement` whenever `height` is not set,
+        ; and an auto-height row stretches its items to its inner height
+        ; before it has worked out a new one. Laid out again at another page
+        ; size, a card kept the 248px its column grew it to after its own
+        ; height went `auto`, and a row stretched its columns to the height
+        ; their text had on one line. The parent writes these again this pass
+        ; if they still hold.
+        calculatedFlexHeight = 0.0
+        hasFlexHeight = false
+        calculatedInnerWidth = 0.0
+        calculatedInnerHeight = 0.0
         calculatedBaseline = 0.0
         calculatedDescent = 0.0
         hasBaseline = false
@@ -3409,6 +3448,7 @@ class EVGElement {
         lastParentH = other.lastParentH
         lastFlex = other.lastFlex
         lastFlexW = other.lastFlexW
+        lastFlexH = other.lastFlexH
         hasIntrinsicMin = other.hasIntrinsicMin
         hasIntrinsicMax = other.hasIntrinsicMax
         intrinsicMin = other.intrinsicMin
@@ -3469,6 +3509,7 @@ class EVGElement {
         calculatedFlexWidth = other.calculatedFlexWidth
         hasFlexWidth = other.hasFlexWidth
         calculatedFlexHeight = other.calculatedFlexHeight
+        hasFlexHeight = other.hasFlexHeight
         calculatedBaseline = other.calculatedBaseline
         calculatedDescent = other.calculatedDescent
         hasBaseline = other.hasBaseline
