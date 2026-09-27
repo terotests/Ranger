@@ -189,6 +189,9 @@ SUITES=(
   # stayed one pixel, a scissor left where the camera moved away from — each
   # is a plausible drawing that is wrong and none changes a command count.
   evg:view:check
+  # Text on whole device pixels: a run placed at a fraction of a pixel is the
+  # same pixels moved, not the same run resampled soft.
+  evg:textsnap:check
   # And the arithmetic in front of it: keep the frame in hand or walk the
   # board again. No browser and no GPU — a policy that keeps a frame it
   # should have rebuilt shows stale pixels, which is the failure nobody
