@@ -71,7 +71,9 @@
         "panel-swap": "only the active tab's panel is reachable",
         "list-role": "the list exposes tablist and items expose tab",
         "aria-selected": "the active tab exposes aria-selected",
-        "disabled-skipped": "a disabled tab is skipped by arrow movement"
+        "disabled-skipped": "a disabled tab is skipped by arrow movement",
+        "home-end": "Home and End activate the first and last enabled tab",
+        "cross-axis-ignored": "ArrowUp/ArrowDown do nothing in a horizontal list"
       }
     },
     "accordion": {
