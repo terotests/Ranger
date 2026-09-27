@@ -122,6 +122,19 @@ class MdDiagram {
         cache.add(e)
     }
 
+    ; `sceneFor`, with a long top-to-bottom flow cut into columns for a space
+    ; of `aspect` (width / height). Mermaid flowcharts and Graphviz only;
+    ; everything else is `sceneFor`.
+    sfn sceneForWrapped:FlowScene (notation:string text:string styleName:string width:double pad:double aspect:double) {
+        if (notation == "graphviz") {
+            return (DotRender.sceneWrapped(text styleName width pad aspect))
+        }
+        if (((notation == "plantuml") || (notation == "d2")) || (notation == "vega")) {
+            return (MdDiagram.sceneFor(notation text styleName width pad))
+        }
+        return (MermaidRender.sceneWrapped(text styleName width pad aspect))
+    }
+
     sfn sceneFor:FlowScene (notation:string text:string styleName:string width:double pad:double) {
         if (notation == "plantuml") {
             return (PlantUmlRender.sceneOf(text styleName width pad))

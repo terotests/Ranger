@@ -26,6 +26,7 @@ Import "DotReader.rgr"
 Import "DotFlow.rgr"
 Import "../../core/FlowView.rgr"
 Import "../../core/FlowStyleSheet.rgr"
+Import "../../layout/FlowWrap.rgr"
 
 ; What came back. `error` is Graphviz's own complaint, with the line it went
 ; wrong on, and is set only when the text failed to read.
@@ -82,9 +83,25 @@ class DotRender {
     }
 
     sfn sceneStyled:FlowScene (text:string style:FlowStyle maxWidth:double padding:double) {
+        return (DotRender.sceneWrappedStyled(text style maxWidth padding 0.0))
+    }
+
+    ; The same, with a long top-to-bottom flow cut into columns so it fits a
+    ; space of `aspect` (width / height) — see `FlowWrap`. An aspect of 0, or
+    ; a flow too short or with groups, is drawn as it was laid out.
+    sfn sceneWrapped:FlowScene (text:string styleName:string maxWidth:double padding:double aspect:double) {
+        def style:FlowStyle (FlowStyle.named(styleName))
+        return (DotRender.sceneWrappedStyled(text style maxWidth padding aspect))
+    }
+
+    sfn sceneWrappedStyled:FlowScene (text:string style:FlowStyle maxWidth:double padding:double aspect:double) {
         def drawing:DotDrawing (DotRender.draw(text style))
         if (! drawing.ok) {
             return (new FlowScene)
+        }
+        if (aspect > 0.0) {
+            def wrap (new FlowWrap())
+            wrap.apply(drawing.graph aspect 6)
         }
         def v:FlowView (FlowView.of(drawing.graph))
         v.notation = drawing.notation

@@ -1,0 +1,353 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; FlowWrap.rgr — a long top-to-bottom flow, cut into columns.
+; ============================================================================
+;
+; A chain of fifteen steps laid out top to bottom is one tall column, and
+; left to right it is one long strip. Neither fits a page or a slide: the
+; boxes come out small enough to be unreadable. This takes a graph the
+; layered layout has ALREADY placed top to bottom and cuts its rows into
+; columns, newspaper style — down the first column, then from the top of the
+; next — choosing the number of columns that draws the whole thing largest in
+; a space of a given aspect (width / height).
+;
+;   row 1   ┌─┐                    ┌─┐  ┌─┐
+;   row 2   ├─┤         becomes    ├─┤  ├─┤
+;   …       ├─┤                    ├─┤  ├─┤
+;   row 12  └─┘                    └─┘  └─┘
+;
+; The rows are the layout's own ranks (nodes whose middles are level) and the
+; order inside a row is the layout's, so what the layered layout decided about
+; crossings still holds inside each column. Only the edges have to be told
+; where to go again, as waypoints and sides, which the router takes as given:
+;
+;   down, same column        bottom → top, through the gap between the rows
+;   up or level, same column right side → out past the column → right side
+;   to a later column        bottom → down → the gutter → over → top
+;   to an earlier column     left side → the gutter to its left → right side
+;
+; Parallel runs through one gutter are spread onto lanes so they do not lie
+; on each other.
+;
+; What it does not do: a graph with groups (subgraphs, clusters) is left
+; alone, because a group's box would have to be cut too.
+; ============================================================================
+
+Import "../core/GraphModel.rgr"
+
+class FlowWrap {
+    ; filled by `apply`, for a caller that wants to know what happened
+    def columns:int 1
+    def rows:int 0
+
+    ; Rows: nodes whose middles are level, top to bottom. One entry per node.
+    sfn rowsOf:[int] (g:FlowGraph) {
+        def nn:int (g.nodeCount())
+        def row:[int]
+        def i:int 0
+        while (i < nn) {
+            push row -1
+            i = (i + 1)
+        }
+        def next:int 0
+        def done:int 0
+        while (done < nn) {
+            def top:int -1
+            def topY:double 1000000000.0
+            def j:int 0
+            while (j < nn) {
+                def nj:FlowNode (g.nodeAt(j))
+                def cy:double (nj.y + (nj.height * 0.5))
+                if (((itemAt row j) < 0) && (cy < topY)) {
+                    top = j
+                    topY = cy
+                }
+                j = (j + 1)
+            }
+            def nt:FlowNode (g.nodeAt(top))
+            def tol:double (nt.height * 0.5)
+            def k:int 0
+            while (k < nn) {
+                def nk:FlowNode (g.nodeAt(k))
+                def ck:double (nk.y + (nk.height * 0.5))
+                if (((itemAt row k) < 0) && ((fabs (ck - topY)) <= tol)) {
+                    set row k next
+                    done = (done + 1)
+                }
+                k = (k + 1)
+            }
+            next = (next + 1)
+        }
+        return row
+    }
+
+    sfn wrappable:boolean (g:FlowGraph) {
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            if ((strlen n.parentId) > 0) {
+                return false
+            }
+            if (n.nodeType == "group") {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; The typical box height, the unit every gap here is measured in, so a
+    ; diagram laid out at another scale wraps the same way.
+    sfn unit:double (g:FlowGraph) {
+        def sum:double 0.0
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            sum = (sum + (g.nodeAt(i)).height)
+            i = (i + 1)
+        }
+        if ((g.nodeCount()) == 0) {
+            return 40.0
+        }
+        return (sum / (to_double (g.nodeCount())))
+    }
+
+    ; ------------------------------------------------------------------
+    ; The plan: which column and which height each row goes to
+    ; ------------------------------------------------------------------
+    def rTop:[double]
+    def rBot:[double]
+    def colOfRow:[int]
+    def yOfRow:[double]
+    def gX0:double 0.0
+    def gY0:double 0.0
+    def gW:double 0.0
+    def gap:double 70.0
+    def rowGap:double 50.0
+
+    Constructor () {
+        def a:[double]
+        rTop = a
+        def b:[double]
+        rBot = b
+        def c:[int]
+        colOfRow = c
+        def d:[double]
+        yOfRow = d
+    }
+
+    fn measure:void (g:FlowGraph rowOf:[int]) {
+        clear rTop
+        clear rBot
+        def r:int 0
+        while (r < rows) {
+            push rTop 1000000000.0
+            push rBot -1000000000.0
+            r = (r + 1)
+        }
+        def x0:double 1000000000.0
+        def y0:double 1000000000.0
+        def x1:double -1000000000.0
+        def n:int 0
+        while (n < (g.nodeCount())) {
+            def nd:FlowNode (g.nodeAt(n))
+            def ri:int (itemAt rowOf n)
+            if (nd.y < (itemAt rTop ri)) { set rTop ri nd.y }
+            if ((nd.y + nd.height) > (itemAt rBot ri)) { set rBot ri (nd.y + nd.height) }
+            if (nd.x < x0) { x0 = nd.x }
+            if (nd.y < y0) { y0 = nd.y }
+            if ((nd.x + nd.width) > x1) { x1 = (nd.x + nd.width) }
+            n = (n + 1)
+        }
+        gX0 = x0
+        gY0 = y0
+        gW = (x1 - x0)
+    }
+
+    ; Rows into `cols` columns, each filled to an even share of the height.
+    ; Returns the tallest column.
+    fn split:double (cols:int) {
+        clear colOfRow
+        clear yOfRow
+        def total:double 0.0
+        def r:int 0
+        while (r < rows) {
+            total = (total + (((itemAt rBot r) - (itemAt rTop r)) + rowGap))
+            r = (r + 1)
+        }
+        def share:double (total / (to_double cols))
+        def col:int 0
+        def used:double 0.0
+        def tallest:double 0.0
+        def rr:int 0
+        while (rr < rows) {
+            def h:double (((itemAt rBot rr) - (itemAt rTop rr)) + rowGap)
+            if (((used + (h * 0.5)) > share) && ((col < (cols - 1)) && (used > 0.0))) {
+                col = (col + 1)
+                used = 0.0
+            }
+            push colOfRow col
+            push yOfRow used
+            used = (used + h)
+            if (used > tallest) {
+                tallest = used
+            }
+            rr = (rr + 1)
+        }
+        return (tallest - rowGap)
+    }
+
+    ; How large the graph draws, per unit of the space's height, cut into
+    ; `cols` columns and placed in a space of this aspect.
+    fn fitFor:double (cols:int aspect:double) {
+        def h:double (this.split(cols))
+        def w:double (((to_double cols) * gW) + ((to_double (cols - 1)) * gap))
+        if ((w <= 0.0) || (h <= 0.0)) {
+            return 0.0
+        }
+        def a:double (aspect / w)
+        def b:double (1.0 / h)
+        if (b < a) {
+            return b
+        }
+        return a
+    }
+
+    ; ------------------------------------------------------------------
+    ; Wrapping
+    ; ------------------------------------------------------------------
+    ;
+    ; Wraps `g` in place when more than one column draws it larger in a space
+    ; of `aspect`; returns whether it did. `minRows` is the shortest graph
+    ; worth cutting at all.
+    fn apply:boolean (g:FlowGraph aspect:double minRows:int) {
+        columns = 1
+        if ((g.nodeCount()) == 0) {
+            return false
+        }
+        if (! (FlowWrap.wrappable(g))) {
+            return false
+        }
+        def rowOf:[int] (FlowWrap.rowsOf(g))
+        rows = 0
+        def i:int 0
+        while (i < (array_length rowOf)) {
+            if (((itemAt rowOf i) + 1) > rows) {
+                rows = ((itemAt rowOf i) + 1)
+            }
+            i = (i + 1)
+        }
+        if (rows < minRows) {
+            return false
+        }
+        def u:double (FlowWrap.unit(g))
+        gap = (u * 1.8)
+        rowGap = (u * 1.2)
+        this.measure(g rowOf)
+        def best:int 1
+        def bestFit:double (this.fitFor(1 aspect))
+        def cols:int 2
+        while (cols <= 6) {
+            if (cols <= rows) {
+                def f:double (this.fitFor(cols aspect))
+                if (f > (bestFit * 1.05)) {
+                    best = cols
+                    bestFit = f
+                }
+            }
+            cols = (cols + 1)
+        }
+        if (best == 1) {
+            return false
+        }
+        this.split(best)
+        columns = best
+        this.place(g rowOf u)
+        return true
+    }
+
+    fn place:void (g:FlowGraph rowOf:[int] u:double) {
+        def colW:double (gW + gap)
+        def n:int 0
+        while (n < (g.nodeCount())) {
+            def nd:FlowNode (g.nodeAt(n))
+            def ri:int (itemAt rowOf n)
+            nd.x = (nd.x + ((to_double (itemAt colOfRow ri)) * colW))
+            nd.y = (nd.y + ((itemAt yOfRow ri) - ((itemAt rTop ri) - gY0)))
+            n = (n + 1)
+        }
+        ; one lane counter per gutter, so parallel runs keep apart
+        def lanes:[int]
+        def c:int 0
+        while (c <= columns) {
+            push lanes 0
+            c = (c + 1)
+        }
+        def lane:double (u * 0.3)
+        def out:double (u * 0.6)
+        def e:int 0
+        while (e < (g.edgeCount())) {
+            def ed:FlowEdge (g.edgeAt(e))
+            clear ed.waypoints
+            ; the layout placed the label against the old route
+            ed.labelDX = 0.0
+            ed.labelDY = 0.0
+            ed.hasLaneX = false
+            ed.hasLaneY = false
+            def si:int (g.indexOfNode(ed.source))
+            def ti:int (g.indexOfNode(ed.target))
+            if ((si >= 0) && (ti >= 0)) {
+                def a:FlowNode (g.nodeAt(si))
+                def b:FlowNode (g.nodeAt(ti))
+                def ca:int (itemAt colOfRow (itemAt rowOf si))
+                def cb:int (itemAt colOfRow (itemAt rowOf ti))
+                def acx:double (a.x + (a.width * 0.5))
+                def acy:double (a.y + (a.height * 0.5))
+                def bcx:double (b.x + (b.width * 0.5))
+                def bcy:double (b.y + (b.height * 0.5))
+                if ((ca == cb) && ((b.y - (a.y + a.height)) > 1.0)) {
+                    ; down, same column
+                    def mid:double (((a.y + a.height) + b.y) * 0.5)
+                    FlowWrap.route(ed ([] _:double (acx (a.y + a.height) acx mid bcx mid bcx b.y)) 2 0)
+                } {
+                    if (ca == cb) {
+                        ; up or level, same column: round the right-hand side
+                        def k:int (itemAt lanes (ca + 1))
+                        set lanes (ca + 1) (k + 1)
+                        def right:double (a.x + a.width)
+                        if ((b.x + b.width) > right) { right = (b.x + b.width) }
+                        def xo:double ((right + out) + ((to_double k) * lane))
+                        FlowWrap.route(ed ([] _:double ((a.x + a.width) acy xo acy xo bcy (b.x + b.width) bcy)) 1 1)
+                    } {
+                        if (cb > ca) {
+                            ; to a later column: down, the gutter, in from above
+                            def k2:int (itemAt lanes (ca + 1))
+                            set lanes (ca + 1) (k2 + 1)
+                            def gx:double (((gX0 + ((to_double (ca + 1)) * colW)) - (gap * 0.5)) + ((to_double k2) * lane))
+                            def below:double ((a.y + a.height) + out)
+                            def above:double (b.y - out)
+                            FlowWrap.route(ed ([] _:double (acx (a.y + a.height) acx below gx below gx above bcx above bcx b.y)) 2 0)
+                        } {
+                            ; to an earlier column: out to the left, the gutter, in
+                            def k3:int (itemAt lanes ca)
+                            set lanes ca (k3 + 1)
+                            def gx2:double (((gX0 + ((to_double ca) * colW)) - (gap * 0.5)) - ((to_double k3) * lane))
+                            FlowWrap.route(ed ([] _:double (a.x acy gx2 acy gx2 bcy (b.x + b.width) bcy)) 3 1)
+                        }
+                    }
+                }
+            }
+            e = (e + 1)
+        }
+    }
+
+    sfn route:void (ed:FlowEdge pts:[double] fromSide:int toSide:int) {
+        def i:int 0
+        while (i < (array_length pts)) {
+            push ed.waypoints (itemAt pts i)
+            i = (i + 1)
+        }
+        ed.sourceHandle = fromSide
+        ed.targetHandle = toSide
+    }
+}
