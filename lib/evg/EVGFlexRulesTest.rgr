@@ -330,6 +330,37 @@ class FlexRulesCheck {
         this.near("the spacer takes only what is left" spacer.calculatedHeight 660.0)
         this.near("so the bar ends on the padding, not past the page" (bar.calculatedY + bar.calculatedHeight) 828.0)
 
+        ; --- centring in a column sized by its content ---------------------------
+        print ""
+        print "-- justify-content: center in a content-sized column moves nothing"
+        def lrow (EVGElement.createDiv())
+        lrow.setAttribute("display" "flex")
+        lrow.setAttribute("flex-direction" "row")
+        lrow.setAttribute("align-items" "center")
+        lrow.setAttribute("width" "390px")
+        lrow.setAttribute("padding-top" "12px")
+        lrow.setAttribute("padding-bottom" "12px")
+        def licon (EVGElement.createDiv())
+        licon.setAttribute("width" "36px")
+        licon.setAttribute("height" "36px")
+        lrow.addChild(licon)
+        def ltext (EVGElement.createDiv())
+        ltext.setAttribute("display" "flex")
+        ltext.setAttribute("flex-direction" "column")
+        ltext.setAttribute("justify-content" "center")
+        ltext.setAttribute("flex-grow" "1")
+        def lt1 (EVGElement.createDiv())
+        lt1.setAttribute("height" "18px")
+        ltext.addChild(lt1)
+        def lt2 (EVGElement.createDiv())
+        lt2.setAttribute("height" "14px")
+        ltext.addChild(lt2)
+        lrow.addChild(ltext)
+        def lr (this.lay(lrow))
+        this.near("the first line starts where its column does" lt1.calculatedY ltext.calculatedY)
+        this.near("the second follows it" lt2.calculatedY (ltext.calculatedY + 18.0))
+        this.near("and the column is centred on the icon" (ltext.calculatedY + 16.0) (licon.calculatedY + 18.0))
+
         print ""
         print ((("Passed: " + (to_string passed)) + "  Failed: ") + (to_string failed))
         if (failed > 0) {

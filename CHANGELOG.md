@@ -24,6 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`justify-content: center` in a column sized by its content no longer
+  moves its children up.** The free space was taken from a stale inner
+  height (0 for such a column), so the offset was minus half the content:
+  a list row's title over subtitle drew its title above the row. A
+  content-sized column now centres against its own content (or its
+  min-height). `evg:flexrules:test` covers it.
+- **UI kit: row icons and chip glyphs are a span in their box.** The glyph
+  was text straight in a flex `div`, which the box could not centre;
+  `ui-row-glyph` / `ui-chip-glyph` carry its colour and size.
 - **`flex-grow` in a column leaves room for content-sized siblings.** The
   free space a growing child took was computed with every auto-height
   sibling counted as 0 px, so a spacer between a card and a tab bar grew by

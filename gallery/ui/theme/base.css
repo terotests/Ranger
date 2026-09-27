@@ -304,6 +304,7 @@
   width: 24px; min-width: 24px; height: 24px; min-height: 24px;
   color: #64748b; font-size: 15px;
 }
+.ui-row-glyph { color: #64748b; font-size: 15px; }
 .ui-row-text { display: flex; flex-direction: column; gap: 2px; flex-grow: 1; }
 .ui-row-title { color: #0f172a; font-size: 15px; font-weight: bold; height: 20px; }
 .ui-row-sub { color: #64748b; font-size: 12px; height: 16px; }
@@ -343,6 +344,7 @@
   color: #0f172a; font-size: 18px;
 }
 .ui-chip-dot:hover { background-color: #e2e8f0; }
+.ui-chip-glyph { color: #0f172a; font-size: 18px; }
 .ui-chip-label { color: #334155; font-size: 12px; height: 16px; }
 
 /* Four-tab bottom nav. Author CSS may restyle .ui-tabbar; Export keeps the class. */
@@ -448,10 +450,12 @@
 .theme-dark .ui-row-sub,
 .theme-dark .ui-row-value { color: #94a3b8; }
 .theme-dark .ui-row-icon { color: #94a3b8; }
+.theme-dark .ui-row-glyph { color: #94a3b8; }
 .theme-dark .ui-row-line { background-color: #1e293b; }
 .theme-dark .ui-appbar-title { color: #e2e8f0; }
 .theme-dark .ui-appbar-btn { color: #e2e8f0; }
 .theme-dark .ui-chip-dot { background-color: #1e293b; color: #e2e8f0; }
+.theme-dark .ui-chip-glyph { color: #e2e8f0; }
 .theme-dark .ui-chip-label { color: #cbd5e1; }
 .theme-dark .ui-tabbar { background-color: #111c31; }
 .theme-dark .ui-tab-icon,

@@ -2163,6 +2163,21 @@ class EVGLayout {
         if parent.height.isSet {
             availableHeight = parent.calculatedInnerHeight
         }
+        ; A column whose height comes from its content has no free space to
+        ; distribute: it is exactly as tall as what is in it (or its
+        ; min-height). `innerHeight` is stale for such a column — nothing
+        ; pre-computed it — and centring against it moved the children UP by
+        ; half their own height: a title over a subtitle in a list row, the
+        ; row's text column, drew its title above the row.
+        if (parent.hasDefiniteHeight == false) {
+            availableHeight = contentHeight
+            if parent.minHeight.isSet {
+                def minInner:double (parent.box.getInnerHeight(parent.minHeight.pixels))
+                if (minInner > availableHeight) {
+                    availableHeight = minInner
+                }
+            }
+        }
         
         def offsetY:double 0.0
         if (verticalAlign == "center") {

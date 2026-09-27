@@ -354,7 +354,9 @@ const PATTERNS = {
         "ui-row",
         null,
         [
-          props.icon ? n("div", "ui-row-icon", null, null, props.icon) : null,
+          // The glyph is a span inside the box: text straight in a flex div is
+          // not a flex item, so the box could not centre it.
+          props.icon ? n("div", "ui-row-icon", null, [text("ui-row-glyph", props.icon)]) : null,
           n("div", "ui-row-text", null, [text("ui-row-title", props.title ?? ""), text("ui-row-sub", props.sub)]),
           rowEnd(props),
         ],
@@ -414,7 +416,7 @@ const PATTERNS = {
     build(props) {
       const chips = asList(props.chip).map((spec) => {
         const [label = "", glyph = "•", id = ""] = String(spec).split("|");
-        const dot = n("div", "ui-chip-dot", null, null, glyph);
+        const dot = n("div", "ui-chip-dot", null, [text("ui-chip-glyph", glyph)]);
         if (id) dot.id = id;
         return n("div", "ui-chip", null, [dot, text("ui-chip-label", label)]);
       });
