@@ -155,7 +155,8 @@ class RustLower {
       return base
     }
     def k:int 2
-    while true {
+    def searching:boolean true
+    while searching {
       def cand:string ((base + "_") + (to_string k))
       if (false == (has used cand)) {
         set used cand true
@@ -7294,7 +7295,9 @@ class RustLower {
   ; A method chain that starts at an iterator source.
   fn isIterChain:boolean (n:RustNode) {
     def cur:RustNode n
-    while true {
+    ; not `while true`: Java rejects the return after an endless loop
+    def walking:boolean true
+    while walking {
       if (cur.kind == "paren") {
         cur = (cur.kid(0))
         continue

@@ -16,10 +16,11 @@ the output pane — Scala, for instance, cannot compile `RangerProcess.rgr`.
 The **Rust:** examples are strict Rust modules (`.rs`, see
 [`docs/plans/PLAN_RUST_SYNTAX.md`](../docs/plans/PLAN_RUST_SYNTAX.md)): valid Rust that the
 same compiler lowers to Ranger and writes for the other targets. They are the fixtures
-`tests/fixtures/rust_strict/ex_*.rs`, whose output on JavaScript, Python, Go and C++ is
-checked against the rustc build by `tests/rust-strict.test.ts`. The Rust target shows the
-module as written. Targets whose Rust-syntax runtime (`lib/rust/RsPrelude.rgr`) is not
-written yet are disabled for these examples.
+`tests/fixtures/rust_strict/ex_*.rs`, whose output on JavaScript, Python, Go, C++, Java,
+Kotlin, C#, Dart, Scala and PHP is checked against the rustc build by
+`tests/rust-strict.test.ts`. The Rust target shows the module as written. Swift is disabled
+for these examples: the Rust-syntax runtime (`lib/rust/RsPrelude.rgr`) has no Swift
+templates yet.
 
 The picker state is in the URL: `?example=shape-value&lang=rust`.
 
