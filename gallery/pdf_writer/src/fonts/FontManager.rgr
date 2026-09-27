@@ -200,7 +200,12 @@ class FontManager {
             }
         }
         
-        ; Exact match on both family and style
+        ; Exact match on both family and style. A bare family name means the
+        ; regular face, not whichever face of the family was loaded first: a
+        ; browser fetches the four Open Sans files in parallel and attaches
+        ; them in whatever order they arrive, so "first" was sometimes the
+        ; italic and a whole PDF came out slanted.
+        def firstOfFamily:int -1
         def i:int 0
         while (i < (array_length fonts)) {
             def f:TrueTypeFont (itemAt fonts i)
@@ -211,11 +216,18 @@ class FontManager {
                         return f
                     }
                 } {
-                    ; No style specified, return first match
-                    return f
+                    if (FontManager.isRegularStyle(f.fontStyle)) {
+                        return f
+                    }
+                    if (firstOfFamily < 0) {
+                        firstOfFamily = i
+                    }
                 }
             }
             i = i + 1
+        }
+        if (firstOfFamily >= 0) {
+            return (itemAt fonts firstOfFamily)
         }
         
         ; Try case-insensitive style match
@@ -258,6 +270,10 @@ class FontManager {
         return defaultFont
     }
     
+    sfn isRegularStyle:boolean (style:string) {
+        return ((((strlen style) == 0) || (style == "Regular")) || ((style == "Normal") || (style == "Book")))
+    }
+
     ; Is there a loaded face for this family? getFont() always returns
     ; something — it walks a chain of looser matches and finally hands back
     ; defaultFont — so callers cannot tell a real hit from a substitution.

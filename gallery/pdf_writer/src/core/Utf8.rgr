@@ -171,6 +171,23 @@ class Utf8 {
     ; encode it. Codepoints below 0x20 are not a repertoire question — the
     ; writer handles control characters separately — and are reported here as
     ; unencodable so callers do not have to special-case them.
+    ; A character WinAnsi has no byte for, answered with the one it draws
+    ; like, or itself. These are the ones ordinary Finnish and English text
+    ; is full of: the minus sign, and the narrow and thin spaces a number
+    ; like "18 742" is grouped with. Without this each printed as "?".
+    sfn winAnsiStandIn:int (cp:int) {
+        if (cp == 8722) { return 8211 }   ; minus sign -> en dash
+        if (cp == 8209) { return 45 }     ; non-breaking hyphen -> hyphen
+        if (cp == 8208) { return 45 }     ; hyphen -> hyphen-minus
+        if (cp == 8239) { return 160 }    ; narrow no-break space -> no-break space
+        if (cp == 8201) { return 32 }     ; thin space
+        if (cp == 8200) { return 32 }     ; punctuation space
+        if (cp == 8199) { return 160 }    ; figure space
+        if (cp == 8198) { return 32 }     ; six-per-em space
+        if (cp == 8202) { return 32 }     ; hair space
+        return cp
+    }
+
     sfn toWinAnsi:int (cp:int) {
         if ((cp >= 32) && (cp <= 126)) {
             return cp
