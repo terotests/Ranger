@@ -651,7 +651,7 @@ export function runCompiledKotlin(ktFile: string): RunResult {
     });
 
     // Run the compiled JAR
-    const output = execSync(`java -jar "${jarFile}"`, {
+    const output = execSync(`java -Dstdout.encoding=UTF-8 -jar "${jarFile}"`, {
       cwd: ktDir,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],

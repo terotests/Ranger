@@ -51,6 +51,7 @@ def rs_irem(a, b):
     r = abs(a) % abs(b)
     return r if a >= 0 else -r
 "))
+      dart ( "(" (e 1) ").remainder(" (e 2) ")" )
       * ( "(" (e 1) " % " (e 2) ")" )
     }
   }
@@ -60,6 +61,7 @@ def rs_irem(a, b):
       python ( "math.fmod(" (e 1) ", " (e 2) ")" (imp "math") )
       go ( "math.Mod(" (e 1) ", " (e 2) ")" (imp "math") )
       cpp ( "std::fmod(" (e 1) ", " (e 2) ")" (imp "<cmath>") )
+      php ( "fmod(" (e 1) ", " (e 2) ")" )
       * ( "(" (e 1) " % " (e 2) ")" )
     }
   }
@@ -129,6 +131,11 @@ def rs_irem(a, b):
       python ( "float(" (e 1) " ** " (e 2) ")" )
       go ( "math.Pow(" (e 1) ", float64(" (e 2) "))" (imp "math") )
       cpp ( "std::pow(" (e 1) ", (double)" (e 2) ")" (imp "<cmath>") )
+      kotlin ( "Math.pow(" (e 1) ", (" (e 2) ").toDouble())" )
+      csharp ( "System.Math.Pow(" (e 1) ", " (e 2) ")" )
+      dart ( "pow(" (e 1) ", " (e 2) ").toDouble()" (imp "dart:math") )
+      scala ( "math.pow(" (e 1) ", (" (e 2) ").toDouble)" )
+      php ( "((float)pow(" (e 1) ", " (e 2) "))" )
       * ( "Math.pow(" (e 1) ", " (e 2) ")" )
     }
   }
@@ -155,6 +162,55 @@ inline long long rs_ipow(long long a, long long n) {
     return r;
 }
 "))
+      java7 ( "rs_ipow(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+static int rs_ipow(int a, int n) {
+    int r = 1;
+    for (int i = 0; i < n; i++) { r *= a; }
+    return r;
+}
+"))
+      kotlin ( "rs_ipow(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+fun rs_ipow(a: Int, n: Int): Int {
+    var r = 1
+    for (i in 0 until n) { r *= a }
+    return r
+}
+"))
+      csharp ( "rs_ipow(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+static int rs_ipow(int a, int n) {
+    int r = 1;
+    for (int i = 0; i < n; i++) { r *= a; }
+    return r;
+}
+"))
+      dart ( "rs_ipow(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+int rs_ipow(int a, int n) {
+  var r = 1;
+  for (var i = 0; i < n; i++) { r *= a; }
+  return r;
+}
+"))
+      scala ( "rs_ipow(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+def rs_ipow(a: Int, n: Int): Int = {
+  var r = 1
+  var i = 0
+  while (i < n) { r *= a; i += 1 }
+  r
+}
+"))
+      php ( "rs_ipow(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+function rs_ipow($a, $n) {
+  $r = 1;
+  for ($i = 0; $i < $n; $i++) { $r *= $a; }
+  return $r;
+}
+"))
       * ( "Math.pow(" (e 1) ", " (e 2) ")" )
     }
   }
@@ -174,6 +230,12 @@ func rs_f2i(x float64) int64 {
 }
 "))
       cpp ( "(long long)(" (e 1) ")" )
+      java7 ( "((int)(double)(" (e 1) "))" )
+      kotlin ( "(" (e 1) ").toInt()" )
+      csharp ( "((int)(" (e 1) "))" )
+      dart ( "(" (e 1) ").toInt()" )
+      scala ( "(" (e 1) ").toInt" )
+      php ( "((int)(" (e 1) "))" )
       * ( "Math.trunc(" (e 1) ")" )
     }
   }
@@ -205,6 +267,12 @@ func rs_f2i(x float64) int64 {
       es6 ( "String.fromCodePoint(" (e 1) ")" )
       python ( "chr(" (e 1) ")" )
       go ( "string(rune(" (e 1) "))" )
+      java7 ( "(new String(Character.toChars(" (e 1) ")))" )
+      kotlin ( "String(Character.toChars(" (e 1) "))" )
+      csharp ( "char.ConvertFromUtf32(" (e 1) ")" )
+      dart ( "String.fromCharCode(" (e 1) ")" )
+      scala ( "new String(Character.toChars(" (e 1) "))" )
+      php ( "mb_chr(" (e 1) ", 'UTF-8')" )
       * @macro(true) ( "(strfromcode " "(" (e 1) ")" ")" )
     }
   }
@@ -298,6 +366,173 @@ inline std::string rs_f64(double x) {
 }
 "))
       rust ( "format!(\"{}\", " (e 1) ")" )
+      java7 ( "rs_f64(" (e 1) ")"
+(create_polyfill "
+static String rs_f64(double x) {
+    if (Double.isNaN(x)) { return \"NaN\"; }
+    if (Double.isInfinite(x)) { return x > 0 ? \"inf\" : \"-inf\"; }
+    if (x == 0.0) { return (1.0 / x < 0) ? \"-0\" : \"0\"; }
+    return new java.math.BigDecimal(Double.toString(x)).stripTrailingZeros().toPlainString();
+}
+"))
+      kotlin ( "rs_f64(" (e 1) ")"
+(create_polyfill "
+fun rs_f64(x: Double): String {
+    if (x.isNaN()) { return \"NaN\" }
+    if (x.isInfinite()) { return if (x > 0) \"inf\" else \"-inf\" }
+    if (x == 0.0) { return if (1.0 / x < 0) \"-0\" else \"0\" }
+    return java.math.BigDecimal(x.toString()).stripTrailingZeros().toPlainString()
+}
+"))
+      csharp ( "rs_f64(" (e 1) ")"
+(create_polyfill "
+// The decimal digits of mant * 2^e * 10^k, k = max(0, -e): exact, so no
+// digit depends on the runtime's number formatting.
+static string rs_exact(long mant, int e) {
+    var limbs = new System.Collections.Generic.List<ulong>();
+    while (mant > 0) { limbs.Add((ulong)(mant % 1000000000L)); mant /= 1000000000L; }
+    if (limbs.Count == 0) { limbs.Add(0); }
+    ulong f = e < 0 ? 5UL : 2UL;
+    for (int n = (e < 0 ? -e : e); n > 0; n--) {
+        ulong carry = 0;
+        for (int i = 0; i < limbs.Count; i++) {
+            ulong t = limbs[i] * f + carry;
+            limbs[i] = t % 1000000000UL;
+            carry = t / 1000000000UL;
+        }
+        if (carry > 0) { limbs.Add(carry); }
+    }
+    var sb = new System.Text.StringBuilder();
+    sb.Append(limbs[limbs.Count - 1]);
+    for (int i = limbs.Count - 2; i >= 0; i--) { sb.Append(limbs[i].ToString(\"D9\")); }
+    return sb.ToString();
+}
+// Adds one to a digit string; the result may be one digit longer.
+static string rs_digits_inc(string s) {
+    char[] c = s.ToCharArray();
+    int i = c.Length - 1;
+    while (i >= 0 && c[i] == '9') { c[i] = '0'; i--; }
+    if (i < 0) { return \"1\" + new string(c); }
+    c[i]++;
+    return new string(c);
+}
+// Compares two digit strings as numbers.
+static int rs_digits_cmp(string a, string b) {
+    a = a.TrimStart('0');
+    b = b.TrimStart('0');
+    if (a.Length != b.Length) { return a.Length < b.Length ? -1 : 1; }
+    return System.Math.Sign(string.CompareOrdinal(a, b));
+}
+// digits * 10^-k written without an exponent.
+static string rs_place(string digits, int k) {
+    if (digits.Length <= k) { digits = new string('0', k - digits.Length + 1) + digits; }
+    string ip = digits.Substring(0, digits.Length - k).TrimStart('0');
+    if (ip.Length == 0) { ip = \"0\"; }
+    return k > 0 ? ip + \".\" + digits.Substring(digits.Length - k) : ip;
+}
+")
+(create_polyfill "
+// Rust's Display: the shortest digits that read back as x (the one nearest
+// x when there are two), never an exponent.
+static string rs_f64(double x) {
+    if (double.IsNaN(x)) { return \"NaN\"; }
+    if (double.IsPositiveInfinity(x)) { return \"inf\"; }
+    if (double.IsNegativeInfinity(x)) { return \"-inf\"; }
+    if (x == 0.0) { return (1.0 / x < 0) ? \"-0\" : \"0\"; }
+    long bits = System.BitConverter.DoubleToInt64Bits(x);
+    int be = (int)((bits >> 52) & 0x7FF);
+    long m = bits & 0xFFFFFFFFFFFFFL;
+    if (be == 0) { be = 1; } else { m |= 1L << 52; }
+    int e = be - 1077;
+    // x and the halfway points to its neighbours, all times 2^e
+    string xs = rs_exact(4 * m, e);
+    string hi = rs_exact(4 * m + 2, e);
+    string lo = rs_exact((m == (1L << 52) && be > 1) ? 4 * m - 1 : 4 * m - 2, e);
+    bool incl = (m % 2) == 0;
+    int k = e < 0 ? -e : 0;
+    string res = xs;
+    for (int n = 1; n <= xs.Length; n++) {
+        string head = xs.Substring(0, n);
+        string tail = xs.Substring(n);
+        string zeros = new string('0', tail.Length);
+        string down = head + zeros;
+        string up = rs_digits_inc(head) + zeros;
+        string half = \"5\" + new string('0', tail.Length > 0 ? tail.Length - 1 : 0);
+        int c = tail.Length > 0 ? rs_digits_cmp(tail, half) : -1;
+        bool nearUp = c > 0 || (c == 0 && ((head[n - 1] - '0') % 2) == 1);
+        string first = nearUp ? up : down;
+        string second = nearUp ? down : up;
+        string pick = null;
+        foreach (string cand in new string[] { first, second }) {
+            int cl = rs_digits_cmp(cand, lo);
+            int ch = rs_digits_cmp(cand, hi);
+            if ((cl > 0 || (incl && cl == 0)) && (ch < 0 || (incl && ch == 0))) { pick = cand; break; }
+        }
+        if (pick != null) { res = pick; break; }
+    }
+    string o = rs_place(res, k);
+    if (o.IndexOf('.') >= 0) { o = o.TrimEnd('0').TrimEnd('.'); }
+    return bits < 0 ? \"-\" + o : o;
+}
+"))
+      dart ( "rs_f64(" (e 1) ")"
+(create_polyfill "
+String rs_f64(double x) {
+  if (x.isNaN) { return 'NaN'; }
+  if (x.isInfinite) { return x > 0 ? 'inf' : '-inf'; }
+  if (x == 0.0) { return x.isNegative ? '-0' : '0'; }
+  var s = x.toString();
+  if (s.contains('e')) {
+    var neg = s.startsWith('-');
+    if (neg) { s = s.substring(1); }
+    var parts = s.split('e');
+    var mant = parts[0];
+    var exp = int.parse(parts[1]);
+    var dot = mant.indexOf('.');
+    var digits = mant.replaceAll('.', '');
+    var intLen = (dot < 0 ? mant.length : dot) + exp;
+    if (intLen <= 0) { s = '0.' + ('0' * -intLen) + digits; }
+    else if (intLen >= digits.length) { s = digits + ('0' * (intLen - digits.length)); }
+    else { s = digits.substring(0, intLen) + '.' + digits.substring(intLen); }
+    if (neg) { s = '-' + s; }
+  }
+  if (s.endsWith('.0')) { s = s.substring(0, s.length - 2); }
+  return s;
+}
+"))
+      scala ( "rs_f64(" (e 1) ")"
+(create_polyfill "
+def rs_f64(x: Double): String = {
+  if (x.isNaN) \"NaN\"
+  else if (x.isInfinite) (if (x > 0) \"inf\" else \"-inf\")
+  else if (x == 0.0) (if (1.0 / x < 0) \"-0\" else \"0\")
+  else new java.math.BigDecimal(java.lang.Double.toString(x)).stripTrailingZeros().toPlainString()
+}
+"))
+      php ( "rs_f64(" (e 1) ")"
+(create_polyfill "
+function rs_f64($x) {
+  if (is_nan($x)) { return 'NaN'; }
+  if (is_infinite($x)) { return $x > 0 ? 'inf' : '-inf'; }
+  $s = var_export((float)$x, true);
+  $neg = $s[0] == '-';
+  if ($neg) { $s = substr($s, 1); }
+  $ep = strpos($s, 'E');
+  if ($ep !== false) {
+    $mant = substr($s, 0, $ep);
+    $exp = (int)substr($s, $ep + 1);
+    $dot = strpos($mant, '.');
+    $digits = rtrim(str_replace('.', '', $mant), '0');
+    if ($digits === '') { $digits = '0'; }
+    $intLen = ($dot === false ? strlen($mant) : $dot) + $exp;
+    if ($intLen <= 0) { $s = '0.' . str_repeat('0', -$intLen) . $digits; }
+    elseif ($intLen >= strlen($digits)) { $s = $digits . str_repeat('0', $intLen - strlen($digits)); }
+    else { $s = substr($digits, 0, $intLen) . '.' . substr($digits, $intLen); }
+  }
+  if (substr($s, -2) === '.0') { $s = substr($s, 0, -2); }
+  return $neg ? '-' . $s : $s;
+}
+"))
       * ( "rs_f64(" (e 1) ")" )
     }
   }
@@ -366,6 +601,208 @@ inline std::string rs_f64_prec(double x, long long p) {
 }
 "))
       rust ( "format!(\"{:.*}\", " (e 2) " as usize, " (e 1) ")" )
+      java7 ( "rs_f64_prec(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+static String rs_f64_prec(double x, int p) {
+    if (Double.isNaN(x)) { return \"NaN\"; }
+    if (Double.isInfinite(x)) { return x > 0 ? \"inf\" : \"-inf\"; }
+    java.math.BigDecimal r = new java.math.BigDecimal(x).setScale(p, java.math.RoundingMode.HALF_EVEN);
+    String s = r.toPlainString();
+    if ((x < 0 || (x == 0.0 && 1.0 / x < 0)) && r.signum() == 0) { s = \"-\" + s; }
+    return s;
+}
+"))
+      kotlin ( "rs_f64_prec(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+fun rs_f64_prec(x: Double, p: Int): String {
+    if (x.isNaN()) { return \"NaN\" }
+    if (x.isInfinite()) { return if (x > 0) \"inf\" else \"-inf\" }
+    val r = java.math.BigDecimal(x).setScale(p, java.math.RoundingMode.HALF_EVEN)
+    var s = r.toPlainString()
+    if ((x < 0 || (x == 0.0 && 1.0 / x < 0)) && r.signum() == 0) { s = \"-\" + s }
+    return s
+}
+"))
+      csharp ( "rs_f64_prec(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+// The decimal digits of mant * 2^e * 10^k, k = max(0, -e): exact, so no
+// digit depends on the runtime's number formatting.
+static string rs_exact(long mant, int e) {
+    var limbs = new System.Collections.Generic.List<ulong>();
+    while (mant > 0) { limbs.Add((ulong)(mant % 1000000000L)); mant /= 1000000000L; }
+    if (limbs.Count == 0) { limbs.Add(0); }
+    ulong f = e < 0 ? 5UL : 2UL;
+    for (int n = (e < 0 ? -e : e); n > 0; n--) {
+        ulong carry = 0;
+        for (int i = 0; i < limbs.Count; i++) {
+            ulong t = limbs[i] * f + carry;
+            limbs[i] = t % 1000000000UL;
+            carry = t / 1000000000UL;
+        }
+        if (carry > 0) { limbs.Add(carry); }
+    }
+    var sb = new System.Text.StringBuilder();
+    sb.Append(limbs[limbs.Count - 1]);
+    for (int i = limbs.Count - 2; i >= 0; i--) { sb.Append(limbs[i].ToString(\"D9\")); }
+    return sb.ToString();
+}
+// Adds one to a digit string; the result may be one digit longer.
+static string rs_digits_inc(string s) {
+    char[] c = s.ToCharArray();
+    int i = c.Length - 1;
+    while (i >= 0 && c[i] == '9') { c[i] = '0'; i--; }
+    if (i < 0) { return \"1\" + new string(c); }
+    c[i]++;
+    return new string(c);
+}
+// Compares two digit strings as numbers.
+static int rs_digits_cmp(string a, string b) {
+    a = a.TrimStart('0');
+    b = b.TrimStart('0');
+    if (a.Length != b.Length) { return a.Length < b.Length ? -1 : 1; }
+    return System.Math.Sign(string.CompareOrdinal(a, b));
+}
+// digits * 10^-k written without an exponent.
+static string rs_place(string digits, int k) {
+    if (digits.Length <= k) { digits = new string('0', k - digits.Length + 1) + digits; }
+    string ip = digits.Substring(0, digits.Length - k).TrimStart('0');
+    if (ip.Length == 0) { ip = \"0\"; }
+    return k > 0 ? ip + \".\" + digits.Substring(digits.Length - k) : ip;
+}
+")
+(create_polyfill "
+// `{:.N}`: the exact value rounded to N decimals, a tie to even.
+static string rs_f64_prec(double x, int p) {
+    if (double.IsNaN(x)) { return \"NaN\"; }
+    if (double.IsPositiveInfinity(x)) { return \"inf\"; }
+    if (double.IsNegativeInfinity(x)) { return \"-inf\"; }
+    long bits = System.BitConverter.DoubleToInt64Bits(x);
+    int be = (int)((bits >> 52) & 0x7FF);
+    long m = bits & 0xFFFFFFFFFFFFFL;
+    if (be == 0) { be = 1; } else { m |= 1L << 52; }
+    int e = be - 1075;
+    int k = e < 0 ? -e : 0;
+    string digits = rs_exact(m, e);
+    if (k > p) {
+        string head = digits.Length > k - p ? digits.Substring(0, digits.Length - (k - p)) : \"0\";
+        string tail = digits.Length > k - p ? digits.Substring(digits.Length - (k - p)) : digits.PadLeft(k - p, '0');
+        int c = rs_digits_cmp(tail, \"5\" + new string('0', tail.Length - 1));
+        if (c > 0 || (c == 0 && ((head[head.Length - 1] - '0') % 2) == 1)) { head = rs_digits_inc(head); }
+        digits = head;
+    } else {
+        digits = digits + new string('0', p - k);
+    }
+    string res = rs_place(digits, p);
+    return bits < 0 ? \"-\" + res : res;
+}
+"))
+      dart ( "rs_f64_prec(" (e 1) ", " (e 2) ")" (imp "dart:typed_data")
+(create_polyfill "
+String rs_f64_prec(double x, int p) {
+  if (x.isNaN) { return 'NaN'; }
+  if (x.isInfinite) { return x > 0 ? 'inf' : '-inf'; }
+  var bd = ByteData(8)..setFloat64(0, x);
+  var hi = bd.getUint32(0);
+  var lo = bd.getUint32(4);
+  var neg = (hi >> 31) == 1;
+  var be = (hi >> 20) & 0x7FF;
+  var m = (BigInt.from(hi & 0xFFFFF) << 32) | BigInt.from(lo);
+  if (be == 0) { be = 1; } else { m = m | (BigInt.one << 52); }
+  var e = be - 1075;
+  // the exact value times 10^p, rounded half to even
+  var n = m * BigInt.from(10).pow(p);
+  if (e >= 0) {
+    n = n << e;
+  } else {
+    var q = n >> -e;
+    var r = n - (q << -e);
+    var half = BigInt.one << (-e - 1);
+    if (r > half || (r == half && q.isOdd)) { q = q + BigInt.one; }
+    n = q;
+  }
+  var s = n.toString();
+  if (p > 0) {
+    s = s.padLeft(p + 1, '0');
+    s = s.substring(0, s.length - p) + '.' + s.substring(s.length - p);
+  }
+  return neg ? '-' + s : s;
+}
+"))
+      scala ( "rs_f64_prec(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+def rs_f64_prec(x: Double, p: Int): String = {
+  if (x.isNaN) { return \"NaN\" }
+  if (x.isInfinite) { return if (x > 0) \"inf\" else \"-inf\" }
+  val r = new java.math.BigDecimal(x).setScale(p, java.math.RoundingMode.HALF_EVEN)
+  val s = r.toPlainString()
+  if ((x < 0 || (x == 0.0 && 1.0 / x < 0)) && r.signum() == 0) \"-\" + s else s
+}
+"))
+      php ( "rs_f64_prec(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+// The decimal digits of $m * 2^$e * 10^k, k = max(0, -$e), exact.
+function rs_exact($m, $e) {
+  $limbs = [];
+  while ($m > 0) { $limbs[] = $m % 1000000000; $m = intdiv($m, 1000000000); }
+  if (count($limbs) == 0) { $limbs[] = 0; }
+  $f = $e < 0 ? 5 : 2;
+  for ($n = abs($e); $n > 0; $n--) {
+    $carry = 0;
+    $len = count($limbs);
+    for ($i = 0; $i < $len; $i++) {
+      $t = $limbs[$i] * $f + $carry;
+      $limbs[$i] = $t % 1000000000;
+      $carry = intdiv($t, 1000000000);
+    }
+    if ($carry > 0) { $limbs[] = $carry; }
+  }
+  $s = (string)$limbs[count($limbs) - 1];
+  for ($i = count($limbs) - 2; $i >= 0; $i--) { $s .= str_pad((string)$limbs[$i], 9, '0', STR_PAD_LEFT); }
+  return $s;
+}
+// Adds one to a digit string.
+function rs_digits_inc($s) {
+  $i = strlen($s) - 1;
+  while ($i >= 0 && $s[$i] == '9') { $s[$i] = '0'; $i--; }
+  if ($i < 0) { return '1' . $s; }
+  $s[$i] = chr(ord($s[$i]) + 1);
+  return $s;
+}
+")
+(create_polyfill "
+// `{:.N}`: the exact value rounded to N decimals, a tie to even.
+function rs_f64_prec($x, $p) {
+  if (is_nan($x)) { return 'NaN'; }
+  if (is_infinite($x)) { return $x > 0 ? 'inf' : '-inf'; }
+  $w = unpack('N2', pack('E', (float)$x));
+  $hi = $w[1];
+  $lo = $w[2];
+  $neg = ($hi >> 31) == 1;
+  $be = ($hi >> 20) & 0x7FF;
+  $m = (($hi & 0xFFFFF) << 32) | $lo;
+  if ($be == 0) { $be = 1; } else { $m = $m | (1 << 52); }
+  $e = $be - 1075;
+  $k = $e < 0 ? -$e : 0;
+  $digits = rs_exact($m, $e);
+  if ($k > $p) {
+    $cut = $k - $p;
+    if (strlen($digits) <= $cut) { $digits = str_repeat('0', $cut - strlen($digits) + 1) . $digits; }
+    $head = substr($digits, 0, strlen($digits) - $cut);
+    $tail = substr($digits, strlen($digits) - $cut);
+    $half = '5' . str_repeat('0', $cut - 1);
+    $c = strcmp($tail, $half);
+    if ($c > 0 || ($c == 0 && ((int)$head[strlen($head) - 1]) % 2 == 1)) { $head = rs_digits_inc($head); }
+    $digits = $head;
+  } else {
+    $digits = $digits . str_repeat('0', $p - $k);
+  }
+  if (strlen($digits) <= $p) { $digits = str_repeat('0', $p - strlen($digits) + 1) . $digits; }
+  $ip = ltrim(substr($digits, 0, strlen($digits) - $p), '0');
+  if ($ip === '') { $ip = '0'; }
+  $res = $p > 0 ? $ip . '.' . substr($digits, strlen($digits) - $p) : $ip;
+  return $neg ? '-' . $res : $res;
+}
+"))
       * ( "rs_f64_prec(" (e 1) ", " (e 2) ")" )
     }
   }
@@ -412,6 +849,9 @@ inline std::string rs_f64_prec(double x, long long p) {
       java7 ( "System.err.println(" (e 1) "); System.exit(101);" )
       kotlin ( "System.err.println(" (e 1) "); kotlin.system.exitProcess(101)" )
       csharp ( "System.Console.Error.WriteLine(" (e 1) "); System.Environment.Exit(101);" )
+      dart ( "stderr.writeln(" (e 1) "); exit(101);" (imp "dart:io") )
+      scala ( "System.err.println(" (e 1) "); sys.exit(101)" )
+      php ( "fwrite(STDERR, " (e 1) " . \"\\n\"); exit(101);" )
       * ( "process.stderr.write(" (e 1) " + \"\\n\"); process.exit(101);" )
     }
   }
@@ -428,6 +868,9 @@ inline std::string rs_f64_prec(double x, long long p) {
       java7 ( "Integer.signum(" (e 1) ".compareTo(" (e 2) "))" )
       kotlin ( "Integer.signum(" (e 1) ".compareTo(" (e 2) "))" )
       csharp ( "System.Math.Sign(string.CompareOrdinal(" (e 1) ", " (e 2) "))" )
+      dart ( "(" (e 1) ").compareTo(" (e 2) ").sign" )
+      scala ( "Integer.signum(" (e 1) ".compareTo(" (e 2) "))" )
+      php ( "max(-1, min(1, strcmp(" (e 1) ", " (e 2) ")))" )
       * ( "(" (e 1) " < " (e 2) " ? -1 : (" (e 1) " > " (e 2) " ? 1 : 0))" )
     }
   }
@@ -446,6 +889,7 @@ inline std::string rs_f64_prec(double x, long long p) {
       dart ( (e 1) ".length" )
       php ( "count(" (e 1) ")" )
       swift6 ( (e 1) ".count" )
+      scala ( (e 1) ".size" )
       * ( "Object.keys(" (e 1) ").length" )
     }
   }
@@ -477,6 +921,7 @@ inline void rs_map_erase(M& m, const K& k) {
       dart ( (e 1) ".remove(" (e 2) ");" )
       php ( "unset(" (e 1) "[" (e 2) "]);" )
       swift6 ( (e 1) ".removeValue(forKey: " (e 2) ")" )
+      scala ( (e 1) ".remove(" (e 2) ")" )
       * ( "delete " (e 1) "[" (e 2) "];" )
     }
   }
@@ -560,6 +1005,9 @@ inline std::string rs_case(const std::string& s, bool up) {
       ; strings.ToUpper maps one rune to one rune; Rust special casing writes
       ; ß as SS
       go ( "strings.ReplaceAll(strings.ToUpper(" (e 1) "), \"ß\", \"SS\")" (imp "strings") )
+      csharp ( "(" (e 1) ").ToUpperInvariant().Replace(\"ß\", \"SS\")" )
+      dart ( "(" (e 1) ").toUpperCase().replaceAll(\"ß\", \"SS\")" )
+      php ( "mb_strtoupper(" (e 1) ", 'UTF-8')" )
       * @macro(true) ( "(to_uppercase " "(" (e 1) ")" ")" )
     }
   }
@@ -567,6 +1015,7 @@ inline std::string rs_case(const std::string& s, bool up) {
     templates {
       ranger ( "(rs_lower " (e 1) ")" )
       cpp ( "rs_case(" (e 1) ", false)" (imp "<string>") )
+      php ( "mb_strtolower(" (e 1) ", 'UTF-8')" )
       * @macro(true) ( "(to_lowercase " "(" (e 1) ")" ")" )
     }
   }
@@ -605,6 +1054,39 @@ def rs_round(x):
 "))
       go ( "math.Round(" (e 1) ")" (imp "math") )
       cpp ( "std::round(" (e 1) ")" (imp "<cmath>") )
+      java7 ( "rs_round(" (e 1) ")"
+(create_polyfill "
+static double rs_round(double x) {
+    if (Double.isNaN(x) || Double.isInfinite(x)) { return x; }
+    double a = Math.abs(x);
+    double r = Math.floor(a);
+    if (a - r >= 0.5) { r += 1; }
+    return Math.copySign(r, x);
+}
+"))
+      kotlin ( "rs_round(" (e 1) ")"
+(create_polyfill "
+fun rs_round(x: Double): Double {
+    if (x.isNaN() || x.isInfinite()) { return x }
+    val a = Math.abs(x)
+    var r = Math.floor(a)
+    if (a - r >= 0.5) { r += 1.0 }
+    return Math.copySign(r, x)
+}
+"))
+      csharp ( "System.Math.Round(" (e 1) ", System.MidpointRounding.AwayFromZero)" )
+      dart ( "(" (e 1) ").roundToDouble()" )
+      scala ( "rs_round(" (e 1) ")"
+(create_polyfill "
+def rs_round(x: Double): Double = {
+  if (x.isNaN || x.isInfinite) { return x }
+  val a = math.abs(x)
+  var r = math.floor(a)
+  if (a - r >= 0.5) { r += 1.0 }
+  java.lang.Math.copySign(r, x)
+}
+"))
+      php ( "round(" (e 1) ")" )
       * ( "Math.round(" (e 1) ")" )
     }
   }
@@ -621,6 +1103,17 @@ def rs_trunc(x):
 "))
       go ( "math.Trunc(" (e 1) ")" (imp "math") )
       cpp ( "std::trunc(" (e 1) ")" (imp "<cmath>") )
+      java7 ( "(" (e 1) " < 0 ? Math.ceil(" (e 1) ") : Math.floor(" (e 1) "))" )
+      kotlin ( "(if (" (e 1) " < 0) Math.ceil(" (e 1) ") else Math.floor(" (e 1) "))" )
+      csharp ( "System.Math.Truncate(" (e 1) ")" )
+      dart ( "(" (e 1) ").truncateToDouble()" )
+      scala ( "(if (" (e 1) " < 0) math.ceil(" (e 1) ") else math.floor(" (e 1) "))" )
+      php ( "rs_trunc(" (e 1) ")"
+(create_polyfill "
+function rs_trunc($x) {
+  return $x < 0 ? ceil($x) : floor($x);
+}
+"))
       * ( "Math.floor(" (e 1) ")" )
     }
   }
@@ -631,6 +1124,10 @@ def rs_trunc(x):
       python ( "math.log(" (e 1) ")" (imp "math") )
       go ( "math.Log(" (e 1) ")" (imp "math") )
       cpp ( "std::log(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Log(" (e 1) ")" )
+      dart ( "log(" (e 1) ")" (imp "dart:math") )
+      scala ( "math.log(" (e 1) ")" )
+      php ( "log(" (e 1) ")" )
       * ( "Math.log(" (e 1) ")" )
     }
   }
@@ -641,6 +1138,10 @@ def rs_trunc(x):
       python ( "math.exp(" (e 1) ")" (imp "math") )
       go ( "math.Exp(" (e 1) ")" (imp "math") )
       cpp ( "std::exp(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Exp(" (e 1) ")" )
+      dart ( "exp(" (e 1) ")" (imp "dart:math") )
+      scala ( "math.exp(" (e 1) ")" )
+      php ( "exp(" (e 1) ")" )
       * ( "Math.exp(" (e 1) ")" )
     }
   }
@@ -651,6 +1152,19 @@ def rs_trunc(x):
       python ( "math.log10(" (e 1) ")" (imp "math") )
       go ( "math.Log10(" (e 1) ")" (imp "math") )
       cpp ( "std::log10(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Log10(" (e 1) ")" )
+      dart ( "rs_log10(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_log10(double x) {
+  var r = log(x) / ln10;
+  // exact powers of ten come out exact, as libm's log10 gives them
+  var k = r.roundToDouble();
+  if (k.abs() < 300 && pow(10.0, k) == x) { return k; }
+  return r;
+}
+"))
+      scala ( "math.log10(" (e 1) ")" )
+      php ( "log10(" (e 1) ")" )
       * ( "Math.log10(" (e 1) ")" )
     }
   }
@@ -661,6 +1175,10 @@ def rs_trunc(x):
       python ( "math.pow(" (e 1) ", " (e 2) ")" (imp "math") )
       go ( "math.Pow(" (e 1) ", " (e 2) ")" (imp "math") )
       cpp ( "std::pow(" (e 1) ", " (e 2) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Pow(" (e 1) ", " (e 2) ")" )
+      dart ( "pow(" (e 1) ", " (e 2) ").toDouble()" (imp "dart:math") )
+      scala ( "math.pow(" (e 1) ", " (e 2) ")" )
+      php ( "((float)pow(" (e 1) ", " (e 2) "))" )
       * ( "Math.pow(" (e 1) ", " (e 2) ")" )
     }
   }
@@ -687,6 +1205,18 @@ func rs_signum(x float64) float64 {
 }
 "))
       cpp ( "(std::isnan(" (e 1) ") ? " (e 1) " : std::copysign(1.0, " (e 1) "))" (imp "<cmath>") )
+      java7 ( "(Double.isNaN(" (e 1) ") ? " (e 1) " : Math.copySign(1.0, " (e 1) "))" )
+      kotlin ( "(if ((" (e 1) ").isNaN()) " (e 1) " else Math.copySign(1.0, " (e 1) "))" )
+      csharp ( "(double.IsNaN(" (e 1) ") ? " (e 1) " : ((" (e 1) " < 0 || (" (e 1) " == 0 && 1.0 / " (e 1) " < 0)) ? -1.0 : 1.0))" )
+      dart ( "((" (e 1) ").isNaN ? " (e 1) " : ((" (e 1) ").isNegative ? -1.0 : 1.0))" )
+      scala ( "(if ((" (e 1) ").isNaN) " (e 1) " else java.lang.Math.copySign(1.0, " (e 1) "))" )
+      php ( "rs_signum(" (e 1) ")"
+(create_polyfill "
+function rs_signum($x) {
+  if (is_nan($x)) { return $x; }
+  return ($x < 0 || ($x == 0 && fdiv(1, $x) < 0)) ? -1.0 : 1.0;
+}
+"))
       * ( "Math.signum(" (e 1) ")" )
     }
   }
@@ -722,6 +1252,11 @@ std::vector<int> rs_int_keys( const M & m ) {
 }
 "))
       rust ( (e 1) ".keys().cloned().collect::<Vec<i64>>()" )
+      kotlin ( "ArrayList(" (e 1) ".keys)" )
+      csharp ( "new System.Collections.Generic.List<int>(" (e 1) ".Keys)" )
+      dart ( "(" (e 1) ").keys.toList()" )
+      scala ( "(" (e 1) ").keys.to[collection.mutable.ArrayBuffer]" )
+      php ( "array_keys(" (e 1) ")" )
       * ( "new ArrayList<>(" (e 1) ".keySet())" )
     }
   }
@@ -736,6 +1271,11 @@ std::vector<int> rs_int_keys( const M & m ) {
       python ( "print(" (e 1) ", file=sys.stderr)" nl (imp "sys") )
       go ( "fmt.Fprintln(os.Stderr, " (e 1) ")" nl (imp "fmt") (imp "os") )
       cpp ( "std::cerr << " (e 1) " << std::endl;" nl (imp "<iostream>") )
+      kotlin ( "System.err.println(" (e 1) ")" nl )
+      csharp ( "System.Console.Error.WriteLine(" (e 1) ");" nl )
+      dart ( "stderr.writeln(" (e 1) ");" nl (imp "dart:io") )
+      scala ( "System.err.println(" (e 1) ")" nl )
+      php ( "fwrite(STDERR, " (e 1) " . \"\\n\");" nl )
       * ( "System.err.println(" (e 1) ");" nl )
     }
   }

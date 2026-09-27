@@ -1112,7 +1112,9 @@ class RustParser {
     if (this.eatOp("::")) {
       path = "::"
     }
-    while true {
+    ; not `while true`: Java rejects the return after an endless loop
+    def reading:boolean true
+    while reading {
       if (this.isP("*")) {
         pos = pos + 1
         def g:RustNode (this.nodeAt("use_glob" start))
