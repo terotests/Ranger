@@ -347,6 +347,22 @@ class MdLayout {
     ; than hidden: `book_slides.rgr` set that precedent, and a deck that
     ; silently drops the third bullet is worse than one that says it did.
     def slideOverflows:int 0
+    ; GROW: a slide with room to spare is laid out again with everything on
+    ; it larger — text, headings, spacing, together, so the title stays the
+    ; larger thing — by at most this factor (1.0 = off). A deck has no font
+    ; size of its own to ask for; a slide of three bullets at the document's
+    ; body size is a slide nobody at the back can read. It never shrinks and
+    ; never makes a slide spill: when the larger version does not fit, the
+    ; slide stays as it was. Slides with a picture or an embed are left
+    ; alone, since those were sized for the room they had.
+    def slideGrow:double 1.0
+    ; How full a grown slide may get, of the room under the margins.
+    def slideGrowFill:double 0.82
+    ; Per top-level block: the slide it starts on and the one it ends on.
+    def blockFirstPage:[int]
+    def blockLastPage:[int]
+    ; How many slides were grown, and by how much the last one was.
+    def slidesGrown:int 0
     ; The title of the slide being laid out, repeated at the top of a
     ; continuation slide so a reader knows what they are still looking at.
     def slideTitle:string ""
@@ -545,6 +561,18 @@ class MdLayout {
         if (meta.has("slide-overflow")) {
             slideOverflow = (MdChar.lower((trim (meta.get("slide-overflow" "split")))))
         }
+        ; `slide-grow: 1.5` lets a slide with room grow by up to half again;
+        ; `slide-grow: off` keeps every slide at the document's sizes
+        if (meta.has("slide-grow")) {
+            def g:string (MdChar.lower((trim (meta.get("slide-grow" "")))))
+            if ((g == "off") || (g == "none")) {
+                slideGrow = 1.0
+            } {
+                def gv@(optional):double (str2double g)
+                def gd:double (?? gv 1.0)
+                if (gd >= 1.0) { slideGrow = gd }
+            }
+        }
     }
 
     ; Sheets of a stated size, with the breaks decided here. What is printed.
@@ -562,7 +590,13 @@ class MdLayout {
         contentTop = style.margin
         contentBottom = (style.pageHeight - style.margin)
         cursorY = contentTop
+        clear blockFirstPage
+        clear blockLastPage
+        slidesGrown = 0
         this.layoutBody(doc)
+        if ((slides && (slideGrow > 1.01)) && (tocLines == 0)) {
+            this.growSlides(doc)
+        }
         this.emitFurniture()
         documentHeight = style.pageHeight
     }
@@ -997,7 +1031,9 @@ class MdLayout {
                     }
                 }
             }
+            push blockFirstPage page
             this.blockCached(child docSource contentX contentW)
+            push blockLastPage page
             if (! placed) {
                 ; After the title, which is where a reader looks for it; at
                 ; the very top when the document has no heading at all.
@@ -1301,6 +1337,215 @@ class MdLayout {
             }
         }
         cursorY = (top + h)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Growing a slide that has room
+    ; ----------------------------------------------------------------------
+    fn growSlides:void (doc:MdNode) {
+        def n:int (doc.childCount())
+        if ((array_length blockFirstPage) != n) {
+            return
+        }
+        def p:int 0
+        while (p < pageCount) {
+            this.growSlide(doc p)
+            p = (p + 1)
+        }
+    }
+
+    fn growSlide:void (doc:MdNode p:int) {
+        def n:int (doc.childCount())
+        ; the blocks of this slide, none spilling into or out of it
+        def members:[int]
+        def i:int 0
+        while (i < n) {
+            def fp:int (itemAt blockFirstPage i)
+            def lp:int (itemAt blockLastPage i)
+            if (fp == p) {
+                if (lp != p) {
+                    return
+                }
+                push members i
+            } {
+                if ((fp < p) && (lp >= p)) {
+                    return
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length members) == 0) {
+            return
+        }
+        ; its boxes, which are one run: pages only ever go forward
+        def b0:int -1
+        def b1:int -1
+        def bottom:double contentTop
+        def k:int 0
+        while (k < (array_length boxes)) {
+            def b:MdBox (itemAt boxes k)
+            if (b.page == p) {
+                if (b0 < 0) { b0 = k }
+                b1 = (k + 1)
+                if ((b.kind == 3) || ((strlen b.imagePath) > 0)) {
+                    return
+                }
+                if ((b.y + b.h) > bottom) { bottom = (b.y + b.h) }
+            }
+            k = (k + 1)
+        }
+        if (b0 < 0) {
+            return
+        }
+        def room:double (contentBottom - contentTop)
+        def used:double (bottom - contentTop)
+        if ((used <= 0.0) || (used >= (room * slideGrowFill))) {
+            return
+        }
+        ; the first guess from the height; text wraps more as it grows, so
+        ; each try is laid out and checked, a step smaller when it does not fit
+        def s:double ((room * slideGrowFill) / used)
+        if (s > slideGrow) { s = slideGrow }
+        def kept:[MdBox]
+        def m:int b0
+        while (m < b1) {
+            push kept (itemAt boxes m)
+            m = (m + 1)
+        }
+        def tail:[MdBox]
+        m = b1
+        while (m < (array_length boxes)) {
+            push tail (itemAt boxes m)
+            m = (m + 1)
+        }
+        def saved:[double] (this.styleNumbers())
+        def headsBefore:int (MdLayout.headingLines(kept 0 (array_length kept) ((itemAt saved 0) * 1.15)))
+        def savedPage:int page
+        def savedPageCount:int pageCount
+        def savedCursor:double cursorY
+        def savedOverflows:int slideOverflows
+        while (s > 1.04) {
+            this.truncate(b0)
+            this.scaleStyle(saved s)
+            page = p
+            cursorY = contentTop
+            def j:int 0
+            while (j < (array_length members)) {
+                def child:MdNode (doc.childAt((itemAt members j)))
+                if (child.kind == "heading") {
+                    if (child.level <= splitLevel) {
+                        slideTitle = (child.plainText())
+                        slideTitleLevel = child.level
+                    }
+                }
+                this.block(child contentX contentW)
+                j = (j + 1)
+            }
+            ; …and a heading that was one line stays one line: a title
+            ; broken in two to be larger is not larger, it is worse
+            def headsNow:int (MdLayout.headingLines(boxes b0 (array_length boxes) ((itemAt saved 0) * s * 1.15)))
+            def fits:boolean (((page == p) && (cursorY <= (contentTop + (room * (slideGrowFill + 0.1))))) && (headsNow <= headsBefore))
+            this.restoreStyle(saved)
+            page = savedPage
+            pageCount = savedPageCount
+            cursorY = savedCursor
+            slideOverflows = savedOverflows
+            if fits {
+                def t:int 0
+                while (t < (array_length tail)) {
+                    push boxes (itemAt tail t)
+                    t = (t + 1)
+                }
+                slidesGrown = (slidesGrown + 1)
+                return
+            }
+            s = (s - 0.08)
+        }
+        ; nothing larger fitted: the slide as it was
+        this.truncate(b0)
+        def r:int 0
+        while (r < (array_length kept)) {
+            push boxes (itemAt kept r)
+            r = (r + 1)
+        }
+        r = 0
+        while (r < (array_length tail)) {
+            push boxes (itemAt tail r)
+            r = (r + 1)
+        }
+    }
+
+    ; How many lines of heading-sized text boxes from..to hold: distinct
+    ; baselines among text larger than `minSize`.
+    sfn headingLines:int (list:[MdBox] from:int to:int minSize:double) {
+        def ys:[double]
+        def i:int from
+        while (i < to) {
+            def b:MdBox (itemAt list i)
+            if (((b.kind == 0) && (b.size > minSize)) && ((strlen b.text) > 0)) {
+                def seen:boolean false
+                def k:int 0
+                while (k < (array_length ys)) {
+                    if ((fabs ((itemAt ys k) - b.y)) < 1.0) {
+                        seen = true
+                    }
+                    k = (k + 1)
+                }
+                if (! seen) {
+                    push ys b.y
+                }
+            }
+            i = (i + 1)
+        }
+        return (array_length ys)
+    }
+
+    ; Every size and space a slide's content is measured with, in one list,
+    ; so a grown slide can put them all back exactly.
+    fn styleNumbers:[double] () {
+        def v:[double] ([] _:double (style.bodySize style.paraSpacing style.h1Size style.h2Size style.h3Size style.h4Size style.h5Size style.h6Size))
+        push v style.headingSpaceBefore
+        push v style.headingSpaceAfter
+        push v style.codeSize
+        push v style.codePadding
+        push v style.quoteBarWidth
+        push v style.quoteIndent
+        push v style.quotePadY
+        push v style.listIndent
+        push v style.markerGap
+        push v style.listTightSpacing
+        push v style.cellPadX
+        push v style.cellPadY
+        push v style.embedSpacing
+        return v
+    }
+
+    fn scaleStyle:void (v:[double] s:double) {
+        style.bodySize = ((itemAt v 0) * s)
+        style.paraSpacing = ((itemAt v 1) * s)
+        style.h1Size = ((itemAt v 2) * s)
+        style.h2Size = ((itemAt v 3) * s)
+        style.h3Size = ((itemAt v 4) * s)
+        style.h4Size = ((itemAt v 5) * s)
+        style.h5Size = ((itemAt v 6) * s)
+        style.h6Size = ((itemAt v 7) * s)
+        style.headingSpaceBefore = ((itemAt v 8) * s)
+        style.headingSpaceAfter = ((itemAt v 9) * s)
+        style.codeSize = ((itemAt v 10) * s)
+        style.codePadding = ((itemAt v 11) * s)
+        style.quoteBarWidth = ((itemAt v 12) * s)
+        style.quoteIndent = ((itemAt v 13) * s)
+        style.quotePadY = ((itemAt v 14) * s)
+        style.listIndent = ((itemAt v 15) * s)
+        style.markerGap = ((itemAt v 16) * s)
+        style.listTightSpacing = ((itemAt v 17) * s)
+        style.cellPadX = ((itemAt v 18) * s)
+        style.cellPadY = ((itemAt v 19) * s)
+        style.embedSpacing = ((itemAt v 20) * s)
+    }
+
+    fn restoreStyle:void (v:[double]) {
+        this.scaleStyle(v 1.0)
     }
 
     fn truncate:void (n:int) {
