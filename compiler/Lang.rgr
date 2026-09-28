@@ -6698,7 +6698,7 @@ const r_cb_dec = new TextDecoder();
             templates {
                 llvm ( "(buffer_alloc " (e 1) ")" )
                 ranger ( "(buffer_alloc " (e 1) ")" )
-                es6 ( "(function(){ var b = new ArrayBuffer(" (e 1) "); b._view = new DataView(b); return b; })()" )
+                es6 ( "(function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(" (e 1) "))" )
                 go ( "make([]byte, " (e 1) ")" )
                 rust ( "vec![0u8; " (idx 1) "]" )
                 cpp ( "std::vector<uint8_t>(" (e 1) ", 0)" (imp "<vector>") (imp "<cstdint>") )
@@ -6807,7 +6807,7 @@ function r_buf_slice($buf, $start, $end) {
         buffer_from_string  cmdBufferFromString:buffer  ( str:string ) {
             templates {
                 ranger ( "(buffer_from_string " (e 1) ")" )
-                es6 ( "(function(s){ var b = new ArrayBuffer(s.length); var v = new Uint8Array(b); for(var i=0;i<s.length;i++)v[i]=s.charCodeAt(i); b._view = new DataView(b); return b; })(" (e 1) ")" )
+                es6 ( "(function(s){ var b = new ArrayBuffer(s.length); var v = new Uint8Array(b); for(var i=0;i<s.length;i++)v[i]=s.charCodeAt(i); return Object.assign(b, { _view: new DataView(b) }); })(" (e 1) ")" )
                 go ( "[]byte(" (e 1) ")" )
                 rust ( (e 1) ".as_bytes().to_vec()" )
                 cpp ( "std::vector<uint8_t>(" (e 1) ".begin(), " (e 1) ".end())" )
@@ -6944,7 +6944,7 @@ static void r_buffer_write_file(String path, String filename, byte[] data) {
             templates {
                 llvm ( "(buffer_read_file " (e 1) " " (e 2) ")" )
                 ranger ( "(buffer_read_file " (e 1) " " (e 2) ")" )
-                es6 ( "(function(){ var b = require('fs').readFileSync( require('path').join(" (e 1) ", " (e 2) ") ); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })()" )
+                es6 ( "(function(){ var b = require('fs').readFileSync( require('path').join(" (e 1) ", " (e 2) ") ); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; return Object.assign(ab, { _view: new DataView(ab) }); })()" )
                 go ( "func() []byte { d, _ := os.ReadFile(filepath.Join(" (e 1) ", " (e 2) ")); return d }()" (imp "os") (imp "path/filepath") )
                 rust ( "std::fs::read(format!(\"{}/{}\", " (e 1) ", " (e 2) ")).unwrap_or_default()" )
                 cpp ( "r_buffer_read_file(" (e 1) ", " (e 2) ")" (imp "<fstream>") (imp "<vector>") (imp "<iterator>")
@@ -7015,7 +7015,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
         buffer_slice    cmdBufferSlice:buffer    ( buf:buffer start:int end:int ) {
             templates {
                 ranger ( "(buffer_slice " (e 1) " " (e 2) " " (e 3) ")" )
-                es6 ( "(function(b,s,e){ var slice = b.slice(s,e); slice._view = new DataView(slice); return slice; })(" (e 1) "," (e 2) "," (e 3) ")" )
+                es6 ( "(function(b,s,e){ var slice = b.slice(s,e); return Object.assign(slice, { _view: new DataView(slice) }); })(" (e 1) "," (e 2) "," (e 3) ")" )
                 dart ( (e 1) ".sublist(" (e 2) ", " (e 3) ")" )
                 go ( "append([]byte{}, " (e 1) "[" (e 2) ":" (e 3) "]...)" )
                 rust ( (e 1) "[" (idx 2) ".." (idx 3) "].to_vec()" )
@@ -10030,6 +10030,64 @@ static class RgSort {
 ")
                     )
             }            
+        }
+
+        ; `sort` of numbers without a comparison: a new array, ascending, the
+        ; argument left alone like the `sort` above
+        sort _:[double] ( array:[double] ) {
+            templates {
+                ranger ( "(sort " (e 1) ")" )
+                es6 ( (e 1) ".slice().sort((__a, __b) => __a - __b)" )
+                python ( "sorted(" (e 1) ")" )
+                php ( "(function($__arr) { sort($__arr); return $__arr; })(" (e 1) ")" )
+                rust ( "{ let mut __v = " (e 1) ".clone(); __v.sort_by(|__a, __b| __a.partial_cmp(__b).unwrap()); __v }" )
+                cpp ( "[&]() { auto __v = " (e 1) "; std::stable_sort(__v.begin(), __v.end()); return __v; }()" (imp "<algorithm>") )
+                kotlin ( (e 1) ".sorted().toMutableList()" )
+                java7 ( "r_sort_natural(" (e 1) ")" (imp "java.util.*")
+(create_polyfill "
+static <T extends Comparable<T>> ArrayList<T> r_sort_natural(ArrayList<T> list) {
+  ArrayList<T> copy = new ArrayList<T>(list);
+  java.util.Collections.sort(copy);
+  return copy;
+}
+")
+                )
+                dart ( "(" (typeof 1) ".from(" (e 1) ")..sort())" )
+                scala ( (e 1) ".sorted" )
+                swift3 ( (e 1) ".sorted()" )
+                swift6 ( (e 1) ".sorted()" )
+                go ( "func(src " (typeof 1) ") " (typeof 1) " { out := append(" (typeof 1) "{}, src...); sort.SliceStable(out, func(i, j int) bool { return out[i] < out[j] }); return out }(" (e 1) ")" (imp "sort") )
+                csharp ( "System.Linq.Enumerable.ToList(System.Linq.Enumerable.OrderBy(" (e 1) ", __x => __x))" (imp "System.Linq") )
+            }
+        }
+
+        ; `sort` of numbers without a comparison: a new array, ascending, the
+        ; argument left alone like the `sort` above
+        sort _:[int] ( array:[int] ) {
+            templates {
+                ranger ( "(sort " (e 1) ")" )
+                es6 ( (e 1) ".slice().sort((__a, __b) => __a - __b)" )
+                python ( "sorted(" (e 1) ")" )
+                php ( "(function($__arr) { sort($__arr); return $__arr; })(" (e 1) ")" )
+                rust ( "{ let mut __v = " (e 1) ".clone(); __v.sort_by(|__a, __b| __a.partial_cmp(__b).unwrap()); __v }" )
+                cpp ( "[&]() { auto __v = " (e 1) "; std::stable_sort(__v.begin(), __v.end()); return __v; }()" (imp "<algorithm>") )
+                kotlin ( (e 1) ".sorted().toMutableList()" )
+                java7 ( "r_sort_natural(" (e 1) ")" (imp "java.util.*")
+(create_polyfill "
+static <T extends Comparable<T>> ArrayList<T> r_sort_natural(ArrayList<T> list) {
+  ArrayList<T> copy = new ArrayList<T>(list);
+  java.util.Collections.sort(copy);
+  return copy;
+}
+")
+                )
+                dart ( "(" (typeof 1) ".from(" (e 1) ")..sort())" )
+                scala ( (e 1) ".sorted" )
+                swift3 ( (e 1) ".sorted()" )
+                swift6 ( (e 1) ".sorted()" )
+                go ( "func(src " (typeof 1) ") " (typeof 1) " { out := append(" (typeof 1) "{}, src...); sort.SliceStable(out, func(i, j int) bool { return out[i] < out[j] }); return out }(" (e 1) ")" (imp "sort") )
+                csharp ( "System.Linq.Enumerable.ToList(System.Linq.Enumerable.OrderBy(" (e 1) ", __x => __x))" (imp "System.Linq") )
+            }
         }
 
         ; `reverse` gives a new array and leaves the argument alone -- the es6

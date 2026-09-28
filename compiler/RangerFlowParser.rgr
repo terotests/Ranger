@@ -4783,8 +4783,18 @@ class RangerFlowParser {
     if( ( (size fc.ns) > 1 ) && ( ( size node.children) > 1) ) {
       def possible_cmd (last fc.ns)
       def op_list (ctx.getOperators(possible_cmd))
+      ; `Util.count(3)` names a static method of the class Util, not the
+      ; operator `count` on a value: leave it to the static call below
+      def isStaticCall false
+      if ((size fc.ns) == 2) {
+        def staticOwner:string (at fc.ns 0)
+        if ((false == (ctx.isVarDefined(staticOwner))) && (ctx.isDefinedClass(staticOwner))) {
+          def ownerCl (ctx.findClass(staticOwner))
+          isStaticCall = (ownerCl.hasStaticMethod(possible_cmd))
+        }
+      }
 
-      if( (has op_list) ) {
+      if( (has op_list) && (isStaticCall == false) ) {
 ;       for op_list cmd:CodeNode i {
         
         ;def m (new RangerArgMatch)        

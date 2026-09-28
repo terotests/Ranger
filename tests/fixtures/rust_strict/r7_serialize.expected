@@ -1,0 +1,18 @@
+{"name":"tri \"a\"\n","ratio":0.25,"visible":true,"corners":[{"x":0,"y":0},{"x":4,"y":-3}],"tags":["x","ä€"],"parent":null,"origin":{"x":1,"y":2}}
+2 corners, second at 4,-3
+same text: true
+error: field `y`: expected an integer
+point: missing field `y`
+shape: missing field `name`
+point: field `y`: expected an integer
+shape: missing field `name`
+point: expected an object
+shape: expected an object
+point: invalid JSON at 15
+shape: invalid JSON at 15
+point: invalid JSON at 6
+shape: invalid JSON at 6
+point: missing field `x`
+shape: field `corners`: item 0: field `y`: expected an integer
+point: missing field `x`
+shape é😀 -5 {"name":"é😀","ratio":-5,"visible":true,"corners":[],"tags":["t"],"parent":"p","origin":{"x":0,"y":0}}

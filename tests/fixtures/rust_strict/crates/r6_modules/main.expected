@@ -1,0 +1,11 @@
+dist2 52
+mid 3 5
+helpers 4 30 9
+scale 10 origin Point { x: 0, y: 0 }
+label #16
+circle 6.75
+rect 6.00
+rect 1.00
+total 13.750
+round 3
+circle of area 7

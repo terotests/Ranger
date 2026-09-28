@@ -1,0 +1,18 @@
+# A crate with both source forms (PLAN_RUST_SYNTAX.md R6): src/main.rs and
+# src/geometry.rs are strict Rust, src/legacy.rgr is Ranger. build.rs writes
+# legacy.rgr as a Rust module with rgrc; `ranger::import_rgr!` includes it.
+
+[package]
+name = "r6_mixed"
+version = "0.1.0"
+edition = "2021"
+publish = false
+build = "build.rs"
+
+[dependencies]
+ranger = { path = "../../../../runtime/rust/ranger" }
+
+[profile.dev]
+overflow-checks = false
+
+[workspace]

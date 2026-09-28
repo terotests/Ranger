@@ -1,0 +1,5 @@
+dist2 25
+steps=30 (2 adds)
+total 30 count 30
+made=11 (2 adds) / renamed=30 (2 adds)
+sum 141

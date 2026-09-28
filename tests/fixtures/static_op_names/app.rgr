@@ -1,0 +1,43 @@
+; Static methods named like operators (`count`, `make`, `size`, `sort`) and
+; `sort` of a number array without a comparison.
+
+class Util {
+    sfn count:int (n:int) {
+        return (n + 1)
+    }
+    sfn make:int (n:int) {
+        return (n * 2)
+    }
+    sfn size:int (s:string) {
+        return (strlen s)
+    }
+}
+
+class Bag {
+    fn count:int (n:int) {
+        return (n + 100)
+    }
+}
+
+class Main {
+    sfn main:void () {
+        print (to_string ((Util.count(3)) + (Util.make(4))))
+        print (to_string (Util.size("abc")))
+        def u:Bag (new Bag())
+        print (to_string (u.count(1)))
+        def xs:[double] ([] _:double (3.5 1.25 2.5))
+        def s:[double] (sort xs)
+        def ys:[int] ([] _:int (5 -2 9 0))
+        def t:[int] (sort ys)
+        def line:string ""
+        for s v:double i {
+            line = ((line + (to_string (to_int (v * 100.0)))) + " ")
+        }
+        for t v:int i {
+            line = ((line + (to_string v)) + " ")
+        }
+        print line
+        ; the argument is left as it was
+        print (to_string (to_int ((itemAt xs 0) * 100.0)))
+    }
+}

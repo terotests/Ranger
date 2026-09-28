@@ -353,7 +353,7 @@ class RangerJavaScriptClassWriter {
         return "Uint8Array"
       }
       case "buffer" {
-        return "Uint8Array"
+        return "(ArrayBuffer & { _view: DataView })"
       }
       case "int_buffer" {
         return "BigInt64Array"
@@ -443,7 +443,7 @@ class RangerJavaScriptClassWriter {
         return "Uint8Array"
       }
       case "buffer" {
-        return "Uint8Array"
+        return "(ArrayBuffer & { _view: DataView })"
       }
       case "int_buffer" {
         return "BigInt64Array"
@@ -561,7 +561,7 @@ class RangerJavaScriptClassWriter {
         wr.out("Uint8Array" false)
       }
       case RangerNodeType.Buffer {
-        wr.out("Uint8Array" false)
+        wr.out("(ArrayBuffer & { _view: DataView })" false)
       }
       case RangerNodeType.IntBuffer {
         wr.out("BigInt64Array" false)

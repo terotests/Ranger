@@ -1,0 +1,39 @@
+; A Ranger module included by the strict Rust code of this crate.
+
+class Counter {
+  def count:int 0
+  def label:string ""
+  def history:[int]
+  Constructor (l:string) {
+    label = l
+  }
+  fn add:void (n:int) {
+    count = count + n
+    push history n
+  }
+  fn total:int () {
+    return count
+  }
+  fn describe:string () {
+    return (label + "=" + (to_string count) + " (" + (to_string (array_length history)) + " adds)")
+  }
+  sfn create:Counter (l:string) {
+    def c:Counter (new Counter(l))
+    c.add(1)
+    return c
+  }
+}
+
+class Tally {
+  def counters:[Counter]
+  fn keep:void (c:Counter) {
+    push counters c
+  }
+  fn sum:int () {
+    def s:int 0
+    for counters c:Counter i {
+      s = s + (c.total())
+    }
+    return s
+  }
+}

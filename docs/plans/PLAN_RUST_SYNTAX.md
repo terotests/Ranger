@@ -1,10 +1,12 @@
 # PLAN_RUST_SYNTAX — strict Rust modules beside `.rgr` modules
 
-> **Status: stages R0–R5 done (§9.1–§9.3): `rgrc file.rs` compiles a strict
+> **Status: stages R0–R7 done (§9.1–§9.5): `rgrc file.rs` compiles a strict
 > module, its output equals the rustc build's on es6, python, go, cpp, java7,
 > kotlin, csharp, dart, scala and php (§9.2.1), move
-> and borrow errors are reported, the `ranger` prelude crate exists, and
-> rustdoc is read as the API documentation. R6 onwards is design.** Measurements in §5 and the rustc checks in §2 were run
+> and borrow errors are reported, the `ranger` prelude crate exists,
+> rustdoc is read as the API documentation, and a crate can mix `.rs` and
+> `.rgr` modules (§9.4), and the Ranger attributes and macros work on every
+> target (§9.5). R8 is design.** Measurements in §5 and the rustc checks in §2 were run
 > on this checkout with rustc 1.94.1.
 
 Ranger gets a second source form: **`.rs` files that are valid Rust**. They
@@ -164,10 +166,10 @@ fn main() {
 | lambdas | closures; `Box<dyn Fn(T) -> U>` as a stored type |
 | `try` / `throw` | `Result<T, E>` and `?`, lowered to exceptions where the target has them |
 | `print x` | `println!("{}", x)`; Ranger understands `format!` / `println!` with `{}` and `{:?}` |
-| `@(weak)` | `Weak<T>` in the type (plus `#[ranger::weak]` only where the intent is not visible in the type) |
-| `@(late)` | `#[ranger::late]` on an `Option` field |
-| `@serialize` | `#[ranger::serialize]` |
-| `if_rust { … }` | `#[ranger::target(rust)] { … }` / `ranger::native!` |
+| `@(weak)` | `Weak<T>` in the type (plus `#[ranger::weak]` only where the intent is not visible in the type, with `#[ranger::fields]` on the struct) |
+| `@(late)` | `#[ranger::late]` on an `Option` field (with `#[ranger::fields]` on the struct) |
+| `@serialize` | `#[ranger::serialize]`: `to_json` / `from_json` |
+| `if_rust { … }` | `#[ranger::target(rust)]` on an item / `ranger::native!(rust: …, es6: "…")` |
 | `doc { … }` | rustdoc, §4 |
 
 ### 3.4 The subset
@@ -318,7 +320,8 @@ exempt. It exists for fast feedback; it does not replace `cargo check`.
 | Move and borrow check (§7) | R3, in the lowering (`lower/RustLower.rgr`, the "moves" and "borrows" sections) |
 | Runtime operators the lowering writes (`rs_div`, `rs_fmt`, byte offsets, …) | `lib/rust/RsPrelude.rgr` |
 | Prelude crate `ranger` (generated operator layer, `Map`, attribute macros) | R4, `runtime/rust/ranger/`; `scripts/gen-rust-prelude-ops.js` |
-| Rust module output for `import_rgr!` | R6 |
+| Crates of several `.rs` files (`mod`, `use`, paths), `ranger::import_rgr!` | R6, `lower/RustLower.rgr` (the "crate" part), `lower/RustRgrScan.rgr` |
+| Rust module output for `import_rgr!` (`-rust-module`) | R6, `RustClass.rgr`, `StaticAnalysis.analyzeClassSharing` |
 
 The parser reads **full Rust syntax**, not only the subset: the subset is
 enforced at lowering, where the message can name the construct and the
@@ -341,8 +344,8 @@ crate.
 | R3 | Move and borrow check (§7, §3.4) | **done**, §9.2 |
 | R4 | Prelude crate `ranger`: type names, ordered `Map`, the operator layer, strings per §5 | **done**, §9.2 |
 | R5 | rustdoc reading (§4) | **done**, §9.3 |
-| R6 | Mixed programs: `import_rgr!`, Rust module output, `.rgr` ↔ `.rs` imports, `Cargo.toml` packages, the §2.3 boundary | a crate with both forms builds with `cargo build` and with `rgrc` for es6 and cpp, with the same output |
-| R7 | Attributes and macros: `weak`, `late`, `serialize`, `target`, `tree!`, `native!` | each has a fixture on every target |
+| R6 | Mixed programs: `import_rgr!`, Rust module output, `.rgr` ↔ `.rs` imports, `Cargo.toml` packages, the §2.3 boundary | **done**, §9.4 |
+| R7 | Attributes and macros: `weak`, `late`, `serialize`, `target`, `tree!`, `native!` | **done**, §9.5 |
 | R8 | A real module: port one self-contained `lib/` or gallery module to `.rs`; `cargo check` of all strict fixtures in CI | the ported module replaces its `.rgr` original and its tests pass on the targets they ran on before |
 
 ### R1 in steps
@@ -549,6 +552,111 @@ prelude crate, `#[ranger::doc(…)]` included.
 
 Not read yet: docs on traits and their methods (a trait has no Ranger class
 to carry them), on enum variants, and `#[doc = include_str!(…)]`.
+
+### 9.4 R6 results
+
+**A crate is lowered as one unit.** `rgrc main.rs` reads every `mod x;` the
+way rustc does (`x.rs` or `x/mod.rs` beside a crate root or a `mod.rs`,
+`m/x.rs` below a file `m.rs`) and inline `mod m { … }` blocks, and lowers
+them together, so the helper classes (tuples, results, clone functions) are
+written once and every module sees every type. The callers read the files:
+`RustLower.begin` parses the entry, `nextModuleFiles` / `addModule` /
+`moduleNotFound` hand over one module at a time, `finish` lowers.
+
+- Structs, enums and traits keep their names (Ranger classes are global;
+  two modules declaring the same type name are refused).
+- Free functions and consts of module `m` go into its own class (`geometry`
+  -> `Geometry`, `shapes::round` -> `ShapesRound`, `shapes/mod.rs` ->
+  `Shapes`), so two modules can each have a `helper`.
+- Paths: `helper(…)` finds the current module's function or one brought in
+  by `use` (`use geometry::{midpoint, Point}`, `use shapes::*`, renames);
+  `geometry::f`, `crate::geometry::f`, `super::f`, `self::round::f` resolve
+  relative to the current module first, then from the root, as Rust 2018
+  paths do.
+- A `.rgr` program's `Import "shapes/mod.rs"` goes through the same loader,
+  with the imported file as the crate root.
+- `main.rs`'s module class is `RsMod_main`: a class `Main` collides with the
+  entry method `Main` on C#.
+
+`tests/fixtures/rust_strict/crates/r6_modules/` (a crate root, a file
+module, a `mod.rs` directory module with a submodule, an inline module, a
+trait and an enum in a module, consts, same-named functions) runs with rustc
+and on the ten targets. `errors/r6_missing_mod.rs` checks the message for a
+missing module file.
+
+**`ranger::import_rgr!("legacy")`** inside `mod legacy { … }` is read as
+`Import "legacy.rgr"`, the file beside the declaring one (where `build.rs`
+finds it). `RustRgrScan` reads the class signatures from the `.rgr` text --
+fields, `fn` / `sfn` with parameter and return types, the constructor (or
+the implicit `new()`) -- so the lowering can type the `.rs` code that uses
+them; the classes themselves are written by the ordinary import.
+
+**`rgrc -l=rust -rust-module`** writes a `.rgr` file as a Rust module for
+`include!`: library mode (`pub` items, no `main`), no inner attributes (the
+including `mod` carries `#[allow(…)]`), and every class shared, so strict
+code always sees a handle `Rc<RefCell<T>>` (§2.3). On the Rust side a method
+is called as `Counter::add(&c, 3)` -- a shared class's methods take the
+handle -- and a field is read as `c.borrow().count`; the lowering reads
+`borrow()` / `borrow_mut()` as the object itself, and `Rc::new(RefCell::new(
+Counter::new(…)))` as `new Counter(…)`.
+
+`tests/fixtures/rust_mixed/r6_mixed/` is a cargo crate with `build.rs`
+running `rgrc -rust-module` on `src/legacy.rgr`, a strict module
+`src/geometry.rs` and `src/main.rs` using both. `cargo run` prints
+`expected.txt`, and `rgrc src/main.rs` prints the same on the ten targets.
+
+Not done in R6:
+
+- `Cargo.toml` package dependencies (`use evg::EVGElement;` from a path
+  dependency): the loader reads modules of the crate only.
+- The §2.3 check in the other direction -- a `.rgr` caller using a value it
+  moved into a `.rs` function -- is not run.
+- A `.rgr` class used from `.rs` is typed from its signatures only: a
+  generic class (`@params`), `Extends`, lambdas and enum-typed members are
+  read as unknown types.
+- An `sfn make` in a `.rgr` class cannot be called even from Ranger code
+  (`Class X does not have method make`); the fixture uses `create`.
+
+### 9.5 R7 results
+
+Each has a fixture in `tests/fixtures/rust_strict/` that prints what rustc
+prints on the ten targets.
+
+| Form | Rust side (prelude crate) | Ranger side | Fixture |
+| --- | --- | --- | --- |
+| `Weak<RefCell<T>>` field, `Rc::downgrade`, `w.upgrade()` | std | `@(optional weak)` / `@(weak)`; `downgrade` is the object, `upgrade()` an optional of it | `r7_weak` |
+| `#[ranger::weak]` on a field whose type is `Option<Rc<…>>` | removed by `#[ranger::fields]` on the struct | `@(optional weak)` | `r7_weak` |
+| `#[ranger::late]` on an `Option` field | removed by `#[ranger::fields]` | `@(late)` on the field; a local copy stays optional | `r7_late` |
+| `#[ranger::target(es6, python)]` on an item or a method | kept only when `rust` is listed | kept only for the listed targets (`js`, `java`, `swift`, `ts` are aliases) | `r7_target` |
+| `ranger::native!(rust: expr, es6: "code {x}", …)` | the `rust` arm (`macro_rules!`) | an operator of the file whose template is the arm of the target; `{x}` is the local `x`, `{{` a brace; the type is the one expected (`let n: int = …`), none as a statement; a missing arm is an error | `r7_native` |
+| `ranger::tree! { Node { tag: "a", children: [Node { … }] } }` | `macro_rules!`: omitted fields `..Default::default()`, `[…]` `vec!`, values `.into()`; the structs derive `Default` | the body is a struct literal: `new` with the field defaults, then the given fields | `r7_tree` |
+| `#[ranger::serialize]` on a struct | a proc macro writes `to_json`, `from_json(&str) -> Result<Self, String>` and the `ranger::json` traits | the lowering writes the same two methods on the class, with `lib/rust/RsJson.rgr` (writer and parser) | `r7_serialize` |
+
+Notes:
+
+- rustc runs no attribute macro on a struct field ("expected non-macro
+  attribute"), so the field markers are read from, and removed by, an
+  attribute on the struct: `#[ranger::fields]`, or `#[ranger::serialize]`.
+  The lowering refuses a marker without one.
+- `tree!` is a macro this plan listed without a meaning. It is taken as the
+  declarative object tree Ranger UI code builds by hand (a node, its
+  attributes, its children), which in Rust needs a literal per level and
+  `..Default::default()` in each.
+- `serialize` does not use Ranger's `@serialize(true)` (`toDictionary` /
+  `fromDictionary` over the JSON operators): those print numbers and spacing
+  the target's way. The Rust-syntax form writes compact JSON with floats as
+  Rust's `{}` prints them, and both parsers report the same messages
+  (``missing field `y` ``, ``field `corners`: item 0: field `y`: expected
+  an integer``, `invalid JSON at 15`, positions in characters). Field types:
+  i64, f64, bool, String, Vec, Option and serialized structs.
+- With more than one argument, `println!` / `format!` bind each argument
+  that calls something to a temporary first, so it is evaluated left to
+  right as in Rust; the C++ `+` chain it was written into evaluated the calls
+  in either order (`r7_late` printed `6 3` there).
+- Writer limits worked around: the Scala writer has no `continue` in a
+  `for` loop and does not escape `object` as a method name (RsJson avoids
+  both), and the Kotlin writer cannot loop over an expression
+  (`for (strsplit s ",") p` in the compiler itself binds the list first).
 
 ## 10. Open questions
 
