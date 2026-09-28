@@ -21186,7 +21186,8 @@ class RangerFlowParser  {
       const clsName = (shapeName + "_") + cn_2;
       const recNode = shapeNode.newExpressionNode();
       recNode.children.push(shapeNode.newVRefNode("record"));
-      recNode.children.push(shapeNode.newVRefNode(clsName));
+      const recNameNode = shapeNode.newVRefNode(clsName);
+      recNode.children.push(recNameNode);
       const blk = shapeNode.newExpressionNode();
       blk.is_block_node = true;
       if ( ownGroup_1.length > 0 ) {
@@ -21236,6 +21237,9 @@ class RangerFlowParser  {
         isValue = false;
       }
       this.caseIsValue[clsName] = isValue;
+      if ( semanticsGiven && isValue == false ) {
+        recNameNode.setFlag("reference");
+      }
       this.caseFieldNames[clsName] = scalarFields;
       this.caseFieldNames[clsName + "__all"] = allFieldNames;
       let ctorArgs = "";
@@ -31303,6 +31307,13 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     };
     if ( inFamily == false ) {
       return false;
+    }
+    const clNN = cl.nameNode;
+    if ( (typeof(clNN) !== "undefined" && clNN != null )  ) {
+      const clNameNode = clNN;
+      if ( clNameNode.hasFlag("reference") ) {
+        return false;
+      }
     }
     let allScalar = true;
     // Loop start
@@ -85654,6 +85665,9 @@ class RsLocal  {
     this.slotMap = "";
     this.slotKey = "";
     this.slotTy = new RsType("unknown");
+    this.backTo = "";
+    this.backBad = false;
+    this.backCase = "";
   }
 }
 class RsScope  {
@@ -86812,6 +86826,7 @@ class RustLower  {
     this.genericEnv = {};
     this.fnLocals = [];
     this.clonerOut = [];
+    this.writtenCases = {};
     this.moduleDoc = new RustDocInfo();
     this.docExamples = {};
     this.fnNameOverride = "";
@@ -86821,9 +86836,14 @@ class RustLower  {
     this.pendingFlags = [];
     this.forPat = undefined;
     this.forBody = undefined;
+    this.matchMut = false;
     this.armBefore = [];
     this.armAcc = [];
     this.armAny = false;
+    this.refMutBind = false;
+    this.backOf = {};
+    this.caseOfVar = {};
+    this.selfIsMut = false;
     this.variantAliases = {};
     this.optInCollectionReported = false;
     this.lastVecName = "";
@@ -88763,11 +88783,14 @@ class RustLower  {
       }
       parts.push(("Import \"" + rel) + "\"");
     }
+    let shapeAt = [];
     let ei = 0;
     while (ei < this.enumOrder.length) {
       const en = this.enumOrder[ei];
       ei = ei + 1;
       const eo = ( Object.prototype.hasOwnProperty.call(this.enums, en) ? this.enums[en] : undefined );
+      shapeAt.push(parts.length);
+      parts.push("");
       parts.push(this.emitEnum(eo));
     };
     let si = 0;
@@ -88798,6 +88821,12 @@ class RustLower  {
     if ( this.clonerOut.length > 0 ) {
       parts.push(("class RsClone {\n" + this.clonerOut.join("\n")) + "\n}");
     }
+    // Loop start
+    for ( let ej = 0; ej < this.enumOrder.length; ej++) {
+      var en2 = this.enumOrder[ej];
+      const eo2 = ( Object.prototype.hasOwnProperty.call(this.enums, en2) ? this.enums[en2] : undefined );
+      parts[shapeAt[ej]] = this.emitEnumShape(eo2);
+    }
     return parts.join("\n\n") + "\n";
   };
   implClass (en) {
@@ -88819,6 +88848,44 @@ class RustLower  {
       return "";
     }
     const cname = this.className(e.name);
+    let impl = [];
+    impl.push(("class " + this.implClass(e.name)) + " {");
+    let mi = 0;
+    while (mi < e.methods.length) {
+      const m = e.methods[mi];
+      mi = mi + 1;
+      impl.push(this.emitFn(m, e.name));
+    };
+    if ( false == e.plain ) {
+      impl.push(this.emitEnumZero(e, cname));
+    }
+    if ( false == this.hasFmt(RsType.named(e.name), "Debug") ) {
+      impl.push(this.emitEnumDebug(e, cname));
+      if ( false == e.plain ) {
+        impl.push(this.emitEnumEq(e, cname));
+      }
+    }
+    if ( false == e.plain ) {
+      impl.push(this.emitEnumClone(e, cname));
+    }
+    const implDoc = new RustDocInfo();
+    // Loop start
+    for ( const pm of e.methods) {
+      if ( (typeof(pm.node) !== "undefined" && pm.node != null )  ) {
+        const pmNode = pm.node;
+        if ( pmNode.hasMod("pub") ) {
+          implDoc.isPublic = true;
+        }
+      }
+    }
+    impl.push("}" + RustDocReader.tail(implDoc, ""));
+    return impl.join("\n");
+  };
+  emitEnumShape (e) {
+    if ( e.generics.length > 0 ) {
+      return "";
+    }
+    const cname = this.className(e.name);
     let lines = [];
     if ( e.plain ) {
       let names = [];
@@ -88834,11 +88901,16 @@ class RustLower  {
     } else {
       lines.push(("shape " + cname) + " {");
       // Loop start
-      for ( const v2 of e.variants) {
+      for ( let j = 0; j < e.variants.length; j++) {
+        var v2 = e.variants[j];
         if ( v2.fields.length == 0 ) {
           lines.push("  case " + v2.name);
         } else {
-          lines.push(("  case " + v2.name) + " {");
+          let sem = "";
+          if ( ( typeof(this.writtenCases[((e.name + ".") + v2.name)] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.writtenCases, (e.name + ".") + v2.name) ) ) {
+            sem = "@(reference)";
+          }
+          lines.push((("  case " + v2.name) + sem) + " {");
           // Loop start
           for ( const f of v2.fields) {
             lines.push("    def " + this.fieldDecl(this.fieldName(f.name), f.ty));
@@ -88848,36 +88920,6 @@ class RustLower  {
       }
       lines.push("}");
     }
-    let impl = [];
-    impl.push(("class " + this.implClass(e.name)) + " {");
-    let mi = 0;
-    while (mi < e.methods.length) {
-      const m = e.methods[mi];
-      mi = mi + 1;
-      impl.push(this.emitFn(m, e.name));
-    };
-    if ( false == e.plain ) {
-      impl.push(this.emitEnumZero(e, cname));
-    }
-    if ( false == this.hasFmt(RsType.named(e.name), "Debug") ) {
-      impl.push(this.emitEnumDebug(e, cname));
-      if ( false == e.plain ) {
-        impl.push(this.emitEnumClone(e, cname));
-        impl.push(this.emitEnumEq(e, cname));
-      }
-    }
-    const implDoc = new RustDocInfo();
-    // Loop start
-    for ( const pm of e.methods) {
-      if ( (typeof(pm.node) !== "undefined" && pm.node != null )  ) {
-        const pmNode = pm.node;
-        if ( pmNode.hasMod("pub") ) {
-          implDoc.isPublic = true;
-        }
-      }
-    }
-    impl.push("}" + RustDocReader.tail(implDoc, ""));
-    lines.push(impl.join("\n"));
     return lines.join("\n");
   };
   caseType (en, v) {
@@ -89688,7 +89730,10 @@ class RustLower  {
     if ( isFmt ) {
       this.out.line("def rs__out:string \"\"");
     }
+    const saveSelfMut = this.selfIsMut;
+    this.selfIsMut = f.hasSelf && f.selfMut;
     this.lowerBody(body, fret);
+    this.selfIsMut = saveSelfMut;
     if ( isFmt ) {
       this.out.line("return rs__out");
       this.displayFormatter = "";
@@ -89887,7 +89932,7 @@ class RustLower  {
       t3 = v3.ty;
     }
     const subj = this.bindTemp(v3, t3, "v");
-    this.bindPattern(pat, subj, t3);
+    this.bindPatternRef(pat, subj, t3, this.matchesMut(init, v3.ty));
   };
   lowerLetElse (pat, init, elseB, declared) {
     const v = this.lowerExpr(init, declared);
@@ -89899,7 +89944,7 @@ class RustLower  {
     this.lowerBlockStmts(elseB);
     this.out.dedent();
     this.out.line("}");
-    this.bindPattern(pat, subj, t);
+    this.bindPatternRef(pat, subj, t, this.matchesMut(init, t));
   };
   lowerStmtExpr (e) {
     const k = e.kind;
@@ -90184,13 +90229,23 @@ class RustLower  {
         const v = this.lowerExpr(p.kid(1), RsType.mk("unknown"));
         const subj = this.bindTemp(v, v.ty, "m");
         if ( this.needsOpen(p.kid(0), v.ty) ) {
-          opened = opened + this.patOpen(p.kid(0), subj, v.ty);
+          opened = opened + this.patOpenRef(
+            p.kid(0),
+            subj,
+            v.ty,
+            this.matchesMut(p.kid(1), v.ty)
+          );
         } else {
           const cond = this.patCond(p.kid(0), subj, v.ty);
           this.out.line(("if " + this.condText(cond)) + " {");
           this.out.indent();
           opened = opened + 1;
-          this.bindPattern(p.kid(0), subj, v.ty);
+          this.bindPatternRef(
+            p.kid(0),
+            subj,
+            v.ty,
+            this.matchesMut(p.kid(1), v.ty)
+          );
         }
       } else {
         const c = this.lowerCond(p);
@@ -90366,7 +90421,12 @@ class RustLower  {
         this.out.line(("if (! " + pc) + ") {");
         this.out.line("  break");
         this.out.line("}");
-        this.bindPattern(p.kid(0), subj, v.ty);
+        this.bindPatternRef(
+          p.kid(0),
+          subj,
+          v.ty,
+          this.matchesMut(p.kid(1), v.ty)
+        );
       } else {
         const c = this.lowerCond(p);
         this.out.line(("if (! " + c.code) + ") {");
@@ -90880,11 +90940,14 @@ class RustLower  {
     let none = [];
     this.armAcc = none;
     this.armAny = false;
+    const saveMut = this.matchMut;
+    this.matchMut = this.matchesMut(e.kid(0), v.ty);
     if ( narrow ) {
       this.lowerArmsOpen(arms, subj, v.ty, mode, _var);
     } else {
       this.lowerArms(arms, 0, subj, v.ty, mode, _var, e);
     }
+    this.matchMut = saveMut;
     if ( this.armAny ) {
       this.movedRestore(this.armAcc);
     } else {
@@ -90921,7 +90984,7 @@ class RustLower  {
       if ( pat.kind == "pat_or" ) {
         opened = this.patOpenOr(pat, subj, t);
       } else {
-        opened = this.patOpen(pat, subj, t);
+        opened = this.patOpenRef(pat, subj, t, this.matchMut);
       }
       const guard = arm.kid(1);
       if ( false == guard.isNone() ) {
@@ -90979,7 +91042,7 @@ class RustLower  {
     const always = cond == "true";
     if ( always ) {
       this.pushScope();
-      this.bindPattern(pat, subj, t);
+      this.bindPatternRef(pat, subj, t, this.matchMut);
       this.movedRestore(this.armBefore);
       this.lowerValueTo(body, mode, _var);
       this.armEnd(body);
@@ -90989,7 +91052,7 @@ class RustLower  {
     this.out.line(("if " + this.condText(cond)) + " {");
     this.out.indent();
     this.pushScope();
-    this.bindPattern(pat, subj, t);
+    this.bindPatternRef(pat, subj, t, this.matchMut);
     this.movedRestore(this.armBefore);
     this.lowerValueTo(body, mode, _var);
     this.armEnd(body);
@@ -91236,6 +91299,101 @@ class RustLower  {
   bindPattern (pat, subj, t) {
     this.walkBindings(pat, subj, t, false);
   };
+  matchesMut (e, t) {
+    if ( t.isMutRef ) {
+      return true;
+    }
+    let n = e;
+    while (n.kind == "paren") {
+      n = n.kid(0);
+    };
+    if ( n.kind == "unary" && n.name == "&mut" ) {
+      return true;
+    }
+    if ( n.kind == "path_expr" && this.selfIsMut ) {
+      const segs = this.pathSegs(n.kid(0));
+      return segs.length == 1 && segs[0] == "self";
+    }
+    return false;
+  };
+  bindPatternRef (pat, subj, t, refMut) {
+    const save = this.refMutBind;
+    this.refMutBind = refMut;
+    this.walkBindings(pat, subj, t, false);
+    this.refMutBind = save;
+  };
+  patOpenRef (pat, subj, t, refMut) {
+    const save = this.refMutBind;
+    this.refMutBind = refMut;
+    const n = this.patOpen(pat, subj, t);
+    this.refMutBind = save;
+    return n;
+  };
+  bindsRefMut (pat) {
+    if ( pat.hasMod("ref") ) {
+      return pat.hasMod("mut");
+    }
+    if ( pat.hasMod("mut") ) {
+      return false;
+    }
+    return this.refMutBind;
+  };
+  backPlace (subj) {
+    if ( ( typeof(this.backOf[subj] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.backOf, subj) ) ) {
+      return ( Object.prototype.hasOwnProperty.call(this.backOf, subj) ? this.backOf[subj] : undefined );
+    }
+    if ( subj.startsWith("(unwrap ") && subj.endsWith(")") ) {
+      return this.backPlace(subj.substring(8, subj.length - 1 ));
+    }
+    if ( subj.indexOf("(") >= 0 || subj.indexOf(".") < 0 ) {
+      return "";
+    }
+    return subj;
+  };
+  declareBinding (pat, subj, t) {
+    const l = this.declare(pat.name, t);
+    let code = subj;
+    if ( this.bindsRefMut(pat) ) {
+      const place = this.backPlace(subj);
+      if ( place == "" ) {
+        l.backBad = true;
+      } else {
+        l.backTo = place;
+        let root = place;
+        const dot = place.indexOf(".");
+        if ( dot > 0 ) {
+          root = place.substring(0, dot );
+        }
+        if ( ( typeof(this.caseOfVar[root] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.caseOfVar, root) ) ) {
+          l.backCase = ( Object.prototype.hasOwnProperty.call(this.caseOfVar, root) ? this.caseOfVar[root] : undefined );
+        }
+      }
+    } else {
+      code = this.copyCode(subj, t);
+    }
+    this.out.line((("def " + this.declText(l.rname, t)) + " ") + code);
+  };
+  copyCode (code, t) {
+    if ( this.isCopyStruct(t) ) {
+      return ("(" + code) + ".rs_clone())";
+    }
+    if ( this.isCopyEnum(t) ) {
+      return this.cloneCode(code, t);
+    }
+    return code;
+  };
+  noteWrittenCase (l) {
+    if ( l.backCase != "" ) {
+      this.writtenCases[l.backCase] = true;
+    }
+  };
+  isCopyEnum (t) {
+    if ( this.isDataEnum(t) ) {
+      const e = ( Object.prototype.hasOwnProperty.call(this.enums, t.name) ? this.enums[t.name] : undefined );
+      return e.derives.indexOf("Copy") >= 0;
+    }
+    return false;
+  };
   aliasPattern (pat, subj, t) {
     this.walkBindings(pat, subj, t, true);
   };
@@ -91248,12 +91406,7 @@ class RustLower  {
       if ( aliasOnly ) {
         this.alias(pat.name, subj, t);
       } else {
-        const l = this.declare(pat.name, t);
-        let code = subj;
-        if ( this.isCopyStruct(t) ) {
-          code = ("(" + subj) + ".rs_clone())";
-        }
-        this.out.line((("def " + this.declText(l.rname, t)) + " ") + code);
+        this.declareBinding(pat, subj, t);
       }
       if ( pat.kids.length > 0 ) {
         this.walkBindings(pat.kid(0), subj, t, aliasOnly);
@@ -91389,6 +91542,9 @@ class RustLower  {
         "c"
       )) + ".rs_clone())"), v.ty);
       return r;
+    }
+    if ( this.isCopyEnum(v.ty) && this.isPlace(n) ) {
+      return RsExpr.of(this.cloneCode(this.bindTemp(v, v.ty, "c"), v.ty), v.ty);
     }
     return v;
   };
@@ -92900,6 +93056,10 @@ class RustLower  {
               slot.rname
             ));
           }
+          if ( slot.backTo != "" ) {
+            this.out.line((slot.backTo + " = ") + slot.rname);
+            this.noteWrittenCase(slot);
+          }
         }
       }
     }
@@ -93909,7 +94069,14 @@ class RustLower  {
           if ( lv.iterVec != "" ) {
             this.out.line((((("set_at " + lv.iterVec) + " ") + lv.iterIdx) + " ") + v.code);
           }
+          if ( lv.backBad ) {
+            this.unsupported(lhs, ("assigning to `" + lv.name) + "`, a `ref mut` binding of a whole `&mut` match subject");
+          }
           this.out.line((lv.rname + " = ") + v.code);
+          if ( lv.backTo != "" ) {
+            this.out.line((lv.backTo + " = ") + lv.rname);
+            this.noteWrittenCase(lv);
+          }
           lv.moved = false;
           return;
         }
@@ -95827,12 +95994,7 @@ class RustLower  {
       if ( pat.kids.length > 0 ) {
         n0 = this.patOpen(pat.kid(0), subj, t);
       }
-      const l = this.declare(pat.name, t);
-      let code = subj;
-      if ( this.isCopyStruct(t) ) {
-        code = ("(" + subj) + ".rs_clone())";
-      }
-      this.out.line((("def " + this.declText(l.rname, t)) + " ") + code);
+      this.declareBinding(pat, subj, t);
       return n0;
     }
     if ( k == "pat_tuple" ) {
@@ -95860,6 +96022,7 @@ class RustLower  {
         this.out.indent();
         const u = this.tmp("u");
         this.out.line(((("def " + this.declText(u, t.arg(0))) + " (unwrap ") + subj) + ")");
+        this.backOf[u] = this.backPlace(subj);
         return 1 + this.patOpen(pat.kid(1), u, t.arg(0));
       }
       if ( (pn == "Ok" || pn == "Err") && t.kind == "result" ) {
@@ -95892,6 +96055,7 @@ class RustLower  {
           this.out.line((((("def " + cs) + ":") + this.className(t.name)) + " ") + subj);
         }
         const x = this.tmp("x");
+        this.caseOfVar[x] = (t.name + ".") + pn;
         this.out.line(((("case " + cs) + " ") + x) + ((":" + this.caseType(t.name, pn)) + " {"));
         this.out.indent();
         let opened2 = 1;

@@ -2265,11 +2265,16 @@ class RustLower {
       }
       push parts (("Import \"" + rel) + "\"")
     }
+    ; an enum's shape is written last: lowering the functions finds the
+    ; variants a `ref mut` binding writes into (writtenCases)
+    def shapeAt:[int]
     def ei:int 0
     while (ei < (array_length enumOrder)) {
       def en:string (itemAt enumOrder ei)
       ei = ei + 1
       def eo:RsEnum (unwrap (get enums en))
+      push shapeAt (array_length parts)
+      push parts ""
       push parts (this.emitEnum(eo))
     }
     def si:int 0
@@ -2300,6 +2305,10 @@ class RustLower {
     if ((array_length clonerOut) > 0) {
       push parts (("class RsClone {\n" + (join clonerOut "\n")) + "\n}")
     }
+    for enumOrder en2:string ej {
+      def eo2:RsEnum (unwrap (get enums en2))
+      set_at parts (itemAt shapeAt ej) (this.emitEnumShape(eo2))
+    }
     return ((join parts "\n\n") + "\n")
   }
 
@@ -2325,6 +2334,50 @@ class RustLower {
       return ""
     }
     def cname:string (this.className(e.name))
+    ; methods, Debug, Clone, PartialEq live in a class of static functions
+    def impl:[string]
+    push impl (("class " + (this.implClass(e.name))) + " {")
+    def mi:int 0
+    while (mi < (array_length e.methods)) {
+      def m:RsFn (itemAt e.methods mi)
+      mi = mi + 1
+      push impl (this.emitFn(m e.name))
+    }
+    if (false == e.plain) {
+      push impl (this.emitEnumZero(e cname))
+    }
+    if (false == (this.hasFmt((RsType.named(e.name)) "Debug"))) {
+      push impl (this.emitEnumDebug(e cname))
+      if (false == e.plain) {
+        push impl (this.emitEnumEq(e cname))
+      }
+    }
+    if (false == e.plain) {
+      ; copies of a Copy enum call it too (copyCode)
+      push impl (this.emitEnumClone(e cname))
+    }
+    ; public with the enum's public methods, as a struct's class is
+    def implDoc:RustDocInfo (new RustDocInfo())
+    for e.methods pm:RsFn pmi {
+      if (!null? pm.node) {
+        def pmNode:RustNode (unwrap pm.node)
+        if (pmNode.hasMod("pub")) {
+          implDoc.isPublic = true
+        }
+      }
+    }
+    push impl ("}" + (RustDocReader.tail(implDoc "")))
+    return (join impl "\n")
+  }
+
+  ; `Enum.Variant` of each enum variant a `ref mut` binding writes a field of
+  def writtenCases:[string:boolean]
+
+  fn emitEnumShape:string (e:RsEnum) {
+    if ((array_length e.generics) > 0) {
+      return ""
+    }
+    def cname:string (this.className(e.name))
     def lines:[string]
     if (e.plain) {
       def names:[string]
@@ -2342,7 +2395,12 @@ class RustLower {
         if ((array_length v2.fields) == 0) {
           push lines ("  case " + v2.name)
         } {
-          push lines ((("  case " + v2.name) + " {"))
+          ; a value case cannot change: one written through a binding shares
+          def sem:string ""
+          if (has writtenCases ((e.name + ".") + v2.name)) {
+            sem = "@(reference)"
+          }
+          push lines (((("  case " + v2.name) + sem) + " {"))
           for v2.fields f:RsField k {
             push lines ("    def " + (this.fieldDecl((this.fieldName(f.name)) f.ty)))
           }
@@ -2351,37 +2409,6 @@ class RustLower {
       }
       push lines "}"
     }
-    ; methods, Debug, Clone, PartialEq live in a class of static functions
-    def impl:[string]
-    push impl (("class " + (this.implClass(e.name))) + " {")
-    def mi:int 0
-    while (mi < (array_length e.methods)) {
-      def m:RsFn (itemAt e.methods mi)
-      mi = mi + 1
-      push impl (this.emitFn(m e.name))
-    }
-    if (false == e.plain) {
-      push impl (this.emitEnumZero(e cname))
-    }
-    if (false == (this.hasFmt((RsType.named(e.name)) "Debug"))) {
-      push impl (this.emitEnumDebug(e cname))
-      if (false == e.plain) {
-        push impl (this.emitEnumClone(e cname))
-        push impl (this.emitEnumEq(e cname))
-      }
-    }
-    ; public with the enum's public methods, as a struct's class is
-    def implDoc:RustDocInfo (new RustDocInfo())
-    for e.methods pm:RsFn pmi {
-      if (!null? pm.node) {
-        def pmNode:RustNode (unwrap pm.node)
-        if (pmNode.hasMod("pub")) {
-          implDoc.isPublic = true
-        }
-      }
-    }
-    push impl ("}" + (RustDocReader.tail(implDoc "")))
-    push lines (join impl "\n")
     return (join lines "\n")
   }
 
@@ -3193,7 +3220,10 @@ class RustLower {
     if (isFmt) {
       out.line("def rs__out:string \"\"")
     }
+    def saveSelfMut:boolean selfIsMut
+    selfIsMut = (f.hasSelf && f.selfMut)
     this.lowerBody(body fret)
+    selfIsMut = saveSelfMut
     if (isFmt) {
       out.line("return rs__out")
       displayFormatter = ""
@@ -3407,7 +3437,7 @@ class RustLower {
       t3 = v3.ty
     }
     def subj:string (this.bindTemp(v3 t3 "v"))
-    this.bindPattern(pat subj t3)
+    this.bindPatternRef(pat subj t3 (this.matchesMut(init v3.ty)))
   }
 
   ; `let PAT = e else { … };`
@@ -3421,7 +3451,7 @@ class RustLower {
     this.lowerBlockStmts(elseB)
     out.dedent()
     out.line("}")
-    this.bindPattern(pat subj t)
+    this.bindPatternRef(pat subj t (this.matchesMut(init t)))
   }
 
   ; Lowers an expression used as a statement.
@@ -3741,13 +3771,13 @@ class RustLower {
         def v:RsExpr (this.lowerExpr((p.kid(1)) (RsType.mk("unknown"))))
         def subj:string (this.bindTemp(v v.ty "m"))
         if (this.needsOpen((p.kid(0)) v.ty)) {
-          opened = opened + (this.patOpen((p.kid(0)) subj v.ty))
+          opened = opened + (this.patOpenRef((p.kid(0)) subj v.ty (this.matchesMut((p.kid(1)) v.ty))))
         } {
           def cond:string (this.patCond((p.kid(0)) subj v.ty))
           out.line((("if " + (this.condText(cond))) + " {"))
           out.indent()
           opened = opened + 1
-          this.bindPattern((p.kid(0)) subj v.ty)
+          this.bindPatternRef((p.kid(0)) subj v.ty (this.matchesMut((p.kid(1)) v.ty)))
         }
       } {
         def c:RsExpr (this.lowerCond(p))
@@ -3937,7 +3967,7 @@ class RustLower {
         out.line((("if (! " + pc) + ") {"))
         out.line("  break")
         out.line("}")
-        this.bindPattern((p.kid(0)) subj v.ty)
+        this.bindPatternRef((p.kid(0)) subj v.ty (this.matchesMut((p.kid(1)) v.ty)))
       } {
         def c:RsExpr (this.lowerCond(p))
         out.line((("if (! " + c.code) + ") {"))
@@ -4503,11 +4533,14 @@ class RustLower {
     def none:[RsLocal]
     armAcc = none
     armAny = false
+    def saveMut:boolean matchMut
+    matchMut = (this.matchesMut((e.kid(0)) v.ty))
     if (narrow) {
       this.lowerArmsOpen(arms subj v.ty mode var)
     } {
       this.lowerArms(arms 0 subj v.ty mode var e)
     }
+    matchMut = saveMut
     if (armAny) {
       this.movedRestore(armAcc)
     } {
@@ -4515,6 +4548,8 @@ class RustLower {
     }
   }
 
+  ; the match being lowered is on a `&mut` (matchesMut)
+  def matchMut:boolean false
   ; move state across the arms of the match being lowered
   def armBefore:[RsLocal]
   def armAcc:[RsLocal]
@@ -4555,7 +4590,7 @@ class RustLower {
         ; alternatives without bindings: one test
         opened = (this.patOpenOr(pat subj t))
       } {
-        opened = (this.patOpen(pat subj t))
+        opened = (this.patOpenRef(pat subj t matchMut))
       }
       def guard:RustNode (arm.kid(1))
       if (false == (guard.isNone())) {
@@ -4617,7 +4652,7 @@ class RustLower {
     def always:boolean (cond == "true")
     if (always) {
       this.pushScope()
-      this.bindPattern(pat subj t)
+      this.bindPatternRef(pat subj t matchMut)
       this.movedRestore(armBefore)
       this.lowerValueTo(body mode var)
       this.armEnd(body)
@@ -4627,7 +4662,7 @@ class RustLower {
     out.line((("if " + (this.condText(cond))) + " {"))
     out.indent()
     this.pushScope()
-    this.bindPattern(pat subj t)
+    this.bindPatternRef(pat subj t matchMut)
     this.movedRestore(armBefore)
     this.lowerValueTo(body mode var)
     this.armEnd(body)
@@ -4876,6 +4911,135 @@ class RustLower {
     this.walkBindings(pat subj t false)
   }
 
+  ; While the bindings of a pattern matched through a `&mut` are declared:
+  ; Rust binds them `ref mut` (`match v { V::N(n) => *n += 1.0 }`).
+  def refMutBind:boolean false
+  ; a temporary holding the value of an optional place -> that place
+  def backOf:[string:string]
+  ; the variable of a `case` narrowing -> `Enum.Variant`
+  def caseOfVar:[string:string]
+
+  ; the function being lowered takes `&mut self`
+  def selfIsMut:boolean false
+
+  ; True when the matched expression `e` is a `&mut`: `&mut x`, a value of
+  ; type `&mut T`, or `self` in a `&mut self` method.
+  fn matchesMut:boolean (e:RustNode t:RsType) {
+    if (t.isMutRef) {
+      return true
+    }
+    def n:RustNode e
+    while (n.kind == "paren") {
+      n = (n.kid(0))
+    }
+    if ((n.kind == "unary") && (n.name == "&mut")) {
+      return true
+    }
+    if ((n.kind == "path_expr") && selfIsMut) {
+      def segs:[string] (this.pathSegs((n.kid(0))))
+      return (((array_length segs) == 1) && ((itemAt segs 0) == "self"))
+    }
+    return false
+  }
+
+  ; bindPattern / patOpen for a match, `if let`, `while let` or `let`: a
+  ; `&mut` subject (matchesMut) binds its parts `ref mut`.
+  fn bindPatternRef:void (pat:RustNode subj:string t:RsType refMut:boolean) {
+    def save:boolean refMutBind
+    refMutBind = refMut
+    this.walkBindings(pat subj t false)
+    refMutBind = save
+  }
+
+  fn patOpenRef:int (pat:RustNode subj:string t:RsType refMut:boolean) {
+    def save:boolean refMutBind
+    refMutBind = refMut
+    def n:int (this.patOpen(pat subj t))
+    refMutBind = save
+    return n
+  }
+
+  ; True when the binding `pat` refers into the matched value: `ref mut x`,
+  ; or a plain `x` under a `&mut` subject (`mut x` there is a copy).
+  fn bindsRefMut:boolean (pat:RustNode) {
+    if (pat.hasMod("ref")) {
+      return (pat.hasMod("mut"))
+    }
+    if (pat.hasMod("mut")) {
+      return false
+    }
+    return refMutBind
+  }
+
+  ; The Ranger place `subj` reads, to store a changed binding back into; ""
+  ; when it is not one (the whole subject: a parameter, a temporary).
+  fn backPlace:string (subj:string) {
+    if (has backOf subj) {
+      return (unwrap (get backOf subj))
+    }
+    if ((startsWith subj "(unwrap ") && (endsWith subj ")")) {
+      return (this.backPlace((substring subj 8 ((strlen subj) - 1))))
+    }
+    if (((indexOf subj "(") >= 0) || ((indexOf subj ".") < 0)) {
+      return ""
+    }
+    return subj
+  }
+
+  ; Declares one binding of a pattern, read from `subj`. A `ref mut`
+  ; binding is a copy too (numbers and strings are values on the targets),
+  ; so each change to it is written back to `subj` (assignTo); a Copy
+  ; struct or enum bound by value is copied.
+  fn declareBinding:void (pat:RustNode subj:string t:RsType) {
+    def l:RsLocal (this.declare(pat.name t))
+    def code:string subj
+    if (this.bindsRefMut(pat)) {
+      def place:string (this.backPlace(subj))
+      if (place == "") {
+        l.backBad = true
+      } {
+        l.backTo = place
+        def root:string place
+        def dot:int (indexOf place ".")
+        if (dot > 0) {
+          root = (substring place 0 dot)
+        }
+        if (has caseOfVar root) {
+          l.backCase = (unwrap (get caseOfVar root))
+        }
+      }
+    } {
+      code = (this.copyCode(subj t))
+    }
+    out.line(((("def " + (this.declText(l.rname t))) + " ") + code))
+  }
+
+  ; `code` copied when `t` is a Copy struct or a Copy enum with data (they
+  ; are objects on the targets, which a copy would share).
+  fn copyCode:string (code:string t:RsType) {
+    if (this.isCopyStruct(t)) {
+      return (("(" + code) + ".rs_clone())")
+    }
+    if (this.isCopyEnum(t)) {
+      return (this.cloneCode(code t))
+    }
+    return code
+  }
+
+  fn noteWrittenCase:void (l:RsLocal) {
+    if (l.backCase != "") {
+      set writtenCases l.backCase true
+    }
+  }
+
+  fn isCopyEnum:boolean (t:RsType) {
+    if (this.isDataEnum(t)) {
+      def e:RsEnum (unwrap (get enums t.name))
+      return ((indexOf e.derives "Copy") >= 0)
+    }
+    return false
+  }
+
   ; Makes a pattern's names refer to the subject expressions, for a guard.
   fn aliasPattern:void (pat:RustNode subj:string t:RsType) {
     this.walkBindings(pat subj t true)
@@ -4890,12 +5054,7 @@ class RustLower {
       if (aliasOnly) {
         this.alias(pat.name subj t)
       } {
-        def l:RsLocal (this.declare(pat.name t))
-        def code:string subj
-        if (this.isCopyStruct(t)) {
-          code = (("(" + subj) + ".rs_clone())")
-        }
-        out.line(((("def " + (this.declText(l.rname t))) + " ") + code))
+        this.declareBinding(pat subj t)
       }
       if ((array_length pat.kids) > 0) {
         this.walkBindings((pat.kid(0)) subj t aliasOnly)
@@ -5024,6 +5183,9 @@ class RustLower {
     if ((this.isCopyStruct(v.ty)) && (this.isPlace(n))) {
       def r:RsExpr (RsExpr.of((("(" + (this.bindTemp(v v.ty "c"))) + ".rs_clone())") v.ty))
       return r
+    }
+    if ((this.isCopyEnum(v.ty)) && (this.isPlace(n))) {
+      return (RsExpr.of((this.cloneCode((this.bindTemp(v v.ty "c")) v.ty)) v.ty))
     }
     return v
   }
@@ -6583,6 +6745,10 @@ class RustLower {
           if (slot.slotMap != "") {
             out.line((this.mapSetLine(slot.slotMap slot.slotTy slot.slotKey slot.rname)))
           }
+          if (slot.backTo != "") {
+            out.line(((slot.backTo + " = ") + slot.rname))
+            this.noteWrittenCase(slot)
+          }
         }
       }
     }
@@ -7627,7 +7793,14 @@ class RustLower {
           if (lv.iterVec != "") {
             out.line(((((("set_at " + lv.iterVec) + " ") + lv.iterIdx) + " ") + v.code))
           }
+          if (lv.backBad) {
+            this.unsupported(lhs (("assigning to `" + lv.name) + "`, a `ref mut` binding of a whole `&mut` match subject"))
+          }
           out.line(((lv.rname + " = ") + v.code))
+          if (lv.backTo != "") {
+            out.line(((lv.backTo + " = ") + lv.rname))
+            this.noteWrittenCase(lv)
+          }
           lv.moved = false
           return
         }
@@ -9634,12 +9807,7 @@ class RustLower {
       if ((array_length pat.kids) > 0) {
         n0 = (this.patOpen((pat.kid(0)) subj t))
       }
-      def l:RsLocal (this.declare(pat.name t))
-      def code:string subj
-      if (this.isCopyStruct(t)) {
-        code = (("(" + subj) + ".rs_clone())")
-      }
-      out.line(((("def " + (this.declText(l.rname t))) + " ") + code))
+      this.declareBinding(pat subj t)
       return n0
     }
     if (k == "pat_tuple") {
@@ -9662,6 +9830,7 @@ class RustLower {
         out.indent()
         def u:string (this.tmp("u"))
         out.line(((("def " + (this.declText(u (t.arg(0))))) + " (unwrap ") + subj) + ")")
+        set backOf u (this.backPlace(subj))
         return (1 + (this.patOpen((pat.kid(1)) u (t.arg(0)))))
       }
       if (((pn == "Ok") || (pn == "Err")) && (t.kind == "result")) {
@@ -9693,6 +9862,7 @@ class RustLower {
           out.line(((((("def " + cs) + ":") + (this.className(t.name))) + " ") + subj))
         }
         def x:string (this.tmp("x"))
+        set caseOfVar x ((t.name + ".") + pn)
         out.line((((("case " + cs) + " ") + x) + (((":" + (this.caseType(t.name pn))) + " {"))))
         out.indent()
         def opened2:int 1

@@ -843,7 +843,8 @@ extension RangerFlowParser {
       def clsName:string ((shapeName + "_") + cn)
       def recNode:CodeNode (shapeNode.newExpressionNode())
       push recNode.children (shapeNode.newVRefNode("record"))
-      push recNode.children (shapeNode.newVRefNode(clsName))
+      def recNameNode:CodeNode (shapeNode.newVRefNode(clsName))
+      push recNode.children recNameNode
       def blk:CodeNode (shapeNode.newExpressionNode())
       blk.is_block_node = true
 
@@ -892,6 +893,11 @@ extension RangerFlowParser {
         isValue = false
       }
       set caseIsValue clsName isValue
+      if (semanticsGiven && (isValue == false)) {
+        ; a declared @(reference) case is shared on every target, also when
+        ; its fields are all scalars (the C++ writer reads this flag)
+        recNameNode.setFlag("reference")
+      }
       set caseFieldNames clsName scalarFields
       ; retain every field name for method body rewriting (not only scalars)
       set caseFieldNames (clsName + "__all") allFieldNames
