@@ -69,6 +69,21 @@ class EVGListToElements {
     }
 
     ; An element sitting exactly on a command's box.
+    ; A turned command turns about its own pivot (a chart's axis title about
+    ; the point it was anchored at), which the element carries as its
+    ; transform origin, measured from its top left corner. A command with no
+    ; pivot turns about its centre, the element's default.
+    sfn pivot:void (el:EVGElement c:EVGDrawCmd) {
+        if ((c.rotOriginX == 0.0) && (c.rotOriginY == 0.0)) {
+            return
+        }
+        def ox:double (c.rotOriginX - c.x)
+        def oy:double (c.rotOriginY - c.y)
+        el.transformOriginX = (EVGUnit.px(ox))
+        el.transformOriginY = (EVGUnit.px(oy))
+        el.transformOriginSpec = (((EVGDisplayList.num(ox)) + "px ") + ((EVGDisplayList.num(oy)) + "px"))
+    }
+
     sfn boxAt:EVGElement (x:double y:double w:double h:double) {
         def el (EVGElement.createDiv())
         el.position = "absolute"
@@ -208,6 +223,7 @@ class EVGListToElements {
             }
             if (c.rotate != 0.0) {
                 el.rotate = c.rotate
+                EVGListToElements.pivot(el c)
             }
             def outEl@(optional):EVGElement el
             return outEl
@@ -225,6 +241,7 @@ class EVGListToElements {
             }
             if (c.rotate != 0.0) {
                 el.rotate = c.rotate
+                EVGListToElements.pivot(el c)
             }
             def outEl@(optional):EVGElement el
             return outEl
@@ -258,6 +275,7 @@ class EVGListToElements {
             el.src = c.src
             if (c.rotate != 0.0) {
                 el.rotate = c.rotate
+                EVGListToElements.pivot(el c)
             }
             def outEl@(optional):EVGElement el
             return outEl
@@ -317,6 +335,7 @@ class EVGListToElements {
             }
             if (c.rotate != 0.0) {
                 el.rotate = c.rotate
+                EVGListToElements.pivot(el c)
             }
             def outEl@(optional):EVGElement el
             return outEl
