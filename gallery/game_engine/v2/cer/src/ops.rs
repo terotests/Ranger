@@ -205,3 +205,18 @@ pub const OP_ENV_DEPTH: int = 124;
 pub const OP_TEMPLATE_OBJ: int = 125;
 /// pushes the function object running (a named function expression's name)
 pub const OP_CALLEE: int = 126;
+/// pushes `this.<atom a>`; c caches the slot like OP_GET_PROP
+pub const OP_GET_THIS_PROP: int = 127;
+/// [v] → []: stores v in local a and skips the next op (the statement's
+/// POP, which still runs when a jump lands on it)
+pub const OP_SET_LOCAL_POP: int = 128;
+/// `x++` / `x--` on local a in an expression (b = +1 / -1): pushes the old
+/// number
+pub const OP_POSTINC_LOCAL: int = 129;
+/// `++x` / `--x` on local a (b = +1 / -1): pushes the new number
+pub const OP_PREINC_LOCAL: int = 130;
+/// OP_SET_PROP whose value is not used: pops it and skips the next op (the
+/// statement's POP)
+pub const OP_SET_PROP_POP: int = 131;
+/// OP_SET_ELEM likewise
+pub const OP_SET_ELEM_POP: int = 132;

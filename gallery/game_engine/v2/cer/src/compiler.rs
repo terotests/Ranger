@@ -1313,6 +1313,20 @@ impl Compiler {
         self.expr(e);
         if is_program_top {
             self.emit(OP_SET_LOCAL, 0, 0);
+        } else {
+            // `x = …;`: the store pops too (the POP stays for jumps to it)
+            let fi = self.fs.len() - 1;
+            let n = self.fs[fi].proto.code.len();
+            if n > 0 {
+                let last = self.fs[fi].proto.code[n - 1].code;
+                if last == OP_SET_LOCAL {
+                    self.fs[fi].proto.code[n - 1].code = OP_SET_LOCAL_POP;
+                } else if last == OP_SET_PROP {
+                    self.fs[fi].proto.code[n - 1].code = OP_SET_PROP_POP;
+                } else if last == OP_SET_ELEM {
+                    self.fs[fi].proto.code[n - 1].code = OP_SET_ELEM_POP;
+                }
+            }
         }
         self.op(OP_POP);
     }
@@ -1773,7 +1787,12 @@ impl Compiler {
             let s = self.ast.nodes[n as usize].s.clone();
             // fused: a local's property
             let mut fused = false;
-            if self.ast.nodes[a as usize].kind == N_IDENT && self.ast.nodes[n as usize].d != 1 {
+            if self.ast.nodes[a as usize].kind == N_THIS && self.ast.nodes[n as usize].d != 1 {
+                let at = self.atom(s.as_str());
+                self.emit(OP_GET_THIS_PROP, at, 0);
+                fused = true;
+            }
+            if !fused && self.ast.nodes[a as usize].kind == N_IDENT && self.ast.nodes[n as usize].d != 1 {
                 let bnd = match self.ref_bind.get(&a) {
                     Some(x) => *x,
                     None => -1,
@@ -2065,6 +2084,16 @@ impl Compiler {
         let tk = self.ast.nodes[t as usize].kind;
         let _ = keep;
         if tk == N_IDENT {
+            let b = match self.ref_bind.get(&t) {
+                Some(x) => *x,
+                None => -1,
+            };
+            if b >= 0 && !self.binds[b as usize].in_env && !self.binds[b as usize].global && self.binds[b as usize].kind != K_CONST {
+                let slot = self.binds[b as usize].slot;
+                let delta = if op.as_str() == "++" { 1 } else { -1 };
+                self.emit(if prefix { OP_PREINC_LOCAL } else { OP_POSTINC_LOCAL }, slot, delta);
+                return;
+            }
             self.load_name(t);
             self.op(OP_TONUM);
             if prefix {

@@ -155,6 +155,30 @@ pub fn obj_of(v: &Val) -> int {
     }
 }
 
+/// `===` (strict) or `==` of two values that are objects, null or
+/// undefined: 1 or 0; -1 when either is anything else.
+pub fn quick_eq(a: &Val, b: &Val, strict: bool) -> int {
+    match (a, b) {
+        (Val::Obj(x), Val::Obj(y)) => {
+            if x == y {
+                1
+            } else {
+                0
+            }
+        }
+        (Val::Null, Val::Null) | (Val::Undef, Val::Undef) => 1,
+        (Val::Null, Val::Undef) | (Val::Undef, Val::Null) => {
+            if strict {
+                0
+            } else {
+                1
+            }
+        }
+        (Val::Obj(_), Val::Null) | (Val::Obj(_), Val::Undef) | (Val::Null, Val::Obj(_)) | (Val::Undef, Val::Obj(_)) => 0,
+        _ => -1,
+    }
+}
+
 pub fn truthy(v: &Val) -> bool {
     match v {
         Val::Undef => false,
@@ -1836,8 +1860,14 @@ impl Vm {
                                 _ => x != y,
                             }
                         } else {
-                            self.frames[fi].pc = pc;
-                            self.compare(op.b, &a, &b)
+                            let strict = op.b == OP_SEQ || op.b == OP_SNE;
+                            let q = if strict || op.b == OP_EQ || op.b == OP_NE { quick_eq(&a, &b, strict) } else { -1 };
+                            if q >= 0 {
+                                (q == 1) == (op.b == OP_SEQ || op.b == OP_EQ)
+                            } else {
+                                self.frames[fi].pc = pc;
+                                self.compare(op.b, &a, &b)
+                            }
                         };
                         if !r {
                             if op.a < pc {
@@ -1879,7 +1909,7 @@ impl Vm {
                             self.stack.push(r);
                         }
                     }
-                    OP_SUB | OP_MUL | OP_DIV | OP_MOD | OP_EXP | OP_BAND | OP_BOR | OP_BXOR | OP_SHL | OP_SHR | OP_USHR => {
+                    OP_DIV | OP_MOD | OP_EXP | OP_BAND | OP_BOR | OP_BXOR | OP_SHL | OP_SHR | OP_USHR => {
                         let b = self.pop();
                         let a = self.pop();
                         if let (Val::Num(x), Val::Num(y)) = (&a, &b) {
@@ -1893,9 +1923,86 @@ impl Vm {
                     OP_LT | OP_GT | OP_LE | OP_GE | OP_EQ | OP_NE | OP_SEQ | OP_SNE => {
                         let b = self.pop();
                         let a = self.pop();
+                        let strict = op.code == OP_SEQ || op.code == OP_SNE;
+                        let q = if strict || op.code == OP_EQ || op.code == OP_NE { quick_eq(&a, &b, strict) } else { -1 };
+                        if q >= 0 {
+                            self.stack.push(Val::Bool((q == 1) == (op.code == OP_SEQ || op.code == OP_EQ)));
+                            continue;
+                        }
                         self.frames[fi].pc = pc;
                         let r = self.compare(op.code, &a, &b);
                         self.stack.push(Val::Bool(r));
+                    }
+                    OP_THIS => {
+                        let t = self.frames[fi].this_val.clone();
+                        self.stack.push(t);
+                    }
+                    OP_SET_LOCAL_POP => {
+                        let v = self.pop();
+                        self.stack[(bp + op.a) as usize] = v;
+                        pc += 1;
+                    }
+                    OP_POSTINC_LOCAL | OP_PREINC_LOCAL => {
+                        let i = (bp + op.a) as usize;
+                        let old = if let Val::Num(n) = self.stack[i] {
+                            n
+                        } else {
+                            self.frames[fi].pc = pc;
+                            let v = self.stack[i].clone();
+                            self.to_number(&v)
+                        };
+                        let nv = old + (op.b as double);
+                        self.stack[i] = Val::Num(nv);
+                        self.stack.push(Val::Num(if op.code == OP_PREINC_LOCAL { nv } else { old }));
+                    }
+                    OP_SUB => {
+                        let b = self.pop();
+                        let a = self.pop();
+                        if let (Val::Num(x), Val::Num(y)) = (&a, &b) {
+                            self.stack.push(Val::Num(x - y));
+                        } else {
+                            self.frames[fi].pc = pc;
+                            let r = self.arith(op.code, &a, &b);
+                            self.stack.push(r);
+                        }
+                    }
+                    OP_MUL => {
+                        let b = self.pop();
+                        let a = self.pop();
+                        if let (Val::Num(x), Val::Num(y)) = (&a, &b) {
+                            self.stack.push(Val::Num(x * y));
+                        } else {
+                            self.frames[fi].pc = pc;
+                            let r = self.arith(op.code, &a, &b);
+                            self.stack.push(r);
+                        }
+                    }
+                    OP_GET_THIS_PROP => {
+                        let v = self.frames[fi].this_val.clone();
+                        let atom = op.a;
+                        let mut done = false;
+                        if let Val::Obj(o) = &v {
+                            let ob = &self.objs[*o as usize];
+                            let c = op.c;
+                            if c >= 0 && (c as usize) < ob.keys.len() && ob.keys[c as usize] == atom && ob.attrs[c as usize] & P_ACCESSOR == 0 {
+                                let r = ob.vals[c as usize].clone();
+                                self.stack.push(r);
+                                done = true;
+                            } else {
+                                let slot = ob.find(atom);
+                                if slot >= 0 && ob.attrs[slot as usize] & P_ACCESSOR == 0 {
+                                    let r = ob.vals[slot as usize].clone();
+                                    self.protos[pi].code[(pc - 1) as usize].c = slot;
+                                    self.stack.push(r);
+                                    done = true;
+                                }
+                            }
+                        }
+                        if !done {
+                            self.frames[fi].pc = pc;
+                            let r = self.get(&v, atom);
+                            self.stack.push(r);
+                        }
                     }
                     OP_GET_LOCAL_PROP => {
                         let v = self.stack[(bp + op.a) as usize].clone();
@@ -1951,7 +2058,7 @@ impl Vm {
                             self.stack.push(r);
                         }
                     }
-                    OP_SET_PROP => {
+                    OP_SET_PROP | OP_SET_PROP_POP => {
                         let val = self.pop();
                         let target = self.pop();
                         let atom = op.a;
@@ -1975,7 +2082,11 @@ impl Vm {
                             self.frames[fi].pc = pc;
                             self.set(&target, atom, val.clone());
                         }
-                        self.stack.push(val);
+                        if op.code == OP_SET_PROP_POP {
+                            pc += 1;
+                        } else {
+                            self.stack.push(val);
+                        }
                     }
                     OP_GET_ELEM => {
                         let k = self.pop();
@@ -1998,7 +2109,7 @@ impl Vm {
                             self.stack.push(r);
                         }
                     }
-                    OP_SET_ELEM => {
+                    OP_SET_ELEM | OP_SET_ELEM_POP => {
                         let val = self.pop();
                         let k = self.pop();
                         let target = self.pop();
@@ -2020,7 +2131,11 @@ impl Vm {
                             self.frames[fi].pc = pc;
                             self.set_elem(&target, &k, val.clone());
                         }
-                        self.stack.push(val);
+                        if op.code == OP_SET_ELEM_POP {
+                            pc += 1;
+                        } else {
+                            self.stack.push(val);
+                        }
                     }
                     OP_GET_METHOD => {
                         let v = self.pop();
