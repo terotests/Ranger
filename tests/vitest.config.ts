@@ -1,5 +1,11 @@
 import { defineConfig } from "vitest/config";
 
+// Local time is UTC in the interpreter (gallery/game_engine/v2/interp/migrate/
+// src/DateTime.rgr), and runtime-conformance compares it with Node, which
+// formats in the host's time zone. Every fork inherits this, so the suite
+// gives the same answer on a laptop in Helsinki as in CI.
+process.env.TZ = "UTC";
+
 export default defineConfig({
   test: {
     globals: true,
