@@ -1107,7 +1107,14 @@ class ScriptEditor {
         def view:int (this.textViewW())
         def rel:int (cx - left)
         if (rel < layout.scrollX) {
-            layout.scrollX = rel
+            ; back to the start of the line when the caret fits from there:
+            ; a view left scrolled a little way in shows lines cut at the left
+            ; for no reason
+            if (rel < (idiv (view * 3) 4)) {
+                layout.scrollX = 0
+            } {
+                layout.scrollX = (rel - (idiv view 3))
+            }
         }
         def right:int ((layout.scrollX + view) - 2)
         if (rel > right) {
@@ -2626,5 +2633,38 @@ class ScriptEditor {
 
     fn scrollBy:void (notches:int) {
         layout.scrollByLines(buf (0 - notches))
+        this.fitVisibleX()
+    }
+
+    ; Never scrolled sideways past the end of every line on screen. Scrolled
+    ; right for one long line and then moved down among short ones, the view
+    ; showed nothing at all — an editor that looks empty — and the only way
+    ; back was the scroll bar. The longest visible line's end is kept at the
+    ; right edge at the furthest.
+    fn fitVisibleX:void () {
+        if (layout.scrollX <= 0) {
+            return
+        }
+        if (null? measureTr) {
+            return
+        }
+        def tr:UITextRenderer (unwrap measureTr)
+        def widest:int 0
+        def i:int (layout.firstVisible())
+        def last:int (layout.lastVisible(buf))
+        while (i <= last) {
+            def lw:int (this.linePixelW(tr (buf.lineAt(i))))
+            if (lw > widest) {
+                widest = lw
+            }
+            i = (i + 1)
+        }
+        def most:int ((widest - (this.textViewW())) + 8)
+        if (most < 0) {
+            most = 0
+        }
+        if (layout.scrollX > most) {
+            layout.scrollX = most
+        }
     }
 }
