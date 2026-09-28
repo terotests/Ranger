@@ -17,6 +17,9 @@ import baseConfig from "./vitest.config";
  * in CI and in the full local suite via `npm test`.
  */
 const gallerySuites = [
+  // Runs whatever octane_runner binaries sit in gallery/game_engine/v2/interp/bin
+  // (ignored by git), so a stale local build fails it; a clean checkout skips it.
+  "**/async-conformance.test.ts",
   "**/game-catalog.test.ts",
   "**/game-engine-features.test.ts",
   "**/game-engine-render.test.ts",

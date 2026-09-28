@@ -1864,7 +1864,7 @@ export function isSwiftAvailable(): boolean {
 }
 
 /**
- * Build and run a compiled Swift6 file (-parse-as-library, same as process fixtures).
+ * Build and run a compiled Swift6 file (top-level `__main__swift()` call, so no -parse-as-library).
  */
 export function runCompiledSwift(swiftFile: string): RunResult {
   const absoluteSwift = path.isAbsolute(swiftFile)
@@ -1884,7 +1884,7 @@ export function runCompiledSwift(swiftFile: string): RunResult {
   const binFile = path.join(swiftDir, swiftBasename);
 
   try {
-    execSync(`swiftc "${absoluteSwift}" -parse-as-library -o "${binFile}"`, {
+    execSync(`swiftc "${absoluteSwift}" -o "${binFile}"`, {
       cwd: swiftDir,
       encoding: "utf-8",
       timeout: 120000,
