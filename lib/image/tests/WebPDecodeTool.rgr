@@ -1,0 +1,81 @@
+; SPDX-License-Identifier: MIT
+
+; WebPDecodeTool.rgr - decode WebP files, print "file width height adler32"
+; of the RGBA output (the format of testdata/webp/fixtures.txt), to compare
+; against another decoder. With -bench N as the first arguments each file is
+; decoded N more times inside a timer.
+;
+;   node dist/rgrc.js -l=cpp lib/image/tests/WebPDecodeTool.rgr -d=/tmp/w -o=webp_tool.cpp
+;   g++ -std=c++17 -O2 /tmp/w/webp_tool.cpp -o /tmp/w/webp_tool
+;   /tmp/w/webp_tool -bench 20 photo.webp
+
+Import "../WebPDecoder.rgr"
+
+class WebPDecodeTool {
+    sfn hex8:string (hi:int lo:int) {
+        def digits:string "0123456789abcdef"
+        def s:string ""
+        def v:int (bit_or (bit_shl hi 16) lo)
+        def k:int 28
+        while (k >= 0) {
+            def d:int (bit_and (bit_ushr v k) 15)
+            s = s + (substring digits d (d + 1))
+            k = k - 4
+        }
+        return s
+    }
+
+    sfn adler32:string (b:buffer) {
+        def a:int 1
+        def s:int 0
+        def n:int (buffer_length b)
+        def i:int 0
+        while (i < n) {
+            a = (a + (buffer_get b i)) % 65521
+            s = (s + a) % 65521
+            i = i + 1
+        }
+        return (WebPDecodeTool.hex8(s a))
+    }
+
+    sfn m@(main):void () {
+        def n:int (shell_arg_cnt)
+        def first:int 0
+        def repeat:int 0
+        if (n >= 2) {
+            if ((shell_arg 0) == "-bench") {
+                repeat = (unwrap (to_int (shell_arg 1)))
+                first = 2
+            }
+        }
+        def i:int first
+        while (i < n) {
+            def path:string (shell_arg i)
+            def slash:int (lastIndexOf path "/")
+            def folder:string "."
+            def name:string path
+            if (slash >= 0) {
+                folder = (substring path 0 (slash + 1))
+                name = (substring path (slash + 1) (strlen path))
+            }
+            def bytes:buffer (buffer_read_file folder name)
+            def dec (new WebPDecoder())
+            def img:ImageBuffer (dec.decodeBytes(bytes))
+            if dec.ok {
+                print (path + " " + (to_string img.width) + " " + (to_string img.height) + " " + (WebPDecodeTool.adler32(img.pixels)))
+            } {
+                print (path + " ERROR " + dec.error)
+            }
+            if (repeat > 0) {
+                timer ("  " + (to_string repeat) + " decodes, seconds") {
+                    def r:int 0
+                    while (r < repeat) {
+                        dec.decodeBytes(bytes)
+                        r = r + 1
+                    }
+                }
+            }
+            i = i + 1
+        }
+    }
+}
