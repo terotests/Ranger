@@ -354,6 +354,14 @@ class RsLocal {
   def slotMap:string ""
   def slotKey:string ""
   def slotTy:RsType (new RsType("unknown"))
+  ; a `ref mut` pattern binding (`match v { V::N(n) => *n += 1.0 }` with
+  ; `v: &mut V`): the place it was read from, written back after each change;
+  ; backBad when that place cannot be written (the whole subject)
+  def backTo:string ""
+  def backBad:boolean false
+  ; `Enum.Variant` when backTo is a field of an enum variant (its case is
+  ; then written `@(reference)`: a value case cannot change)
+  def backCase:string ""
 }
 
 class RsScope {

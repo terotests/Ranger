@@ -398,6 +398,15 @@ class RangerCppClassWriter {
     if (inFamily == false) {
       return false
     }
+    ; a case declared @(reference) is shared: `case v x:V.N` then `x.f0 = …`
+    ; must change the value the union holds
+    def clNN@(optional):CodeNode cl.nameNode
+    if (!null? clNN) {
+      def clNameNode:CodeNode (unwrap clNN)
+      if (clNameNode.hasFlag("reference")) {
+        return false
+      }
+    }
     def allScalar:boolean true
     for cl.variables cv:RangerAppParamDesc cvi {
       def cvNN@(optional):CodeNode cv.nameNode
