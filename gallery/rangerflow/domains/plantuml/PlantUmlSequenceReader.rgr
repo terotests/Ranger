@@ -36,7 +36,7 @@
 ; `ref over`, `alt`/`else`, `opt`, `loop`, `par`/`and`, `critical`, `break`,
 ; `group`, `== dividers ==` and `autonumber`.
 ;
-; **What it drops, on purpose.** `skinparam`, `hide footbox`, `header`,
+; **What it drops, on purpose.** `skinparam`, `hide` (except `hide footbox`), `header`,
 ; `footer`, `!theme` and the delay `...` — style and whitespace, and a diagram
 ; that renders in PlantUML renders here without them. Also the `[` and `]`
 ; gateways, which mean "from outside the diagram": there is no participant to
@@ -127,7 +127,14 @@ class PlantUmlSequenceReader {
 
         ; --- the words that are only ever style ---
         if (kw == "skinparam")  { return }
-        if (kw == "hide")       { return }
+        if (kw == "hide") {
+            ; `hide footbox` is the one `hide` with a meaning here: no second
+            ; row of participant boxes under the lifelines.
+            if ((PlantUmlText.lower((trim rest))) == "footbox") {
+                doc.mirrorActors = false
+            }
+            return
+        }
         if (kw == "show")       { return }
         if (kw == "header")     { return }
         if (kw == "footer")     { return }

@@ -109,6 +109,10 @@ class SeqDiagram {
     def steps:[SeqStep]
     def boxes:[string]
     def autonumber:boolean false
+    ; The participant boxes drawn again under the lifelines, as Mermaid does
+    ; by default (`mirrorActors`) and PlantUML calls the footbox: in a long
+    ; diagram the names at the top have scrolled away by the last message.
+    def mirrorActors:boolean true
 
     Constructor () {
     }
@@ -269,6 +273,7 @@ class SeqDiagramFlow {
             this.closeBlock()
         }
         this.trimLifelines()
+        this.footers()
         this.boxes()
         g.reindex()
         def wrote:int (style.applyTo(g))
@@ -350,6 +355,45 @@ class SeqDiagramFlow {
             }
             i = (i + 1)
         }
+    }
+
+    ; The participants again, at the foot of their lifelines. A destroyed one
+    ; is not repeated: its line ends at the cross, and a box under it would
+    ; say it was still there.
+    fn footers:void () {
+        if (doc.mirrorActors == false) {
+            return
+        }
+        def floor:double (cursor + 12.0)
+        def i:int 0
+        while (i < (array_length doc.actors)) {
+            def a:SeqActor (itemAt doc.actors i)
+            i = (i + 1)
+            if a.destroyed {
+                continue
+            }
+            if (a.bottom >= 0.0) {
+                continue
+            }
+            def n:FlowNode (FlowNode.create((SeqDiagramFlow.footerId(a.id)) a.name a.x floor))
+            n.nodeType = "participant"
+            n.shape = "rect"
+            n.width = a.width
+            n.height = headerH
+            n.borderRadius = 6.0
+            n.cssClass = "mermaid participant footer"
+            if a.isActor {
+                n.borderRadius = 22.0
+                n.cssClass = "mermaid participant actor footer"
+            }
+            n.connectable = false
+            n.syncFromModel()
+            g.addNode(n)
+        }
+    }
+
+    sfn footerId:string (id:string) {
+        return ("foot-" + id)
     }
 
     sfn lifelineId:string (id:string) {

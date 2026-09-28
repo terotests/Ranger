@@ -5238,6 +5238,93 @@ class RangerFlowTest {
         def custLife:FlowNode (g.nodeById("ll-Cust"))
         c.ok("a destroyed lifeline stops short of the others" (bankLife.height < custLife.height))
         c.ok("a sequence diagram is one this library draws" (MermaidReader.draws("sequence")))
+        c.ok("the participants are drawn again under the lifelines" (g.hasNode("foot-Cust")))
+        c.ok("but not one that was destroyed" ((g.hasNode("foot-Bank")) == false))
+        RangerFlowTest.testMermaidSequenceRows(c)
+    }
+
+    ; The y a scene draws message `id` at: the first point of its line.
+    sfn sceneRowOf:double (sc:FlowScene id:string) {
+        def i:int 0
+        while (i < (sc.count())) {
+            def s:SceneItem (sc.at(i))
+            if ((s.kind == 2) && (s.tag == ("edge:" + id))) {
+                if ((array_length s.pts) >= 4) {
+                    return (itemAt s.pts 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return -1.0
+    }
+
+    ; Regression: every message was drawn on ONE row. The lifelines are the
+    ; nodes a message edge runs between, and drawing snapped a pinned route's
+    ; ends back onto the lifeline's default port — its middle — so all five
+    ; arrows below came out level, labels on top of each other.
+    sfn testMermaidSequenceRows:void (c:Checker) {
+        def src:string "sequenceDiagram\n"
+        src = (src + "    User->>Editor: Type markdown\n")
+        src = (src + "    Editor->>Preview: Render content\n")
+        src = (src + "    User->>Editor: Make changes\n")
+        src = (src + "    Editor->>Preview: Update rendering\n")
+        src = (src + "    User->>Export: Save as PDF\n")
+        def sc:FlowScene (MermaidRender.sceneOf(src "default" 820.0 16.0))
+        def prev:double -1.0
+        def rising:boolean true
+        def k:int 0
+        while (k < 5) {
+            def y:double (RangerFlowTest.sceneRowOf(sc ("m" + (to_string k))))
+            if (y <= (prev + 20.0)) {
+                rising = false
+            }
+            prev = y
+            k = (k + 1)
+        }
+        c.ok("five messages are drawn on five rows, top to bottom, in source order" rising)
+        def wsc:FlowScene (MermaidRender.sceneWrapped(src "default" 820.0 16.0 1.6))
+        def w0:double (RangerFlowTest.sceneRowOf(wsc "m0"))
+        def w4:double (RangerFlowTest.sceneRowOf(wsc "m4"))
+        c.ok("and so they are through the markdown path, which asks for a wrap" (w4 > (w0 + 100.0)))
+        def bare (new FlowStyle)
+        def dr:MermaidDrawing (MermaidRender.draw(src bare))
+        def g:FlowGraph dr.graph
+        def e0:FlowEdge (g.edgeAt(0))
+        def drawn:[double] (EdgeRouter.cornersFor(g e0))
+        c.ok("a message leaves from its own row, not the middle of the lifeline" ((fabs ((itemAt drawn 1) - (itemAt e0.waypoints 1))) < 0.5))
+
+        ; The other arrows, a note and the blocks: still one row each.
+        def mix:string "sequenceDiagram\n"
+        mix = (mix + "    participant A\n")
+        mix = (mix + "    actor B\n")
+        mix = (mix + "    A->B: plain\n")
+        mix = (mix + "    B-->A: dotted\n")
+        mix = (mix + "    Note right of B: aside\n")
+        mix = (mix + "    loop again\n")
+        mix = (mix + "        A-->>B: reply\n")
+        mix = (mix + "    end\n")
+        mix = (mix + "    alt yes\n")
+        mix = (mix + "        A-xB: lost\n")
+        mix = (mix + "    else no\n")
+        mix = (mix + "        A-)B: async\n")
+        mix = (mix + "    end\n")
+        mix = (mix + "    opt maybe\n")
+        mix = (mix + "        Note over A,B: both\n")
+        mix = (mix + "        B->>A: done\n")
+        mix = (mix + "    end\n")
+        def ms:FlowScene (MermaidRender.sceneOf(mix "default" 820.0 16.0))
+        def mprev:double -1.0
+        def mrising:boolean true
+        def j:int 0
+        while (j < 6) {
+            def my:double (RangerFlowTest.sceneRowOf(ms ("m" + (to_string j))))
+            if (my <= (mprev + 20.0)) {
+                mrising = false
+            }
+            mprev = my
+            j = (j + 1)
+        }
+        c.ok("every arrow form, between notes and blocks, keeps a row of its own" mrising)
     }
 
     ; --------------------------------------------- Mermaid git graph ------

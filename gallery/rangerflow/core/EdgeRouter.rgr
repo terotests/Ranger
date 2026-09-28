@@ -1362,6 +1362,9 @@ class EdgeRouter {
         if (n < 4) {
             return out
         }
+        if (EdgeRouter.fixedInPlace(g e)) {
+            return out
+        }
         def x1:double (g.endpointX(e true))
         def y1:double (g.endpointY(e true))
         def x2:double (g.endpointX(e false))
@@ -1426,6 +1429,34 @@ class EdgeRouter {
             set_at out prev x2
         }
         return out
+    }
+
+    ; A pinned route between two boxes that can never be dragged: its stored
+    ; corners are the whole truth, ends included. The ends are snapped back
+    ; onto the live ports only because a box may have MOVED since the route
+    ; was placed — and one that cannot move has not. A sequence diagram is
+    ; the case this exists for: every message is an edge between two
+    ; lifelines, attached at its own row down the line, and snapping its ends
+    ; to the lifeline's default port put every message on the same row.
+    sfn fixedInPlace:boolean (g:FlowGraph e:FlowEdge) {
+        if (e.pinnedRoute == false) {
+            return false
+        }
+        if (! (g.hasNode(e.source))) {
+            return false
+        }
+        if (! (g.hasNode(e.target))) {
+            return false
+        }
+        def s:FlowNode (g.nodeById(e.source))
+        def t:FlowNode (g.nodeById(e.target))
+        if s.draggable {
+            return false
+        }
+        if t.draggable {
+            return false
+        }
+        return true
     }
 
     sfn route:EdgePath (g:FlowGraph e:FlowEdge) {
