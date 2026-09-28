@@ -603,6 +603,16 @@ class EVGPDFRenderer {
                     if ((face.fontPath == primary.fontPath) == false) {
                         useFamily = face.fontFamily
                         useCid = true
+                    } {
+                        ; The primary HAS the glyph but WinAnsi has no byte
+                        ; for it — π, →, ≤, Greek, Cyrillic. The /F resource
+                        ; is single-byte WinAnsi, so it printed as "?" with the
+                        ; glyph sitting unused in the embedded face. Such a
+                        ; cluster is drawn from the same face through its
+                        ; Identity-H resource instead, by glyph id.
+                        if (this.needsGlyphIds(primary cps i cEnd)) {
+                            useCid = true
+                        }
                     }
                 }
             }
@@ -647,6 +657,29 @@ class EVGPDFRenderer {
             push segs last
         }
         return segs
+    }
+
+    ; Does this cluster hold a character the face draws but WinAnsi cannot
+    ; encode? A character the face does NOT have stays on the WinAnsi path,
+    ; where it is reported as missing rather than drawn as .notdef.
+    fn needsGlyphIds:boolean (face:TrueTypeFont cps:[int] start:int end:int) {
+        def any:boolean false
+        def i:int start
+        while (i < end) {
+            def cp:int (itemAt cps i)
+            if (cp >= 128) {
+                if ((FontManager.isIgnorable(cp)) == false) {
+                    if ((Utf8.toWinAnsi((Utf8.winAnsiStandIn(cp)))) < 0) {
+                        if ((face.getGlyphIndex(cp)) == 0) {
+                            return false
+                        }
+                        any = true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return any
     }
 
     ; A CID segment as a hex string of glyph ids.
@@ -3647,6 +3680,12 @@ class EVGPDFRenderer {
                                 ; dashes and curly quotes) and rejected the
                                 ; real codepoints for those same characters.
                                 def enc:int (Utf8.toWinAnsi((Utf8.winAnsiStandIn(ch))))
+                                ; A variation selector or joiner left in a
+                                ; text-face run ("©️") selects a presentation;
+                                ; it is not a character, the measurer charged
+                                ; it nothing, and it is dropped here. It was
+                                ; painted as "?".
+                                if ((FontManager.isIgnorable(ch)) == false) {
                                 if (enc >= 0) {
                                     ; Emitted as a PDF octal escape \NNN
                                     ; because Go strings are UTF-8 and cannot
@@ -3659,6 +3698,7 @@ class EVGPDFRenderer {
                                     ; than hiding it.
                                     this.noteUnsupportedGlyph(ch text)
                                     result = result + "?"
+                                }
                                 }
                             }
                         }

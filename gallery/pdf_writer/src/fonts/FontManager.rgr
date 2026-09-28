@@ -25,6 +25,13 @@ class FontManager {
     def resolvedDirectory:string ""
     def defaultFont:TrueTypeFont (new TrueTypeFont())
     def hasDefaultFont:boolean false
+    ; The bundled emoji face is looked for once, the first time a cluster
+    ; turns up that no loaded face can draw. A caller that loaded its own text
+    ; faces from a directory — md_demo does, and names only Open Sans and Noto
+    ; Sans — used to get "?" for every emoji, because the per-codepoint
+    ; fallback only ever searches faces that are already loaded.
+    def autoFallbackTried:boolean false
+    def autoFallbackPaths:[string]
     
     Constructor () {
         def f:[TrueTypeFont]
@@ -87,11 +94,113 @@ class FontManager {
         }
         push fonts font
         push fontNames font.fontFamily
+        this.adoptDefault(font)
+        return true
+    }
+
+    ; The face every unmatched family resolves to. The first TEXT face loaded
+    ; wins. A browser fetches its faces in parallel and hands them over in
+    ; whatever order they arrive, so an emoji face that happened to land first
+    ; became the default, and every family the document named that was not
+    ; loaded was then measured and drawn from a face with no letters in it. A
+    ; face without a Latin "A" is taken only while nothing better is there,
+    ; and gives way to the first face that has one.
+    fn adoptDefault:void (font:TrueTypeFont) {
         if (hasDefaultFont == false) {
             defaultFont = font
             hasDefaultFont = true
+            return
         }
-        return true
+        if (FontManager.isTextFace(defaultFont)) {
+            return
+        }
+        if (FontManager.isTextFace(font)) {
+            defaultFont = font
+        }
+    }
+
+    sfn isTextFace:boolean (f:TrueTypeFont) {
+        if ((f.isLoaded()) == false) {
+            return false
+        }
+        return ((f.getGlyphIndex(65)) > 0)
+    }
+
+    ; Codepoints that are instructions rather than characters: the joiner and
+    ; non-joiner, and the variation selectors (U+FE00..FE0F, and the
+    ; supplementary U+E0100..E01EF). No face draws them, and a face that
+    ; lacks them in its cmap must not be charged a .notdef advance for them,
+    ; nor have them painted as "?" — they modify the character before them
+    ; and are otherwise dropped.
+    sfn isIgnorable:boolean (cp:int) {
+        if ((cp == 8205) || (cp == 8204)) {
+            return true
+        }
+        if ((cp >= 65024) && (cp <= 65039)) {
+            return true
+        }
+        if ((cp >= 917760) && (cp <= 917999)) {
+            return true
+        }
+        return false
+    }
+
+    ; An extra face to look for on the first missing glyph, as a path
+    ; relative to the fonts directories. Noto Emoji is registered by default.
+    fn addAutoFallback:void (relativePath:string) {
+        push autoFallbackPaths relativePath
+    }
+
+    ; Load the fallback faces from the fonts directories, once.
+    ;
+    ; Only directories this manager was told about are searched, so a
+    ; manager filled from bytes — the browser build, which has no file system
+    ; — never touches a disk here; its host registers the emoji face with
+    ; loadFontBuffer like any other. A face loaded this way never becomes
+    ; the default: it is only ever reached through the fallback.
+    fn ensureFallbackFaces:void () {
+        if autoFallbackTried {
+            return
+        }
+        autoFallbackTried = true
+        if ((array_length fontsDirectories) == 0) {
+            return
+        }
+        ; Already have an emoji face — the host loaded one itself.
+        def k:int 0
+        while (k < (array_length fonts)) {
+            def f:TrueTypeFont (itemAt fonts k)
+            if (f.isLoaded()) {
+                if ((f.getGlyphIndex(128512)) > 0) {
+                    return
+                }
+            }
+            k = (k + 1)
+        }
+        def paths:[string]
+        push paths "Noto_Emoji/NotoEmoji-Regular.ttf"
+        def a:int 0
+        while (a < (array_length autoFallbackPaths)) {
+            push paths (itemAt autoFallbackPaths a)
+            a = (a + 1)
+        }
+        def p:int 0
+        while (p < (array_length paths)) {
+            def rel:string (itemAt paths p)
+            def done:boolean false
+            def i:int 0
+            while ((i < (array_length fontsDirectories)) && (done == false)) {
+                def dir:string (itemAt fontsDirectories i)
+                def font (new TrueTypeFont())
+                if (font.loadFromFile((dir + "/" + rel))) {
+                    push fonts font
+                    push fontNames font.fontFamily
+                    done = true
+                }
+                i = (i + 1)
+            }
+            p = (p + 1)
+        }
     }
 
     fn loadFont:boolean (relativePath:string) {
@@ -107,10 +216,7 @@ class FontManager {
                 if ((strlen resolvedDirectory) == 0) {
                     resolvedDirectory = dir
                 }
-                if (hasDefaultFont == false) {
-                    defaultFont = font
-                    hasDefaultFont = true
-                }
+                this.adoptDefault(font)
                 print ("FontManager: Loaded font '" + font.fontFamily + "' (" + font.fontStyle + ") from " + fullPath)
                 return true
             }
@@ -139,10 +245,7 @@ class FontManager {
         push fontNames font.fontFamily
         
         ; First loaded font becomes default
-        if (hasDefaultFont == false) {
-            defaultFont = font
-            hasDefaultFont = true
-        }
+        this.adoptDefault(font)
         
         print ("FontManager: Loaded font '" + font.fontFamily + "' (" + font.fontStyle + ")")
         return true
@@ -158,10 +261,7 @@ class FontManager {
         }
         push fonts font
         push fontNames font.fontFamily
-        if (hasDefaultFont == false) {
-            defaultFont = font
-            hasDefaultFont = true
-        }
+        this.adoptDefault(font)
         return true
     }
 
@@ -211,8 +311,12 @@ class FontManager {
             def f:TrueTypeFont (itemAt fonts i)
             if (f.fontFamily == searchFamily) {
                 if ((strlen searchStyle) > 0) {
-                    ; Check if style matches
-                    if (f.fontStyle == searchStyle) {
+                    ; Check if style matches. Spaces do not count: the
+                    ; name table says "Bold Italic", markdown and the web
+                    ; host ask for "Open Sans-BoldItalic", and the two
+                    ; missed each other, so ***bold italic*** printed in
+                    ; the regular face.
+                    if ((FontManager.styleKey(f.fontStyle)) == (FontManager.styleKey(searchStyle))) {
                         return f
                     }
                 } {
@@ -270,6 +374,22 @@ class FontManager {
         return defaultFont
     }
     
+    ; A style name with its spaces taken out: "Bold Italic" and "BoldItalic"
+    ; are the same face.
+    sfn styleKey:string (style:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen style)
+        while (i < n) {
+            def ch:string (substring style i (i + 1))
+            if (ch != " ") {
+                out = out + ch
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     sfn isRegularStyle:boolean (style:string) {
         return ((((strlen style) == 0) || (style == "Regular")) || ((style == "Normal") || (style == "Book")))
     }
@@ -313,6 +433,7 @@ class FontManager {
                 return primary
             }
         }
+        this.ensureFallbackFaces()
         def i:int 0
         while (i < (array_length fonts)) {
             def f:TrueTypeFont (itemAt fonts i)
@@ -337,6 +458,7 @@ class FontManager {
     ; out of an empty buffer. `unitsPerEm` is not the check: a fresh face has
     ; the class default of 1000 in it.
     fn fallbackFace:TrueTypeFont (cp:int) {
+        this.ensureFallbackFaces()
         def i:int 0
         while (i < (array_length fonts)) {
             def f:TrueTypeFont (itemAt fonts i)
@@ -360,11 +482,7 @@ class FontManager {
         def i:int start
         while (i < end) {
             def cp:int (itemAt cps i)
-            def skip:boolean (EVGGrapheme.isZWJ(cp))
-            if ((cp >= 65024) && (cp <= 65039)) {
-                skip = true
-            }
-            if (skip == false) {
+            if ((FontManager.isIgnorable(cp)) == false) {
                 if ((f.getGlyphIndex(cp)) == 0) {
                     return false
                 }
@@ -398,6 +516,7 @@ class FontManager {
                 return primary
             }
         }
+        this.ensureFallbackFaces()
         def i:int 0
         while (i < (array_length fonts)) {
             def f:TrueTypeFont (itemAt fonts i)
@@ -470,6 +589,11 @@ class FontManager {
                 def c:int i
                 while (c < end) {
                     def cp:int (itemAt cps c)
+                    if (FontManager.isIgnorable(cp)) {
+                        ; Not drawn by the painter either; see isIgnorable.
+                        c = (c + 1)
+                        continue
+                    }
                     width = (width + (face.getCharWidthPoints(cp fontSize)))
                     if (first == false) {
                         if prevWasPrimary {

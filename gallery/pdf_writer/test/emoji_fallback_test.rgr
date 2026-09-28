@@ -1,0 +1,126 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; emoji_fallback_test.rgr - emoji reach the PDF from the fallback face
+; ==============================================================================
+;
+;   bash scripts/rgr-suite.sh ./gallery/pdf_writer/test/emoji_fallback_test.rgr ./gallery/pdf_writer/bin emoji_fallback_test.js
+;
+; A caller that loads its own text faces from a directory (md_demo loads Open
+; Sans and Noto Sans and nothing else) used to print every emoji as "?": the
+; per-cluster fallback only searched faces already loaded, and nobody had
+; loaded Noto Emoji. The manager now finds the bundled emoji face in its own
+; fonts directories the first time a cluster turns up that nothing covers.
+; ==============================================================================
+
+Import "../src/core/EVGPDFRenderer.rgr"
+
+class EmojiFallbackTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new EmojiFallbackTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn run:void () {
+        this.testDirectoryAutoFallback()
+        this.testEscapeDropsSelectors()
+        this.testBeyondWinAnsi()
+        this.testBoldItalicAlias()
+        print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testDirectoryAutoFallback:void () {
+        print "-- a directory-loaded manager finds the emoji face itself --"
+        def fm (new FontManager())
+        fm.addFontsDirectory("gallery/pdf_writer/assets/fonts")
+        fm.loadFont("Open_Sans/OpenSans-Regular.ttf")
+        this.check("only the text face is loaded up front" ((fm.getFontCount()) == 1))
+
+        def ascii:[int] (EVGCodepoint.toArray("A"))
+        fm.faceForCluster("Open Sans" ascii 0 1)
+        this.check("text the primary covers loads nothing" ((fm.getFontCount()) == 1))
+
+        ; U+1F604, a surrogate pair in UTF-16.
+        def grin:[int] (EVGCodepoint.toArray((EVGCodepoint.toStr(128516))))
+        this.check("a surrogate pair is one codepoint" ((array_length grin) == 1))
+        def face:TrueTypeFont (fm.faceForCluster("Open Sans" grin 0 1))
+        this.check(("U+1F604 is drawn from Noto Emoji (got " + face.fontFamily + ")") (face.fontFamily == "Noto Emoji"))
+        this.check("which was loaded once" ((fm.getFontCount()) == 2))
+        def f2:TrueTypeFont (fm.getFont("Nobody Loaded This"))
+        this.check("and did not become the default face" (f2.fontFamily == "Open Sans"))
+
+        ; A sparkle with its emoji-presentation selector is one cluster the
+        ; emoji face covers whole.
+        def spark:[int] (EVGCodepoint.toArray(((EVGCodepoint.toStr(10024)) + (EVGCodepoint.toStr(65039)))))
+        def sf:TrueTypeFont (fm.faceForCluster("Open Sans" spark 0 2))
+        this.check("U+2728 U+FE0F goes to the emoji face as one cluster" (sf.fontFamily == "Noto Emoji"))
+        def w:double (fm.measureText((EVGCodepoint.toStr(128516)) "Open Sans" 20.0))
+        this.check(("the emoji is measured from its own glyph (" + (to_string w) + ")") (w > 10.0))
+    }
+
+    fn testEscapeDropsSelectors:void () {
+        print "-- a variation selector in a text run is dropped, not a ? --"
+        def r (new EVGPDFRenderer())
+        r.init(r)
+        def s:string ((EVGCodepoint.toStr(169)) + (EVGCodepoint.toStr(65039)) + "x")
+        def esc:string (r.escapeText(s))
+        this.check(("copyright + VS16 escapes to \\251x (got " + esc + ")") (esc == "\\251x"))
+        this.check("and nothing is reported missing" ((r.unsupportedGlyphCount()) == 0))
+        def zwj:string ("a" + (EVGCodepoint.toStr(8205)) + "b")
+        this.check("a stray joiner is dropped too" ((r.escapeText(zwj)) == "ab"))
+    }
+
+    fn testBeyondWinAnsi:void () {
+        print "-- a glyph the text face has but WinAnsi cannot encode --"
+        def fm (new FontManager())
+        fm.addFontsDirectory("gallery/pdf_writer/assets/fonts")
+        fm.loadFont("Open_Sans/OpenSans-Regular.ttf")
+        def r (new EVGPDFRenderer())
+        r.init(r)
+        r.setFontManager(fm)
+        r.setMeasurer((new TTFTextMeasurer(fm)))
+        ; "e" then U+03C0 (pi): Open Sans draws it, WinAnsi has no byte.
+        def segs:[PDFTextSegment] (r.splitLine(("ei" + (EVGCodepoint.toStr(960))) "Open Sans" 12.0 0.0))
+        this.check(("split into the WinAnsi part and the glyph-id part (" + (to_string (array_length segs)) + ")") ((array_length segs) == 2))
+        if ((array_length segs) == 2) {
+            def a:PDFTextSegment (itemAt segs 0)
+            def b:PDFTextSegment (itemAt segs 1)
+            this.check("ei stays WinAnsi" ((a.isCid == false) && (a.text == "ei")))
+            this.check("pi is drawn by glyph id" b.isCid)
+            this.check(("from Open Sans itself (got " + b.family + ")") (b.family == "Open Sans"))
+            this.check("placed after the measured ei" (b.x > 0.0))
+        }
+        def plain:[PDFTextSegment] (r.splitLine("plain ascii" "Open Sans" 12.0 0.0))
+        this.check("ordinary text is still one WinAnsi segment" (((array_length plain) == 1) && ((itemAt plain 0).isCid == false)))
+    }
+
+    fn testBoldItalicAlias:void () {
+        print "-- BoldItalic and Bold Italic are the same face --"
+        def fm (new FontManager())
+        fm.addFontsDirectory("gallery/pdf_writer/assets/fonts")
+        fm.loadFont("Open_Sans/OpenSans-Regular.ttf")
+        fm.loadFont("Open_Sans/OpenSans-BoldItalic.ttf")
+        def a:TrueTypeFont (fm.getFont("Open Sans-BoldItalic"))
+        def b:TrueTypeFont (fm.getFont("Open Sans-Bold Italic"))
+        this.check(("Open Sans-BoldItalic finds it (got " + a.fontStyle + ")") (a.fontStyle == "Bold Italic"))
+        this.check(("so does Open Sans-Bold Italic (got " + b.fontStyle + ")") (b.fontStyle == "Bold Italic"))
+    }
+}

@@ -98,6 +98,10 @@ SUITES=(
   # the layout and both painters.
   math:test
   markdown:math:test
+  # inline HTML (<mark> <sub> <kbd>…), aligned wrappers and <table> spans
+  markdown:html:test
+  # emoji and characters outside WinAnsi, drawn from a fallback face
+  pdf:emoji:test
   # …and the same three properties over the specification's own 652 examples,
   # ratcheted. A fixture file holds the cases the person who wrote the
   # stamping thought of; the corpus holds one of everything that moves an
