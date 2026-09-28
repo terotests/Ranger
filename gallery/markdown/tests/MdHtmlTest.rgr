@@ -1,0 +1,180 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+;
+; MdHtmlTest — the HTML a markdown document carries: inline tags that change
+; how text looks (<mark> <u> <sub> <sup> <kbd> <abbr>), wrappers that align
+; what is in them, and <table> with row and column spans.
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdHtml.rgr"
+Import "../src/MdToPptx.rgr"
+
+class MdHtmlTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new MdHtmlTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    sfn laidOut:MdLayout (src:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 600.0)
+        return l
+    }
+
+    sfn box:MdBox (l:MdLayout text:string) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && (b.text == text)) {
+                return b
+            }
+            i = (i + 1)
+        }
+        def none:MdBox (new MdBox())
+        none.kind = -1
+        return none
+    }
+
+    sfn rectsUnder:int (l:MdLayout b:MdBox fill:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def r:MdBox (itemAt l.boxes i)
+            if ((r.kind == 1) && ((fill == "") || (r.fill == fill))) {
+                if (((r.x <= (b.x + 0.5)) && ((r.x + r.w) >= ((b.x + b.w) - 0.5))) && ((r.y >= (b.y - 4.0)) && (r.y <= ((b.y + b.h) + 4.0)))) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn run:void () {
+        this.testTags()
+        this.testInline()
+        this.testAlign()
+        this.testTable()
+        this.testPptx()
+        print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testTags:void () {
+        def t:MdHtmlTag (MdHtml.tag("<abbr title=\"Graphical User Interface\">"))
+        this.check("a tag's name" (t.name == "abbr"))
+        this.check("and its quoted attribute" ((t.attr("title")) == "Graphical User Interface"))
+        def d:MdHtmlTag (MdHtml.tag("<div style=\"color: red; text-align: center\">"))
+        this.check("text-align out of a style" ((d.align()) == "center"))
+        def p:MdHtmlTag (MdHtml.tag("<P ALIGN=right>"))
+        this.check("align= in any case, unquoted" ((p.align()) == "right"))
+        def c:MdHtmlTag (MdHtml.tag("</mark>"))
+        this.check("a closing tag" (c.close && (c.name == "mark")))
+    }
+
+    fn testInline:void () {
+        def l:MdLayout (MdHtmlTest.laidOut("A <mark>lit</mark> and <u>under</u>, ~~gone~~, H<sub>2</sub>O and x<sup>2</sup>, <kbd>Ctrl</kbd>."))
+        this.check("no tag is shown as text" ((MdHtmlTest.box(l "<mark>")).kind < 0))
+        def m:MdBox (MdHtmlTest.box(l "lit"))
+        this.check("highlighted text has a yellow box behind it" ((MdHtmlTest.rectsUnder(l m "#ffe766")) == 1))
+        def u:MdBox (MdHtmlTest.box(l "under"))
+        this.check("underlined text has a line under it" ((MdHtmlTest.rectsUnder(l u "")) >= 1))
+        def g:MdBox (MdHtmlTest.box(l "gone"))
+        this.check("~~struck~~ text has a line through it" ((MdHtmlTest.rectsUnder(l g "")) >= 1))
+        def two:MdBox (MdHtmlTest.box(l "2"))
+        this.check("a subscript is smaller" (two.size < m.size))
+        this.check("and sits lower than the line" (two.y > m.y))
+        def sq:MdBox (itemAt l.boxes 0)
+        def k:int 0
+        while (k < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes k)
+            if (((b.kind == 0) && (b.text == "2")) && (b.x > two.x)) {
+                sq = b
+            }
+            k = (k + 1)
+        }
+        this.check("a superscript sits higher than the line" (sq.y < m.y))
+        def ctrl:MdBox (MdHtmlTest.box(l "Ctrl"))
+        this.check("a key has a cap" ((MdHtmlTest.rectsUnder(l ctrl "")) >= 1))
+    }
+
+    fn testAlign:void () {
+        def l:MdLayout (MdHtmlTest.laidOut("<div style=\"text-align: center\">\nIn the middle\n</div>\n\n<p align=\"right\">On the right</p>\n\nLeft"))
+        def mid:MdBox (MdHtmlTest.box(l "In the middle"))
+        def right:MdBox (MdHtmlTest.box(l "On the right"))
+        def left:MdBox (MdHtmlTest.box(l "Left"))
+        this.check("the div's text is centred" ((fabs (((mid.x + (mid.w / 2.0)) - (left.x + ((l.contentW) / 2.0))))) < 2.0))
+        this.check("the p's text is on the right" ((fabs (((right.x + right.w) - (left.x + l.contentW)))) < 2.0))
+        this.check("and what follows is left again" (left.x < mid.x))
+        ; a wrapper whose content is past a blank line
+        def l2:MdLayout (MdHtmlTest.laidOut("<div align=\"center\">\n\n**Bold** words\n\n</div>\n\nAfter"))
+        def b2:MdBox (MdHtmlTest.box(l2 "Bold"))
+        def a2:MdBox (MdHtmlTest.box(l2 "After"))
+        this.check("an open wrapper aligns the blocks until it closes" (b2.x > (a2.x + 20.0)))
+    }
+
+    fn testTable:void () {
+        def src:string "<table>\n  <thead>\n    <tr>\n      <th rowspan=\"2\">Document Type</th>\n      <th colspan=\"2\">Support</th>\n    </tr>\n    <tr>\n      <th>Ours</th>\n      <th>Others</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Docs</td>\n      <td>Full</td>\n      <td>Basic</td>\n    </tr>\n  </tbody>\n</table>"
+        def t:MdHtmlTable (MdHtml.table(src))
+        this.check("three rows, three columns" (((t.rowCount()) == 3) && (t.cols == 3)))
+        def r1:MdHtmlRow (itemAt t.rows 1)
+        def ours:MdHtmlCell (itemAt r1.cells 0)
+        this.check("the second header row starts after the rowspan" (ours.col == 1))
+        def l:MdLayout (MdHtmlTest.laidOut(src))
+        def doc:MdBox (MdHtmlTest.box(l "Document Type"))
+        def sup:MdBox (MdHtmlTest.box(l "Support"))
+        def o:MdBox (MdHtmlTest.box(l "Ours"))
+        def x:MdBox (MdHtmlTest.box(l "Others"))
+        def d:MdBox (MdHtmlTest.box(l "Docs"))
+        this.check("every cell is drawn" (((doc.kind == 0) && (sup.kind == 0)) && (((o.kind == 0) && (x.kind == 0)) && (d.kind == 0))))
+        this.check("the spanning header is centred between its two rows" ((doc.y > sup.y) && (doc.y < o.y)))
+        this.check("the column span starts over its first column" ((fabs ((sup.x - o.x))) < 1.0))
+        this.check("headers are bold" (doc.bold && o.bold))
+        this.check("body cells are not" (d.bold == false))
+        this.check("the body row is under the headers" (d.y > o.y))
+    }
+
+    fn testPptx:void () {
+        def src:string "# Deck\n\n## Table\n\n<table><tr><th>A</th><th>B</th></tr><tr><td colspan=\"2\">both</td></tr></table>\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.applySlideMeta(doc)
+        l.setDocSource(src)
+        l.layoutSlides(doc)
+        def conv:MdToPptx (new MdToPptx())
+        def deck:PptxDeck (conv.deck(doc l))
+        def found:boolean false
+        def s:int 0
+        while (s < (array_length deck.pres.slides)) {
+            def sl:PptxSlide (itemAt deck.pres.slides s)
+            def k:int 0
+            while (k < (array_length sl.shapes)) {
+                def sh:PptxShape (itemAt sl.shapes k)
+                if ((indexOf sh.name "HTML") == 0) {
+                    found = true
+                }
+                k = (k + 1)
+            }
+            s = (s + 1)
+        }
+        this.check("an HTML table goes into the deck as a drawn group" found)
+    }
+}

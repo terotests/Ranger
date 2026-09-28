@@ -44,6 +44,8 @@ Import "MdFrontMatter.rgr"
 Import "MdCss.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
 Import "../../math/src/MathLayout.rgr"
+Import "MdHtml.rgr"
+Import "MdBlock.rgr"
 
 ; ----------------------------------------------------------------------------
 ; What the document looks like. Not a stylesheet yet — the values a stylesheet
@@ -76,6 +78,16 @@ class MdRun {
     ; placeholder character, and `math` the source it is set from.
     def math:string ""
     def mathDisplay:boolean false
+    ; What inline HTML (and ~~ ~~) asks of a run beyond its face: a line under
+    ; or through it, a highlight or key cap behind it, and a shift off the
+    ; baseline for <sub> / <sup> (-1 / +1) measured against `shiftOf`, the
+    ; size of the text it sits in.
+    def underline:boolean false
+    def strike:boolean false
+    def mark:boolean false
+    def kbd:boolean false
+    def shift:int 0
+    def shiftOf:double 0.0
 
     Constructor () {
     }
@@ -92,6 +104,12 @@ class MdRun {
         r.color = color
         r.code = code
         r.link = link
+        r.underline = underline
+        r.strike = strike
+        r.mark = mark
+        r.kbd = kbd
+        r.shift = shift
+        r.shiftOf = shiftOf
         return r
     }
 }
@@ -115,6 +133,12 @@ class MdSeg {
     def srcLen:int 0
     def math:string ""
     def mathDisplay:boolean false
+    def underline:boolean false
+    def strike:boolean false
+    def mark:boolean false
+    def kbd:boolean false
+    def shift:int 0
+    def shiftOf:double 0.0
 
     Constructor () {
     }
@@ -411,6 +435,10 @@ class MdLayout {
     ; unless somebody filled it: the layout can lay a document out without
     ; one, and leaves a labelled slot where a diagram would have gone.
     def embeds:MdEmbedCache (new MdEmbedCache())
+    ; left, center or right: the alignment an HTML wrapper asked of the
+    ; paragraphs and headings inside it ("" is the default, left)
+    def align:string ""
+    def alignStack:[string]
     ; formulas, laid out once per source (see `mathBox`)
     def mathBoxes:[string:MathBox]
     ; Where a picture's bytes come from, and which folder the document is in.
@@ -1741,8 +1769,11 @@ class MdLayout {
             return
         }
         if (kind == "html_block") {
-            ; A canvas has nothing to hand a `<div>` to. The markup is shown
-            ; as what it is — which is also more honest than dropping it.
+            if (this.htmlBlock(node x w)) {
+                return
+            }
+            ; Markup this layout does not read is shown as what it is —
+            ; which is also more honest than dropping it.
             def shown:MdNode (MdNode.create("code_block"))
             shown.literal = node.literal
             shown.info = "html"
@@ -2207,36 +2238,39 @@ class MdLayout {
 
     fn collectRuns:[MdRun] (node:MdNode base:MdRun) {
         def out:[MdRun]
+        ; the style inline HTML has switched on, innermost last
+        def cur:MdRun base
+        def outer:[MdRun]
         def i:int 0
         def n:int (node.childCount())
         while (i < n) {
             def c:MdNode (node.childAt(i))
             def kind:string c.kind
             if (kind == "text") {
-                def r:MdRun (base.copyStyle())
+                def r:MdRun (cur.copyStyle())
                 r.text = c.literal
                 r.srcStart = c.srcStart
                 r.srcEnd = c.srcEnd
                 push out r
             }
             if (kind == "softbreak") {
-                def sb:MdRun (base.copyStyle())
+                def sb:MdRun (cur.copyStyle())
                 sb.text = " "
                 sb.srcStart = c.srcStart
                 sb.srcEnd = c.srcEnd
                 push out sb
             }
             if (kind == "linebreak") {
-                def lb:MdRun (base.copyStyle())
+                def lb:MdRun (cur.copyStyle())
                 lb.hardBreak = true
                 lb.srcStart = c.srcStart
                 lb.srcEnd = c.srcEnd
                 push out lb
             }
             if (kind == "code") {
-                def cr:MdRun (base.copyStyle())
+                def cr:MdRun (cur.copyStyle())
                 cr.family = style.monoFamily
-                cr.size = (base.size * 0.92)
+                cr.size = (cur.size * 0.92)
                 cr.code = true
                 cr.bold = false
                 cr.italic = false
@@ -2246,7 +2280,7 @@ class MdLayout {
                 push out cr
             }
             if (kind == "math") {
-                def mr:MdRun (base.copyStyle())
+                def mr:MdRun (cur.copyStyle())
                 mr.text = (strfromcode 65532)
                 mr.math = c.literal
                 mr.mathDisplay = (c.info == "display")
@@ -2255,17 +2289,44 @@ class MdLayout {
                 push out mr
             }
             if (kind == "html_inline") {
-                def hr:MdRun (base.copyStyle())
-                hr.family = style.monoFamily
-                hr.size = (base.size * 0.92)
-                hr.color = style.mutedColor
-                hr.text = c.literal
-                hr.srcStart = c.srcStart
-                hr.srcEnd = c.srcEnd
-                push out hr
+                ; a tag switches a style on or off for what follows it; a
+                ; comment or a tag nobody draws is not shown
+                def tg:MdHtmlTag (MdHtml.tag(c.literal))
+                def nm:string tg.name
+                if ((nm == "br") || (nm == "wbr")) {
+                    if (nm == "br") {
+                        def brk:MdRun (cur.copyStyle())
+                        brk.hardBreak = true
+                        brk.srcStart = c.srcStart
+                        brk.srcEnd = c.srcEnd
+                        push out brk
+                    }
+                } {
+                    if tg.close {
+                        if ((array_length outer) > 0) {
+                            cur = (itemAt outer ((array_length outer) - 1))
+                            remove_index outer ((array_length outer) - 1)
+                        }
+                        if (nm == "q") {
+                            def qc:MdRun (cur.copyStyle())
+                            qc.text = (strfromcode 8221)
+                            push out qc
+                        }
+                    } {
+                        if (((strlen nm) > 0) && (tg.selfClose == false)) {
+                            push outer cur
+                            cur = (this.htmlStyle(cur tg))
+                            if (nm == "q") {
+                                def qo:MdRun (cur.copyStyle())
+                                qo.text = (strfromcode 8220)
+                                push out qo
+                            }
+                        }
+                    }
+                }
             }
             if (kind == "emph") {
-                def er:MdRun (base.copyStyle())
+                def er:MdRun (cur.copyStyle())
                 er.italic = true
                 def nested:[MdRun] (this.collectRuns(c er))
                 def ni:int 0
@@ -2276,7 +2337,7 @@ class MdLayout {
                 }
             }
             if (kind == "strong") {
-                def sr:MdRun (base.copyStyle())
+                def sr:MdRun (cur.copyStyle())
                 sr.bold = true
                 def nested:[MdRun] (this.collectRuns(c sr))
                 def ni:int 0
@@ -2287,8 +2348,9 @@ class MdLayout {
                 }
             }
             if (kind == "strike") {
-                def kr:MdRun (base.copyStyle())
+                def kr:MdRun (cur.copyStyle())
                 kr.color = style.mutedColor
+                kr.strike = true
                 def nested:[MdRun] (this.collectRuns(c kr))
                 def ni:int 0
                 def nn:int (array_length nested)
@@ -2298,7 +2360,7 @@ class MdLayout {
                 }
             }
             if (kind == "link") {
-                def lr:MdRun (base.copyStyle())
+                def lr:MdRun (cur.copyStyle())
                 lr.color = style.linkColor
                 lr.link = c.destination
                 def nested:[MdRun] (this.collectRuns(c lr))
@@ -2311,7 +2373,7 @@ class MdLayout {
             }
             if (kind == "image") {
                 ; An image the layout has no bytes for still says what it was.
-                def ir:MdRun (base.copyStyle())
+                def ir:MdRun (cur.copyStyle())
                 ir.italic = true
                 ir.color = style.mutedColor
                 def alt:string (c.plainText())
@@ -2323,6 +2385,681 @@ class MdLayout {
             i = (i + 1)
         }
         return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; HTML blocks
+    ; ----------------------------------------------------------------------
+    ;
+    ;     <div style="text-align: center">       <p align="right">…</p>
+    ;     Centered text                          <center>…</center>
+    ;     </div>                                 <h2 align="center">…</h2>
+    ;
+    ; A wrapper's content is read again as markdown and laid out in its
+    ; place, aligned as the wrapper says. A wrapper whose content runs past a
+    ; blank line arrives as two blocks — the opening tag, then markdown, then
+    ; the closing tag — so its alignment is kept on a stack until the close.
+    ; A <table> is drawn as a table, spans and all. Anything else is shown as
+    ; markup.
+    fn htmlBlock:boolean (node:MdNode x:double w:double) {
+        def lit:string node.literal
+        def n:int (strlen lit)
+        def lead:int (MdInline.leadTrim(lit))
+        if (lead >= n) {
+            return true
+        }
+        if ((charAt lit lead) != 60) {
+            return false
+        }
+        if (((lead + 3) < n) && ((substring lit lead (lead + 4)) == "<!--")) {
+            ; a comment is not shown; what follows it on its lines is
+            def ce:int (indexOf lit "-->")
+            if ((ce > 0) && ((trim (substring lit (ce + 3) n)) != "")) {
+                this.innerMarkdown(node (substring lit (ce + 3) n) (ce + 3) x w)
+            }
+            return true
+        }
+        def tg:MdHtmlTag (MdHtml.tagAt(lit lead))
+        def nm:string tg.name
+        if ((strlen nm) == 0) {
+            return false
+        }
+        if tg.close {
+            if (MdLayout.isWrapper(nm)) {
+                if ((array_length alignStack) > 0) {
+                    align = (itemAt alignStack ((array_length alignStack) - 1))
+                    remove_index alignStack ((array_length alignStack) - 1)
+                }
+                def rest0:string (substring lit tg.end n)
+                if ((trim rest0) != "") {
+                    this.innerMarkdown(node rest0 tg.end x w)
+                }
+                return true
+            }
+            return false
+        }
+        if (nm == "table") {
+            this.htmlTable(node lit x w)
+            return true
+        }
+        if (nm == "hr") {
+            def y:double (this.reserve(14.0))
+            this.emit((MdBox.rect(x (y + 6.0) w 1.0 style.ruleColor)))
+            cursorY = (y + 14.0)
+            return true
+        }
+        if (nm == "br") {
+            cursorY = (cursorY + (style.bodySize * style.lineHeight))
+            return true
+        }
+        if (nm == "img") {
+            def src:string (tg.attr("src"))
+            if ((strlen src) == 0) {
+                return true
+            }
+            def md:string ("![" + (tg.attr("alt")) + "](" + src + ")")
+            def wd:string (trim (tg.attr("width")))
+            if ((strlen wd) > 0) {
+                md = (md + "\n{width=" + wd + "}")
+            }
+            this.innerMarkdown(node md lead x w)
+            return true
+        }
+        if ((MdLayout.isWrapper(nm)) == false) {
+            return false
+        }
+        def al:string (tg.align())
+        if (nm == "center") {
+            al = "center"
+        }
+        def closeAt:int (MdHtml.closingOf(lit nm tg.end))
+        if (closeAt < 0) {
+            ; the content runs on past this block: the alignment holds until
+            ; the closing tag's own block
+            push alignStack align
+            if ((strlen al) > 0) {
+                align = al
+            }
+            def after0:string (substring lit tg.end n)
+            if ((trim after0) != "") {
+                this.innerMarkdown(node after0 tg.end x w)
+            }
+            return true
+        }
+        def inner:string (substring lit tg.end closeAt)
+        def closeTag:MdHtmlTag (MdHtml.tagAt(lit closeAt))
+        def level:int (MdLayout.headingLevelOf(nm))
+        if (level > 0) {
+            def hashes:string ""
+            def k:int 0
+            while (k < level) {
+                hashes = (hashes + "#")
+                k = (k + 1)
+            }
+            inner = (hashes + " " + (MdLayout.oneLine(inner)))
+        }
+        if (nm == "summary") {
+            inner = ("**" + (trim (MdLayout.oneLine(inner))) + "**")
+        }
+        def save:string align
+        if ((strlen al) > 0) {
+            align = al
+        }
+        this.innerMarkdown(node inner tg.end x w)
+        align = save
+        def after:string (substring lit closeTag.end n)
+        if ((trim after) != "") {
+            this.innerMarkdown(node after closeTag.end x w)
+        }
+        return true
+    }
+
+    sfn isWrapper:boolean (nm:string) {
+        return ((indexOf " div p center section article header footer main aside nav figure figcaption blockquote details summary span h1 h2 h3 h4 h5 h6 a font b strong i em small " ((" " + nm) + " ")) >= 0)
+    }
+
+    sfn headingLevelOf:int (nm:string) {
+        if ((strlen nm) != 2) {
+            return 0
+        }
+        if ((charAt nm 0) != 104) {
+            return 0
+        }
+        def d:int ((charAt nm 1) - 48)
+        if ((d >= 1) && (d <= 6)) {
+            return d
+        }
+        return 0
+    }
+
+    sfn oneLine:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c == 10) || (c == 13)) {
+                out = (out + " ")
+            } {
+                out = (out + (strfromcode c))
+            }
+            i = (i + 1)
+        }
+        return (trim out)
+    }
+
+    ; Markdown found inside an HTML block, laid out where the block is. Its
+    ; nodes' source spans are moved back into the file through the block's
+    ; own map, so a click on it still finds the text. Every line is taken
+    ; off its indent first: HTML is indented for reading, and four spaces of
+    ; it would make an indented code block of the content.
+    fn innerMarkdown:void (outer:MdNode text:string base:int x:double w:double) {
+        def src:string (MdLayout.dedent(text))
+        def doc:MdNode (MdBlock.parseText(src))
+        MdLayout.remapSrc(doc outer base)
+        this.blocks(doc x w)
+    }
+
+    sfn dedent:string (s:string) {
+        def lines:[string] (strsplit s "\n")
+        def out:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            if (i > 0) {
+                out = (out + "\n")
+            }
+            def ln:string (itemAt lines i)
+            def k:int 0
+            while ((k < (strlen ln)) && (((charAt ln k) == 32) || ((charAt ln k) == 9))) {
+                k = (k + 1)
+            }
+            out = (out + (substring ln k (strlen ln)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn remapSrc:void (n:MdNode outer:MdNode base:int) {
+        if (n.srcStart >= 0) {
+            n.srcStart = (outer.srcOfLiteral((base + n.srcStart)))
+        }
+        if (n.srcEnd >= 0) {
+            n.srcEnd = (outer.srcOfLiteral((base + n.srcEnd)))
+        }
+        def i:int 0
+        while (i < (n.childCount())) {
+            MdLayout.remapSrc((n.childAt(i)) outer base)
+            i = (i + 1)
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; An HTML table
+    ; ----------------------------------------------------------------------
+    ;
+    ; The markdown table's look — padding, border, header tint — with what
+    ; only HTML says: cells that span rows and columns, header rows from
+    ; <thead> or <th>, alignment per cell. Column widths are the markdown
+    ; table's algorithm (min- and max-content, the room shared out), with a
+    ; spanning cell's widths shared over the columns it covers. A cell is
+    ; centred vertically in the rows it spans, as a browser does.
+    fn cellRuns:[MdRun] (outer:MdNode cell:MdHtmlCell) {
+        def base:MdRun (this.baseRun())
+        if cell.header {
+            base.bold = true
+        }
+        def out:[MdRun]
+        def src:string (trim (MdLayout.dedent(cell.inner)))
+        if ((strlen src) == 0) {
+            return out
+        }
+        def lead:int (MdInline.leadTrim(cell.inner))
+        def doc:MdNode (MdBlock.parseText(src))
+        MdLayout.remapSrc(doc outer (cell.start + lead))
+        def i:int 0
+        while (i < (doc.childCount())) {
+            def b:MdNode (doc.childAt(i))
+            if (i > 0) {
+                def brk:MdRun (base.copyStyle())
+                brk.hardBreak = true
+                push out brk
+            }
+            def runs:[MdRun] (this.inlineRuns(b base))
+            if (b.kind == "html_block") {
+                ; a lone tag in a cell (<br>, <b>…): its text, plainly
+                def tr:MdRun (base.copyStyle())
+                tr.text = (MdLayout.stripTags(b.literal))
+                push runs tr
+            }
+            def k:int 0
+            while (k < (array_length runs)) {
+                push out (itemAt runs k)
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn stripTags:string (s:string) {
+        def out:string ""
+        def inTag:boolean false
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if (c == 60) {
+                inTag = true
+            } {
+                if (c == 62) {
+                    inTag = false
+                } {
+                    if (inTag == false) {
+                        if (c == 10) {
+                            out = (out + " ")
+                        } {
+                            out = (out + (strfromcode c))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (trim out)
+    }
+
+    fn linesHeight:double (lines:[MdLine]) {
+        def sum:double 0.0
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:MdLine (itemAt lines i)
+            sum = (sum + ln.height)
+            i = (i + 1)
+        }
+        return sum
+    }
+
+    fn htmlTable:void (outer:MdNode lit:string x:double w:double) {
+        def t:MdHtmlTable (MdHtml.table(lit))
+        def rows:int (t.rowCount())
+        def cols:int t.cols
+        if ((rows == 0) || (cols == 0)) {
+            return
+        }
+        if ((strlen t.caption) > 0) {
+            def save:string align
+            align = "center"
+            this.innerMarkdown(outer ("*" + (MdLayout.oneLine(t.caption)) + "*") 0 x w)
+            align = save
+            cursorY = (cursorY - (style.paraSpacing * 0.5))
+        }
+        def padX:double style.cellPadX
+        def padY:double style.cellPadY
+        ; every cell, its runs, and its span clamped to the table
+        def cells:[MdHtmlCell]
+        def cellRuns:[[MdRun]]
+        def r:int 0
+        while (r < rows) {
+            def row:MdHtmlRow (itemAt t.rows r)
+            def k:int 0
+            while (k < (array_length row.cells)) {
+                def c:MdHtmlCell (itemAt row.cells k)
+                if (row.head) {
+                    c.header = true
+                }
+                if ((c.row + c.rowspan) > rows) {
+                    c.rowspan = (rows - c.row)
+                }
+                push cells c
+                push cellRuns (this.cellRuns(outer c))
+                k = (k + 1)
+            }
+            r = (r + 1)
+        }
+        ; column widths: single-column cells first, then spans spread over
+        ; the columns they cover
+        def natural:[double]
+        def minimum:[double]
+        def c0:int 0
+        while (c0 < cols) {
+            push natural (padX * 2.0)
+            push minimum (padX * 2.0)
+            c0 = (c0 + 1)
+        }
+        def pass:int 0
+        while (pass < 2) {
+            def i:int 0
+            while (i < (array_length cells)) {
+                def cell:MdHtmlCell (itemAt cells i)
+                def runs:[MdRun] (itemAt cellRuns i)
+                def single:boolean (cell.colspan == 1)
+                if (single == (pass == 0)) {
+                    def nat:double ((this.runsWidth(runs)) + (padX * 2.0))
+                    def least:double 0.0
+                    def tight:[MdLine] (this.breakRuns(runs 1.0))
+                    def ti:int 0
+                    while (ti < (array_length tight)) {
+                        def tl:MdLine (itemAt tight ti)
+                        if (tl.width > least) {
+                            least = tl.width
+                        }
+                        ti = (ti + 1)
+                    }
+                    least = (least + (padX * 2.0))
+                    def haveNat:double 0.0
+                    def haveMin:double 0.0
+                    def cc:int cell.col
+                    while ((cc < (cell.col + cell.colspan)) && (cc < cols)) {
+                        haveNat = (haveNat + (itemAt natural cc))
+                        haveMin = (haveMin + (itemAt minimum cc))
+                        cc = (cc + 1)
+                    }
+                    def spanN:double (to_double cell.colspan)
+                    cc = cell.col
+                    while ((cc < (cell.col + cell.colspan)) && (cc < cols)) {
+                        if (nat > haveNat) {
+                            set_at natural cc ((itemAt natural cc) + ((nat - haveNat) / spanN))
+                        }
+                        if (least > haveMin) {
+                            set_at minimum cc ((itemAt minimum cc) + ((least - haveMin) / spanN))
+                        }
+                        cc = (cc + 1)
+                    }
+                }
+                i = (i + 1)
+            }
+            pass = (pass + 1)
+        }
+        def widths:[double] (MdLayout.shareWidths(natural minimum w))
+        def colX:[double]
+        def cx:double x
+        def c1:int 0
+        while (c1 < cols) {
+            push colX cx
+            cx = (cx + (itemAt widths c1))
+            c1 = (c1 + 1)
+        }
+        ; row heights: single-row cells, then a spanning cell's remainder on
+        ; the last row it covers
+        def rowH:[double]
+        def r1:int 0
+        while (r1 < rows) {
+            push rowH ((style.bodySize * style.lineHeight) + (padY * 2.0))
+            r1 = (r1 + 1)
+        }
+        def cellLines:[[MdLine]]
+        def cellW:[double]
+        def j:int 0
+        while (j < (array_length cells)) {
+            def cell2:MdHtmlCell (itemAt cells j)
+            def cw:double 0.0
+            def cc2:int cell2.col
+            while ((cc2 < (cell2.col + cell2.colspan)) && (cc2 < cols)) {
+                cw = (cw + (itemAt widths cc2))
+                cc2 = (cc2 + 1)
+            }
+            push cellW cw
+            def lines:[MdLine] (this.breakRuns((itemAt cellRuns j) (cw - (padX * 2.0))))
+            push cellLines lines
+            j = (j + 1)
+        }
+        def spanPass:int 0
+        while (spanPass < 2) {
+            def j2:int 0
+            while (j2 < (array_length cells)) {
+                def cell3:MdHtmlCell (itemAt cells j2)
+                if ((cell3.rowspan == 1) == (spanPass == 0)) {
+                    def need:double ((this.linesHeight((itemAt cellLines j2))) + (padY * 2.0))
+                    def have:double 0.0
+                    def rr:int cell3.row
+                    while (rr < (cell3.row + cell3.rowspan)) {
+                        have = (have + (itemAt rowH rr))
+                        rr = (rr + 1)
+                    }
+                    if (need > have) {
+                        def last:int ((cell3.row + cell3.rowspan) - 1)
+                        set_at rowH last ((itemAt rowH last) + (need - have))
+                    }
+                }
+                j2 = (j2 + 1)
+            }
+            spanPass = (spanPass + 1)
+        }
+        ; drawn a group of rows at a time: rows a span ties together go onto
+        ; the same page
+        def g0:int 0
+        while (g0 < rows) {
+            def g1:int (g0 + 1)
+            def grow:boolean true
+            while grow {
+                grow = false
+                def q:int 0
+                while (q < (array_length cells)) {
+                    def cq:MdHtmlCell (itemAt cells q)
+                    if (((cq.row >= g0) && (cq.row < g1)) && ((cq.row + cq.rowspan) > g1)) {
+                        g1 = (cq.row + cq.rowspan)
+                        grow = true
+                    }
+                    q = (q + 1)
+                }
+            }
+            def gh:double 0.0
+            def rowY:[double]
+            def rq:int g0
+            while (rq < g1) {
+                push rowY gh
+                gh = (gh + (itemAt rowH rq))
+                rq = (rq + 1)
+            }
+            def y0:double (this.reserve(gh))
+            def m:int 0
+            while (m < (array_length cells)) {
+                def cm:MdHtmlCell (itemAt cells m)
+                if ((cm.row >= g0) && (cm.row < g1)) {
+                    def cy:double (y0 + (itemAt rowY (cm.row - g0)))
+                    def ch:double 0.0
+                    def rs:int cm.row
+                    while (rs < (cm.row + cm.rowspan)) {
+                        ch = (ch + (itemAt rowH rs))
+                        rs = (rs + 1)
+                    }
+                    def cxm:double (itemAt colX cm.col)
+                    def cwm:double (itemAt cellW m)
+                    if cm.header {
+                        this.emit((MdBox.rect(cxm cy cwm ch style.tableHeadBackground)))
+                    }
+                    this.emit((MdBox.outline(cxm cy cwm ch style.tableBorder 1.0)))
+                    def lines2:[MdLine] (itemAt cellLines m)
+                    def inner:double (cwm - (padX * 2.0))
+                    def ty:double (cy + ((ch - (this.linesHeight(lines2))) / 2.0))
+                    def li:int 0
+                    while (li < (array_length lines2)) {
+                        def ln:MdLine (itemAt lines2 li)
+                        def lx:double (cxm + padX)
+                        if (cm.align == "right") {
+                            lx = (((cxm + cwm) - padX) - ln.width)
+                        }
+                        if (cm.align == "center") {
+                            lx = ((cxm + padX) + ((inner - ln.width) / 2.0))
+                        }
+                        this.emitLine(ln lx ty)
+                        ty = (ty + ln.height)
+                        li = (li + 1)
+                    }
+                }
+                m = (m + 1)
+            }
+            cursorY = (y0 + gh)
+            g0 = g1
+        }
+        cursorY = (cursorY + style.paraSpacing)
+    }
+
+    ; The markdown table's width algorithm over given min- and max-content
+    ; widths: as written when it fits, else each column at least its minimum
+    ; and the room left shared in proportion to what each still wants.
+    sfn shareWidths:[double] (natural:[double] minimum:[double] w:double) {
+        def widths:[double]
+        def cols:int (array_length natural)
+        def total:double 0.0
+        def leastTotal:double 0.0
+        def k:int 0
+        while (k < cols) {
+            total = (total + (itemAt natural k))
+            leastTotal = (leastTotal + (itemAt minimum k))
+            k = (k + 1)
+        }
+        def j:int 0
+        while (j < cols) {
+            def lo:double (itemAt minimum j)
+            def hi:double (itemAt natural j)
+            if (total <= w) {
+                push widths hi
+            } {
+                if (leastTotal >= w) {
+                    push widths lo
+                } {
+                    def want:double (total - leastTotal)
+                    def share:double 0.0
+                    if (want > 0.0) {
+                        share = (((hi - lo) / want) * (w - leastTotal))
+                    }
+                    push widths (lo + share)
+                }
+            }
+            j = (j + 1)
+        }
+        return widths
+    }
+
+    ; What an inline HTML tag makes of the style around it. Tags nobody draws
+    ; (span, abbr's title, a link's target) leave the style as it was.
+    fn htmlStyle:MdRun (cur:MdRun tg:MdHtmlTag) {
+        def r:MdRun (cur.copyStyle())
+        def nm:string tg.name
+        if ((nm == "b") || (nm == "strong")) { r.bold = true }
+        if ((((nm == "i") || (nm == "em")) || ((nm == "cite") || (nm == "var"))) || (nm == "dfn")) { r.italic = true }
+        if ((nm == "u") || (nm == "ins")) { r.underline = true }
+        if ((nm == "s") || ((nm == "strike") || (nm == "del"))) {
+            r.strike = true
+            r.color = style.mutedColor
+        }
+        if (nm == "mark") {
+            r.mark = true
+            r.color = "#1f2328"
+        }
+        if ((nm == "code") || ((nm == "tt") || (nm == "samp"))) {
+            r.family = style.monoFamily
+            r.size = (cur.size * 0.92)
+            r.code = true
+        }
+        if (nm == "kbd") {
+            r.family = style.monoFamily
+            r.size = (cur.size * 0.85)
+            r.kbd = true
+        }
+        if ((nm == "sub") || (nm == "sup")) {
+            r.shiftOf = cur.size
+            if (cur.shift != 0) {
+                r.shiftOf = cur.shiftOf
+            }
+            r.size = (cur.size * 0.75)
+            r.shift = 1
+            if (nm == "sub") {
+                r.shift = -1
+            }
+        }
+        if (nm == "small") { r.size = (cur.size * 0.85) }
+        if (nm == "big") { r.size = (cur.size * 1.15) }
+        if ((nm == "abbr") || (nm == "acronym")) {
+            if (tg.has("title")) {
+                r.underline = true
+            }
+        }
+        if (nm == "a") {
+            def href:string (tg.attr("href"))
+            if ((strlen href) > 0) {
+                r.link = href
+                r.color = style.linkColor
+            }
+        }
+        def col:string (MdHtml.styleProp((tg.attr("style")) "color"))
+        if ((strlen col) == 0) {
+            if (nm == "font") {
+                col = (tg.attr("color"))
+            }
+        }
+        if ((strlen col) > 0) {
+            r.color = col
+        }
+        return r
+    }
+
+    ; One broken line, placed with its left edge at `x0` and its top at `y`:
+    ; a text box per segment, and what goes behind and over them — a code
+    ; tint, a highlight, a key cap, a line under or through.
+    fn emitLine:void (ln:MdLine x0:double y:double) {
+        def top:double (y + ln.extraTop)
+        def lh:double (ln.height - ln.extraTop)
+        def s:int 0
+        def sn:int (array_length ln.segs)
+        while (s < sn) {
+            def seg:MdSeg (itemAt ln.segs s)
+            def sx:double (x0 + seg.x)
+            if ((strlen seg.math) > 0) {
+                this.emit((this.mathSegBox(seg sx top)))
+                s = (s + 1)
+                continue
+            }
+            ; a sub- or superscript: its own smaller face, its baseline moved
+            ; off the line's
+            def ty:double top
+            if (seg.shift != 0) {
+                def big:double (this.baselineAt(seg.family seg.bold seg.italic seg.shiftOf))
+                def small:double (this.baselineAt(seg.family seg.bold seg.italic seg.size))
+                def want:double (big + (seg.shiftOf * 0.2))
+                if (seg.shift > 0) {
+                    want = (big - (seg.shiftOf * 0.38))
+                }
+                ty = (top + (want - small))
+            }
+            if (seg.code || seg.mark) {
+                def pad:double 2.0
+                def fill:string style.codeBackground
+                if seg.mark {
+                    fill = "#ffe766"
+                }
+                this.emit((MdBox.rect((sx - pad) (top + 1.0) (seg.w + (pad * 2.0)) (lh - 2.0) fill)))
+            }
+            if seg.kbd {
+                def kp:double 3.0
+                this.emit((MdBox.rect((sx - kp) (top + 2.0) (seg.w + (kp * 2.0)) (lh - 4.0) style.codeBackground)))
+                this.emit((MdBox.outline((sx - kp) (top + 2.0) (seg.w + (kp * 2.0)) (lh - 4.0) style.codeBorder 1.0)))
+            }
+            def b:MdBox (MdBox.text(seg.text sx ty seg.w lh))
+            b.segSrc = seg.srcStart
+            b.segLen = seg.srcLen
+            b.family = seg.family
+            b.size = seg.size
+            b.bold = seg.bold
+            b.italic = seg.italic
+            b.color = seg.color
+            b.link = seg.link
+            this.emit(b)
+            if (seg.underline || seg.strike) {
+                def base:double (ty + (this.baselineAt(seg.family seg.bold seg.italic seg.size)))
+                def th:double (seg.size * 0.06)
+                if (th < 1.0) {
+                    th = 1.0
+                }
+                if seg.underline {
+                    this.emit((MdBox.rect(sx (base + (seg.size * 0.1)) seg.w th seg.color)))
+                }
+                if seg.strike {
+                    this.emit((MdBox.rect(sx (base - (seg.size * 0.3)) seg.w th seg.color)))
+                }
+            }
+            s = (s + 1)
+        }
     }
 
     ; ----------------------------------------------------------------------
@@ -2355,15 +3092,19 @@ class MdLayout {
     ; the top of its line box — the rule the painters draw text by, so a
     ; formula stands on the same line as the words beside it.
     fn baselineIn:double (seg:MdSeg) {
-        def face:string (style.faceFor(seg.family seg.bold seg.italic))
-        def m:EVGTextMetrics (engine.measureRun("Hg" face seg.size))
+        return (this.baselineAt(seg.family seg.bold seg.italic seg.size))
+    }
+
+    fn baselineAt:double (family:string bold:boolean italic:boolean size:double) {
+        def face:string (style.faceFor(family bold italic))
+        def m:EVGTextMetrics (engine.measureRun("Hg" face size))
         ; a TrueType measurer reports hhea's descender, which is negative
         def asc:double (fabs m.ascent)
         def desc:double (fabs m.descent)
         if ((asc + desc) <= 0.0) {
-            return (seg.size * 0.9)
+            return (size * 0.9)
         }
-        return (((seg.size - (asc + desc)) / 2.0) + asc)
+        return (((size - (asc + desc)) / 2.0) + asc)
     }
 
     fn mathSegBox:MdBox (seg:MdSeg x:double lineTop:double) {
@@ -2426,33 +3167,17 @@ class MdLayout {
         while (i < n) {
             def ln:MdLine (itemAt lines i)
             def y:double (this.reserve(ln.height))
-            def s:int 0
-            def sn:int (array_length ln.segs)
-            while (s < sn) {
-                def seg:MdSeg (itemAt ln.segs s)
-                if seg.code {
-                    ; the tint behind an inline code span, drawn first
-                    def pad:double 2.0
-                    def bg:MdBox (MdBox.rect(((x + seg.x) - pad) ((y + ln.extraTop) + 1.0) (seg.w + (pad * 2.0)) ((ln.height - ln.extraTop) - 2.0) style.codeBackground))
-                    this.emit(bg)
-                }
-                if ((strlen seg.math) > 0) {
-                    this.emit((this.mathSegBox(seg (x + seg.x) (y + ln.extraTop))))
-                    s = (s + 1)
-                    continue
-                }
-                def b:MdBox (MdBox.text(seg.text (x + seg.x) (y + ln.extraTop) seg.w (ln.height - ln.extraTop)))
-                b.segSrc = seg.srcStart
-                b.segLen = seg.srcLen
-                b.family = seg.family
-                b.size = seg.size
-                b.bold = seg.bold
-                b.italic = seg.italic
-                b.color = seg.color
-                b.link = seg.link
-                this.emit(b)
-                s = (s + 1)
+            def dx:double 0.0
+            if (align == "center") {
+                dx = ((w - ln.width) / 2.0)
             }
+            if (align == "right") {
+                dx = (w - ln.width)
+            }
+            if (dx < 0.0) {
+                dx = 0.0
+            }
+            this.emitLine(ln (x + dx) y)
             cursorY = (y + ln.height)
             i = (i + 1)
         }
@@ -2831,6 +3556,12 @@ class MdLayout {
         seg.link = run.link
         seg.math = run.math
         seg.mathDisplay = run.mathDisplay
+        seg.underline = run.underline
+        seg.strike = run.strike
+        seg.mark = run.mark
+        seg.kbd = run.kbd
+        seg.shift = run.shift
+        seg.shiftOf = run.shiftOf
         seg.x = usedWidth
         seg.w = (this.measureRun(openText run))
         push cur.segs seg
@@ -3233,38 +3964,14 @@ class MdLayout {
                 def n:int (array_length lines)
                 while (i < n) {
                     def ln:MdLine (itemAt lines i)
-                    def s:int 0
-                    def sn:int (array_length ln.segs)
-                    while (s < sn) {
-                        def seg:MdSeg (itemAt ln.segs s)
-                        def tx:double ((cx + style.cellPadX) + seg.x)
-                        if (cell.align == "right") {
-                            tx = ((((cx + cw) - style.cellPadX) - ln.width) + seg.x)
-                        }
-                        if (cell.align == "center") {
-                            def free:double (inner - ln.width)
-                            tx = (((cx + style.cellPadX) + (free / 2.0)) + seg.x)
-                        }
-                        def b:MdBox (MdBox.text(seg.text tx ty seg.w ln.height))
-                        ; The cell's own source range, the same way a
-                        ; paragraph's segments carry theirs. Without it
-                        ; `emit` left every box in the table pointing at the
-                        ; TABLE's start, so a click anywhere in the grid put
-                        ; the caret on the first pipe and typing landed
-                        ; there — which is why a cell could not be edited in
-                        ; place. A cell is a source range like any other;
-                        ; typing in one is an ordinary patch.
-                        b.segSrc = seg.srcStart
-                        b.segLen = seg.srcLen
-                        b.family = seg.family
-                        b.size = seg.size
-                        b.bold = seg.bold
-                        b.italic = seg.italic
-                        b.color = seg.color
-                        b.link = seg.link
-                        this.emit(b)
-                        s = (s + 1)
+                    def lx:double (cx + style.cellPadX)
+                    if (cell.align == "right") {
+                        lx = (((cx + cw) - style.cellPadX) - ln.width)
                     }
+                    if (cell.align == "center") {
+                        lx = ((cx + style.cellPadX) + ((inner - ln.width) / 2.0))
+                    }
+                    this.emitLine(ln lx ty)
                     ty = (ty + ln.height)
                     i = (i + 1)
                 }

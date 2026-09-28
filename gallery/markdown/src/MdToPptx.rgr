@@ -448,7 +448,10 @@ class MdToPptx {
             return
         }
         if (kind == "html_block") {
-            this.code(slide node x y w h)
+            ; drawn as the layout drew it: a table with spans, an aligned
+            ; block, highlighted text — or, for markup it does not read, the
+            ; markup itself
+            this.boxesDrawn(slide node "HTML")
             return
         }
         if (kind == "thematic_break") {
@@ -998,6 +1001,35 @@ class MdToPptx {
             i = (i + 1)
         }
         return res
+    }
+
+    ; The layout's boxes for a block, painted and converted to shapes as one
+    ; group. For what has no native PowerPoint spelling here.
+    fn boxesDrawn:void (slide:PptxSlideRef node:MdNode name:string) {
+        def page:int (this.pageOf(node))
+        def dl (new EVGDisplayList())
+        def painter (new MdToEvg())
+        def any:boolean false
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if ((b.page == page) && (MdToPptx.inSpan(node b.srcStart))) {
+                painter.paintBox(dl layout b 0.0)
+                any = true
+            }
+            i = (i + 1)
+        }
+        if (any == false) {
+            return
+        }
+        def conv (new PptxFromEvg())
+        conv.unit = 1.0
+        def group:PptxShape (conv.build(dl 0.0 0.0))
+        group.name = (name + " " + (to_string (result.drawn + 1)))
+        group.altText = (MdLayout.stripTags(node.literal))
+        def model:PptxSlide (slide.model())
+        push model.shapes group
+        result.drawn = (result.drawn + 1)
     }
 
     ; A $$ display: its outlines as shapes, grouped, with the TeX kept on the
