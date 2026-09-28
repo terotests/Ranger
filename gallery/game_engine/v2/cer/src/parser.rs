@@ -1607,6 +1607,13 @@ impl Parser {
     fn primary(&mut self) -> int {
         let line = self.line();
         let k = self.kind();
+        if k == T_BIGINT {
+            let n = self.node(N_BIGINT);
+            let s = self.text();
+            self.ast.nodes[n as usize].s = s;
+            self.next();
+            return n;
+        }
         if k == T_NUM {
             let n = self.node(N_NUM);
             let v = self.toks[self.pos as usize].num;

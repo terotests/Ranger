@@ -135,6 +135,6 @@ describe("CEr", () => {
     });
     expect(r.status, r.stderr).toBe(0);
     const rep = JSON.parse(r.stdout.trim().split("\n").pop() as string);
-    expect(rep.cer).toBeGreaterThanOrEqual(1921);
+    expect(rep.cer).toBeGreaterThanOrEqual(1962);
   }, 600000);
 });

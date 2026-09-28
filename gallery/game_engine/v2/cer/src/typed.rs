@@ -11,6 +11,7 @@
 //! the JavaScript target has none), IEEE 754 by hand.
 
 use ranger::prelude::*;
+use std::rc::Rc;
 
 use crate::num::*;
 use crate::value::*;
@@ -25,6 +26,8 @@ pub const TA_INT32: int = 5;
 pub const TA_UINT32: int = 6;
 pub const TA_FLOAT32: int = 7;
 pub const TA_FLOAT64: int = 8;
+pub const TA_BIGINT64: int = 9;
+pub const TA_BIGUINT64: int = 10;
 /// a DataView: a view of bytes
 pub const TA_DATAVIEW: int = 20;
 
@@ -47,7 +50,7 @@ pub fn kind_size(k: int) -> int {
         2
     } else if k == TA_INT32 || k == TA_UINT32 || k == TA_FLOAT32 {
         4
-    } else if k == TA_FLOAT64 {
+    } else if k == TA_FLOAT64 || k == TA_BIGINT64 || k == TA_BIGUINT64 {
         8
     } else {
         1
@@ -304,19 +307,34 @@ impl Vm {
             bytes.push(self.objs[b as usize].saved[(at + k) as usize]);
             k += 1;
         }
+        if kind == TA_BIGINT64 || kind == TA_BIGUINT64 {
+            return Val::Big(Rc::new(crate::bigint::from_bytes(&bytes, kind == TA_BIGINT64)));
+        }
         Val::Num(decode(kind, &bytes))
     }
 
-    pub fn ta_set(&mut self, o: int, i: int, v: &Val) {
+    /// The bytes a value is stored as in an element of `kind`.
+    fn element_bytes(&mut self, kind: int, v: &Val) -> Vec<int> {
+        if kind == TA_BIGINT64 || kind == TA_BIGUINT64 {
+            let b = self.to_bigint(v, false);
+            if let Val::Big(x) = &b {
+                return crate::bigint::to_bytes(x, 8);
+            }
+            return Vec::new();
+        }
         let x = self.to_number(v);
+        encode(kind, x)
+    }
+
+    pub fn ta_set(&mut self, o: int, i: int, v: &Val) {
+        let kind = self.objs[o as usize].func;
+        let bytes = self.element_bytes(kind, v);
         if self.throwing || i < 0 || i >= self.ta_length(o) {
             return;
         }
-        let kind = self.objs[o as usize].func;
         let size = kind_size(kind);
         let b = self.objs[o as usize].env;
         let at = self.objs[o as usize].pos + i * size;
-        let bytes = encode(kind, x);
         let mut k: int = 0;
         while k < size {
             self.objs[b as usize].saved[(at + k) as usize] = bytes[k as usize];
@@ -625,7 +643,7 @@ impl Vm {
             let kind = self.to_number(&a2) as int;
             let little = truthy(&a3);
             let size = kind_size(kind);
-            let x = if id == NF_TA_DVSET { self.to_number(&a4) } else { 0.0 };
+            let vbytes = if id == NF_TA_DVSET { self.element_bytes(kind, &a4) } else { Vec::new() };
             if self.throwing {
                 return Val::Undef;
             }
@@ -637,7 +655,7 @@ impl Vm {
             let b = self.objs[o as usize].env;
             let at = self.objs[o as usize].pos + off;
             if id == NF_TA_DVSET {
-                let bytes = encode(kind, x);
+                let bytes = vbytes;
                 let mut k: int = 0;
                 while k < size {
                     let bi = if little { k } else { size - 1 - k };
@@ -652,6 +670,9 @@ impl Vm {
                 let bi = if little { k } else { size - 1 - k };
                 bytes.push(self.objs[b as usize].saved[(at + bi) as usize]);
                 k += 1;
+            }
+            if kind == TA_BIGINT64 || kind == TA_BIGUINT64 {
+                return Val::Big(Rc::new(crate::bigint::from_bytes(&bytes, kind == TA_BIGINT64)));
             }
             return Val::Num(decode(kind, &bytes));
         }
@@ -673,7 +694,7 @@ fn clamp_index(x: double, len: int) -> int {
 }
 
 pub fn kind_name(k: int) -> String {
-    let names = vec!["Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array", "Uint32Array", "Float32Array", "Float64Array"];
+    let names = vec!["Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array", "Uint32Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array"];
     if k >= 0 && (k as usize) < names.len() {
         return String::from(names[k as usize]);
     }

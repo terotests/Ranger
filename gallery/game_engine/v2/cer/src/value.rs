@@ -17,6 +17,7 @@ pub enum Val {
     Null,
     Bool(bool),
     Num(double),
+    Big(Rc<crate::bigint::Big>),
     Str(Rc<String>),
     Obj(int),
 }

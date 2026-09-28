@@ -89305,6 +89305,9 @@ class RustLower  {
     if ( t.kind == "tuple" ) {
       this.unsupported(new RustNode("none"), "comparing tuples with ==");
     }
+    if ( t.kind == "vec" ) {
+      return ((("(rs_vec_eq " + a) + " ") + b) + ")";
+    }
     return ((("(" + a) + " == ") + b) + ")";
   };
   emitDebugStruct (s, cname) {

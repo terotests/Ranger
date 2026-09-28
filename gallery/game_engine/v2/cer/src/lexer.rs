@@ -13,6 +13,8 @@ pub const T_PUNCT: int = 4;
 pub const T_TEMPLATE: int = 5;
 pub const T_REGEX: int = 6;
 pub const T_PRIVATE: int = 7;
+/// a BigInt literal: `text` is its digits, with a 0x / 0o / 0b prefix
+pub const T_BIGINT: int = 8;
 
 pub struct Tok {
     pub kind: int,
@@ -236,6 +238,11 @@ impl Lexer {
             if (c >= '0' && c <= '9') || (c == '.' && self.at(self.pos + 1) >= '0' && self.at(self.pos + 1) <= '9') {
                 let mut t = Tok::new(T_NUM, line, nl);
                 t.num = self.read_number(&mut t.text);
+                if t.text.starts_with("bigint:") {
+                    t.kind = T_BIGINT;
+                    let n = t.text.chars().count() as int;
+                    t.text = crate::jsstr::slice(t.text.as_str(), 7, n);
+                }
                 regex_ok = false;
                 toks.push(t);
                 continue;
@@ -390,6 +397,17 @@ impl Lexer {
                 self.pos += 1;
             }
             if self.cur() == 'n' {
+                // a BigInt literal: its source, underscores dropped
+                let mut lit = String::from("bigint:");
+                let mut k = start;
+                while k < self.pos {
+                    let ch = self.at(k);
+                    if ch != '_' {
+                        lit.push(ch);
+                    }
+                    k += 1;
+                }
+                raw.push_str(lit.as_str());
                 self.pos += 1;
             }
             if digits == 0 {
@@ -427,9 +445,10 @@ impl Lexer {
             self.pos += 1;
         }
         if self.cur() == 'n' {
-            // a BigInt literal, read as a number
+            // a BigInt literal
             self.pos += 1;
             self.check_after_number();
+            raw.push_str(format!("bigint:{}", text).as_str());
             return text.parse::<f64>().unwrap_or(0.0);
         }
         if self.cur() == '.' {

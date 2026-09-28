@@ -324,11 +324,11 @@ hide(SABProto, 'grow', function grow(n) {
 });
 hide(globalThis, 'SharedArrayBuffer', SharedArrayBuffer);
 
-var KINDS = ['Int8Array', 'Uint8Array', 'Uint8ClampedArray', 'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array'];
-var SIZES = [1, 1, 1, 2, 2, 4, 4, 4, 8];
+var KINDS = ['Int8Array', 'Uint8Array', 'Uint8ClampedArray', 'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array', 'BigInt64Array', 'BigUint64Array'];
+var SIZES = [1, 1, 1, 2, 2, 4, 4, 4, 8, 8, 8];
 function TypedArray() { throw new TypeError('Abstract class TypedArray not directly constructable'); }
 var TAProto = TypedArray.prototype;
-function kindOf(o) { var k = TA.info(o, 4); if (k < 0 || k > 8) throw new TypeError('this is not a typed array.'); return k; }
+function kindOf(o) { var k = TA.info(o, 4); if (k < 0 || k > 10) throw new TypeError('this is not a typed array.'); return k; }
 function lenOf(o) { kindOf(o); return TA.info(o, 0); }
 var CTORS = [];
 function species(o, n) {
@@ -344,7 +344,7 @@ getter(TAProto, 'length', function () { return lenOf(this); });
 getter(TAProto, 'byteLength', function () { kindOf(this); return TA.info(this, 1); });
 getter(TAProto, 'byteOffset', function () { kindOf(this); return TA.info(this, 2); });
 getter(TAProto, 'buffer', function () { kindOf(this); return TA.info(this, 3); });
-getter(TAProto, Symbol.toStringTag, function () { var k = TA.info(this, 4); return k >= 0 && k <= 8 ? KINDS[k] : undefined; });
+getter(TAProto, Symbol.toStringTag, function () { var k = TA.info(this, 4); return k >= 0 && k <= 10 ? KINDS[k] : undefined; });
 hide(TAProto, 'set', function set(src, offset) {
   var n = lenOf(this); var off = toIntegerOrInfinity(offset);
   if (off < 0) throw new RangeError('offset is out of bounds');
@@ -453,7 +453,7 @@ function dv(o) { if (TA.info(o, 4) !== 20) throw new TypeError('Receiver is not 
 getter(DVProto, 'buffer', function () { return TA.info(dv(this), 3); });
 getter(DVProto, 'byteLength', function () { return TA.info(dv(this), 1); });
 getter(DVProto, 'byteOffset', function () { return TA.info(dv(this), 2); });
-[['Int8', 0], ['Uint8', 1], ['Int16', 3], ['Uint16', 4], ['Int32', 5], ['Uint32', 6], ['Float32', 7], ['Float64', 8]].forEach(function (e) {
+[['Int8', 0], ['Uint8', 1], ['Int16', 3], ['Uint16', 4], ['Int32', 5], ['Uint32', 6], ['Float32', 7], ['Float64', 8], ['BigInt64', 9], ['BigUint64', 10]].forEach(function (e) {
   var k = e[1];
   hide(DVProto, 'get' + e[0], function (off, little) { return TA.dvGet(this, off, k, little); });
   hide(DVProto, 'set' + e[0], function (off, v, little) { TA.dvSet(this, off, k, little, v); });

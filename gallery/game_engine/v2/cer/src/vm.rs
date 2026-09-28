@@ -105,6 +105,8 @@ pub struct Vm {
     /// %GeneratorPrototype%, %GeneratorFunction.prototype%,
     /// %AsyncFunction.prototype%
     pub generator_proto: int,
+    /// BigInt.prototype
+    pub bigint_proto: int,
     /// each tagged template call site's strings object
     pub template_cache: HashMap<String, int>,
     /// ArrayBuffer.prototype
@@ -200,12 +202,85 @@ pub const GS_YIELD: int = 1;
 pub const GS_RUNNING: int = 2;
 pub const GS_DONE: int = 3;
 
+/// `==` between a BigInt and a number or string; None when neither side is
+/// a BigInt (or both are).
+pub fn big_loose_eq(a: &Val, b: &Val) -> Option<bool> {
+    // the BigInt side and the other side
+    let (x, other) = match (a, b) {
+        (Val::Big(p), Val::Big(_)) => {
+            let _ = p;
+            return None;
+        }
+        (Val::Big(p), _) => (p.clone(), b.clone()),
+        (_, Val::Big(q)) => (q.clone(), a.clone()),
+        _ => return None,
+    };
+    match &other {
+        Val::Num(y) => {
+            if !is_finite(*y) || y.floor() != *y {
+                return Some(false);
+            }
+            Some(crate::bigint::compare(&x, &crate::bigint::from_double(*y)) == 0)
+        }
+        Val::Str(s) => match crate::bigint::parse(s.as_str()) {
+            Some(y) => Some(crate::bigint::compare(&x, &y) == 0),
+            None => Some(false),
+        },
+        _ => None,
+    }
+}
+
+/// `<` with a BigInt on either side (primitives): 1, 0, or -1 (undefined).
+pub fn big_less(a: &Val, b: &Val) -> int {
+    let x = big_or_num(a);
+    let y = big_or_num(b);
+    match (&x, &y) {
+        (Val::Big(p), Val::Big(q)) => {
+            if crate::bigint::compare(p, q) < 0 { 1 } else { 0 }
+        }
+        _ => {
+            let p = match &x {
+                Val::Big(v) => crate::bigint::to_double(v),
+                Val::Num(n) => *n,
+                _ => nan(),
+            };
+            let q = match &y {
+                Val::Big(v) => crate::bigint::to_double(v),
+                Val::Num(n) => *n,
+                _ => nan(),
+            };
+            if is_nan(p) || is_nan(q) {
+                -1
+            } else if p < q {
+                1
+            } else {
+                0
+            }
+        }
+    }
+}
+
+fn big_or_num(v: &Val) -> Val {
+    match v {
+        Val::Big(_) => v.clone(),
+        Val::Num(_) => v.clone(),
+        Val::Str(s) => match crate::bigint::parse(s.as_str()) {
+            Some(b) => Val::Big(Rc::new(b)),
+            None => Val::Num(nan()),
+        },
+        Val::Bool(b) => Val::Num(if *b { 1.0 } else { 0.0 }),
+        Val::Null => Val::Num(0.0),
+        _ => Val::Num(nan()),
+    }
+}
+
 pub fn truthy(v: &Val) -> bool {
     match v {
         Val::Undef => false,
         Val::Null => false,
         Val::Bool(b) => *b,
         Val::Num(n) => *n != 0.0 && *n == *n,
+        Val::Big(b) => !crate::bigint::is_zero(b),
         Val::Str(s) => !s.is_empty(),
         Val::Obj(_) => true,
     }
@@ -227,6 +302,7 @@ impl Vm {
             object_proto: -1,
             function_proto: -1,
             generator_proto: -1,
+            bigint_proto: -1,
             template_cache: HashMap::new(),
             array_buffer_proto: -1,
             gen_fn_proto: -1,
@@ -387,6 +463,7 @@ impl Vm {
             Val::Null => "object",
             Val::Bool(_) => "boolean",
             Val::Num(_) => "number",
+            Val::Big(_) => "bigint",
             Val::Str(_) => "string",
             Val::Obj(o) => {
                 let c = self.objs[*o as usize].class;
@@ -451,6 +528,10 @@ impl Vm {
     pub fn to_number(&mut self, v: &Val) -> double {
         match v {
             Val::Num(n) => *n,
+            Val::Big(_) => {
+                self.throw_type("Cannot convert a BigInt value to a number");
+                nan()
+            }
             Val::Undef => nan(),
             Val::Null => 0.0,
             Val::Bool(b) => {
@@ -479,6 +560,7 @@ impl Vm {
         match v {
             Val::Str(s) => s.clone(),
             Val::Num(n) => Rc::new(number_to_string(*n)),
+            Val::Big(b) => Rc::new(crate::bigint::to_string_radix(b, 10)),
             Val::Undef => Rc::new(String::from("undefined")),
             Val::Null => Rc::new(String::from("null")),
             Val::Bool(b) => Rc::new(String::from(if *b { "true" } else { "false" })),
@@ -520,6 +602,12 @@ impl Vm {
                 self.objs[o as usize].prim = v.clone();
                 o
             }
+            Val::Big(_) => {
+                let p = self.bigint_proto;
+                let o = self.alloc(C_OBJECT, p);
+                self.objs[o as usize].prim = v.clone();
+                o
+            }
             Val::Str(_) => {
                 let p = self.string_proto;
                 let o = self.alloc(C_STRING, p);
@@ -532,6 +620,7 @@ impl Vm {
     pub fn strict_equals(&self, a: &Val, b: &Val) -> bool {
         match (a, b) {
             (Val::Num(x), Val::Num(y)) => x == y,
+            (Val::Big(x), Val::Big(y)) => crate::bigint::compare(x, y) == 0,
             (Val::Str(x), Val::Str(y)) => x.as_str() == y.as_str(),
             (Val::Undef, Val::Undef) => true,
             (Val::Null, Val::Null) => true,
@@ -564,6 +653,9 @@ impl Vm {
     }
 
     pub fn loose_equals(&mut self, a: &Val, b: &Val) -> bool {
+        if let (Val::Big(x), Val::Big(y)) = (a, b) {
+            return crate::bigint::compare(x, y) == 0;
+        }
         match (a, b) {
             (Val::Undef, Val::Null) | (Val::Null, Val::Undef) => return true,
             (Val::Undef, Val::Undef) | (Val::Null, Val::Null) => return true,
@@ -581,6 +673,9 @@ impl Vm {
         if let Val::Bool(y) = b {
             let n = Val::Num(if *y { 1.0 } else { 0.0 });
             return self.loose_equals(a, &n);
+        }
+        if let Some(r) = big_loose_eq(a, b) {
+            return r;
         }
         match (a, b) {
             (Val::Num(x), Val::Str(s)) => return *x == string_to_number(s.as_str()),
@@ -788,6 +883,10 @@ impl Vm {
             }
             Val::Bool(_) => {
                 let p = self.boolean_proto;
+                self.get_obj(p, atom, v)
+            }
+            Val::Big(_) => {
+                let p = self.bigint_proto;
                 self.get_obj(p, atom, v)
             }
             _ => {
@@ -1454,6 +1553,13 @@ impl Vm {
             s.push_str(y.as_str());
             return string_val(s);
         }
+        if matches!(pa, Val::Big(_)) || matches!(pb, Val::Big(_)) {
+            if let (Val::Big(x), Val::Big(y)) = (&pa, &pb) {
+                return Val::Big(Rc::new(crate::bigint::add(x, y)));
+            }
+            self.throw_type("Cannot mix BigInt and other types, use explicit conversions");
+            return Val::Undef;
+        }
         let x = self.to_number(&pa);
         let y = self.to_number(&pb);
         Val::Num(x + y)
@@ -1477,6 +1583,9 @@ impl Vm {
         }
         if let (Val::Str(x), Val::Str(y)) = (&pa, &pb) {
             return if jsstr::compare(x.as_str(), y.as_str()) < 0 { 1 } else { 0 };
+        }
+        if matches!(pa, Val::Big(_)) || matches!(pb, Val::Big(_)) {
+            return big_less(&pa, &pb);
         }
         let x = self.to_number(&pa);
         let y = self.to_number(&pb);
@@ -1513,7 +1622,81 @@ impl Vm {
         }
     }
 
-    pub fn arith(&mut self, code: int, a: &Val, b: &Val) -> Val {
+    pub fn arith(&mut self, code: int, a0: &Val, b0: &Val) -> Val {
+        let mut a = a0.clone();
+        let mut b = b0.clone();
+        if matches!(a, Val::Big(_)) || matches!(b, Val::Big(_)) || is_obj(&a) || is_obj(&b) {
+            if is_obj(&a) {
+                a = self.to_primitive(&a, "number");
+                if self.throwing {
+                    return Val::Undef;
+                }
+            }
+            if is_obj(&b) {
+                b = self.to_primitive(&b, "number");
+                if self.throwing {
+                    return Val::Undef;
+                }
+            }
+            if matches!(a, Val::Big(_)) || matches!(b, Val::Big(_)) {
+                return self.big_arith(code, &a, &b);
+            }
+        }
+        self.arith_plain(code, &a, &b)
+    }
+
+    fn big_arith(&mut self, code: int, a: &Val, b: &Val) -> Val {
+        let (x, y) = match (a, b) {
+            (Val::Big(x), Val::Big(y)) => (x.clone(), y.clone()),
+            _ => {
+                self.throw_type("Cannot mix BigInt and other types, use explicit conversions");
+                return Val::Undef;
+            }
+        };
+        let r = match code {
+            OP_SUB => crate::bigint::sub(&x, &y),
+            OP_MUL => crate::bigint::mul(&x, &y),
+            OP_DIV | OP_MOD => {
+                if crate::bigint::is_zero(&y) {
+                    self.throw_range("Division by zero");
+                    return Val::Undef;
+                }
+                let (q, r) = crate::bigint::divmod(&x, &y);
+                if code == OP_DIV { q } else { r }
+            }
+            OP_EXP => {
+                if y.neg {
+                    self.throw_range("Exponent must be non-negative");
+                    return Val::Undef;
+                }
+                let e = crate::bigint::to_double(&y);
+                if e > 100000.0 {
+                    self.throw_range("Maximum BigInt size exceeded");
+                    return Val::Undef;
+                }
+                crate::bigint::pow(&x, e as int)
+            }
+            OP_BAND => crate::bigint::bitwise(&x, &y, 0),
+            OP_BOR => crate::bigint::bitwise(&x, &y, 1),
+            OP_BXOR => crate::bigint::bitwise(&x, &y, 2),
+            OP_SHL | OP_SHR => {
+                let n = crate::bigint::to_double(&y);
+                if n > 1000000.0 {
+                    self.throw_range("Maximum BigInt size exceeded");
+                    return Val::Undef;
+                }
+                let k = if code == OP_SHL { n as int } else { -(n as int) };
+                crate::bigint::shift_left(&x, k)
+            }
+            _ => {
+                self.throw_type("BigInts have no unsigned right shift, use >> instead");
+                return Val::Undef;
+            }
+        };
+        Val::Big(Rc::new(r))
+    }
+
+    fn arith_plain(&mut self, code: int, a: &Val, b: &Val) -> Val {
         let x = match a {
             Val::Num(n) => *n,
             _ => self.to_number(a),
@@ -1985,6 +2168,11 @@ impl Vm {
                     }
                     OP_INC_LOCAL => {
                         let i = (bp + op.a) as usize;
+                        if let Val::Big(bg) = self.stack[i].clone() {
+                            let d = crate::bigint::from_int(op.b);
+                            self.stack[i] = Val::Big(Rc::new(crate::bigint::add(&bg, &d)));
+                            continue;
+                        }
                         if let Val::Num(n) = self.stack[i] {
                             self.stack[i] = Val::Num(n + (op.b as double));
                         } else {
@@ -2090,6 +2278,14 @@ impl Vm {
                     }
                     OP_POSTINC_LOCAL | OP_PREINC_LOCAL => {
                         let i = (bp + op.a) as usize;
+                        if let Val::Big(bg) = self.stack[i].clone() {
+                            let d = crate::bigint::from_int(op.b);
+                            let nv = Val::Big(Rc::new(crate::bigint::add(&bg, &d)));
+                            let old = Val::Big(bg);
+                            self.stack[i] = nv.clone();
+                            self.stack.push(if op.code == OP_PREINC_LOCAL { nv } else { old });
+                            continue;
+                        }
                         let old = if let Val::Num(n) = self.stack[i] {
                             n
                         } else {
@@ -2974,12 +3170,19 @@ impl Vm {
             }
             OP_NEG => {
                 let v = self.pop();
+                if let Val::Big(b) = &v {
+                    self.stack.push(Val::Big(Rc::new(crate::bigint::neg(b))));
+                    return false;
+                }
                 let n = self.to_number(&v);
                 self.stack.push(Val::Num(-n));
             }
             OP_TONUM => {
                 let v = self.pop();
                 if let Val::Num(_) = v {
+                    self.stack.push(v);
+                } else if matches!(v, Val::Big(_)) && op.b == 0 {
+                    // ToNumeric (x++ on a BigInt); unary + (b 1) refuses it
                     self.stack.push(v);
                 } else {
                     let n = self.to_number(&v);
@@ -2992,6 +3195,11 @@ impl Vm {
             }
             OP_BNOT => {
                 let v = self.pop();
+                if let Val::Big(b) = &v {
+                    let one = crate::bigint::from_int(1);
+                    self.stack.push(Val::Big(Rc::new(crate::bigint::sub(&crate::bigint::neg(b), &one))));
+                    return false;
+                }
                 let n = self.to_number(&v);
                 self.stack.push(Val::Num((-to_int32(n) - 1) as double));
             }
@@ -3002,6 +3210,11 @@ impl Vm {
             }
             OP_INC | OP_DEC => {
                 let v = self.pop();
+                if let Val::Big(b) = &v {
+                    let one = crate::bigint::from_int(if op.code == OP_INC { 1 } else { -1 });
+                    self.stack.push(Val::Big(Rc::new(crate::bigint::add(b, &one))));
+                    return false;
+                }
                 let n = match v {
                     Val::Num(x) => x,
                     _ => self.to_number(&v),

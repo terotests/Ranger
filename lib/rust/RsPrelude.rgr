@@ -1552,6 +1552,60 @@ function rs_signum($x) {
     }
   }
 
+  ; ------------------------------------------------------------ Vec ==
+
+  ; `a == b` of two Vecs (a derived PartialEq's field): element by element.
+  ; Go cannot compare slices with == at all, and JavaScript's compares the
+  ; arrays' identities.
+  rs_vec_eq _:boolean (a:[T] b:[T]) {
+    templates {
+      ranger ( "(rs_vec_eq " (e 1) " " (e 2) ")" )
+      rust ( "(" (e 1) " == " (e 2) ")" )
+      cpp ( "(" (e 1) " == " (e 2) ")" )
+      python ( "(" (e 1) " == " (e 2) ")" )
+      kotlin ( "(" (e 1) " == " (e 2) ")" )
+      swift6 ( "(" (e 1) " == " (e 2) ")" )
+      php ( "(" (e 1) " == " (e 2) ")" )
+      scala ( "(" (e 1) " == " (e 2) ")" )
+      java7 ( (e 1) ".equals(" (e 2) ")" )
+      csharp ( "System.Linq.Enumerable.SequenceEqual(" (e 1) ", " (e 2) ")" )
+      go ( "rs_vec_eq(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+func rs_vec_eq[T comparable](a []T, b []T) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+"))
+      dart ( "rs_vec_eq(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+bool rs_vec_eq(List a, List b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+"))
+      * ( "rs_vec_eq(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+function rs_vec_eq(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+"))
+    }
+  }
+
   ; ------------------------------------------------------------ map keys
 
   ; The keys of an int-keyed map (Ranger's `keys` takes string keys). On

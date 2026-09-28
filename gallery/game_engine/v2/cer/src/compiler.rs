@@ -10,6 +10,7 @@
 //! writes the code.
 
 use ranger::prelude::*;
+use std::rc::Rc;
 use std::collections::HashMap;
 
 use crate::ast::*;
@@ -1910,6 +1911,17 @@ impl Compiler {
             self.push_num(v);
             return;
         }
+        if k == N_BIGINT {
+            let text = self.ast.nodes[n as usize].s.clone();
+            let b = match crate::bigint::parse(text.as_str()) {
+                Some(x) => x,
+                None => crate::bigint::zero(),
+            };
+            let i = self.f().proto.consts.len() as int;
+            self.f().proto.consts.push(Val::Big(Rc::new(b)));
+            self.emit(OP_CONST, i, 0);
+            return;
+        }
         if k == N_STR {
             let s = self.ast.nodes[n as usize].s.clone();
             self.push_str(s.as_str());
@@ -2466,7 +2478,8 @@ impl Compiler {
         if o == "-" {
             self.op(OP_NEG);
         } else if o == "+" {
-            self.op(OP_TONUM);
+            // unary +: ToNumber, a TypeError for a BigInt
+            self.emit(OP_TONUM, 0, 1);
         } else if o == "!" {
             self.op(OP_NOT);
         } else if o == "~" {

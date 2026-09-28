@@ -233,6 +233,11 @@ pub const NF_PROXY: int = 383;
 pub const NF_PROXY_REVOCABLE: int = 384;
 pub const NF_PROXY_REVOKE: int = 385;
 pub const NF_SPECIES: int = 386;
+pub const NF_BIGINT: int = 387;
+pub const NF_BIGINT_ASINTN: int = 388;
+pub const NF_BIGINT_ASUINTN: int = 389;
+pub const NF_BIGINT_TOSTRING: int = 390;
+pub const NF_BIGINT_VALUEOF: int = 391;
 
 fn math_names() -> Vec<String> {
     let v = vec![
@@ -840,6 +845,24 @@ impl Vm {
             }
         }
 
+        // BigInt: a function (not a constructor) and its prototype
+        let bip = self.alloc(C_OBJECT, op1);
+        self.roots.push(bip);
+        self.bigint_proto = bip;
+        let bic = self.native_fn("BigInt", NF_BIGINT, 1);
+        let a_bigint = self.intern("BigInt");
+        let gl4 = self.global;
+        self.objs[gl4 as usize].add(a_bigint, Val::Obj(bic), P_HIDDEN);
+        self.objs[bic as usize].add(A_PROTOTYPE, Val::Obj(bip), P_HIDDEN | P_READONLY | P_FIXED);
+        self.objs[bip as usize].add(A_CONSTRUCTOR, Val::Obj(bic), P_HIDDEN);
+        self.method(bic, "asIntN", NF_BIGINT_ASINTN, 2);
+        self.method(bic, "asUintN", NF_BIGINT_ASUINTN, 2);
+        self.method(bip, "toString", NF_BIGINT_TOSTRING, 0);
+        self.method(bip, "toLocaleString", NF_BIGINT_TOSTRING, 0);
+        self.method(bip, "valueOf", NF_BIGINT_VALUEOF, 0);
+        let a_tag4 = self.intern("@@toStringTag");
+        self.objs[bip as usize].add(a_tag4, str_val("BigInt"), P_HIDDEN | P_READONLY);
+
         // Proxy: a constructor without a prototype
         let pxc = self.native_fn("Proxy", NF_PROXY, 2);
         let a_proxy = self.intern("Proxy");
@@ -1409,6 +1432,7 @@ impl Vm {
             Val::Undef => String::from("u"),
             Val::Null => String::from("l"),
             Val::Bool(b) => format!("b{}", b),
+            Val::Big(b) => format!("g{}", crate::bigint::to_string_radix(b, 10)),
             Val::Num(n) => {
                 if *n == 0.0 {
                     String::from("n0")
@@ -1691,6 +1715,46 @@ impl Vm {
         }
     }
 
+    /// ToBigInt (and the BigInt function's number rule when `from_number`).
+    pub fn to_bigint(&mut self, v: &Val, from_number: bool) -> Val {
+        match v {
+            Val::Big(_) => v.clone(),
+            Val::Bool(b) => Val::Big(Rc::new(crate::bigint::from_int(if *b { 1 } else { 0 }))),
+            Val::Num(n) => {
+                if !from_number {
+                    let s = number_to_string(*n);
+                    self.throw_type(format!("Cannot convert {} to a BigInt", s).as_str());
+                    return Val::Undef;
+                }
+                if !is_finite(*n) || n.floor() != *n {
+                    let s = number_to_string(*n);
+                    self.throw_range(format!("The number {} cannot be converted to a BigInt because it is not an integer", s).as_str());
+                    return Val::Undef;
+                }
+                Val::Big(Rc::new(crate::bigint::from_double(*n)))
+            }
+            Val::Str(s) => match crate::bigint::parse(s.as_str()) {
+                Some(b) => Val::Big(Rc::new(b)),
+                None => {
+                    self.throw_syntax(format!("Cannot convert {} to a BigInt", s).as_str());
+                    Val::Undef
+                }
+            },
+            Val::Obj(_) => {
+                let p = self.to_primitive(v, "number");
+                if self.throwing {
+                    return Val::Undef;
+                }
+                self.to_bigint(&p, from_number)
+            }
+            _ => {
+                let s = self.display(v);
+                self.throw_type(format!("Cannot convert {} to a BigInt", s).as_str());
+                Val::Undef
+            }
+        }
+    }
+
     pub fn from_descriptor(&mut self, o: int, key: &Val) -> Val {
         if self.objs[o as usize].class == C_PROXY {
             return self.proxy_own_desc(o, key.clone());
@@ -1903,6 +1967,10 @@ impl Vm {
             }
         }
         match &v {
+            Val::Big(_) => {
+                self.throw_type("Do not know how to serialize a BigInt");
+                return false;
+            }
             Val::Null => {
                 out.push_str("null");
                 return true;
@@ -2952,6 +3020,60 @@ impl Vm {
                 Val::Undef
             }
             NF_SPECIES => this,
+            NF_BIGINT => {
+                if construct {
+                    self.throw_type("BigInt is not a constructor");
+                    return Val::Undef;
+                }
+                let p = self.to_primitive(&a0, "number");
+                if self.throwing {
+                    return Val::Undef;
+                }
+                self.to_bigint(&p, true)
+            }
+            NF_BIGINT_ASINTN | NF_BIGINT_ASUINTN => {
+                let bits = to_integer(self.to_number(&a0));
+                if self.throwing {
+                    return Val::Undef;
+                }
+                if bits < 0.0 || bits > 9007199254740991.0 {
+                    self.throw_range("Invalid value: not (convertible to) a safe integer");
+                    return Val::Undef;
+                }
+                let a1 = arg(&args, 1);
+                let b = self.to_bigint(&a1, false);
+                if self.throwing {
+                    return Val::Undef;
+                }
+                if let Val::Big(x) = &b {
+                    let r = if id == NF_BIGINT_ASINTN { crate::bigint::as_int_n(bits as int, x) } else { crate::bigint::as_uint_n(bits as int, x) };
+                    return Val::Big(Rc::new(r));
+                }
+                Val::Undef
+            }
+            NF_BIGINT_TOSTRING | NF_BIGINT_VALUEOF => {
+                let v = match &this {
+                    Val::Big(_) => this.clone(),
+                    Val::Obj(o) => self.objs[*o as usize].prim.clone(),
+                    _ => Val::Undef,
+                };
+                let b = match &v {
+                    Val::Big(b) => b.clone(),
+                    _ => {
+                        self.throw_type("BigInt.prototype.valueOf requires that 'this' be a BigInt");
+                        return Val::Undef;
+                    }
+                };
+                if id == NF_BIGINT_VALUEOF {
+                    return v;
+                }
+                let radix = if matches!(a0, Val::Undef) { 10.0 } else { to_integer(self.to_number(&a0)) };
+                if radix < 2.0 || radix > 36.0 {
+                    self.throw_range("toString() radix must be between 2 and 36");
+                    return Val::Undef;
+                }
+                string_val(crate::bigint::to_string_radix(&b, radix as int))
+            }
             NF_PROXY => {
                 if !construct {
                     self.throw_type("Constructor Proxy requires 'new'");
@@ -3041,7 +3163,9 @@ impl Vm {
                 Val::Str(s)
             }
             NF_NUMBER => {
-                let n = if args.is_empty() { 0.0 } else { self.to_number(&a0) };
+                // Number(1n) converts, where arithmetic refuses
+                let a0n = if let Val::Big(b) = &a0 { Val::Num(crate::bigint::to_double(b)) } else { a0.clone() };
+                let n = if args.is_empty() { 0.0 } else { self.to_number(&a0n) };
                 if construct {
                     let proto = self.proto_from(&new_target, self.number_proto);
                     let o = self.alloc(C_NUMBER, proto);

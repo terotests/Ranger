@@ -2727,6 +2727,10 @@ class RustLower {
     if (t.kind == "tuple") {
       this.unsupported((new RustNode("none")) "comparing tuples with ==")
     }
+    if (t.kind == "vec") {
+      ; element by element (rs_vec_eq in lib/rust/RsPrelude.rgr)
+      return (((("(rs_vec_eq " + a) + " ") + b) + ")")
+    }
     return (((("(" + a) + " == ") + b) + ")")
   }
 

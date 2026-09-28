@@ -17,6 +17,7 @@
 use ranger::prelude::*;
 
 pub mod ast;
+pub mod bigint;
 pub mod builtins;
 pub mod builtins2;
 pub mod compiler;
@@ -161,6 +162,7 @@ impl Engine {
                 }
             }
             Val::Str(s) => format!("s:{}", s),
+            Val::Big(_) => String::from("o:bigint"),
             Val::Obj(o) => format!("o:{}", self.vm.objs[*o as usize].class),
         }
     }
