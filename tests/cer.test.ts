@@ -94,7 +94,7 @@ describe("CEr", () => {
     }
   }, 600000);
 
-  for (const f of ["smoke.js", "strings.js"]) {
+  for (const f of ["smoke.js", "strings.js", "semantics.js"]) {
     it(`${f}: the JavaScript build prints what Node prints`, () => {
       const src = fs.readFileSync(path.join(FIX, f), "utf8");
       expect(jsLines(src)).toEqual(nodeLines(src));
@@ -135,6 +135,6 @@ describe("CEr", () => {
     });
     expect(r.status, r.stderr).toBe(0);
     const rep = JSON.parse(r.stdout.trim().split("\n").pop() as string);
-    expect(rep.cer).toBeGreaterThanOrEqual(1580);
+    expect(rep.cer).toBeGreaterThanOrEqual(1586);
   }, 600000);
 });

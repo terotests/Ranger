@@ -65,7 +65,7 @@ Node gives — through CEr, one engine per probe.
 | | agrees with Node |
 | --- | ---: |
 | ComponentEngine | 2,143 (its KNOWN_GAPS list is empty) |
-| CEr, native | 1,580 |
+| CEr, native | 1,586 |
 
 Every probe CEr gets right ComponentEngine gets right too. Where CEr falls
 short, by the probe groups: the unicode group (92 of 191: no normalization,

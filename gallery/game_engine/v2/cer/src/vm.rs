@@ -941,9 +941,14 @@ impl Vm {
         if class == C_ARRAY || class == C_ARGUMENTS {
             let len = self.objs[o as usize].elems.len() as int;
             if i < len {
-                if self.objs[o as usize].extensible || true {
-                    self.objs[o as usize].elems[i as usize] = v;
+                if class == C_ARRAY && self.objs[o as usize].pos == 2 {
+                    // a frozen array's elements are read-only
+                    if self.strict_now() {
+                        self.throw_type(format!("Cannot assign to read only property '{}' of object '[object Array]'", i).as_str());
+                    }
+                    return;
                 }
+                self.objs[o as usize].elems[i as usize] = v;
                 return;
             }
             if class == C_ARRAY && self.objs[o as usize].extensible && i < len + 50000000 {
@@ -1566,6 +1571,10 @@ impl Vm {
         } else if !strict && !construct {
             if matches!(this_val, Val::Undef) || matches!(this_val, Val::Null) {
                 this_val = Val::Obj(self.global);
+            } else if !is_obj(&this_val) {
+                // a sloppy function sees a primitive `this` boxed
+                let bo = self.to_object(&this_val);
+                this_val = Val::Obj(bo);
             }
         }
         let mut env = self.objs[fo as usize].env;
@@ -2118,7 +2127,7 @@ impl Vm {
                             let ob = &mut self.objs[*o as usize];
                             if ob.class == C_ARRAY {
                                 let i = *n as int;
-                                if i >= 0 && (i as usize) < ob.elems.len() && (i as double) == *n {
+                                if i >= 0 && (i as usize) < ob.elems.len() && (i as double) == *n && ob.pos != 2 {
                                     ob.elems[i as usize] = val.clone();
                                     done = true;
                                 } else if i >= 0 && (i as usize) == ob.elems.len() && (i as double) == *n && ob.extensible {

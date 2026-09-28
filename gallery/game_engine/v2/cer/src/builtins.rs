@@ -2510,6 +2510,16 @@ impl Vm {
         if id >= NF_MATH && id < NF_MATH + 40 {
             return self.math(id - NF_MATH, &args);
         }
+        if id == NF_AP_POP || id == NF_AP_SHIFT || id == NF_AP_UNSHIFT || id == NF_AP_SPLICE || id == NF_AP_REVERSE || id == NF_AP_SORT || id == NF_AP_FILL || id == NF_AP_COPYWITHIN {
+            // the in-place methods on a frozen array
+            if let Val::Obj(o) = &this {
+                let ob = &self.objs[*o as usize];
+                if ob.class == C_ARRAY && ob.pos == 2 && (!ob.elems.is_empty() || !args.is_empty()) {
+                    self.throw_type("Cannot assign to read only property '0' of object '[object Array]'");
+                    return Val::Undef;
+                }
+            }
+        }
         if id >= NF_ERROR && id < NF_ERROR + 8 {
             let kind = id - NF_ERROR;
             let dflt = self.error_ctor_proto(kind);
