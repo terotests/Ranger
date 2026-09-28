@@ -32386,6 +32386,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         return;
       }
     }
+    if ( c.children.length == 0 ) {
+      return;
+    }
     const fc = c.getFirst();
     if ( typeof(fc) === "undefined" ) {
       return;

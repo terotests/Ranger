@@ -1694,6 +1694,11 @@ class RangerCppClassWriter {
       }
     }
 
+    ; `if neg { … }`: a bare name has no children, and getFirst on it
+    ; throws on C++ (JS reads undefined).
+    if ((array_length c.children) == 0) {
+      return
+    }
     def fc@(optional) ( c.getFirst() )
 
     if( null? fc ) {
