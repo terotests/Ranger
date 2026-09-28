@@ -73,10 +73,35 @@ class MdVegaRender {
         returns "A scene of the chart's marks."
     }
 
+    ; A pie or a donut that names no size is set in the room it has rather
+    ; than at Vega's 200-pixel default, which is a stamp in a column: as wide
+    ; as the column allows beside its legend, and no larger than 360.
+    sfn sized:string (text:string width:double pad:double) {
+        if ((indexOf text "\"arc\"") < 0) {
+            return text
+        }
+        if (((indexOf text "\"width\"") >= 0) || ((indexOf text "\"height\"") >= 0)) {
+            return text
+        }
+        def side:double ((width - (pad * 2.0)) - 160.0)
+        if (side > 360.0) {
+            side = 360.0
+        }
+        if (side < 120.0) {
+            return text
+        }
+        def brace:int (indexOf text "{")
+        if (brace < 0) {
+            return text
+        }
+        def n:string (to_string (to_int side))
+        return ((substring text 0 (brace + 1)) + "\"width\": " + n + ", \"height\": " + n + ", " + (substring text (brace + 1) (strlen text)))
+    }
+
     sfn draw:MdVegaDrawing (text:string width:double pad:double) {
         def out (new MdVegaDrawing())
         def parser (new VlJsonParser())
-        def spec:VlJson (parser.parse(text))
+        def spec:VlJson (parser.parse((MdVegaRender.sized(text width pad))))
         if (parser.ok == false) {
             out.error = "that is not JSON"
             return out
