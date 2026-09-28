@@ -33,6 +33,7 @@ Import "pkg:evg/EVGUnit.rgr"
 Import "pkg:evg/EVGColor.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
+Import "../../math/src/MathRender.rgr"
 
 class MdToEvg {
     ; Colours, parsed once. A document is a few colours repeated a few
@@ -195,6 +196,17 @@ class MdToEvg {
             push out.cmds t
             return
         }
+        if (box.kind == 5) {
+            def mroot:EVGElement (MdToEvg.mathElement(box))
+            MdToEvg.put(mroot box.x y box.w box.h)
+            def ml:EVGLayout (new EVGLayout())
+            ml.setPageSize(box.w box.h)
+            ml.layout(mroot)
+            def mone:EVGDisplayList (new EVGDisplayList())
+            mone.build(mroot)
+            out.appendFrom(mone)
+            return
+        }
         ; An embed: the scene's own subtree, through the engine, appended
         ; where the slot is.
         def idx:int (layout.embeds.find(box.embedKind box.embedSource box.w))
@@ -319,6 +331,7 @@ class MdToEvg {
         while (i < n) {
             def b:MdBox (itemAt layout.boxes i)
             if (b.kind == 3) { return true }
+            if (b.kind == 5) { return true }
             i = (i + 1)
         }
         return false
@@ -443,11 +456,22 @@ class MdToEvg {
             img.sourceHeight = (to_double b.imageNaturalH)
             return img
         }
+        if (b.kind == 5) {
+            def m:EVGElement (MdToEvg.mathElement(b))
+            MdToEvg.place(m b yOffset)
+            return m
+        }
         ; an embed's slot: the outline, and what it was going to be
         def slot:EVGElement (EVGElement.createDiv())
         MdToEvg.place(slot b yOffset)
         MdToEvg.border(slot b.stroke b.strokeWidth)
         return slot
+    }
+
+    ; A formula box: its outlines at the size the layout set it at.
+    sfn mathElement:EVGElement (b:MdBox) {
+        def mb:MathBox (MathLayout.layout(b.embedSource (b.embedKind == "math-display")))
+        return (MathRender.boxElement(mb b.size b.color))
     }
 
     sfn place:void (el:EVGElement b:MdBox yOffset:double) {

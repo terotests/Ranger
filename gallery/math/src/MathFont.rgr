@@ -1,0 +1,343 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; MathFont.rgr — the glyphs and the numbers a formula is set with
+; ==============================================================================
+;
+; `MathFontData` carries the KaTeX fonts as strings: outlines, advance widths,
+; heights, depths, italic corrections. This file reads them once, on first
+; use, into tables a layout can ask by code point, and turns an outline into
+; the path of a drawing at a given place and size.
+;
+; Why outlines and not a font: a formula is drawn by the WebGL painter, the
+; PDF writer and the PowerPoint writer, and none of them then has to embed,
+; load or substitute a face nobody has installed. The same numbers that place
+; a glyph are the numbers that draw it, so the three cannot disagree.
+;
+; The TeX parameters (`sigma` below) are the FONTDIMENs of cmsy10 / cmsy7 /
+; cmsy5 and cmex10 as KaTeX records them, indexed by size: 0 text and display,
+; 1 script, 2 scriptscript.
+; ==============================================================================
+
+Import "MathFontData.rgr"
+
+class MathGlyph {
+    def cp:int 0
+    def font:int 0
+    def w:double 0.0
+    def h:double 0.0
+    def d:double 0.0
+    def ic:double 0.0
+    def sk:double 0.0
+    def path:string ""
+
+    Constructor () {
+    }
+}
+
+class MathSym {
+    def name:string ""
+    def font:int 0
+    def group:string ""
+    def cp:int 0
+
+    Constructor () {
+    }
+}
+
+class MathFont @singleton(true) {
+    def ready:[boolean]
+    def glyphs:[string:MathGlyph]
+    def symbols:[string:MathSym]
+    def symbolsReady:boolean false
+
+    ; --- font indices, as MathFontData orders them -----------------------------
+    sfn mainFont:int () { return 0 }
+    sfn mathItalic:int () { return 1 }
+    sfn bold:int () { return 2 }
+    sfn ams:int () { return 3 }
+    sfn cal:int () { return 4 }
+    sfn size1:int () { return 5 }
+    sfn size4:int () { return 8 }
+
+    sfn store:MathFont () {
+        def f:MathFont (MathFont.__singleton())
+        if ((array_length f.ready) == 0) {
+            def i:int 0
+            def n:int (MathFontData.fontCount())
+            while (i < n) {
+                push f.ready false
+                i = (i + 1)
+            }
+        }
+        return f
+    }
+
+    fn load:void (font:int) {
+        if (itemAt ready font) {
+            return
+        }
+        set_at ready font true
+        def all:string (MathFontData.glyphs(font))
+        def parts:[string] (strsplit all "|")
+        def i:int 0
+        def n:int (array_length parts)
+        while (i < n) {
+            def p:string (itemAt parts i)
+            def g:MathGlyph (new MathGlyph())
+            g.font = font
+            def field:int 0
+            def start:int 0
+            def j:int 0
+            def len:int (strlen p)
+            while ((j < len) && (field < 6)) {
+                if ((charAt p j) == 44) {
+                    def v:int (?? (str2int (substring p start j)) 0)
+                    if (field == 0) { g.cp = v }
+                    if (field == 1) { g.w = ((to_double v) / 1000.0) }
+                    if (field == 2) { g.h = ((to_double v) / 1000.0) }
+                    if (field == 3) { g.d = ((to_double v) / 1000.0) }
+                    if (field == 4) { g.ic = ((to_double v) / 1000.0) }
+                    if (field == 5) { g.sk = ((to_double v) / 1000.0) }
+                    field = (field + 1)
+                    start = (j + 1)
+                }
+                j = (j + 1)
+            }
+            g.path = (substring p start len)
+            set glyphs (MathFont.key(font g.cp)) g
+            i = (i + 1)
+        }
+    }
+
+    sfn key:string (font:int cp:int) {
+        return (((to_string font) + ":") + (to_string cp))
+    }
+
+    sfn has:boolean (font:int cp:int) {
+        def f:MathFont (MathFont.store())
+        f.load(font)
+        return (has f.glyphs (MathFont.key(font cp)))
+    }
+
+    ; The glyph, or an empty one of a plausible size — a formula with a
+    ; character no font here has is still laid out, with a gap where it goes.
+    sfn glyph:MathGlyph (font:int cp:int) {
+        def f:MathFont (MathFont.store())
+        f.load(font)
+        def k:string (MathFont.key(font cp))
+        if (has f.glyphs k) {
+            return (unwrap (get f.glyphs k))
+        }
+        def g:MathGlyph (new MathGlyph())
+        g.font = font
+        g.cp = cp
+        g.w = 0.5
+        g.h = 0.7
+        return g
+    }
+
+    ; --- the symbol table --------------------------------------------------------
+    sfn symbol@(optional):MathSym (name:string) {
+        def f:MathFont (MathFont.store())
+        if (f.symbolsReady == false) {
+            f.symbolsReady = true
+            def parts:[string] (strsplit (MathFontData.symbols()) ";")
+            def i:int 0
+            def n:int (array_length parts)
+            while (i < n) {
+                def bits:[string] (strsplit (itemAt parts i) ",")
+                if ((array_length bits) == 4) {
+                    def s:MathSym (new MathSym())
+                    s.name = (MathFont.unbang((itemAt bits 0)))
+                    s.font = (?? (str2int (itemAt bits 1)) 0)
+                    s.group = (itemAt bits 2)
+                    s.cp = (?? (str2int (itemAt bits 3)) 0)
+                    set f.symbols s.name s
+                }
+                i = (i + 1)
+            }
+        }
+        def none@(optional):MathSym
+        if (has f.symbols name) {
+            return (get f.symbols name)
+        }
+        return none
+    }
+
+    ; The table spells a backslash `!`; a lone `!` is the character itself.
+    sfn unbang:string (s:string) {
+        def n:int (strlen s)
+        if (n < 2) {
+            return s
+        }
+        if ((charAt s 0) == 33) {
+            return ("\\" + (substring s 1 n))
+        }
+        return s
+    }
+
+    ; --- TeX's parameters --------------------------------------------------------
+    sfn sigma:double (name:string size:int) {
+        def i:int size
+        if (i < 0) { i = 0 }
+        if (i > 2) { i = 2 }
+        if (name == "xHeight") { return (MathFont.pick(i 0.431 0.431 0.431)) }
+        if (name == "quad") { return (MathFont.pick(i 1.0 1.171 1.472)) }
+        if (name == "num1") { return (MathFont.pick(i 0.677 0.732 0.925)) }
+        if (name == "num2") { return (MathFont.pick(i 0.394 0.384 0.387)) }
+        if (name == "num3") { return (MathFont.pick(i 0.444 0.471 0.504)) }
+        if (name == "denom1") { return (MathFont.pick(i 0.686 0.752 1.025)) }
+        if (name == "denom2") { return (MathFont.pick(i 0.345 0.344 0.532)) }
+        if (name == "sup1") { return (MathFont.pick(i 0.413 0.503 0.504)) }
+        if (name == "sup2") { return (MathFont.pick(i 0.363 0.431 0.404)) }
+        if (name == "sup3") { return (MathFont.pick(i 0.289 0.286 0.294)) }
+        if (name == "sub1") { return (MathFont.pick(i 0.15 0.143 0.2)) }
+        if (name == "sub2") { return (MathFont.pick(i 0.247 0.286 0.4)) }
+        if (name == "supDrop") { return (MathFont.pick(i 0.386 0.353 0.494)) }
+        if (name == "subDrop") { return (MathFont.pick(i 0.05 0.071 0.1)) }
+        if (name == "delim1") { return (MathFont.pick(i 2.39 1.7 1.98)) }
+        if (name == "delim2") { return (MathFont.pick(i 1.01 1.157 1.42)) }
+        if (name == "axisHeight") { return (MathFont.pick(i 0.25 0.25 0.25)) }
+        if (name == "ruleThickness") { return (MathFont.pick(i 0.04 0.049 0.049)) }
+        if (name == "bigOpSpacing1") { return (MathFont.pick(i 0.111 0.111 0.111)) }
+        if (name == "bigOpSpacing2") { return (MathFont.pick(i 0.166 0.166 0.166)) }
+        if (name == "bigOpSpacing3") { return (MathFont.pick(i 0.2 0.2 0.2)) }
+        if (name == "bigOpSpacing4") { return (MathFont.pick(i 0.6 0.611 0.611)) }
+        if (name == "bigOpSpacing5") { return (MathFont.pick(i 0.1 0.143 0.143)) }
+        return 0.0
+    }
+
+    sfn pick:double (i:int a:double b:double c:double) {
+        if (i == 0) { return a }
+        if (i == 1) { return b }
+        return c
+    }
+
+    ; --- drawing -----------------------------------------------------------------
+    ;
+    ; Appends the outline of `g` to `out` as absolute SVG commands: baseline
+    ; at (x, y) in a y-down space, `em` units per em, and `sx` / `sy` a stretch
+    ; on top (a tall delimiter, a wide accent).
+    sfn appendPath:void (out:MathPathBuf g:MathGlyph x:double y:double em:double sx:double sy:double) {
+        def p:string g.path
+        def n:int (strlen p)
+        def i:int 0
+        def nums:[double]
+        def cmd:int 0
+        while (i <= n) {
+            def ch:int 0
+            if (i < n) {
+                ch = (charAt p i)
+            }
+            def isCmd:boolean ((((ch == 77) || (ch == 76)) || ((ch == 81) || (ch == 90))) || (i == n))
+            if isCmd {
+                if (cmd != 0) {
+                    MathFont.flush(out cmd nums x y em sx sy)
+                }
+                clear nums
+                cmd = ch
+                i = (i + 1)
+            } {
+                if ((ch == 32) || (ch == 44)) {
+                    i = (i + 1)
+                } {
+                    def start:int i
+                    i = (i + 1)
+                    while (i < n) {
+                        def c2:int (charAt p i)
+                        if ((c2 >= 48) && (c2 <= 57)) {
+                            i = (i + 1)
+                        } {
+                            break
+                        }
+                    }
+                    push nums (to_double (?? (str2int (substring p start i)) 0))
+                }
+            }
+        }
+        out.penX = 0.0
+        out.penY = 0.0
+    }
+
+    sfn flush:void (out:MathPathBuf cmd:int nums:[double] x:double y:double em:double sx:double sy:double) {
+        def fx:double ((em * sx) / 1000.0)
+        def fy:double ((em * sy) / 1000.0)
+        if (cmd == 90) {
+            out.add("Z")
+            return
+        }
+        def px:double out.penX
+        def py:double out.penY
+        def s:string (strfromcode cmd)
+        def k:int 0
+        def kn:int (array_length nums)
+        while ((k + 1) < kn) {
+            px = (px + (itemAt nums k))
+            py = (py + (itemAt nums (k + 1)))
+            s = (s + ((((MathFont.num((x + (px * fx)))) + " ") + (MathFont.num((y - (py * fy))))) + " "))
+            k = (k + 2)
+        }
+        out.penX = px
+        out.penY = py
+        out.add(s)
+    }
+
+    ; Two decimals, no exponent: what a path parser on every target reads.
+    sfn num:string (v:double) {
+        def neg:boolean (v < 0.0)
+        def a:double v
+        if neg {
+            a = (0.0 - v)
+        }
+        def c:int (to_int ((a * 100.0) + 0.5))
+        def whole:int (idiv c 100)
+        def frac:int (c - (whole * 100))
+        def s:string (to_string whole)
+        if (frac > 0) {
+            if (frac < 10) {
+                s = ((s + ".0") + (to_string frac))
+            } {
+                s = ((s + ".") + (to_string frac))
+            }
+        }
+        if (neg && (c > 0)) {
+            s = ("-" + s)
+        }
+        return s
+    }
+}
+
+; A path being written. Commands accumulate in a list and are joined once,
+; because a formula is a few hundred of them and string concatenation in a
+; loop is quadratic on some targets.
+class MathPathBuf {
+    def parts:[string]
+    def penX:double 0.0
+    def penY:double 0.0
+
+    Constructor () {
+    }
+
+    fn add:void (s:string) {
+        push parts s
+    }
+
+    fn isEmpty:boolean () {
+        return ((array_length parts) == 0)
+    }
+
+    fn text:string () {
+        return (join parts "")
+    }
+
+    ; A filled rectangle, wound the way the glyph outlines are once flipped to
+    ; y-down, so a rule that touches a glyph fills rather than cancels.
+    fn rect:void (x:double y:double w:double h:double) {
+        def x0:string (MathFont.num(x))
+        def x1:string (MathFont.num((x + w)))
+        def y0:string (MathFont.num(y))
+        def y1:string (MathFont.num((y + h)))
+        push parts ((((((((((((("M" + x0) + " ") + y1) + "L") + x0) + " ") + y0) + "L") + x1) + " ") + y0) + "L") + ((x1 + " ") + (y1 + "Z")))
+    }
+}

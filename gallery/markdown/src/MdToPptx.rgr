@@ -461,6 +461,10 @@ class MdToPptx {
             this.drawn(slide node x y w h)
             return
         }
+        if (kind == "math_block") {
+            this.formula(slide node)
+            return
+        }
         result.dropped = (result.dropped + 1)
         result.note((("slide " + (to_string (this.pageOf(node)) + 1)) + ": a ") + kind + " has no spelling here and was left out")
     }
@@ -994,6 +998,42 @@ class MdToPptx {
             i = (i + 1)
         }
         return res
+    }
+
+    ; A $$ display: its outlines as shapes, grouped, with the TeX kept on the
+    ; group so it can be read back.
+    fn formula:void (slide:PptxSlideRef node:MdNode) {
+        def b:MdBox (new MdBox())
+        b.kind = -1
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def c:MdBox (itemAt layout.boxes i)
+            if ((c.kind == 5) && (MdToPptx.inSpan(node c.srcStart))) {
+                b = c
+            }
+            i = (i + 1)
+        }
+        if (b.kind != 5) {
+            result.dropped = (result.dropped + 1)
+            return
+        }
+        def root:EVGElement (MdToEvg.mathElement(b))
+        MdToEvg.put(root 0.0 0.0 b.w b.h)
+        def le (new EVGLayout())
+        le.setPageSize(b.w b.h)
+        le.layout(root)
+        def dl (new EVGDisplayList())
+        dl.build(root)
+        def conv (new PptxFromEvg())
+        conv.unit = 1.0
+        def group:PptxShape (conv.build(dl b.x b.y))
+        group.name = ("Formula " + (to_string (result.drawn + 1)))
+        group.altText = node.literal
+        group.embedNotation = "tex"
+        group.embedSource = node.literal
+        def model:PptxSlide (slide.model())
+        push model.shapes group
+        result.drawn = (result.drawn + 1)
     }
 
     fn drawn:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {

@@ -402,6 +402,8 @@ class MdNode {
     fn plainText:string () {
         if (kind == "text") { return literal }
         if (kind == "code") { return literal }
+        if (kind == "math") { return literal }
+        if (kind == "math_block") { return literal }
         if (kind == "softbreak") { return " " }
         if (kind == "linebreak") { return " " }
         def out:string ""

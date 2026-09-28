@@ -125,6 +125,7 @@ class MdBlock {
             if (guard > 100000) { depth = 0 }
         }
         MdBlock.foldAttributes(doc)
+        MdBlock.splitMath(doc)
         this.processInlines(doc doc 0)
         return doc
     }
@@ -1342,6 +1343,11 @@ class MdBlock {
                 if (MdBlock.isEmbedInfo(node.info)) {
                     node.kind = "embed"
                 }
+                ; ```math is GitHub's other spelling of a $$ display
+                if ((MdEmbedKinds.firstWord(node.info)) == "math") {
+                    node.kind = "math_block"
+                    node.literal = (trim node.literal)
+                }
             } {
                 def raw2:string (MdBlock.joinLines(node.lines))
                 node.literal = (MdBlock.stripTrailingBlankLines(raw2))
@@ -1879,6 +1885,164 @@ class MdBlock {
         }
         push out cur
         return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; $$ displays
+    ; ----------------------------------------------------------------------
+    ;
+    ;     Display equations:
+    ;     $$\\frac{a}{b}$$
+    ;
+    ; A `$$` that begins a line of a paragraph opens a display, which runs to
+    ; the `$$` that ends a line — the same line, or one further down. It is
+    ; not a block start of its own: TeX writers put a display right under the
+    ; sentence that introduces it, with no blank line, and CommonMark would
+    ; read that as one paragraph. So the paragraph is cut after the fact, into
+    ; the text before, the `math_block`, and the text after, each keeping its
+    ; share of the source map.
+    sfn splitMath:void (node:MdNode) {
+        if (node.isLeaf()) {
+            return
+        }
+        def out:[MdNode]
+        def changed:boolean false
+        def i:int 0
+        def n:int (node.childCount())
+        while (i < n) {
+            def c:MdNode (node.childAt(i))
+            if ((c.kind == "paragraph") && ((indexOf c.literal "$$") >= 0)) {
+                def parts:[MdNode] (MdBlock.mathPieces(c))
+                if ((array_length parts) > 1) {
+                    changed = true
+                } {
+                    if ((array_length parts) == 1) {
+                        def only:MdNode (itemAt parts 0)
+                        if (only.kind != "paragraph") {
+                            changed = true
+                        }
+                    }
+                }
+                def k:int 0
+                while (k < (array_length parts)) {
+                    push out (itemAt parts k)
+                    k = (k + 1)
+                }
+            } {
+                MdBlock.splitMath(c)
+                push out c
+            }
+            i = (i + 1)
+        }
+        if changed {
+            node.children = out
+        }
+    }
+
+    ; The paragraph cut at its displays; itself alone when it has none.
+    sfn mathPieces:[MdNode] (p:MdNode) {
+        def out:[MdNode]
+        def lit:string p.literal
+        def n:int (strlen lit)
+        def textFrom:int 0
+        def lineStart:int 0
+        while (lineStart < n) {
+            def lineEnd:int (MdBlock.lineEndAt(lit lineStart))
+            def a:int (lineStart + (MdInline.leadTrim((substring lit lineStart lineEnd))))
+            def opens:boolean false
+            if ((a + 1) < lineEnd) {
+                opens = (((charAt lit a) == 36) && ((charAt lit (a + 1)) == 36))
+            }
+            def closeEnd:int -1
+            def closeAt:int -1
+            if opens {
+                ; the first `$$` after the opener that ends its line
+                def j:int (a + 2)
+                while ((j + 1) < n) {
+                    if (((charAt lit j) == 36) && ((charAt lit (j + 1)) == 36)) {
+                        def le:int (MdBlock.lineEndAt(lit j))
+                        if ((trim (substring lit (j + 2) le)) == "") {
+                            closeAt = j
+                            closeEnd = le
+                            j = n
+                        } {
+                            j = (j + 2)
+                        }
+                    } {
+                        if ((charAt lit j) == 92) {
+                            j = (j + 2)
+                        } {
+                            j = (j + 1)
+                        }
+                    }
+                }
+            }
+            if (closeAt >= 0) {
+                if (lineStart > textFrom) {
+                    push out (MdBlock.slicePara(p textFrom lineStart "paragraph"))
+                }
+                def m:MdNode (MdBlock.slicePara(p a (closeAt + 2) "math_block"))
+                m.literal = (trim (substring lit (a + 2) closeAt))
+                push out m
+                textFrom = (closeEnd + 1)
+                lineStart = textFrom
+            } {
+                lineStart = (lineEnd + 1)
+            }
+        }
+        if ((array_length out) == 0) {
+            push out p
+            return out
+        }
+        if (textFrom < n) {
+            if ((trim (substring lit textFrom n)) != "") {
+                push out (MdBlock.slicePara(p textFrom n "paragraph"))
+            }
+        }
+        ; the paragraph's {.attributes} go with its last piece
+        def last:MdNode (itemAt out ((array_length out) - 1))
+        last.takeAttrsFrom(p)
+        return out
+    }
+
+    sfn lineEndAt:int (s:string from:int) {
+        def n:int (strlen s)
+        def i:int from
+        while (i < n) {
+            if ((charAt s i) == 10) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; literal[a,b) of a paragraph as a node of its own, with its source map.
+    sfn slicePara:MdNode (p:MdNode a:int b0:int kind:string) {
+        def b:int b0
+        def lit:string p.literal
+        ; a paragraph piece does not end in the newline before the display
+        while ((b > a) && ((charAt lit (b - 1)) == 10)) {
+            b = (b - 1)
+        }
+        def q:MdNode (MdNode.create(kind))
+        q.literal = (substring lit a b)
+        q.open = false
+        def i:int 0
+        while (i < (array_length p.mapLit)) {
+            q.addMapPiece((itemAt p.mapLit i) (itemAt p.mapSrc i) (itemAt p.mapLen i))
+            i = (i + 1)
+        }
+        q.shiftMap(a (b - a))
+        q.srcStart = (p.srcOfLiteral(a))
+        q.srcEnd = (p.srcOfLiteral(b))
+        if (q.srcStart < 0) {
+            q.srcStart = p.srcStart
+        }
+        if (q.srcEnd < 0) {
+            q.srcEnd = p.srcEnd
+        }
+        return q
     }
 
     ; ----------------------------------------------------------------------

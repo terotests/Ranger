@@ -1,0 +1,204 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+;
+; MathTest — TeX math read, laid out and drawn: the parser's reading of the
+; constructs, the layout's geometry for the ones whose shape is a rule of
+; TeX's, and an SVG of each sample formula written for a person to look at
+; (gallery/math/bin/samples.html).
+
+Import "../src/MathRender.rgr"
+
+class MathTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new MathTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn run:void () {
+        this.testParse()
+        this.testScripts()
+        this.testFraction()
+        this.testBigOperator()
+        this.testDelimiters()
+        this.testMatrix()
+        this.testText()
+        this.testErrors()
+        this.testPath()
+        this.writeSamples()
+        print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testParse:void () {
+        def l:[MathAtom] (MathParser.parse("E = mc^2"))
+        this.check("E = mc^2 is four atoms" ((array_length l) == 4))
+        def l_1:MathAtom (itemAt l 1)
+        this.check("= is a relation" (l_1.type == "rel"))
+        def l_3:MathAtom (itemAt l 3)
+        this.check("c carries the superscript" l_3.hasSup)
+        def l_0:MathAtom (itemAt l 0)
+        this.check("E is math italic" (l_0.font == (MathFont.mathItalic())))
+        def f:[MathAtom] (MathParser.parse("\\frac12"))
+        def f_0:MathAtom (itemAt f 0)
+        this.check("\\frac12 takes single-token arguments" ((f_0.kind == "frac") && ((array_length f_0.body2) == 1)))
+        def g:[MathAtom] (MathParser.parse("\\alpha + \\beta"))
+        def g_0:MathAtom (itemAt g 0)
+        this.check("\\alpha is a Greek letter in italic" ((g_0.cp == 945) && (g_0.font == (MathFont.mathItalic()))))
+        def g_1:MathAtom (itemAt g 1)
+        this.check("+ is a binary operator" (g_1.type == "bin"))
+        def p:[MathAtom] (MathParser.parse("f'(x)"))
+        def p_0:MathAtom (itemAt p 0)
+        this.check("a prime is a superscript" (p_0.hasSup))
+        def u:[MathAtom] (MathParser.parse("α ≤ β"))
+        def u_0:MathAtom (itemAt u 0)
+        def u_1:MathAtom (itemAt u 1)
+        this.check("Unicode α and ≤ read as \\alpha and \\leq" ((u_0.cp == 945) && (u_1.type == "rel")))
+    }
+
+    fn testScripts:void () {
+        def x:MathBox (MathLayout.layout("x" false))
+        def x2:MathBox (MathLayout.layout("x^2" false))
+        this.check("a superscript raises the height" (x2.h > (x.h + 0.2)))
+        def xi:MathBox (MathLayout.layout("x_i" false))
+        this.check("a subscript lowers the depth" (xi.d > 0.1))
+        def both:MathBox (MathLayout.layout("x_i^2" false))
+        def xx:MathBox (MathLayout.layout("xx" false))
+        this.check("both scripts: one above, one below" ((both.h > 0.5) && (both.d > 0.1)))
+        this.check("scripts are narrower than two letters" (both.w < (xx.w * 1.2)))
+    }
+
+    fn testFraction:void () {
+        def t:MathBox (MathLayout.layout("\\frac{a}{b}" false))
+        def d:MathBox (MathLayout.layout("\\frac{a}{b}" true))
+        this.check("a display fraction is taller than a text one" ((d.h + d.d) > (t.h + t.d)))
+        def rules:int 0
+        def i:int 0
+        while (i < (array_length d.items)) {
+            def d_items_i:MathItem (itemAt d.items i)
+            if (d_items_i.kind == 1) {
+                rules = (rules + 1)
+            }
+            i = (i + 1)
+        }
+        this.check("a fraction has one bar" (rules == 1))
+        def bi:MathBox (MathLayout.layout("\\binom{n}{k}" true))
+        def bars:int 0
+        def j:int 0
+        while (j < (array_length bi.items)) {
+            def bi_items_j:MathItem (itemAt bi.items j)
+            if (bi_items_j.kind == 1) {
+                bars = (bars + 1)
+            }
+            j = (j + 1)
+        }
+        this.check("\\binom has no bar and two delimiters" ((bars == 0) && ((array_length bi.items) == 4)))
+    }
+
+    fn testBigOperator:void () {
+        def d:MathBox (MathLayout.layout("\\sum_{i=1}^{n} i" true))
+        def t:MathBox (MathLayout.layout("\\sum_{i=1}^{n} i" false))
+        this.check("display limits go above and below" ((d.h + d.d) > ((t.h + t.d) + 0.4)))
+        def first:MathItem (itemAt d.items 0)
+        this.check("a display sum uses the Size2 cut" (first.font == ((MathFont.size1()) + 1)))
+        def lim:MathBox (MathLayout.layout("\\lim_{h \\to 0}" true))
+        this.check("\\lim takes its subscript below in display" (lim.d > 0.5))
+        def sn:MathBox (MathLayout.layout("\\sin x" false))
+        this.check("\\sin is three upright letters and x" ((array_length sn.items) == 4))
+    }
+
+    fn testDelimiters:void () {
+        def small:MathBox (MathLayout.layout("\\left( x \\right)" true))
+        def tall:MathBox (MathLayout.layout("\\left( \\frac{a}{b} \\right)" true))
+        def a0:MathItem (itemAt small.items 0)
+        def a1:MathItem (itemAt tall.items 0)
+        this.check("a small \\left( is the normal parenthesis" (a0.font == (MathFont.mainFont())))
+        this.check("around a fraction it grows" (a1.font > (MathFont.mainFont())))
+        def r:MathBox (MathLayout.layout("\\sqrt{x}" false))
+        def r2:MathBox (MathLayout.layout("\\sqrt[3]{x}" false))
+        this.check("a root has a sign and a bar" ((array_length r.items) == 3))
+        this.check("an index does not narrow the root" ((r2.w >= r.w) && ((array_length r2.items) == 4)))
+    }
+
+    fn testMatrix:void () {
+        def m:MathBox (MathLayout.layout("\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}" true))
+        this.check("a 2×2 pmatrix: four letters and two parentheses" ((array_length m.items) == 6))
+        def l:[MathAtom] (MathParser.parse("\\begin{cases} 1 & x > 0 \\\\ 0 & \\text{muuten} \\end{cases}"))
+        def c:MathAtom (itemAt l 0)
+        this.check("cases is 2 rows × 2 columns" ((c.rows == 2) && (c.cols == 2)))
+        def al:[MathAtom] (MathParser.parse("\\begin{aligned} a &= b \\\\ &= c \\end{aligned}"))
+        def a:MathAtom (itemAt al 0)
+        this.check("aligned columns alternate right and left" (((itemAt a.colAlign 0) == "r") && ((itemAt a.colAlign 1) == "l")))
+        def top:[MathAtom] (MathParser.parse("a \\\\ b"))
+        def top_0:MathAtom (itemAt top 0)
+        this.check("a top-level \\\\ stacks rows" ((top_0.kind == "array") && (top_0.rows == 2)))
+    }
+
+    fn testText:void () {
+        def t:MathBox (MathLayout.layout("\\text{ä ö}" false))
+        this.check("ä and ö are built from a letter and an accent" ((array_length t.items) == 4))
+        def c:MathBox (MathLayout.layout("\\color{red}{x} + y" false))
+        def cols:[string] (MathRender.colours(c))
+        this.check("\\color gives a second colour" ((array_length cols) == 2))
+    }
+
+    fn testErrors:void () {
+        def p:MathParser (new MathParser())
+        def l:[MathAtom] (p.parseAll("\\foo + 1"))
+        def l_0:MathAtom (itemAt l 0)
+        this.check("an unknown command is kept, in red" ((l_0.kind == "error") && ((array_length p.errors) == 1)))
+        def b:MathBox (MathLayout.layout("{" false))
+        this.check("an unclosed brace does not throw" (b.w >= 0.0))
+    }
+
+    fn testPath:void () {
+        def s:string (MathRender.svg("x" false 100.0 "#000"))
+        this.check("an svg with one path" ((indexOf s "<path") > 0))
+        this.check("the path is absolute M/L/Q/Z" ((indexOf s "d=\"M") > 0))
+        def e:EVGElement (MathRender.element("a+b" false 20.0 "#222"))
+        this.check("the element has one path child" ((array_length e.children) == 1))
+    }
+
+    fn writeSamples:void () {
+        def samples:[string]
+        push samples "E = mc^2"
+        push samples "\\frac{\\partial f}{\\partial x} = \\lim_{h \\to 0} \\frac{f(x+h) - f(x)}{h}"
+        push samples "\\sum_{i=1}^{n} i^2 = \\frac{n(n+1)(2n+1)}{6}"
+        push samples "\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}"
+        push samples "x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}"
+        push samples "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}^{-1} = \\frac{1}{ad - bc} \\begin{bmatrix} d & -b \\\\ -c & a \\end{bmatrix}"
+        push samples "f(x) = \\begin{cases} x^2 & \\text{kun } x \\ge 0 \\\\ -x & \\text{muuten} \\end{cases}"
+        push samples "\\left\\{ x \\in \\mathbb{R} : |x| < 1 \\right\\}"
+        push samples "\\hat{x}, \\bar{y}, \\vec{v}, \\tilde{a}, \\dot{x}, \\ddot{x}, \\overline{AB}"
+        push samples "\\begin{aligned} (a+b)^2 &= (a+b)(a+b) \\\\ &= a^2 + 2ab + b^2 \\end{aligned}"
+        push samples "\\sqrt[3]{x} + \\sqrt{\\frac{a}{b}} \\ne \\binom{n}{k}"
+        push samples "\\color{red}{\\alpha} + \\beta \\cdot \\gamma = \\Omega \\quad \\forall \\epsilon > 0"
+        push samples "\\prod_{k=1}^{\\infty} \\left(1 + \\frac{1}{k^2}\\right) \\approx 3.676"
+        push samples "\\mathcal{L}\\{f\\}(s) = \\int_0^\\infty f(t) e^{-st}\\, dt"
+        def html:string "<!doctype html><meta charset=utf-8><body style='font-family:sans-serif;background:#fff'>"
+        def i:int 0
+        while (i < (array_length samples)) {
+            def tex:string (itemAt samples i)
+            html = (html + "<p><code>" + tex + "</code><br>" + (MathRender.svg(tex true 40.0 "#111")) + " &nbsp; " + (MathRender.svg(tex false 24.0 "#111")) + "</p>")
+            i = (i + 1)
+        }
+        html = (html + "</body>")
+        write_file "gallery/math/bin" "samples.html" html
+        this.check("samples written" true)
+    }
+}

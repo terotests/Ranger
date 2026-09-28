@@ -25,6 +25,7 @@
 
 Import "MdNode.rgr"
 Import "MdChar.rgr"
+Import "../../math/src/MathRender.rgr"
 
 class MdToHtml {
     ; A tight list's items hold their paragraphs' contents without the <p>.
@@ -92,6 +93,20 @@ class MdToHtml {
             this.lit("<code>")
             this.lit((MdToHtml.escape(node.literal)))
             this.lit("</code>")
+            return
+        }
+        if (kind == "math") {
+            this.lit(("<span class=\"math\" title=\"" + (MdToHtml.escape(node.literal)) + "\">"))
+            this.lit((MathRender.svgEm(node.literal (node.info == "display"))))
+            this.lit("</span>")
+            return
+        }
+        if (kind == "math_block") {
+            this.cr()
+            this.lit(("<div class=\"math-display\" style=\"text-align:center;margin:0.6em 0\" title=\"" + (MdToHtml.escape(node.literal)) + "\">"))
+            this.lit((MathRender.svgEm(node.literal true)))
+            this.lit("</div>")
+            this.cr()
             return
         }
         if (kind == "html_inline") {

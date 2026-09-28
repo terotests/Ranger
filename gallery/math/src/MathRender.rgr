@@ -1,0 +1,166 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; MathRender.rgr — a laid-out formula, as something to draw
+; ==============================================================================
+;
+;   MathRender.element(tex display px colour)   an EVGElement: a div the size
+;                                                of the formula, holding one
+;                                                filled path per colour
+;   MathRender.svg(tex display px colour)       the same, as an SVG document
+;
+; The glyphs are outlines, so every backend that fills a path — the WebGL
+; painter, the PDF writer, the PowerPoint writer — draws the formula exactly
+; as it was measured, with no font to embed or to miss.
+;
+; The fill rule is nonzero and every outline and rule is wound the same way,
+; so where two pieces touch (a root's bar on its sign, a kerned pair) they
+; fill together rather than cancelling each other out.
+; ==============================================================================
+
+Import "MathLayout.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGColor.rgr"
+
+class MathRender {
+    ; Room around the box for ink that leaves it: an italic f's hook, a
+    ; slanted integral. In ems.
+    sfn pad:double () {
+        return 0.2
+    }
+
+    sfn element:EVGElement (tex:string display:boolean px:double colour:string) {
+        def b:MathBox (MathLayout.layout(tex display))
+        return (MathRender.boxElement(b px colour))
+    }
+
+    ; The colours a box is drawn in, "" being the default.
+    sfn colours:[string] (b:MathBox) {
+        def out:[string]
+        def i:int 0
+        def n:int (array_length b.items)
+        while (i < n) {
+            def it:MathItem (itemAt b.items i)
+            def seen:boolean false
+            def k:int 0
+            while (k < (array_length out)) {
+                if ((itemAt out k) == it.color) {
+                    seen = true
+                }
+                k = (k + 1)
+            }
+            if (seen == false) {
+                push out it.color
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The outline of every item in colour `c`, in px, with the box's top-left
+    ; corner at (ox, oy).
+    sfn pathOf:string (b:MathBox px:double c:string ox:double oy:double) {
+        def buf:MathPathBuf (new MathPathBuf())
+        def base:double (oy + (b.h * px))
+        def i:int 0
+        def n:int (array_length b.items)
+        while (i < n) {
+            def it:MathItem (itemAt b.items i)
+            if (it.color == c) {
+                if (it.kind == 1) {
+                    buf.rect((ox + (it.x * px)) (base + (it.y * px)) (it.w * px) (it.h * px))
+                } {
+                    def g:MathGlyph (MathFont.glyph(it.font it.cp))
+                    if ((strlen g.path) > 0) {
+                        MathFont.appendPath(buf g (ox + (it.x * px)) (base + (it.y * px)) (px * it.scale) it.sx it.sy)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (buf.text())
+    }
+
+    sfn boxElement:EVGElement (b:MathBox px:double colour:string) {
+        def w:double (b.w * px)
+        def h:double ((b.h + b.d) * px)
+        def root:EVGElement (EVGElement.createDiv())
+        root.position = "relative"
+        root.width = (EVGUnit.px(w))
+        root.height = (EVGUnit.px(h))
+        def p:double ((MathRender.pad()) * px)
+        def cols:[string] (MathRender.colours(b))
+        def i:int 0
+        while (i < (array_length cols)) {
+            def c:string (itemAt cols i)
+            def d:string (MathRender.pathOf(b px c p p))
+            if ((strlen d) > 0) {
+                def path:EVGElement (EVGElement.createPath())
+                path.position = "absolute"
+                path.left = (EVGUnit.px((0.0 - p)))
+                path.top = (EVGUnit.px((0.0 - p)))
+                path.width = (EVGUnit.px((w + (2.0 * p))))
+                path.height = (EVGUnit.px((h + (2.0 * p))))
+                path.svgPath = d
+                path.viewBox = ("0 0 " + (MathFont.num((w + (2.0 * p)))) + " " + (MathFont.num((h + (2.0 * p)))))
+                def use:string c
+                if ((strlen use) == 0) {
+                    use = colour
+                }
+                path.fillColor = (EVGColor.parse(use))
+                path.fillRule = "nonzero"
+                root.addChild(path)
+            }
+            i = (i + 1)
+        }
+        return root
+    }
+
+    ; For HTML: sized in ems of the text around it, standing on its baseline,
+    ; filled with the text's own colour.
+    sfn svgEm:string (tex:string display:boolean) {
+        def b:MathBox (MathLayout.layout(tex display))
+        def px:double 100.0
+        def p:double ((MathRender.pad()) * px)
+        def w:double ((b.w * px) + (2.0 * p))
+        def h:double (((b.h + b.d) * px) + (2.0 * p))
+        def k:double 1.21
+        def out:string ("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + (MathFont.num(((w / px) * k))) + "em\" height=\"" + (MathFont.num(((h / px) * k))) + "em\" viewBox=\"0 0 " + (MathFont.num(w)) + " " + (MathFont.num(h)) + "\" style=\"vertical-align:-" + (MathFont.num((((b.d * px) + p) / px) * k)) + "em;margin:0 -" + (MathFont.num(((p / px) * k))) + "em\">")
+        def cols:[string] (MathRender.colours(b))
+        def i:int 0
+        while (i < (array_length cols)) {
+            def c:string (itemAt cols i)
+            def use:string c
+            if ((strlen use) == 0) {
+                use = "currentColor"
+            }
+            out = (out + "<path fill=\"" + use + "\" d=\"" + (MathRender.pathOf(b px c p p)) + "\"/>")
+            i = (i + 1)
+        }
+        return (out + "</svg>")
+    }
+
+    sfn svg:string (tex:string display:boolean px:double colour:string) {
+        def b:MathBox (MathLayout.layout(tex display))
+        return (MathRender.boxSvg(b px colour))
+    }
+
+    sfn boxSvg:string (b:MathBox px:double colour:string) {
+        def p:double ((MathRender.pad()) * px)
+        def w:double ((b.w * px) + (2.0 * p))
+        def h:double (((b.h + b.d) * px) + (2.0 * p))
+        def out:string ("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + (MathFont.num(w)) + "\" height=\"" + (MathFont.num(h)) + "\" viewBox=\"0 0 " + (MathFont.num(w)) + " " + (MathFont.num(h)) + "\">")
+        def cols:[string] (MathRender.colours(b))
+        def i:int 0
+        while (i < (array_length cols)) {
+            def c:string (itemAt cols i)
+            def use:string c
+            if ((strlen use) == 0) {
+                use = colour
+            }
+            out = (out + "<path fill=\"" + use + "\" d=\"" + (MathRender.pathOf(b px c p p)) + "\"/>")
+            i = (i + 1)
+        }
+        return (out + "</svg>")
+    }
+}

@@ -1,0 +1,19 @@
+The glyph outlines and metrics in gallery/math/src/MathFontData.rgr are
+taken from the KaTeX fonts (https://github.com/KaTeX/KaTeX, package
+`katex` on npm): KaTeX_Main, KaTeX_Math, KaTeX_AMS, KaTeX_Caligraphic and
+KaTeX_Size1-4. They are licensed under the SIL Open Font License 1.1, as
+each font states:
+
+Copyright (c) 2009-2010, Design Science, Inc. (<www.mathjax.org>)
+Copyright (c) 2014-2018 Khan Academy (<www.khanacademy.org>),
+with Reserved Font Name KaTeX_Main.
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license available with a FAQ at:
+http://scripts.sil.org/OFL
+
+The full licence text: https://openfontlicense.org/open-font-license-official-text/
+
+The symbol table in the same file is derived from KaTeX's src/symbols.ts and
+the font metrics from src/fontMetricsData.js, both under the MIT licence:
+Copyright (c) 2013-2020 Khan Academy and other contributors.

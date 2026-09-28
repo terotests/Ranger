@@ -291,6 +291,7 @@ class MdInline {
         if (c == 10) { handled = (this.parseNewline()) }
         if (c == 92) { handled = (this.parseBackslash()) }
         if (c == 96) { handled = (this.parseBackticks()) }
+        if (c == 36) { handled = (this.parseDollar()) }
         if (c == 42) { handled = (this.handleDelim(c)) }
         if (c == 95) { handled = (this.handleDelim(c)) }
         if (c == 126) { handled = (this.handleDelim(c)) }
@@ -329,6 +330,7 @@ class MdInline {
         if (c == 33) { return false }
         if (c == 60) { return false }
         if (c == 38) { return false }
+        if (c == 36) { return false }
         return true
     }
 
@@ -458,6 +460,90 @@ class MdInline {
         def lit:string (substring subject start afterOpen)
         this.addText(lit)
         return true
+    }
+
+    ; TeX math: `$…$` in the line, `$$…$$` set as a display. Pandoc's rule
+    ; for the single dollar, so prices survive: the opener has a character
+    ; right after it, the closer one right before it and no digit after it.
+    ; `\$` is a dollar sign — the backslash pass took it before this ran.
+    ; What does not close is a literal `$`.
+    fn parseDollar:boolean () {
+        def n:int (strlen subject)
+        def start:int pos
+        def display:boolean ((this.peekAt((pos + 1))) == 36)
+        def open:int 1
+        if display {
+            open = 2
+        }
+        def from:int (start + open)
+        def first:int (this.peekAt(from))
+        if ((first < 0) || (first == 36)) {
+            return (this.literalDollar(start))
+        }
+        if ((display == false) && (((first == 32) || (first == 9)) || (first == 10))) {
+            return (this.literalDollar(start))
+        }
+        def i:int from
+        while (i < n) {
+            def c:int (charAt subject i)
+            if (c == 92) {
+                i = (i + 2)
+            } {
+                if (c == 36) {
+                    if display {
+                        if ((this.peekAt((i + 1))) == 36) {
+                            this.addMath((substring subject from i) true)
+                            pos = (i + 2)
+                            return true
+                        }
+                        i = (i + 1)
+                    } {
+                        def before:int (charAt subject (i - 1))
+                        def after:int (this.peekAt((i + 1)))
+                        def spaceBefore:boolean (((before == 32) || (before == 9)) || (before == 10))
+                        def digitAfter:boolean ((after >= 48) && (after <= 57))
+                        if ((spaceBefore == false) && (digitAfter == false)) {
+                            this.addMath((substring subject from i) false)
+                            pos = (i + 1)
+                            return true
+                        }
+                        i = (i + 1)
+                    }
+                } {
+                    i = (i + 1)
+                }
+            }
+        }
+        return (this.literalDollar(start))
+    }
+
+    ; A `$` that opens nothing, kept in one text node with the word after it:
+    ; `$10` is one word, and a line may not break inside it.
+    fn literalDollar:boolean (start:int) {
+        def n:int (strlen subject)
+        pos = (start + 1)
+        while ((pos < n) && ((charAt subject pos) == 36)) {
+            pos = (pos + 1)
+        }
+        while (pos < n) {
+            def c:int (charAt subject pos)
+            if ((MdInline.isOrdinary(c)) && ((c != 32) && (c != 9))) {
+                pos = (pos + 1)
+            } {
+                break
+            }
+        }
+        this.addText((substring subject start pos))
+        return true
+    }
+
+    fn addMath:void (tex:string display:boolean) {
+        def m:MdNode (MdNode.create("math"))
+        m.literal = (trim tex)
+        if display {
+            m.info = "display"
+        }
+        this.appendNode(m)
     }
 
     ; The run of `c` starting at `pos`, consumed. Returns its length.

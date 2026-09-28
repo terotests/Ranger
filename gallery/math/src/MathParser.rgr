@@ -1,0 +1,1213 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; MathParser.rgr — TeX math, read into a list of atoms
+; ==============================================================================
+;
+; The subset that formulas in documents and slides are written in: scripts,
+; fractions, roots, big operators and their limits, \left…\right, accents,
+; the named operators, fonts (\mathbf \mathbb \mathcal \mathrm), \text,
+; spacing, colour, and the matrix / cases / aligned environments.
+;
+; What it does not know it keeps visible rather than dropping: an unknown
+; command is drawn as its own name in red, so a typo shows where it is.
+;
+; An atom is TeX's noad: a nucleus with optional scripts and a class (ord,
+; op, bin, rel, open, close, punct, inner) that decides the spacing around it.
+; `kind` says what the nucleus is.
+;
+;   sym      one glyph: font + cp
+;   list     a group {…}
+;   frac     body / body2, `num` the bar (-1 default, 0 none)
+;   sqrt     body, index in body2
+;   lr       \left ldelim body \right rdelim
+;   big      \big( … one delimiter at a fixed size (`num` 1..4)
+;   accent   body under the glyph font/cp (`stretch` for \widehat)
+;   over     \overline body       under  \underline body
+;   text     \text{…} — `text`, set upright
+;   opname   \sin, \lim, \operatorname{…} — `text`, upright; `limits`
+;   space    `num` em
+;   array    cells, rows, cols, colAlign; `ldelim`/`rdelim` around
+;   stack    \overset / \underset: body is the base, body2 above (sup) or
+;            below (sub)
+;   box      \boxed body
+;   phantom  body, measured and not drawn
+;   color    body in `text` colour
+;   style    body in the style `num` (0 display … 3 scriptscript)
+;   not      body with a slash through it: \ne, \notin, \not\equiv
+;   error    `text` drawn in red
+; ==============================================================================
+
+Import "MathFont.rgr"
+
+class MathCell {
+    def body:[MathAtom]
+
+    Constructor () {
+    }
+}
+
+class MathAtom {
+    def kind:string "sym"
+    def type:string "ord"
+    def font:int 0
+    def cp:int 0
+    def body:[MathAtom]
+    def body2:[MathAtom]
+    def sup:[MathAtom]
+    def sub:[MathAtom]
+    def hasSup:boolean false
+    def hasSub:boolean false
+    ; 0 as the class decides, 1 \limits, 2 \nolimits
+    def limits:int 0
+    def ldelim:string ""
+    def rdelim:string ""
+    def text:string ""
+    def num:double 0.0
+    ; frac: -1 as the style is, 0 \dfrac, 1 \tfrac
+    def fstyle:int -1
+    def stretch:boolean false
+    def textFont:int 0
+    def cells:[MathCell]
+    def rows:int 0
+    def cols:int 0
+    def colAlign:[string]
+    ; array: a row's extra space after it, from \\[1em]
+    def rowGap:[double]
+    def env:string ""
+
+    Constructor () {
+    }
+
+    sfn sym:MathAtom (font:int cp:int type:string) {
+        def a:MathAtom (new MathAtom())
+        a.kind = "sym"
+        a.font = font
+        a.cp = cp
+        a.type = type
+        return a
+    }
+
+    sfn of:MathAtom (kind:string) {
+        def a:MathAtom (new MathAtom())
+        a.kind = kind
+        return a
+    }
+}
+
+class MathParser {
+    def src:string ""
+    def pos:int 0
+    def n:int 0
+    ; "" default, rm, bf, it, bb, cal
+    def fontMode:string ""
+    def errors:[string]
+
+    Constructor () {
+    }
+
+    sfn parse:[MathAtom] (tex:string) {
+        def p:MathParser (new MathParser())
+        return (p.parseAll(tex))
+    }
+
+    fn parseAll:[MathAtom] (tex:string) {
+        src = tex
+        pos = 0
+        n = (strlen tex)
+        def list:[MathAtom] (this.parseRows("" "" false))
+        while (pos < n) {
+            ; a stray `}` or `&` at the top: say so, then keep reading
+            def t:string (this.next())
+            push list (this.errorAtom(t))
+            def more:[MathAtom] (this.parseRows("" "" false))
+            def i:int 0
+            while (i < (array_length more)) {
+                push list (itemAt more i)
+                i = (i + 1)
+            }
+        }
+        return list
+    }
+
+    ; A list that may have `\\` in it. With none it is the list itself; with
+    ; some, the rows are stacked centred, as `gathered` would.
+    fn parseRows:[MathAtom] (stop1:string stop2:string rowsAllowed:boolean) {
+        def list:[MathAtom] (this.parseList(stop1 stop2))
+        if ((this.peek()) != "\\\\") {
+            return list
+        }
+        def arr:MathAtom (MathAtom.of("array"))
+        arr.env = "gathered"
+        arr.cols = 1
+        push arr.colAlign "c"
+        def c0:MathCell (new MathCell())
+        c0.body = list
+        push arr.cells c0
+        arr.rows = 1
+        push arr.rowGap 0.0
+        while ((this.peek()) == "\\\\") {
+            this.next()
+            set_at arr.rowGap (arr.rows - 1) (this.rowSkip())
+            def c:MathCell (new MathCell())
+            c.body = (this.parseList(stop1 stop2))
+            push arr.cells c
+            arr.rows = (arr.rows + 1)
+            push arr.rowGap 0.0
+        }
+        def out:[MathAtom]
+        push out arr
+        return out
+    }
+
+    ; --- tokens ------------------------------------------------------------------
+    ;
+    ; A token is a string: `\frac`, `\,`, `{`, `a`, or `#945` for a character
+    ; outside ASCII — the same spelling the symbol table uses for them.
+    fn skipSpace:void () {
+        while (pos < n) {
+            def c:int (charAt src pos)
+            if ((((c == 32) || (c == 9)) || (c == 10)) || (c == 13)) {
+                pos = (pos + 1)
+            } {
+                if (c == 37) {
+                    ; % comment to the end of the line
+                    while ((pos < n) && ((charAt src pos) != 10)) {
+                        pos = (pos + 1)
+                    }
+                } {
+                    return
+                }
+            }
+        }
+    }
+
+    fn peek:string () {
+        def save:int pos
+        def t:string (this.next())
+        pos = save
+        return t
+    }
+
+    fn next:string () {
+        this.skipSpace()
+        if (pos >= n) {
+            return ""
+        }
+        def c:int (charAt src pos)
+        if (c == 92) {
+            pos = (pos + 1)
+            if (pos >= n) {
+                return "\\"
+            }
+            def start:int pos
+            def c2:int (charAt src pos)
+            if (MathParser.isLetter(c2)) {
+                while ((pos < n) && (MathParser.isLetter((charAt src pos)))) {
+                    pos = (pos + 1)
+                }
+                return ("\\" + (substring src start pos))
+            }
+            pos = (pos + 1)
+            return ("\\" + (substring src start pos))
+        }
+        pos = (pos + 1)
+        if (c > 127) {
+            return ("#" + (to_string c))
+        }
+        return (strfromcode c)
+    }
+
+    sfn isLetter:boolean (c:int) {
+        return (((c >= 65) && (c <= 90)) || ((c >= 97) && (c <= 122)))
+    }
+
+    ; The raw text of a {…} argument, braces balanced, for \text and the
+    ; arguments that are names (\color{red}, \begin{matrix}).
+    fn rawGroup:string () {
+        this.skipSpace()
+        if ((pos >= n) || ((charAt src pos) != 123)) {
+            ; one token
+            def t:string (this.next())
+            return t
+        }
+        pos = (pos + 1)
+        def start:int pos
+        def depth:int 1
+        while (pos < n) {
+            def c:int (charAt src pos)
+            if (c == 92) {
+                pos = (pos + 2)
+            } {
+                if (c == 123) {
+                    depth = (depth + 1)
+                }
+                if (c == 125) {
+                    depth = (depth - 1)
+                    if (depth == 0) {
+                        def s:string (substring src start pos)
+                        pos = (pos + 1)
+                        return s
+                    }
+                }
+                pos = (pos + 1)
+            }
+        }
+        return (substring src start n)
+    }
+
+    ; An optional [..] argument, or "".
+    fn optArg:string () {
+        this.skipSpace()
+        if ((pos >= n) || ((charAt src pos) != 91)) {
+            return ""
+        }
+        pos = (pos + 1)
+        def start:int pos
+        def depth:int 0
+        while (pos < n) {
+            def c:int (charAt src pos)
+            if (c == 123) { depth = (depth + 1) }
+            if (c == 125) { depth = (depth - 1) }
+            if ((c == 93) && (depth == 0)) {
+                def s:string (substring src start pos)
+                pos = (pos + 1)
+                return s
+            }
+            pos = (pos + 1)
+        }
+        return (substring src start n)
+    }
+
+    ; \\[4pt] — the extra space after a row, in em.
+    fn rowSkip:double () {
+        def a:string (this.optArg())
+        if ((strlen a) == 0) {
+            return 0.0
+        }
+        return (MathParser.length(a))
+    }
+
+    ; A TeX length in em: 1em, 3mu, 4pt, 0.5ex. Anything else is 0.
+    sfn length:double (s0:string) {
+        def s:string (trim s0)
+        def len:int (strlen s)
+        if (len < 2) {
+            return 0.0
+        }
+        def unit:string (substring s (len - 2) len)
+        def v:double (?? (str2double (trim (substring s 0 (len - 2)))) 0.0)
+        if (unit == "em") { return v }
+        if (unit == "ex") { return (v * 0.431) }
+        if (unit == "mu") { return (v / 18.0) }
+        if (unit == "pt") { return (v / 10.0) }
+        if (unit == "px") { return (v / 10.0) }
+        if (unit == "cm") { return (v * 2.845) }
+        if (unit == "mm") { return (v * 0.2845) }
+        if (unit == "in") { return (v * 7.227) }
+        return 0.0
+    }
+
+    ; --- lists -------------------------------------------------------------------
+    ;
+    ; Atoms until a `}` (consumed by the caller), EOF, `&`, `\\`, `\right`,
+    ; `\end`, or one of the two stop words given.
+    fn parseList:[MathAtom] (stop1:string stop2:string) {
+        def list:[MathAtom]
+        while true {
+            def t:string (this.peek())
+            if ((strlen t) == 0) { return list }
+            if (t == "}") { return list }
+            if (t == "&") { return list }
+            if (t == "\\\\") { return list }
+            if (t == "\\cr") { return list }
+            if (t == "\\right") { return list }
+            if (t == "\\middle") { return list }
+            if (t == "\\end") { return list }
+            if ((t == stop1) || (t == stop2)) { return list }
+            this.next()
+            if ((t == "^") || (t == "_")) {
+                this.attachScript(list t)
+            } {
+                if (t == "'") {
+                    def prime:MathAtom (MathAtom.sym((MathFont.mainFont()) 8242 "ord"))
+                    def base:MathAtom (this.scriptBase(list))
+                    push base.sup prime
+                    base.hasSup = true
+                    while ((this.peek()) == "'") {
+                        this.next()
+                        push base.sup (MathAtom.sym((MathFont.mainFont()) 8242 "ord"))
+                    }
+                } {
+                    this.command(t list)
+                }
+            }
+        }
+        return list
+    }
+
+    ; The atom a script attaches to: the last one, or an empty ord when there
+    ; is none or the last already has that script.
+    fn scriptBase:MathAtom (list:[MathAtom]) {
+        def cnt:int (array_length list)
+        if (cnt > 0) {
+            def last:MathAtom (itemAt list (cnt - 1))
+            if ((last.kind != "space") && (last.kind != "style")) {
+                return last
+            }
+        }
+        def e:MathAtom (MathAtom.of("list"))
+        push list e
+        return e
+    }
+
+    fn attachScript:void (list:[MathAtom] t:string) {
+        def base:MathAtom (this.scriptBase(list))
+        if ((t == "^") && base.hasSup) {
+            base = (MathAtom.of("list"))
+            push list base
+        }
+        if ((t == "_") && base.hasSub) {
+            base = (MathAtom.of("list"))
+            push list base
+        }
+        def arg:[MathAtom] (this.argument())
+        if (t == "^") {
+            ; x'^2: the primes are already a superscript and the 2 joins them
+            def k:int 0
+            while (k < (array_length arg)) {
+                push base.sup (itemAt arg k)
+                k = (k + 1)
+            }
+            base.hasSup = true
+        } {
+            base.sub = arg
+            base.hasSub = true
+        }
+    }
+
+    ; One argument: a {group}, or a single token (\frac12, x^2, x^\alpha).
+    fn argument:[MathAtom] () {
+        def t:string (this.peek())
+        if (t == "{") {
+            this.next()
+            def inner:[MathAtom] (this.parseRows("" "" false))
+            if ((this.peek()) == "}") {
+                this.next()
+            }
+            return inner
+        }
+        def list:[MathAtom]
+        if ((strlen t) == 0) {
+            return list
+        }
+        if ((t == "}") || (t == "&")) {
+            return list
+        }
+        this.next()
+        this.command(t list)
+        return list
+    }
+
+    ; An argument as ONE atom: a group of several becomes a list atom.
+    fn argAtom:MathAtom (list:[MathAtom]) {
+        if ((array_length list) == 1) {
+            def only:MathAtom (itemAt list 0)
+            if ((only.hasSup == false) && (only.hasSub == false)) {
+                return only
+            }
+        }
+        def g:MathAtom (MathAtom.of("list"))
+        g.body = list
+        return g
+    }
+
+    fn errorAtom:MathAtom (t:string) {
+        def e:MathAtom (MathAtom.of("error"))
+        e.text = t
+        push errors t
+        return e
+    }
+
+    ; --- one token, into the list --------------------------------------------------
+    fn command:void (t:string list:[MathAtom]) {
+        def len:int (strlen t)
+        if (t == "{") {
+            def g:MathAtom (MathAtom.of("list"))
+            def save:string fontMode
+            g.body = (this.parseRows("" "" false))
+            fontMode = save
+            if ((this.peek()) == "}") {
+                this.next()
+            }
+            push list g
+            return
+        }
+        if ((len == 1) && (MathParser.isLetter((charAt t 0)))) {
+            push list (this.letter((charAt t 0)))
+            return
+        }
+        if ((len == 1) && (((charAt t 0) >= 48) && ((charAt t 0) <= 57))) {
+            def f:int (MathFont.mainFont())
+            if (fontMode == "bf") {
+                f = (MathFont.bold())
+            }
+            push list (MathAtom.sym(f (charAt t 0) "ord"))
+            return
+        }
+        if (len == 0) {
+            return
+        }
+        if ((charAt t 0) != 92) {
+            this.character(t list)
+            return
+        }
+        this.control(t list)
+    }
+
+    ; A Latin letter in the current math font.
+    fn letter:MathAtom (c:int) {
+        def upper:boolean ((c >= 65) && (c <= 90))
+        if (fontMode == "rm") {
+            return (MathAtom.sym((MathFont.mainFont()) c "ord"))
+        }
+        if (fontMode == "bf") {
+            return (MathAtom.sym((MathFont.bold()) c "ord"))
+        }
+        if ((fontMode == "bb") && upper) {
+            return (MathAtom.sym((MathFont.ams()) c "ord"))
+        }
+        if ((fontMode == "cal") && upper) {
+            return (MathAtom.sym((MathFont.cal()) c "ord"))
+        }
+        return (MathAtom.sym((MathFont.mathItalic()) c "ord"))
+    }
+
+    ; + = ( [ | , and the characters outside ASCII: by the symbol table.
+    fn character:void (t:string list:[MathAtom]) {
+        def s@(optional):MathSym (MathFont.symbol(t))
+        if (!null? s) {
+            push list (this.fromSymbol((unwrap s)))
+            return
+        }
+        if (t == "~") {
+            def sp:MathAtom (MathAtom.of("space"))
+            sp.num = 0.333
+            push list sp
+            return
+        }
+        ; a character the table does not name: drawn from the main font if
+        ; it is there, as an ordinary symbol
+        def cp:int (charAt t 0)
+        if ((charAt t 0) == 35) {
+            cp = (?? (str2int (substring t 1 (strlen t))) 63)
+        }
+        if (MathFont.has((MathFont.mainFont()) cp)) {
+            push list (MathAtom.sym((MathFont.mainFont()) cp "ord"))
+            return
+        }
+        def tx:MathAtom (MathAtom.of("text"))
+        tx.text = (strfromcode cp)
+        push list tx
+    }
+
+    fn fromSymbol:MathAtom (s:MathSym) {
+        def type:string "ord"
+        def g:string s.group
+        if (g == "bin") { type = "bin" }
+        if (g == "rel") { type = "rel" }
+        if (g == "open") { type = "open" }
+        if (g == "close") { type = "close" }
+        if (g == "punct") { type = "punct" }
+        if (g == "inner") { type = "inner" }
+        if (g == "op") { type = "op" }
+        def font:int s.font
+        ; mathord letters (Greek lowercase) are italic when the italic font
+        ; has them, as TeX sets them
+        if (((g == "mathord") && (font == (MathFont.mainFont()))) && (MathFont.has((MathFont.mathItalic()) s.cp))) {
+            font = (MathFont.mathItalic())
+        }
+        if ((fontMode == "bf") && (MathFont.has((MathFont.bold()) s.cp))) {
+            font = (MathFont.bold())
+        }
+        def a:MathAtom (MathAtom.sym(font s.cp type))
+        if (type == "op") {
+            a.kind = "sym"
+            ; the integrals take their limits beside them
+            if (MathParser.isIntegral(s.cp)) {
+                a.limits = 2
+            }
+        }
+        return a
+    }
+
+    sfn isIntegral:boolean (cp:int) {
+        return ((cp >= 8747) && (cp <= 8755))
+    }
+
+    ; --- control sequences -----------------------------------------------------------
+    fn control:void (t:string list:[MathAtom]) {
+        def mf:int (MathFont.mainFont())
+
+        ; spacing
+        def sp:double (MathParser.spaceOf(t))
+        if (sp != 0.0) {
+            def a:MathAtom (MathAtom.of("space"))
+            a.num = sp
+            push list a
+            return
+        }
+        if ((t == "\\limits") || (t == "\\nolimits")) {
+            def cnt:int (array_length list)
+            if (cnt > 0) {
+                def last:MathAtom (itemAt list (cnt - 1))
+                if (t == "\\limits") {
+                    last.limits = 1
+                } {
+                    last.limits = 2
+                }
+            }
+            return
+        }
+        if ((((t == "\\frac") || (t == "\\dfrac")) || ((t == "\\tfrac") || (t == "\\cfrac"))) || (((t == "\\binom") || (t == "\\dbinom")) || (t == "\\tbinom"))) {
+            def f:MathAtom (MathAtom.of("frac"))
+            f.type = "inner"
+            f.num = -1.0
+            if ((t == "\\dfrac") || ((t == "\\cfrac") || (t == "\\dbinom"))) { f.fstyle = 0 }
+            if ((t == "\\tfrac") || (t == "\\tbinom")) { f.fstyle = 1 }
+            f.body = (this.argument())
+            f.body2 = (this.argument())
+            if (((t == "\\binom") || (t == "\\dbinom")) || (t == "\\tbinom")) {
+                f.num = 0.0
+                f.ldelim = "("
+                f.rdelim = ")"
+            }
+            push list f
+            return
+        }
+        if (t == "\\sqrt") {
+            def r:MathAtom (MathAtom.of("sqrt"))
+            def idx:string (this.optArg())
+            if ((strlen idx) > 0) {
+                r.body2 = (MathParser.parse(idx))
+            }
+            r.body = (this.argument())
+            push list r
+            return
+        }
+        if (t == "\\left") {
+            def lr:MathAtom (MathAtom.of("lr"))
+            lr.type = "inner"
+            lr.ldelim = (this.delimToken())
+            lr.body = (this.parseRows("" "" false))
+            if ((this.peek()) == "\\right") {
+                this.next()
+                lr.rdelim = (this.delimToken())
+            } {
+                lr.rdelim = "."
+            }
+            push list lr
+            return
+        }
+        if ((t == "\\right") || (t == "\\middle")) {
+            this.delimToken()
+            return
+        }
+        def bigSize:int (MathParser.bigSizeOf(t))
+        if (bigSize > 0) {
+            def b:MathAtom (MathAtom.of("big"))
+            b.num = (to_double bigSize)
+            b.ldelim = (this.delimToken())
+            b.type = (MathParser.bigTypeOf(t))
+            push list b
+            return
+        }
+        if ((((t == "\\text") || (t == "\\textrm")) || ((t == "\\textbf") || (t == "\\textit"))) || (((t == "\\mbox") || (t == "\\textnormal")) || (t == "\\hbox"))) {
+            def tx:MathAtom (MathAtom.of("text"))
+            tx.text = (this.rawGroup())
+            if (t == "\\textbf") { tx.textFont = (MathFont.bold()) }
+            if (t == "\\textit") { tx.textFont = (MathFont.mathItalic()) }
+            push list tx
+            return
+        }
+        def fm:string (MathParser.fontModeOf(t))
+        if ((strlen fm) > 0) {
+            def save:string fontMode
+            fontMode = fm
+            def g:MathAtom (MathAtom.of("list"))
+            g.body = (this.argument())
+            fontMode = save
+            push list g
+            return
+        }
+        if ((t == "\\operatorname") || (t == "\\operatornamewithlimits")) {
+            def star:boolean false
+            if ((this.peek()) == "*") {
+                this.next()
+                star = true
+            }
+            def op:MathAtom (MathAtom.of("opname"))
+            op.type = "op"
+            op.text = (MathParser.plainName((this.rawGroup())))
+            op.limits = 2
+            if (star || (t == "\\operatornamewithlimits")) {
+                op.limits = 0
+            }
+            push list op
+            return
+        }
+        def opn:string (MathParser.opNameOf(t))
+        if ((strlen opn) > 0) {
+            def op2:MathAtom (MathAtom.of("opname"))
+            op2.type = "op"
+            op2.text = opn
+            op2.limits = 2
+            if (MathParser.opHasLimits(t)) {
+                op2.limits = 0
+            }
+            push list op2
+            return
+        }
+        if ((t == "\\overline") || (t == "\\underline")) {
+            def o:MathAtom (MathAtom.of("over"))
+            if (t == "\\underline") {
+                o.kind = "under"
+            }
+            o.body = (this.argument())
+            push list o
+            return
+        }
+        def acc:int (MathParser.accentOf(t))
+        if (acc > 0) {
+            def ac:MathAtom (MathAtom.of("accent"))
+            ac.font = mf
+            ac.cp = acc
+            ac.stretch = ((t == "\\widehat") || (t == "\\widetilde"))
+            ac.body = (this.argument())
+            push list ac
+            return
+        }
+        if ((t == "\\color") || (t == "\\textcolor")) {
+            def col:MathAtom (MathAtom.of("color"))
+            col.text = (trim (this.rawGroup()))
+            if ((t == "\\textcolor") || ((this.peek()) == "{")) {
+                col.body = (this.argument())
+            } {
+                col.body = (this.parseList("" ""))
+            }
+            push list col
+            return
+        }
+        def st:int (MathParser.styleOf(t))
+        if (st >= 0) {
+            def sa:MathAtom (MathAtom.of("style"))
+            sa.num = (to_double st)
+            sa.body = (this.parseList("" ""))
+            push list sa
+            return
+        }
+        if (t == "\\begin") {
+            push list (this.environment((trim (this.rawGroup()))))
+            return
+        }
+        if ((((t == "\\mathop") || (t == "\\mathrel")) || ((t == "\\mathbin") || (t == "\\mathord"))) || (((t == "\\mathopen") || (t == "\\mathclose")) || ((t == "\\mathpunct") || (t == "\\mathinner")))) {
+            def g2:MathAtom (MathAtom.of("list"))
+            g2.body = (this.argument())
+            g2.type = (substring t 5 (strlen t))
+            if (g2.type == "open") { g2.type = "open" }
+            push list g2
+            return
+        }
+        if (((t == "\\overset") || (t == "\\underset")) || (t == "\\stackrel")) {
+            def s2:MathAtom (MathAtom.of("stack"))
+            def top:[MathAtom] (this.argument())
+            s2.body = (this.argument())
+            if (t == "\\underset") {
+                s2.sub = top
+                s2.hasSub = true
+            } {
+                s2.sup = top
+                s2.hasSup = true
+            }
+            s2.type = "ord"
+            if (t == "\\stackrel") {
+                s2.type = "rel"
+            } {
+                if ((array_length s2.body) == 1) {
+                    def first:MathAtom (itemAt s2.body 0)
+                    s2.type = first.type
+                }
+            }
+            push list s2
+            return
+        }
+        if ((t == "\\boxed") || (t == "\\fbox")) {
+            def bx:MathAtom (MathAtom.of("box"))
+            bx.body = (this.argument())
+            push list bx
+            return
+        }
+        if (((t == "\\phantom") || (t == "\\hphantom")) || (t == "\\vphantom")) {
+            def ph:MathAtom (MathAtom.of("phantom"))
+            ph.body = (this.argument())
+            ph.text = t
+            push list ph
+            return
+        }
+        if ((t == "\\hspace") || (t == "\\kern") || (t == "\\mkern") || (t == "\\hskip")) {
+            def amount:string ""
+            if ((this.peek()) == "{") {
+                amount = (this.rawGroup())
+            } {
+                amount = (this.lengthWord())
+            }
+            def ks:MathAtom (MathAtom.of("space"))
+            ks.num = (MathParser.length(amount))
+            push list ks
+            return
+        }
+        if ((t == "\\bmod") || (t == "\\mod")) {
+            def md:MathAtom (MathAtom.of("opname"))
+            md.text = "mod"
+            md.type = "bin"
+            if (t == "\\mod") {
+                def q:MathAtom (MathAtom.of("space"))
+                q.num = 1.0
+                push list q
+                md.type = "ord"
+            }
+            push list md
+            return
+        }
+        if (t == "\\pmod") {
+            def q2:MathAtom (MathAtom.of("space"))
+            q2.num = 1.0
+            push list q2
+            def g3:MathAtom (MathAtom.of("list"))
+            push g3.body (MathAtom.sym(mf 40 "open"))
+            def md2:MathAtom (MathAtom.of("opname"))
+            md2.text = "mod"
+            push g3.body md2
+            def s6:MathAtom (MathAtom.of("space"))
+            s6.num = 0.333
+            push g3.body s6
+            def arg:[MathAtom] (this.argument())
+            def k:int 0
+            while (k < (array_length arg)) {
+                push g3.body (itemAt arg k)
+                k = (k + 1)
+            }
+            push g3.body (MathAtom.sym(mf 41 "close"))
+            push list g3
+            return
+        }
+        if (((t == "\\ne") || (t == "\\neq")) || (t == "\\notin")) {
+            def ng:MathAtom (MathAtom.of("not"))
+            ng.type = "rel"
+            if (t == "\\notin") {
+                def inn@(optional):MathSym (MathFont.symbol("\\in"))
+                if (!null? inn) {
+                    push ng.body (this.fromSymbol((unwrap inn)))
+                }
+            } {
+                push ng.body (MathAtom.sym(mf 61 "rel"))
+            }
+            push list ng
+            return
+        }
+        if (t == "\\not") {
+            ; \not= \not\in: the negated relation where there is one
+            def nx:string (this.peek())
+            def neg:string ""
+            if (nx == "=") { neg = "\\neq" }
+            if (nx == "\\in") { neg = "\\notin" }
+            if (nx == "<") { neg = "\\nless" }
+            if (nx == ">") { neg = "\\ngtr" }
+            if (nx == "\\equiv") { neg = "\\not\\equiv" }
+            if ((strlen neg) > 0) {
+                def ns@(optional):MathSym (MathFont.symbol(neg))
+                if (!null? ns) {
+                    this.next()
+                    push list (this.fromSymbol((unwrap ns)))
+                    return
+                }
+            }
+            ; otherwise a slash over whatever follows
+            def ng2:MathAtom (MathAtom.of("not"))
+            ng2.type = "rel"
+            def nextList:[MathAtom] (this.argument())
+            if ((array_length nextList) > 0) {
+                def target:MathAtom (itemAt nextList 0)
+                ng2.type = target.type
+                push ng2.body target
+            }
+            push list ng2
+            return
+        }
+        def alias:string (MathParser.aliasOf(t))
+        def look:string t
+        if ((strlen alias) > 0) {
+            look = alias
+        }
+        def s@(optional):MathSym (MathFont.symbol(look))
+        if (!null? s) {
+            push list (this.fromSymbol((unwrap s)))
+            return
+        }
+        def ex:MathAtom (MathParser.extra(t))
+        if (ex.cp > 0) {
+            push list ex
+            return
+        }
+        push list (this.errorAtom(t))
+    }
+
+    ; `\kern 3mu`: the length after the command, up to its unit.
+    fn lengthWord:string () {
+        this.skipSpace()
+        def start:int pos
+        while (pos < n) {
+            def c:int (charAt src pos)
+            if ((((c >= 48) && (c <= 57)) || (c == 46)) || (c == 45)) {
+                pos = (pos + 1)
+            } {
+                break
+            }
+        }
+        def unitEnd:int (pos + 2)
+        if (unitEnd > n) {
+            unitEnd = n
+        }
+        pos = unitEnd
+        return (substring src start unitEnd)
+    }
+
+    ; The delimiter after \left, \right, \big: one token.
+    fn delimToken:string () {
+        def t:string (this.next())
+        if ((t == "\\{") || (t == "\\lbrace")) { return "{" }
+        if ((t == "\\}") || (t == "\\rbrace")) { return "}" }
+        if (t == "\\lbrack") { return "[" }
+        if (t == "\\rbrack") { return "]" }
+        if ((t == "\\|") || ((t == "\\Vert") || ((t == "\\lVert") || (t == "\\rVert")))) { return "||" }
+        if (((t == "\\vert") || (t == "\\lvert")) || (t == "\\rvert")) { return "|" }
+        if ((t == "\\langle") || (t == "<")) { return "<" }
+        if ((t == "\\rangle") || (t == ">")) { return ">" }
+        if (t == "\\lfloor") { return "lfloor" }
+        if (t == "\\rfloor") { return "rfloor" }
+        if (t == "\\lceil") { return "lceil" }
+        if (t == "\\rceil") { return "rceil" }
+        if (t == "\\backslash") { return "\\" }
+        if (t == "#10216") { return "<" }
+        if (t == "#10217") { return ">" }
+        return t
+    }
+
+    ; --- environments --------------------------------------------------------------
+    fn environment:MathAtom (name:string) {
+        def arr:MathAtom (MathAtom.of("array"))
+        arr.env = name
+        def star:string name
+        def nlen:int (strlen name)
+        if ((nlen > 1) && ((charAt name (nlen - 1)) == 42)) {
+            star = (substring name 0 (nlen - 1))
+        }
+        if (star == "pmatrix") { arr.ldelim = "("
+            arr.rdelim = ")" }
+        if (star == "bmatrix") { arr.ldelim = "["
+            arr.rdelim = "]" }
+        if (star == "Bmatrix") { arr.ldelim = "{"
+            arr.rdelim = "}" }
+        if (star == "vmatrix") { arr.ldelim = "|"
+            arr.rdelim = "|" }
+        if (star == "Vmatrix") { arr.ldelim = "||"
+            arr.rdelim = "||" }
+        if ((star == "cases") || (star == "dcases")) { arr.ldelim = "{"
+            arr.rdelim = "." }
+        if (star == "rcases") { arr.ldelim = "."
+            arr.rdelim = "}" }
+        def spec:string ""
+        if ((star == "array") || (star == "darray")) {
+            spec = (this.rawGroup())
+        }
+        def ci:int 0
+        def cols:int 0
+        def row:int 0
+        push arr.rowGap 0.0
+        while true {
+            def c:MathCell (new MathCell())
+            c.body = (this.parseList("" ""))
+            push arr.cells c
+            ci = (ci + 1)
+            if (ci > cols) {
+                cols = ci
+            }
+            def t:string (this.peek())
+            if (t == "&") {
+                this.next()
+            } {
+                if ((t == "\\\\") || (t == "\\cr")) {
+                    this.next()
+                    set_at arr.rowGap row (this.rowSkip())
+                    ; a trailing \\ before \end is not a row
+                    if ((this.peek()) == "\\end") {
+                        this.next()
+                        this.rawGroup()
+                        row = (row + 1)
+                        break
+                    }
+                    ; pad the row to a rectangle as it closes
+                    push arr.cells (MathParser.rowEnd())
+                    row = (row + 1)
+                    push arr.rowGap 0.0
+                    ci = 0
+                } {
+                    if (t == "\\end") {
+                        this.next()
+                        this.rawGroup()
+                    }
+                    row = (row + 1)
+                    break
+                }
+            }
+        }
+        arr.rows = row
+        arr.cols = cols
+        MathParser.squareUp(arr)
+        MathParser.alignColumns(arr star spec)
+        return arr
+    }
+
+    ; A marker in the flat cell list where a row ended early.
+    sfn rowEnd:MathCell () {
+        def c:MathCell (new MathCell())
+        def m:MathAtom (MathAtom.of("rowend"))
+        push c.body m
+        return c
+    }
+
+    ; The cells as rows × cols, a short row padded with empty cells.
+    sfn squareUp:void (arr:MathAtom) {
+        def out:[MathCell]
+        def inRow:int 0
+        def rows:int 0
+        def i:int 0
+        def n:int (array_length arr.cells)
+        while (i < n) {
+            def c:MathCell (itemAt arr.cells i)
+            def isEnd:boolean false
+            if ((array_length c.body) == 1) {
+                def first:MathAtom (itemAt c.body 0)
+                if (first.kind == "rowend") {
+                    isEnd = true
+                }
+            }
+            if isEnd {
+                while (inRow < arr.cols) {
+                    push out (new MathCell())
+                    inRow = (inRow + 1)
+                }
+                inRow = 0
+                rows = (rows + 1)
+            } {
+                push out c
+                inRow = (inRow + 1)
+            }
+            i = (i + 1)
+        }
+        if (inRow > 0) {
+            while (inRow < arr.cols) {
+                push out (new MathCell())
+                inRow = (inRow + 1)
+            }
+            rows = (rows + 1)
+        }
+        arr.cells = out
+        arr.rows = rows
+        while ((array_length arr.rowGap) < rows) {
+            push arr.rowGap 0.0
+        }
+    }
+
+    sfn alignColumns:void (arr:MathAtom name:string spec:string) {
+        clear arr.colAlign
+        def i:int 0
+        if ((strlen spec) > 0) {
+            def k:int 0
+            while (k < (strlen spec)) {
+                def c:int (charAt spec k)
+                if (c == 108) { push arr.colAlign "l" }
+                if (c == 99) { push arr.colAlign "c" }
+                if (c == 114) { push arr.colAlign "r" }
+                k = (k + 1)
+            }
+        }
+        while (i < arr.cols) {
+            def a:string "c"
+            if ((((name == "aligned") || (name == "align")) || ((name == "split") || (name == "alignat"))) || (name == "alignedat")) {
+                if ((i % 2) == 0) {
+                    a = "r"
+                } {
+                    a = "l"
+                }
+            }
+            if ((((name == "cases") || (name == "dcases")) || (name == "rcases"))) {
+                a = "l"
+            }
+            if (i >= (array_length arr.colAlign)) {
+                push arr.colAlign a
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- tables --------------------------------------------------------------------
+    sfn spaceOf:double (t:string) {
+        if (t == "\\,") { return (3.0 / 18.0) }
+        if (t == "\\thinspace") { return (3.0 / 18.0) }
+        if ((t == "\\:") || (t == "\\>")) { return (4.0 / 18.0) }
+        if (t == "\\medspace") { return (4.0 / 18.0) }
+        if (t == "\\;") { return (5.0 / 18.0) }
+        if (t == "\\thickspace") { return (5.0 / 18.0) }
+        if (t == "\\!") { return (-3.0 / 18.0) }
+        if (t == "\\negthinspace") { return (-3.0 / 18.0) }
+        if (t == "\\quad") { return 1.0 }
+        if (t == "\\qquad") { return 2.0 }
+        if (t == "\\ ") { return 0.333 }
+        if (t == "\\enspace") { return 0.5 }
+        return 0.0
+    }
+
+    sfn bigSizeOf:int (t:string) {
+        if ((((t == "\\big") || (t == "\\bigl")) || ((t == "\\bigr") || (t == "\\bigm")))) { return 1 }
+        if ((((t == "\\Big") || (t == "\\Bigl")) || ((t == "\\Bigr") || (t == "\\Bigm")))) { return 2 }
+        if ((((t == "\\bigg") || (t == "\\biggl")) || ((t == "\\biggr") || (t == "\\biggm")))) { return 3 }
+        if ((((t == "\\Bigg") || (t == "\\Biggl")) || ((t == "\\Biggr") || (t == "\\Biggm")))) { return 4 }
+        return 0
+    }
+
+    sfn bigTypeOf:string (t:string) {
+        def c:int (charAt t ((strlen t) - 1))
+        if (c == 108) { return "open" }
+        if (c == 114) { return "close" }
+        if (c == 109) { return "rel" }
+        return "ord"
+    }
+
+    sfn fontModeOf:string (t:string) {
+        if ((t == "\\mathrm") || (t == "\\rm") || (t == "\\mathup")) { return "rm" }
+        if ((t == "\\mathbf") || (t == "\\bf") || (t == "\\boldsymbol") || (t == "\\bm") || (t == "\\mathbold")) { return "bf" }
+        if ((t == "\\mathit") || (t == "\\it")) { return "it" }
+        if ((t == "\\mathbb") || (t == "\\Bbb")) { return "bb" }
+        if ((t == "\\mathcal") || (t == "\\cal") || (t == "\\mathscr")) { return "cal" }
+        if ((t == "\\mathsf") || (t == "\\mathtt")) { return "rm" }
+        return ""
+    }
+
+    sfn styleOf:int (t:string) {
+        if (t == "\\displaystyle") { return 0 }
+        if (t == "\\textstyle") { return 1 }
+        if (t == "\\scriptstyle") { return 2 }
+        if (t == "\\scriptscriptstyle") { return 3 }
+        return -1
+    }
+
+    sfn opNameOf:string (t:string) {
+        def len:int (strlen t)
+        if (len < 2) {
+            return ""
+        }
+        def w:string (substring t 1 len)
+        if ((indexOf " arcsin arccos arctan arg cos cosh cot coth csc deg dim exp hom ker lg ln log sec sin sinh tan tanh det gcd inf lim max min Pr sup sgn arcsec arccot sech csch tg ctg cotg " ((" " + w) + " ")) >= 0) {
+            return w
+        }
+        if (w == "liminf") { return "lim inf" }
+        if (w == "limsup") { return "lim sup" }
+        if (w == "argmax") { return "arg max" }
+        if (w == "argmin") { return "arg min" }
+        return ""
+    }
+
+    sfn opHasLimits:boolean (t:string) {
+        return ((indexOf " \\det \\gcd \\inf \\lim \\max \\min \\Pr \\sup \\liminf \\limsup \\argmax \\argmin " ((" " + t) + " ")) >= 0)
+    }
+
+    sfn accentOf:int (t:string) {
+        if ((t == "\\hat") || (t == "\\widehat")) { return 710 }
+        if ((t == "\\tilde") || (t == "\\widetilde")) { return 732 }
+        if (t == "\\check") { return 711 }
+        if (t == "\\breve") { return 728 }
+        if (t == "\\bar") { return 713 }
+        if (t == "\\dot") { return 729 }
+        if (t == "\\ddot") { return 168 }
+        if (t == "\\mathring") { return 730 }
+        if (t == "\\acute") { return 714 }
+        if (t == "\\grave") { return 715 }
+        if (t == "\\vec") { return 8407 }
+        return 0
+    }
+
+    ; Symbols KaTeX makes with a macro rather than the table.
+    sfn extra:MathAtom (t:string) {
+        def mf:int (MathFont.mainFont())
+        if (t == "\\cdots") { return (MathAtom.sym(mf 8943 "inner")) }
+        if (t == "\\vdots") { return (MathAtom.sym(mf 8942 "ord")) }
+        if (t == "\\Leftrightarrow") { return (MathAtom.sym(mf 8660 "rel")) }
+        if (t == "\\varphi") { return (MathAtom.sym((MathFont.mathItalic()) 966 "ord")) }
+        if (t == "\\colon") { return (MathAtom.sym(mf 58 "punct")) }
+        if (t == "\\qed") { return (MathAtom.sym((MathFont.ams()) 9633 "ord")) }
+        return (new MathAtom())
+    }
+
+    ; The spellings the table knows under another name.
+    sfn aliasOf:string (t:string) {
+        if (t == "\\dots") { return "\\ldots" }
+        if (t == "\\dotsc") { return "\\ldots" }
+        if (t == "\\dotsb") { return "\\cdots" }
+        if (t == "\\dotsm") { return "\\cdots" }
+        if (t == "\\dotsi") { return "\\cdots" }
+        if (t == "\\le") { return "\\leq" }
+        if (t == "\\ge") { return "\\geq" }
+        if (t == "\\to") { return "\\rightarrow" }
+        if (t == "\\gets") { return "\\leftarrow" }
+        if (t == "\\implies") { return "\\Longrightarrow" }
+        if (t == "\\impliedby") { return "\\Longleftarrow" }
+        if (t == "\\iff") { return "\\Longleftrightarrow" }
+        if (t == "\\land") { return "\\wedge" }
+        if (t == "\\lor") { return "\\vee" }
+        if (t == "\\lnot") { return "\\neg" }
+        if (t == "\\lbrace") { return "\\{" }
+        if (t == "\\rbrace") { return "\\}" }
+        if (t == "\\vert") { return "|" }
+        if (t == "\\Vert") { return "\\|" }
+        if (t == "\\lvert") { return "|" }
+        if (t == "\\rvert") { return "|" }
+        if (t == "\\setminus") { return "\\backslash" }
+        return ""
+    }
+
+    ; \operatorname{arg\,max} → "arg max"
+    sfn plainName:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 92) {
+                if ((i + 1) < n) {
+                    def c2:int (charAt s (i + 1))
+                    if ((c2 == 44) || (c2 == 59) || (c2 == 58) || (c2 == 32)) {
+                        out = (out + " ")
+                    }
+                }
+                i = (i + 2)
+            } {
+                if ((c != 123) && (c != 125)) {
+                    out = (out + (strfromcode c))
+                }
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+}

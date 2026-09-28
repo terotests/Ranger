@@ -34,6 +34,7 @@ Import "MdEmbed.rgr"
 Import "../../docx_viewer/src/RichDocument.rgr"
 Import "../../vfs/src/Vfs.rgr"
 Import "MdDocSync.rgr"
+Import "../../math/src/MathRender.rgr"
 
 class MdDocResult {
     def paragraphs:int 0
@@ -304,6 +305,28 @@ class MdToDocx {
             result.note((("a " + word) + " diagram went in as its name: a Word document is a stream of paragraphs and has no shapes"))
             return
         }
+        if (kind == "math_block") {
+            ; drawn, as a diagram is: Word's own equations are a different
+            ; language (OMML) and this converter does not write it
+            def mb:MathBox (MathLayout.layout(node.literal true))
+            def px:double (style.bodySize * 1.21)
+            def mw:double (mb.w * px)
+            def mh:double ((mb.h + mb.d) * px)
+            if ((mw > 0.0) && (mh > 0.0)) {
+                def dr:DocDrawing (doc.addDrawing())
+                dr.root = (MathRender.boxElement(mb px style.textColor))
+                dr.naturalW = mw
+                dr.naturalH = mh
+                dr.widthPx = (to_int (((mw * 96.0) / 72.0) + 0.5))
+                dr.heightPx = (to_int (((mh * 96.0) / 72.0) + 0.5))
+                dr.notation = "tex"
+                dr.source = node.literal
+                dr.name = "Formula"
+                dr.altText = node.literal
+                result.drawings = (result.drawings + 1)
+            }
+            return
+        }
         if (kind == "thematic_break") {
             def hp:Paragraph (doc.addParagraph())
             def hs:TextSpan (this.spanFor(false false false ""))
@@ -328,6 +351,12 @@ class MdToDocx {
             def kind:string c.kind
             if (kind == "text") {
                 p.appendText(c.literal base)
+            }
+            if (kind == "math") {
+                ; a formula in a line goes in as its source, in italics
+                def ms:TextSpan (base.copy())
+                ms.italic = true
+                p.appendText(c.literal ms)
             }
             if (kind == "code") {
                 def cs:TextSpan (base.copy())

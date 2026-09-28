@@ -1,0 +1,1248 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; MathLayout.rgr — atoms into boxes, the way TeX does it
+; ==============================================================================
+;
+; Appendix G of the TeXbook, in the reading KaTeX gives it: a list of atoms
+; becomes a row of boxes with TeX's spacing between the classes, a script is
+; raised by the font's own parameters, a fraction's parts are pushed apart
+; until they clear the bar, a delimiter is the smallest size that covers what
+; it encloses.
+;
+; Units are ems of the formula's own size; the renderer multiplies. A box
+; has a width, a height above its baseline and a depth below it, and holds
+; its drawing as a flat list of items placed relative to its own origin (the
+; left end of the baseline, y growing DOWN, as on a page).
+;
+; Styles are TeX's eight: display, text, script, scriptscript, each plain or
+; cramped. `st` is 0..7: size = st / 2, cramped = odd.
+; ==============================================================================
+
+Import "MathParser.rgr"
+
+class MathItem {
+    ; 0 glyph, 1 rule
+    def kind:int 0
+    def font:int 0
+    def cp:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def scale:double 1.0
+    def sx:double 1.0
+    def sy:double 1.0
+    def color:string ""
+
+    Constructor () {
+    }
+}
+
+class MathBox {
+    def w:double 0.0
+    def h:double 0.0
+    def d:double 0.0
+    def items:[MathItem]
+    def type:string "ord"
+    def italic:double 0.0
+    def skew:double 0.0
+    def isChar:boolean false
+
+    Constructor () {
+    }
+
+    ; Another box's drawing, with its origin at (x, y) of this one. Does not
+    ; grow this box: the caller knows what the new extent is.
+    fn place:void (b:MathBox x:double y:double) {
+        def i:int 0
+        def n:int (array_length b.items)
+        while (i < n) {
+            def it:MathItem (itemAt b.items i)
+            def c:MathItem (new MathItem())
+            c.kind = it.kind
+            c.font = it.font
+            c.cp = it.cp
+            c.x = (it.x + x)
+            c.y = (it.y + y)
+            c.w = it.w
+            c.h = it.h
+            c.scale = it.scale
+            c.sx = it.sx
+            c.sy = it.sy
+            c.color = it.color
+            push items c
+            i = (i + 1)
+        }
+    }
+
+    fn rule:void (x:double y:double w:double h:double color:string) {
+        def r:MathItem (new MathItem())
+        r.kind = 1
+        r.x = x
+        r.y = y
+        r.w = w
+        r.h = h
+        r.color = color
+        push items r
+    }
+}
+
+class MathLayout {
+    def color:string ""
+
+    Constructor () {
+    }
+
+    ; --- the whole formula ---------------------------------------------------------
+    sfn layout:MathBox (tex:string display:boolean) {
+        def l:MathLayout (new MathLayout())
+        def st:int 2
+        if display {
+            st = 0
+        }
+        return (l.list((MathParser.parse(tex)) st))
+    }
+
+    ; --- styles --------------------------------------------------------------------
+    sfn size:int (st:int) {
+        return (idiv st 2)
+    }
+
+    sfn cramped:boolean (st:int) {
+        return ((st % 2) == 1)
+    }
+
+    ; The row of sigma values a style reads: text, script, scriptscript.
+    sfn si:int (st:int) {
+        def z:int (idiv st 2)
+        if (z <= 1) {
+            return 0
+        }
+        return (z - 1)
+    }
+
+    sfn sm:double (st:int) {
+        def z:int (idiv st 2)
+        if (z == 2) {
+            return 0.7
+        }
+        if (z == 3) {
+            return 0.5
+        }
+        return 1.0
+    }
+
+    sfn isDisplay:boolean (st:int) {
+        return ((idiv st 2) == 0)
+    }
+
+    sfn supStyle:int (st:int) {
+        def z:int (idiv st 2)
+        def c:int (st % 2)
+        if (z <= 1) {
+            return (4 + c)
+        }
+        return (6 + c)
+    }
+
+    sfn subStyle:int (st:int) {
+        def z:int (idiv st 2)
+        if (z <= 1) {
+            return 5
+        }
+        return 7
+    }
+
+    sfn numStyle:int (st:int) {
+        def z:int (idiv st 2)
+        def c:int (st % 2)
+        if (z == 0) {
+            return (2 + c)
+        }
+        if (z == 1) {
+            return (4 + c)
+        }
+        return (6 + c)
+    }
+
+    sfn denStyle:int (st:int) {
+        def z:int (idiv st 2)
+        if (z == 0) {
+            return 3
+        }
+        if (z == 1) {
+            return 5
+        }
+        return 7
+    }
+
+    sfn cramp:int (st:int) {
+        if ((st % 2) == 1) {
+            return st
+        }
+        return (st + 1)
+    }
+
+    sfn sigma:double (name:string st:int) {
+        return ((MathFont.sigma(name (MathLayout.si(st)))) * (MathLayout.sm(st)))
+    }
+
+    sfn maxOf:double (a:double b:double) {
+        if (a > b) {
+            return a
+        }
+        return b
+    }
+
+    ; --- lists ---------------------------------------------------------------------
+    fn list:MathBox (atoms:[MathAtom] st:int) {
+        def boxes:[MathBox]
+        def spaces:[boolean]
+        def i:int 0
+        def n:int (array_length atoms)
+        while (i < n) {
+            def a:MathAtom (itemAt atoms i)
+            if (a.kind == "space") {
+                def sp:MathBox (new MathBox())
+                sp.w = (a.num * (MathLayout.sm(st)))
+                sp.type = "space"
+                push boxes sp
+                push spaces true
+            } {
+                if (a.kind == "style") {
+                    def ns:int ((to_int a.num) * 2)
+                    def b0:MathBox (this.list(a.body ns))
+                    push boxes b0
+                    push spaces false
+                } {
+                    push boxes (this.atom(a st))
+                    push spaces false
+                }
+            }
+            i = (i + 1)
+        }
+        MathLayout.reclassify(boxes)
+        def out:MathBox (new MathBox())
+        def x:double 0.0
+        def prev:string ""
+        def mu:double ((MathLayout.sigma("quad" st)) / 18.0)
+        def script:boolean ((MathLayout.size(st)) >= 2)
+        def k:int 0
+        def bn:int (array_length boxes)
+        while (k < bn) {
+            def b:MathBox (itemAt boxes k)
+            if (b.type == "space") {
+                x = (x + b.w)
+            } {
+                if ((strlen prev) > 0) {
+                    x = (x + ((to_double (MathLayout.spacing(prev b.type script))) * mu))
+                }
+                out.place(b x 0.0)
+                x = (x + b.w)
+                if (b.h > out.h) { out.h = b.h }
+                if (b.d > out.d) { out.d = b.d }
+                prev = b.type
+                if (k == (bn - 1)) {
+                    out.italic = b.italic
+                }
+            }
+            k = (k + 1)
+        }
+        out.w = x
+        def only:MathBox (new MathBox())
+        if (bn == 1) {
+            only = (itemAt boxes 0)
+        }
+        if ((bn == 1) && only.isChar) {
+            out.isChar = true
+            out.italic = only.italic
+            out.skew = only.skew
+        }
+        return out
+    }
+
+    ; A binary operator where nothing precedes it, or after something that is
+    ; not an operand, is an ordinary symbol: the minus of -x.
+    sfn reclassify:void (boxes:[MathBox]) {
+        def prev:string ""
+        def i:int 0
+        def n:int (array_length boxes)
+        while (i < n) {
+            def b:MathBox (itemAt boxes i)
+            if (b.type != "space") {
+                if (b.type == "bin") {
+                    if ((((prev == "") || (prev == "bin")) || ((prev == "op") || (prev == "rel"))) || ((prev == "open") || (prev == "punct"))) {
+                        b.type = "ord"
+                    }
+                }
+                if ((((b.type == "rel") || (b.type == "close")) || (b.type == "punct")) && (prev == "bin")) {
+                    MathLayout.lastBinToOrd(boxes i)
+                }
+                prev = b.type
+            }
+            i = (i + 1)
+        }
+        if (prev == "bin") {
+            MathLayout.lastBinToOrd(boxes n)
+        }
+    }
+
+    sfn lastBinToOrd:void (boxes:[MathBox] before:int) {
+        def j:int (before - 1)
+        while (j >= 0) {
+            def b:MathBox (itemAt boxes j)
+            if (b.type != "space") {
+                if (b.type == "bin") {
+                    b.type = "ord"
+                }
+                return
+            }
+            j = (j - 1)
+        }
+    }
+
+    ; TeX's spacing table, in mu: 3 thin, 4 medium, 5 thick. The negative
+    ; entries are the ones dropped in script styles.
+    sfn spacing:int (l:string r:string script:boolean) {
+        def v:int (MathLayout.rawSpacing(l r))
+        if (v < 0) {
+            if script {
+                return 0
+            }
+            return (0 - v)
+        }
+        return v
+    }
+
+    sfn rawSpacing:int (l:string r:string) {
+        if (l == "ord") {
+            if (r == "op") { return 3 }
+            if (r == "bin") { return -4 }
+            if (r == "rel") { return -5 }
+            if (r == "inner") { return -3 }
+            return 0
+        }
+        if (l == "op") {
+            if ((r == "ord") || (r == "op")) { return 3 }
+            if (r == "rel") { return -5 }
+            if (r == "inner") { return -3 }
+            return 0
+        }
+        if (l == "bin") {
+            if ((((r == "ord") || (r == "op")) || (r == "open")) || (r == "inner")) { return -4 }
+            return 0
+        }
+        if (l == "rel") {
+            if ((((r == "ord") || (r == "op")) || (r == "open")) || (r == "inner")) { return -5 }
+            return 0
+        }
+        if (l == "close") {
+            if (r == "op") { return 3 }
+            if (r == "bin") { return -4 }
+            if (r == "rel") { return -5 }
+            if (r == "inner") { return -3 }
+            return 0
+        }
+        if (l == "punct") {
+            if ((r == "bin") || (r == "space")) { return 0 }
+            return -3
+        }
+        if (l == "inner") {
+            if (r == "op") { return 3 }
+            if (r == "bin") { return -4 }
+            if (r == "rel") { return -5 }
+            if (r == "close") { return 0 }
+            return -3
+        }
+        return 0
+    }
+
+    ; --- one atom ------------------------------------------------------------------
+    fn atom:MathBox (a:MathAtom st:int) {
+        def nuc:MathBox (this.nucleus(a st))
+        if ((a.kind == "sym") || (a.kind == "opname")) {
+            if (a.type == "op") {
+                def useLimits:boolean ((a.limits == 1) || ((a.limits == 0) && (MathLayout.isDisplay(st))))
+                if (useLimits && (a.hasSup || a.hasSub)) {
+                    return (this.limits(nuc a st))
+                }
+            }
+        }
+        if (a.kind == "stack") {
+            return (this.limits(nuc a st))
+        }
+        if (a.hasSup || a.hasSub) {
+            return (this.scripts(nuc a st))
+        }
+        return nuc
+    }
+
+    fn nucleus:MathBox (a:MathAtom st:int) {
+        def k:string a.kind
+        if (k == "sym") {
+            if (a.type == "op") {
+                return (this.bigOp(a st))
+            }
+            def b:MathBox (this.glyph(a.font a.cp st 0.0 1.0 1.0))
+            b.type = a.type
+            b.isChar = true
+            return b
+        }
+        if (k == "list") {
+            def lb:MathBox (this.list(a.body st))
+            lb.type = a.type
+            return lb
+        }
+        if (k == "frac") { return (this.frac(a st)) }
+        if (k == "sqrt") { return (this.sqrt(a st)) }
+        if (k == "lr") { return (this.leftRight(a st)) }
+        if (k == "big") {
+            def z:double a.num
+            def bb:MathBox (this.delim(a.ldelim ((((z * 0.6) + 0.6) * (MathLayout.sm(st))) * 0.99) st))
+            bb.type = a.type
+            return bb
+        }
+        if (k == "accent") { return (this.accent(a st)) }
+        if ((k == "over") || (k == "under")) { return (this.overUnder(a st)) }
+        if (k == "text") {
+            return (this.text(a.text a.textFont st ""))
+        }
+        if (k == "error") {
+            return (this.text(a.text 0 st "#cc0000"))
+        }
+        if (k == "opname") {
+            def ob:MathBox (this.text(a.text 0 st ""))
+            ob.type = a.type
+            return ob
+        }
+        if (k == "array") { return (this.array(a st)) }
+        if (k == "stack") {
+            def sb:MathBox (this.list(a.body st))
+            sb.type = a.type
+            return sb
+        }
+        if (k == "box") { return (this.boxed(a st)) }
+        if (k == "not") {
+            def base:MathBox (this.list(a.body st))
+            def slash:MathBox (this.glyph((MathFont.mainFont()) 47 st 0.0 1.0 1.0))
+            def nb:MathBox (new MathBox())
+            nb.place(base 0.0 0.0)
+            nb.place(slash ((base.w - slash.w) / 2.0) 0.0)
+            nb.w = base.w
+            nb.h = (MathLayout.maxOf(base.h slash.h))
+            nb.d = (MathLayout.maxOf(base.d slash.d))
+            nb.type = a.type
+            return nb
+        }
+        if (k == "phantom") {
+            def pb:MathBox (this.list(a.body st))
+            clear pb.items
+            if (a.text == "\\hphantom") {
+                pb.h = 0.0
+                pb.d = 0.0
+            }
+            if (a.text == "\\vphantom") {
+                pb.w = 0.0
+            }
+            return pb
+        }
+        if (k == "color") {
+            def save:string color
+            color = (MathLayout.colorOf(a.text))
+            def cb:MathBox (this.list(a.body st))
+            color = save
+            return cb
+        }
+        if (k == "style") {
+            return (this.list(a.body ((to_int a.num) * 2)))
+        }
+        return (new MathBox())
+    }
+
+    ; One glyph at the style's size, its baseline `dy` below the box's, and
+    ; stretched by sx / sy.
+    fn glyph:MathBox (font:int cp:int st:int dy:double sx:double sy:double) {
+        def g:MathGlyph (MathFont.glyph(font cp))
+        def s:double (MathLayout.sm(st))
+        def b:MathBox (new MathBox())
+        b.w = ((g.w * s) * sx)
+        b.h = (((g.h * s) * sy) - dy)
+        b.d = (((g.d * s) * sy) + dy)
+        b.italic = (g.ic * s)
+        b.skew = (g.sk * s)
+        def it:MathItem (new MathItem())
+        it.font = font
+        it.cp = cp
+        it.y = dy
+        it.scale = s
+        it.sx = sx
+        it.sy = sy
+        it.color = color
+        push b.items it
+        return b
+    }
+
+    ; ∑ ∫ ∏: the larger cut, centred on the math axis.
+    fn bigOp:MathBox (a:MathAtom st:int) {
+        def font:int a.font
+        def size1:int (MathFont.size1())
+        def want:int size1
+        if (MathLayout.isDisplay(st)) {
+            want = (size1 + 1)
+        }
+        if (MathFont.has(want a.cp)) {
+            font = want
+        } {
+            if (MathFont.has(size1 a.cp)) {
+                font = size1
+            }
+        }
+        def g:MathGlyph (MathFont.glyph(font a.cp))
+        def s:double (MathLayout.sm(st))
+        def dy:double ((((g.h - g.d) * s) / 2.0) - (MathLayout.sigma("axisHeight" st)))
+        def b:MathBox (this.glyph(font a.cp st dy 1.0 1.0))
+        b.type = "op"
+        return b
+    }
+
+    ; --- scripts -------------------------------------------------------------------
+    fn scripts:MathBox (nuc:MathBox a:MathAtom st:int) {
+        def supSt:int (MathLayout.supStyle(st))
+        def subSt:int (MathLayout.subStyle(st))
+        def s:double (MathLayout.sm(st))
+        def xh:double (MathLayout.sigma("xHeight" st))
+        def u:double 0.0
+        def v:double 0.0
+        if (nuc.isChar == false) {
+            u = (nuc.h - (MathLayout.sigma("supDrop" supSt)))
+            v = (nuc.d + (MathLayout.sigma("subDrop" subSt)))
+        }
+        def supB:MathBox (new MathBox())
+        def subB:MathBox (new MathBox())
+        if a.hasSup {
+            supB = (this.list(a.sup supSt))
+            def p:double (MathLayout.sigma("sup2" st))
+            if (MathLayout.isDisplay(st)) {
+                p = (MathLayout.sigma("sup1" st))
+            }
+            if (MathLayout.cramped(st)) {
+                p = (MathLayout.sigma("sup3" st))
+            }
+            u = (MathLayout.maxOf(u (MathLayout.maxOf(p (supB.d + (0.25 * xh))))))
+        }
+        if a.hasSub {
+            subB = (this.list(a.sub subSt))
+        }
+        if (a.hasSub && (a.hasSup == false)) {
+            v = (MathLayout.maxOf(v (MathLayout.maxOf((MathLayout.sigma("sub1" st)) (subB.h - (0.8 * xh))))))
+        }
+        if (a.hasSub && a.hasSup) {
+            v = (MathLayout.maxOf(v (MathLayout.sigma("sub2" st))))
+            def theta:double (MathLayout.sigma("ruleThickness" st))
+            def gap:double ((u - supB.d) - (subB.h - v))
+            if (gap < (4.0 * theta)) {
+                v = ((v + (4.0 * theta)) - gap)
+                def psi:double ((0.8 * xh) - (u - supB.d))
+                if (psi > 0.0) {
+                    u = (u + psi)
+                    v = (v - psi)
+                }
+            }
+        }
+        def out:MathBox (new MathBox())
+        out.type = nuc.type
+        out.place(nuc 0.0 0.0)
+        out.h = nuc.h
+        out.d = nuc.d
+        def ic:double 0.0
+        if nuc.isChar {
+            ic = nuc.italic
+        }
+        ; a big operator's subscript sits under its slant
+        ; a big operator's superscript goes past its slant, the subscript
+        ; stays under it
+        def subX:double nuc.w
+        if (nuc.type == "op") {
+            ic = nuc.italic
+        }
+        def w:double nuc.w
+        def space:double (0.05 * s)
+        if a.hasSup {
+            out.place(supB (nuc.w + ic) (0.0 - u))
+            w = (MathLayout.maxOf(w (((nuc.w + ic) + supB.w) + space)))
+            out.h = (MathLayout.maxOf(out.h (u + supB.h)))
+        }
+        if a.hasSub {
+            out.place(subB subX v)
+            w = (MathLayout.maxOf(w ((subX + subB.w) + space)))
+            out.d = (MathLayout.maxOf(out.d (v + subB.d)))
+        }
+        out.w = w
+        return out
+    }
+
+    ; Limits above and below: ∑ in display, \lim, \overset.
+    fn limits:MathBox (nuc:MathBox a:MathAtom st:int) {
+        def supSt:int (MathLayout.supStyle(st))
+        def subSt:int (MathLayout.subStyle(st))
+        def supB:MathBox (new MathBox())
+        def subB:MathBox (new MathBox())
+        if a.hasSup {
+            supB = (this.list(a.sup supSt))
+        }
+        if a.hasSub {
+            subB = (this.list(a.sub subSt))
+        }
+        def ic:double 0.0
+        if (nuc.isChar && (nuc.type == "op")) {
+            ic = nuc.italic
+        }
+        def w:double (MathLayout.maxOf(nuc.w (MathLayout.maxOf(supB.w subB.w))))
+        def out:MathBox (new MathBox())
+        out.type = a.type
+        out.place(nuc ((w - nuc.w) / 2.0) 0.0)
+        out.h = nuc.h
+        out.d = nuc.d
+        def five:double (MathLayout.sigma("bigOpSpacing5" st))
+        if a.hasSup {
+            def kern:double (MathLayout.maxOf((MathLayout.sigma("bigOpSpacing1" st)) ((MathLayout.sigma("bigOpSpacing3" st)) - supB.d)))
+            def base:double ((nuc.h + kern) + supB.d)
+            out.place(supB (((w - supB.w) / 2.0) + (ic / 2.0)) (0.0 - base))
+            out.h = ((base + supB.h) + five)
+        }
+        if a.hasSub {
+            def kern2:double (MathLayout.maxOf((MathLayout.sigma("bigOpSpacing2" st)) ((MathLayout.sigma("bigOpSpacing4" st)) - subB.h)))
+            def base2:double ((nuc.d + kern2) + subB.h)
+            out.place(subB (((w - subB.w) / 2.0) - (ic / 2.0)) base2)
+            out.d = ((base2 + subB.d) + five)
+        }
+        out.w = w
+        return out
+    }
+
+    ; --- fractions -----------------------------------------------------------------
+    fn frac:MathBox (a:MathAtom st0:int) {
+        def st:int st0
+        if (a.fstyle == 0) {
+            st = (st0 % 2)
+        }
+        if (a.fstyle == 1) {
+            st = (2 + (st0 % 2))
+        }
+        def nb:MathBox (this.list(a.body (MathLayout.numStyle(st))))
+        def db:MathBox (this.list(a.body2 (MathLayout.denStyle(st))))
+        def hasBar:boolean (a.num != 0.0)
+        def theta0:double (MathLayout.sigma("ruleThickness" st))
+        def theta:double 0.0
+        if hasBar {
+            theta = theta0
+        }
+        def numShift:double 0.0
+        def denShift:double 0.0
+        def clearance:double 0.0
+        if (MathLayout.isDisplay(st)) {
+            numShift = (MathLayout.sigma("num1" st))
+            denShift = (MathLayout.sigma("denom1" st))
+            if hasBar {
+                clearance = (3.0 * theta)
+            } {
+                clearance = (7.0 * theta0)
+            }
+        } {
+            denShift = (MathLayout.sigma("denom2" st))
+            if hasBar {
+                numShift = (MathLayout.sigma("num2" st))
+                clearance = theta
+            } {
+                numShift = (MathLayout.sigma("num3" st))
+                clearance = (3.0 * theta0)
+            }
+        }
+        def axis:double (MathLayout.sigma("axisHeight" st))
+        if hasBar {
+            def nc:double ((numShift - nb.d) - (axis + (theta / 2.0)))
+            if (nc < clearance) {
+                numShift = (numShift + (clearance - nc))
+            }
+            def dc:double ((axis - (theta / 2.0)) - (db.h - denShift))
+            if (dc < clearance) {
+                denShift = (denShift + (clearance - dc))
+            }
+        } {
+            def clr:double ((numShift - nb.d) - (db.h - denShift))
+            if (clr < clearance) {
+                numShift = (numShift + ((clearance - clr) / 2.0))
+                denShift = (denShift + ((clearance - clr) / 2.0))
+            }
+        }
+        def w:double (MathLayout.maxOf(nb.w db.w))
+        def body:MathBox (new MathBox())
+        body.place(nb ((w - nb.w) / 2.0) (0.0 - numShift))
+        body.place(db ((w - db.w) / 2.0) denShift)
+        if hasBar {
+            body.rule(0.0 (0.0 - (axis + (theta / 2.0))) w theta color)
+        }
+        body.w = w
+        body.h = (numShift + nb.h)
+        body.d = (denShift + db.d)
+        if ((strlen a.ldelim) > 0) {
+            def size:double (MathLayout.sigma("delim2" st))
+            if (MathLayout.isDisplay(st)) {
+                size = (MathLayout.sigma("delim1" st))
+            }
+            def lb:MathBox (this.delim(a.ldelim size st))
+            def rb:MathBox (this.delim(a.rdelim size st))
+            def out:MathBox (MathLayout.row3(lb body rb))
+            out.type = "inner"
+            return out
+        }
+        def pad:double (0.12 * (MathLayout.sm(st)))
+        def out2:MathBox (new MathBox())
+        out2.place(body pad 0.0)
+        out2.w = (w + (2.0 * pad))
+        out2.h = body.h
+        out2.d = body.d
+        out2.type = "inner"
+        return out2
+    }
+
+    sfn row3:MathBox (a:MathBox b:MathBox c:MathBox) {
+        def out:MathBox (new MathBox())
+        out.place(a 0.0 0.0)
+        out.place(b a.w 0.0)
+        out.place(c (a.w + b.w) 0.0)
+        out.w = ((a.w + b.w) + c.w)
+        out.h = (MathLayout.maxOf(a.h (MathLayout.maxOf(b.h c.h))))
+        out.d = (MathLayout.maxOf(a.d (MathLayout.maxOf(b.d c.d))))
+        return out
+    }
+
+    ; --- roots ---------------------------------------------------------------------
+    fn sqrt:MathBox (a:MathAtom st:int) {
+        def body:MathBox (this.list(a.body (MathLayout.cramp(st))))
+        def s:double (MathLayout.sm(st))
+        def theta:double (MathLayout.sigma("ruleThickness" st))
+        def phi:double theta
+        if (MathLayout.isDisplay(st)) {
+            phi = (MathLayout.sigma("xHeight" st))
+        }
+        def clear:double (theta + (phi / 4.0))
+        def minTotal:double (((body.h + body.d) + clear) + theta)
+        def pick:MathItem (this.delimGlyph(8730 minTotal st))
+        def g:MathGlyph (MathFont.glyph(pick.font 8730))
+        def gh:double ((g.h * s) * pick.sy)
+        def gd:double ((g.d * s) * pick.sy)
+        def total:double (gh + gd)
+        if (total > minTotal) {
+            clear = (clear + ((total - minTotal) / 2.0))
+        }
+        def ruleTop:double (0.0 - ((body.h + clear) + theta))
+        def surd:MathBox (this.glyph(pick.font 8730 st (ruleTop + gh) 1.0 pick.sy))
+        def out:MathBox (new MathBox())
+        out.place(surd 0.0 0.0)
+        out.place(body surd.w 0.0)
+        out.rule((surd.w - (0.005 * s)) ruleTop (body.w + (0.01 * s)) theta color)
+        out.w = (surd.w + body.w)
+        out.h = (0.0 - ruleTop)
+        out.d = (MathLayout.maxOf(body.d surd.d))
+        if ((array_length a.body2) == 0) {
+            return out
+        }
+        ; the index, raised, tucked into the surd
+        def idx:MathBox (this.list(a.body2 6))
+        def mu:double (s / 18.0)
+        def raise:double (0.6 * (out.h - out.d))
+        def before:double (5.0 * mu)
+        def after:double (-10.0 * mu)
+        def rootX:double ((before + idx.w) + after)
+        def shift:double 0.0
+        if (rootX < 0.0) {
+            shift = (0.0 - rootX)
+        }
+        def res:MathBox (new MathBox())
+        res.place(idx (before + shift) (0.0 - raise))
+        res.place(out (rootX + shift) 0.0)
+        res.w = ((rootX + shift) + out.w)
+        res.h = (MathLayout.maxOf(out.h (raise + idx.h)))
+        res.d = out.d
+        return res
+    }
+
+    ; --- delimiters ------------------------------------------------------------------
+    sfn delimCp:int (name:string) {
+        if (name == "(") { return 40 }
+        if (name == ")") { return 41 }
+        if (name == "[") { return 91 }
+        if (name == "]") { return 93 }
+        if (name == "{") { return 123 }
+        if (name == "}") { return 125 }
+        if (name == "|") { return 8739 }
+        if (name == "||") { return 8741 }
+        if (name == "<") { return 10216 }
+        if (name == ">") { return 10217 }
+        if (name == "lfloor") { return 8970 }
+        if (name == "rfloor") { return 8971 }
+        if (name == "lceil") { return 8968 }
+        if (name == "rceil") { return 8969 }
+        if (name == "/") { return 47 }
+        if (name == "\\") { return 92 }
+        if (name == "\\uparrow") { return 8593 }
+        if (name == "\\downarrow") { return 8595 }
+        if (name == "\\Uparrow") { return 8657 }
+        if (name == "\\Downarrow") { return 8659 }
+        return 0
+    }
+
+    ; The smallest cut of `cp` at least `minTotal` tall (height + depth), or
+    ; the largest one stretched to it. Returned as an item: font and sy.
+    fn delimGlyph:MathItem (cp:int minTotal:double st:int) {
+        def s:double (MathLayout.sm(st))
+        def best:MathItem (new MathItem())
+        best.font = -1
+        def i:int 0
+        while (i < 5) {
+            def f:int 0
+            if (i > 0) {
+                f = (i + 4)
+            }
+            if (MathFont.has(f cp)) {
+                def g:MathGlyph (MathFont.glyph(f cp))
+                best.font = f
+                best.sy = 1.0
+                if (((g.h + g.d) * s) >= minTotal) {
+                    return best
+                }
+            }
+            i = (i + 1)
+        }
+        if (best.font < 0) {
+            best.font = 0
+            best.sy = 1.0
+            return best
+        }
+        def g2:MathGlyph (MathFont.glyph(best.font cp))
+        def tot:double ((g2.h + g2.d) * s)
+        if (tot > 0.0) {
+            best.sy = (minTotal / tot)
+        }
+        return best
+    }
+
+    ; A delimiter at least `minTotal` tall, centred on the axis.
+    fn delim:MathBox (name:string minTotal:double st:int) {
+        def cp:int (MathLayout.delimCp(name))
+        if (cp == 0) {
+            ; `.`, or a name nobody draws: the null delimiter's width
+            def e:MathBox (new MathBox())
+            e.w = (0.12 * (MathLayout.sm(st)))
+            return e
+        }
+        def pick:MathItem (this.delimGlyph(cp minTotal st))
+        def g:MathGlyph (MathFont.glyph(pick.font cp))
+        def s:double (MathLayout.sm(st))
+        def gh:double ((g.h * s) * pick.sy)
+        def gd:double ((g.d * s) * pick.sy)
+        def dy:double (((gh - gd) / 2.0) - (MathLayout.sigma("axisHeight" st)))
+        return (this.glyph(pick.font cp st dy 1.0 pick.sy))
+    }
+
+    ; What \left…\right has to cover: TeX's delimiterfactor and shortfall.
+    sfn coverFor:double (b:MathBox st:int) {
+        def axis:double (MathLayout.sigma("axisHeight" st))
+        def delta:double (MathLayout.maxOf((b.h - axis) (b.d + axis)))
+        def a:double (((delta / 500.0) * 901.0) * 2.0)
+        def c:double ((2.0 * delta) - (0.5 * (MathLayout.sm(st))))
+        return (MathLayout.maxOf(a c))
+    }
+
+    fn leftRight:MathBox (a:MathAtom st:int) {
+        def body:MathBox (this.list(a.body st))
+        def need:double (MathLayout.coverFor(body st))
+        def lb:MathBox (this.delim(a.ldelim need st))
+        def rb:MathBox (this.delim(a.rdelim need st))
+        def out:MathBox (MathLayout.row3(lb body rb))
+        out.type = "inner"
+        return out
+    }
+
+    ; --- accents, over- and underlines ---------------------------------------------------
+    fn accent:MathBox (a:MathAtom st:int) {
+        def body:MathBox (this.list(a.body (MathLayout.cramp(st))))
+        def s:double (MathLayout.sm(st))
+        def xh:double (MathLayout.sigma("xHeight" st))
+        def g:MathGlyph (MathFont.glyph(a.font a.cp))
+        def delta:double body.h
+        if (delta > xh) {
+            delta = xh
+        }
+        def raise:double (body.h - delta)
+        def sx:double 1.0
+        def gw:double (g.w * s)
+        if (a.stretch && (gw > 0.0)) {
+            def want:double (body.w * 0.9)
+            if (want > gw) {
+                sx = (want / gw)
+            }
+        }
+        def ab:MathBox (this.glyph(a.font a.cp st (0.0 - raise) sx 1.0))
+        def x:double ((body.w - ab.w) / 2.0)
+        if body.isChar {
+            x = (x + body.skew)
+        }
+        ; the combining vector arrow has no advance: its ink sits to the left
+        if (a.cp == 8407) {
+            x = ((body.w / 2.0) + (0.25 * s))
+            if body.isChar {
+                x = (x + body.skew)
+            }
+        }
+        def out:MathBox (new MathBox())
+        out.place(body 0.0 0.0)
+        out.place(ab x 0.0)
+        out.w = body.w
+        out.h = (MathLayout.maxOf(body.h (raise + (g.h * s))))
+        out.d = body.d
+        out.italic = body.italic
+        return out
+    }
+
+    fn overUnder:MathBox (a:MathAtom st:int) {
+        def theta:double (MathLayout.sigma("ruleThickness" st))
+        if (a.kind == "over") {
+            def body:MathBox (this.list(a.body (MathLayout.cramp(st))))
+            def out:MathBox (new MathBox())
+            out.place(body 0.0 0.0)
+            def top:double ((body.h + (3.0 * theta)) + theta)
+            out.rule(0.0 (0.0 - top) body.w theta color)
+            out.w = body.w
+            out.h = (top + theta)
+            out.d = body.d
+            return out
+        }
+        def body2:MathBox (this.list(a.body st))
+        def out2:MathBox (new MathBox())
+        out2.place(body2 0.0 0.0)
+        def at:double (body2.d + (3.0 * theta))
+        out2.rule(0.0 at body2.w theta color)
+        out2.w = body2.w
+        out2.h = body2.h
+        out2.d = ((at + theta) + theta)
+        return out2
+    }
+
+    ; --- text ----------------------------------------------------------------------------
+    ;
+    ; Upright, from the main font; a letter with an accent the font does not
+    ; carry is built from the letter and the accent, which covers the Nordic
+    ; and Western European letters a \text{} in a Finnish document has.
+    fn text:MathBox (s0:string font:int st:int col:string) {
+        def save:string color
+        if ((strlen col) > 0) {
+            color = col
+        }
+        def s:double (MathLayout.sm(st))
+        def out:MathBox (new MathBox())
+        def x:double 0.0
+        def i:int 0
+        def n:int (strlen s0)
+        while (i < n) {
+            def c:int (charAt s0 i)
+            if ((c == 32) || (c == 126)) {
+                x = (x + (0.333 * s))
+            } {
+                def b:MathBox (this.textChar(c font st))
+                out.place(b x 0.0)
+                x = (x + b.w)
+                if (b.h > out.h) { out.h = b.h }
+                if (b.d > out.d) { out.d = b.d }
+            }
+            i = (i + 1)
+        }
+        out.w = x
+        color = save
+        return out
+    }
+
+    fn textChar:MathBox (c:int font0:int st:int) {
+        def font:int font0
+        if ((font == (MathFont.mathItalic())) && ((MathFont.has(font c)) == false)) {
+            font = (MathFont.mainFont())
+        }
+        if (MathFont.has(font c)) {
+            return (this.glyph(font c st 0.0 1.0 1.0))
+        }
+        if (MathFont.has((MathFont.mainFont()) c)) {
+            return (this.glyph((MathFont.mainFont()) c st 0.0 1.0 1.0))
+        }
+        def base:int (MathLayout.baseLetter(c))
+        def acc:int (MathLayout.accentMark(c))
+        if ((base > 0) && (acc > 0)) {
+            def bb:MathBox (this.glyph(font base st 0.0 1.0 1.0))
+            def s:double (MathLayout.sm(st))
+            def raise:double (bb.h - (MathLayout.sigma("xHeight" st)))
+            if (raise < 0.0) {
+                raise = 0.0
+            }
+            def ab:MathBox (this.glyph((MathFont.mainFont()) acc st (0.0 - raise) 1.0 1.0))
+            def out:MathBox (new MathBox())
+            out.place(bb 0.0 0.0)
+            out.place(ab ((bb.w - ab.w) / 2.0) 0.0)
+            out.w = bb.w
+            out.h = (MathLayout.maxOf(bb.h (raise + ab.h)))
+            out.d = bb.d
+            return out
+        }
+        return (this.glyph((MathFont.mainFont()) 63 st 0.0 1.0 1.0))
+    }
+
+    sfn baseLetter:int (c:int) {
+        if ((c >= 224) && (c <= 229)) { return 97 }
+        if ((c >= 192) && (c <= 197)) { return 65 }
+        if ((c >= 232) && (c <= 235)) { return 101 }
+        if ((c >= 200) && (c <= 203)) { return 69 }
+        if ((c >= 236) && (c <= 239)) { return 305 }
+        if ((c >= 204) && (c <= 207)) { return 73 }
+        if ((c >= 242) && (c <= 246)) { return 111 }
+        if ((c >= 210) && (c <= 214)) { return 79 }
+        if ((c >= 249) && (c <= 252)) { return 117 }
+        if ((c >= 217) && (c <= 220)) { return 85 }
+        if (c == 241) { return 110 }
+        if (c == 209) { return 78 }
+        if (c == 253) { return 121 }
+        if (c == 255) { return 121 }
+        if (c == 231) { return 99 }
+        if (c == 199) { return 67 }
+        return 0
+    }
+
+    sfn accentMark:int (c:int) {
+        def k:int c
+        if ((c >= 192) && (c <= 222)) {
+            k = (c + 32)
+        }
+        if ((k == 224) || (k == 232) || (k == 236) || (k == 242) || (k == 249)) { return 715 }
+        if ((k == 225) || (k == 233) || (k == 237) || (k == 243) || (k == 250) || (k == 253)) { return 714 }
+        if ((k == 226) || (k == 234) || (k == 238) || (k == 244) || (k == 251)) { return 710 }
+        if ((k == 227) || (k == 241) || (k == 245)) { return 732 }
+        if ((k == 228) || (k == 235) || (k == 239) || (k == 246) || (k == 252) || (k == 255)) { return 168 }
+        if (k == 229) { return 730 }
+        if (k == 231) { return 184 }
+        return 0
+    }
+
+    ; --- arrays --------------------------------------------------------------------------
+    fn array:MathBox (a:MathAtom st:int) {
+        def env:string a.env
+        def cellSt:int 2
+        def aligned:boolean ((((env == "aligned") || (env == "align")) || ((env == "align*") || (env == "split"))) || ((env == "alignat") || (env == "alignedat")))
+        def gathered:boolean ((env == "gathered") || ((env == "gather") || (env == "gather*")))
+        if ((aligned || gathered) || ((env == "dcases") || (env == "darray"))) {
+            cellSt = 0
+        }
+        if ((MathLayout.size(st)) >= 2) {
+            cellSt = st
+        }
+        if ((env == "smallmatrix")) {
+            cellSt = 4
+        }
+        def s:double (MathLayout.sm(st))
+        def skip:double 1.2
+        if ((env == "cases") || (env == "dcases") || (env == "rcases")) {
+            skip = 1.44
+        }
+        if (aligned || gathered) {
+            skip = 1.45
+        }
+        skip = (skip * s)
+        def rows:int a.rows
+        def cols:int a.cols
+        def cells:[MathBox]
+        def colW:[double]
+        def rowH:[double]
+        def rowD:[double]
+        def c:int 0
+        while (c < cols) {
+            push colW 0.0
+            c = (c + 1)
+        }
+        def r:int 0
+        while (r < rows) {
+            def rh:double (0.7 * skip)
+            def rd:double (0.3 * skip)
+            c = 0
+            while (c < cols) {
+                def idx:int ((r * cols) + c)
+                def body:[MathAtom]
+                if (idx < (array_length a.cells)) {
+                    def cell:MathCell (itemAt a.cells idx)
+                    body = cell.body
+                }
+                ; the right half of an aligned pair starts after an empty
+                ; ord, so its `=` is spaced as a relation
+                if (aligned && ((c % 2) == 1)) {
+                    def lead:[MathAtom]
+                    push lead (MathAtom.of("list"))
+                    def k:int 0
+                    while (k < (array_length body)) {
+                        push lead (itemAt body k)
+                        k = (k + 1)
+                    }
+                    body = lead
+                }
+                def b:MathBox (this.list(body cellSt))
+                push cells b
+                if (b.w > (itemAt colW c)) {
+                    set_at colW c b.w
+                }
+                if (b.h > rh) { rh = b.h }
+                if (b.d > rd) { rd = b.d }
+                c = (c + 1)
+            }
+            push rowH rh
+            push rowD rd
+            r = (r + 1)
+        }
+        ; where each column starts
+        def colX:[double]
+        def x:double 0.0
+        def outer:double 0.0
+        if ((env == "array") || (env == "darray")) {
+            outer = (0.5 * s)
+        }
+        x = outer
+        c = 0
+        while (c < cols) {
+            push colX x
+            x = (x + (itemAt colW c))
+            if (c < (cols - 1)) {
+                if aligned {
+                    if ((c % 2) == 1) {
+                        x = (x + (1.0 * s))
+                    }
+                } {
+                    x = (x + (1.0 * s))
+                }
+            }
+            c = (c + 1)
+        }
+        def width:double (x + outer)
+        ; the rows, top down
+        def total:double 0.0
+        r = 0
+        while (r < rows) {
+            total = ((total + (itemAt rowH r)) + (itemAt rowD r))
+            if (r < (rows - 1)) {
+                total = (total + ((itemAt a.rowGap r) * s))
+            }
+            r = (r + 1)
+        }
+        def axis:double (MathLayout.sigma("axisHeight" st))
+        def body2:MathBox (new MathBox())
+        body2.h = ((total / 2.0) + axis)
+        body2.d = ((total / 2.0) - axis)
+        body2.w = width
+        def y:double 0.0
+        r = 0
+        while (r < rows) {
+            def base:double ((y + (itemAt rowH r)) - body2.h)
+            c = 0
+            while (c < cols) {
+                def b2:MathBox (itemAt cells ((r * cols) + c))
+                def al:string "c"
+                if (c < (array_length a.colAlign)) {
+                    al = (itemAt a.colAlign c)
+                }
+                def cx:double (itemAt colX c)
+                if (al == "c") {
+                    cx = (cx + (((itemAt colW c) - b2.w) / 2.0))
+                }
+                if (al == "r") {
+                    cx = (cx + ((itemAt colW c) - b2.w))
+                }
+                body2.place(b2 cx base)
+                c = (c + 1)
+            }
+            y = ((y + (itemAt rowH r)) + (itemAt rowD r))
+            if (r < (rows - 1)) {
+                y = (y + ((itemAt a.rowGap r) * s))
+            }
+            r = (r + 1)
+        }
+        if (((strlen a.ldelim) == 0) && ((strlen a.rdelim) == 0)) {
+            return body2
+        }
+        def need:double (MathLayout.coverFor(body2 st))
+        def lb:MathBox (this.delim(a.ldelim need st))
+        def rb:MathBox (this.delim(a.rdelim need st))
+        if ((a.ldelim != ".") && (env != "cases")) {
+            ; matrices sit a little inside their brackets
+            lb.w = (lb.w + (0.1 * s))
+            def rb2:MathBox (new MathBox())
+            rb2.place(rb (0.1 * s) 0.0)
+            rb2.w = (rb.w + (0.1 * s))
+            rb2.h = rb.h
+            rb2.d = rb.d
+            rb = rb2
+        }
+        if (env == "cases") {
+            lb.w = (lb.w + (0.15 * s))
+        }
+        def out:MathBox (MathLayout.row3(lb body2 rb))
+        out.type = "inner"
+        return out
+    }
+
+    ; --- \boxed -------------------------------------------------------------------------
+    fn boxed:MathBox (a:MathAtom st:int) {
+        def body:MathBox (this.list(a.body st))
+        def s:double (MathLayout.sm(st))
+        def pad:double (0.3 * s)
+        def t:double (0.04 * s)
+        def out:MathBox (new MathBox())
+        def w:double ((body.w + (2.0 * pad)) + (2.0 * t))
+        def top:double ((body.h + pad) + t)
+        def bottom:double ((body.d + pad) + t)
+        out.place(body (pad + t) 0.0)
+        out.rule(0.0 (0.0 - top) w t color)
+        out.rule(0.0 (bottom - t) w t color)
+        out.rule(0.0 (0.0 - top) t (top + bottom) color)
+        out.rule((w - t) (0.0 - top) t (top + bottom) color)
+        out.w = w
+        out.h = top
+        out.d = bottom
+        return out
+    }
+
+    ; --- colour --------------------------------------------------------------------------
+    sfn colorOf:string (name0:string) {
+        def name:string (trim name0)
+        if ((strlen name) == 0) {
+            return ""
+        }
+        if ((charAt name 0) == 35) {
+            return name
+        }
+        if (name == "red") { return "#d62728" }
+        if (name == "blue") { return "#1f77b4" }
+        if (name == "green") { return "#2ca02c" }
+        if (name == "orange") { return "#ff7f0e" }
+        if (name == "purple") { return "#9467bd" }
+        if (name == "violet") { return "#9467bd" }
+        if (name == "magenta") { return "#e377c2" }
+        if (name == "pink") { return "#f7b6d2" }
+        if (name == "brown") { return "#8c564b" }
+        if (name == "gray") { return "#7f7f7f" }
+        if (name == "grey") { return "#7f7f7f" }
+        if (name == "cyan") { return "#17becf" }
+        if (name == "teal") { return "#008080" }
+        if (name == "yellow") { return "#e8c10c" }
+        if (name == "black") { return "#000000" }
+        if (name == "white") { return "#ffffff" }
+        ; a six-digit hex without its #, as \color{FF8800}
+        if ((strlen name) == 6) {
+            return ("#" + name)
+        }
+        return name
+    }
+}

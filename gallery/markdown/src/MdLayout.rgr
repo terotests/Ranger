@@ -43,6 +43,7 @@ Import "MdCodeHighlight.rgr"
 Import "MdFrontMatter.rgr"
 Import "MdCss.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
+Import "../../math/src/MathLayout.rgr"
 
 ; ----------------------------------------------------------------------------
 ; What the document looks like. Not a stylesheet yet — the values a stylesheet
@@ -71,6 +72,10 @@ class MdRun {
     ; running off the end of the node it belongs to.
     def srcStart:int -1
     def srcEnd:int -1
+    ; TeX math (`$…$`): the run is one unbreakable formula, its text a
+    ; placeholder character, and `math` the source it is set from.
+    def math:string ""
+    def mathDisplay:boolean false
 
     Constructor () {
     }
@@ -108,6 +113,8 @@ class MdSeg {
     ; it is what a click turns into a caret.
     def srcStart:int -1
     def srcLen:int 0
+    def math:string ""
+    def mathDisplay:boolean false
 
     Constructor () {
     }
@@ -118,6 +125,9 @@ class MdLine {
     def width:double 0.0
     def height:double 0.0
     def ascent:double 0.0
+    ; Room made above the text for a formula that rises past the line: the
+    ; text moves down by this much and the line is that much taller.
+    def extraTop:double 0.0
 
     Constructor () {
     }
@@ -127,7 +137,9 @@ class MdLine {
 ; bridge turns each into an element; nothing above this file knows about
 ; markdown and nothing below it knows about layout.
 class MdBox {
-    ; 0 text, 1 filled rectangle, 2 rectangle outline, 3 an embed's slot
+    ; 0 text, 1 filled rectangle, 2 rectangle outline, 3 an embed's slot,
+    ; 4 a picture, 5 a TeX formula: `embedSource` its source, `embedKind`
+    ; "math" or "math-display", `size` the pixels per em it is set at
     def kind:int 0
     def x:double 0.0
     def y:double 0.0
@@ -399,6 +411,8 @@ class MdLayout {
     ; unless somebody filled it: the layout can lay a document out without
     ; one, and leaves a labelled slot where a diagram would have gone.
     def embeds:MdEmbedCache (new MdEmbedCache())
+    ; formulas, laid out once per source (see `mathBox`)
+    def mathBoxes:[string:MathBox]
     ; Where a picture's bytes come from, and which folder the document is in.
     ;
     ; Empty by default and that is the honest default: `![alt](src)` draws as
@@ -1754,6 +1768,10 @@ class MdLayout {
             this.embed(node x w)
             return
         }
+        if (kind == "math_block") {
+            this.mathBlock(node x w)
+            return
+        }
         ; anything unexpected still shows its contents rather than vanishing
         this.blocks(node x w)
     }
@@ -2139,6 +2157,15 @@ class MdLayout {
                 cr.srcEnd = c.srcEnd
                 push out cr
             }
+            if (kind == "math") {
+                def mr:MdRun (base.copyStyle())
+                mr.text = (strfromcode 65532)
+                mr.math = c.literal
+                mr.mathDisplay = (c.info == "display")
+                mr.srcStart = c.srcStart
+                mr.srcEnd = c.srcEnd
+                push out mr
+            }
             if (kind == "html_inline") {
                 def hr:MdRun (base.copyStyle())
                 hr.family = style.monoFamily
@@ -2211,6 +2238,96 @@ class MdLayout {
     }
 
     ; ----------------------------------------------------------------------
+    ; TeX math
+    ; ----------------------------------------------------------------------
+    ;
+    ; A formula is set by `MathLayout` in ems and drawn at `mathPx` pixels per
+    ; em: a little larger than the text around it, because the Computer
+    ; Modern faces the formulas are cut from are small on the body — the same
+    ; 1.21 KaTeX uses. Boxes are kept per source, since a line is measured
+    ; several times while it is being broken.
+    sfn mathPx:double (size:double) {
+        return (size * 1.21)
+    }
+
+    fn mathBox:MathBox (tex:string display:boolean) {
+        def key:string tex
+        if display {
+            key = ("display:" + tex)
+        }
+        if (has mathBoxes key) {
+            return (unwrap (get mathBoxes key))
+        }
+        def b:MathBox (MathLayout.layout(tex display))
+        set mathBoxes key b
+        return b
+    }
+
+    ; Where the painter puts the baseline of a run of `seg`'s face, down from
+    ; the top of its line box — the rule the painters draw text by, so a
+    ; formula stands on the same line as the words beside it.
+    fn baselineIn:double (seg:MdSeg) {
+        def face:string (style.faceFor(seg.family seg.bold seg.italic))
+        def m:EVGTextMetrics (engine.measureRun("Hg" face seg.size))
+        def asc:double m.ascent
+        def desc:double m.descent
+        if ((asc + desc) <= 0.0) {
+            return (seg.size * 0.9)
+        }
+        return (((seg.size - (asc + desc)) / 2.0) + asc)
+    }
+
+    fn mathSegBox:MdBox (seg:MdSeg x:double lineTop:double) {
+        def mb:MathBox (this.mathBox(seg.math seg.mathDisplay))
+        def px:double (MdLayout.mathPx(seg.size))
+        def base:double (lineTop + (this.baselineIn(seg)))
+        def b:MdBox (new MdBox())
+        b.kind = 5
+        b.x = x
+        b.y = (base - (mb.h * px))
+        b.w = seg.w
+        b.h = ((mb.h + mb.d) * px)
+        b.size = px
+        b.color = seg.color
+        b.embedSource = seg.math
+        b.embedKind = "math"
+        if seg.mathDisplay {
+            b.embedKind = "math-display"
+        }
+        b.segSrc = seg.srcStart
+        b.segLen = seg.srcLen
+        return b
+    }
+
+    ; A $$ display: centred in the column, scaled down when it would not fit.
+    fn mathBlock:void (node:MdNode x:double w:double) {
+        def mb:MathBox (this.mathBox(node.literal true))
+        def px:double (MdLayout.mathPx(style.bodySize))
+        if (((mb.w * px) > w) && (mb.w > 0.0)) {
+            px = (w / mb.w)
+        }
+        def bw:double (mb.w * px)
+        def bh:double ((mb.h + mb.d) * px)
+        def pad:double (style.bodySize * 0.35)
+        def y:double (this.reserve((bh + (2.0 * pad))))
+        def b:MdBox (new MdBox())
+        b.kind = 5
+        b.x = (x + ((w - bw) / 2.0))
+        b.y = (y + pad)
+        b.w = bw
+        b.h = bh
+        b.size = px
+        b.color = style.textColor
+        if (quoteDepth > 0) {
+            b.color = style.quoteColor
+        }
+        b.embedSource = node.literal
+        b.embedKind = "math-display"
+        this.emit(b)
+        cursorY = (((y + bh) + (2.0 * pad)) + style.paraSpacing)
+    }
+
+    ; ----------------------------------------------------------------------
     ; A paragraph: runs in, positioned lines out
     ; ----------------------------------------------------------------------
     fn paragraph:void (runs:[MdRun] x:double w:double) {
@@ -2227,10 +2344,15 @@ class MdLayout {
                 if seg.code {
                     ; the tint behind an inline code span, drawn first
                     def pad:double 2.0
-                    def bg:MdBox (MdBox.rect(((x + seg.x) - pad) (y + 1.0) (seg.w + (pad * 2.0)) (ln.height - 2.0) style.codeBackground))
+                    def bg:MdBox (MdBox.rect(((x + seg.x) - pad) ((y + ln.extraTop) + 1.0) (seg.w + (pad * 2.0)) ((ln.height - ln.extraTop) - 2.0) style.codeBackground))
                     this.emit(bg)
                 }
-                def b:MdBox (MdBox.text(seg.text (x + seg.x) y seg.w ln.height))
+                if ((strlen seg.math) > 0) {
+                    this.emit((this.mathSegBox(seg (x + seg.x) (y + ln.extraTop))))
+                    s = (s + 1)
+                    continue
+                }
+                def b:MdBox (MdBox.text(seg.text (x + seg.x) (y + ln.extraTop) seg.w (ln.height - ln.extraTop)))
                 b.segSrc = seg.srcStart
                 b.segLen = seg.srcLen
                 b.family = seg.family
@@ -2363,6 +2485,10 @@ class MdLayout {
     fn measureRun:double (text:string r:MdRun) {
         def len:int (strlen text)
         if (len == 0) { return 0.0 }
+        if ((strlen r.math) > 0) {
+            def mb:MathBox (this.mathBox(r.math r.mathDisplay))
+            return (mb.w * (MdLayout.mathPx(r.size)))
+        }
         def face:string (style.faceFor(r.family r.bold r.italic))
         def m:EVGTextMetrics (engine.measureRun(text face r.size))
         return m.width
@@ -2614,6 +2740,8 @@ class MdLayout {
         seg.color = run.color
         seg.code = run.code
         seg.link = run.link
+        seg.math = run.math
+        seg.mathDisplay = run.mathDisplay
         seg.x = usedWidth
         seg.w = (this.measureRun(openText run))
         push cur.segs seg
@@ -2651,6 +2779,8 @@ class MdLayout {
                 last.w = (this.measureRun(trimmed r))
             }
             height = 0.0
+            def above:double 0.0
+            def below:double 0.0
             def i:int 0
             while (i < n) {
                 def seg:MdSeg (itemAt cur.segs i)
@@ -2660,8 +2790,21 @@ class MdLayout {
                 if (h > height) { height = h }
                 if (m.ascent > ascent) { ascent = m.ascent }
                 width = (seg.x + seg.w)
+                if ((strlen seg.math) > 0) {
+                    ; how far the formula reaches past the text's own
+                    ; baseline, up and down
+                    def mb:MathBox (this.mathBox(seg.math seg.mathDisplay))
+                    def px:double (MdLayout.mathPx(seg.size))
+                    def base:double (this.baselineIn(seg))
+                    def up:double ((mb.h * px) - base)
+                    def down:double ((base + (mb.d * px)) - h)
+                    if (up > above) { above = up }
+                    if (down > below) { below = down }
+                }
                 i = (i + 1)
             }
+            cur.extraTop = above
+            height = ((height + above) + below)
         }
         cur.height = height
         cur.ascent = ascent
