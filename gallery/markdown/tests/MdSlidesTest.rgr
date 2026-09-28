@@ -434,6 +434,53 @@ class MdSlidesTest {
         c.eqInt("no item is cut between two slides" cut 0)
     }
 
+    sfn slidesWith:MdLayout (src:string css:string shrinkMin:double) {
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.style = (new MdStyle())
+        def c:MdCss (new MdCss())
+        c.addStyleSheet(css)
+        c.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.applyMeta(doc)
+        l.applySlideMeta(doc)
+        l.setDocSource(src)
+        l.slideShrinkMin = shrinkMin
+        l.layoutSlides(doc)
+        return l
+    }
+
+    ; A slide that spills by one item is set a little smaller instead of
+    ; getting a continuation slide for that item.
+    fn shrinkToFit:void (c:SlideCheck) {
+        print "-- a short spill shrinks the slide --"
+        def css:string "deck { split-level: 2 } page { width: 720pt; height: 220pt; padding: 20pt } document { font-size: 14pt }"
+        def body:string "## Features\n\n"
+        def n:int 0
+        def spilled:boolean false
+        while ((n < 30) && (spilled == false)) {
+            body = (body + "- item number " + (to_string n) + "\n")
+            def off:MdLayout (MdSlidesTest.slidesWith(body css 1.0))
+            if (off.pageCount > 1) {
+                spilled = true
+            }
+            n = (n + 1)
+        }
+        c.ok("some length spills without shrinking" spilled)
+        def on:MdLayout (MdSlidesTest.slidesWith((body + "\n## Next\n\nText\n") css 0.8))
+        c.eqInt("with it, the list stays on one slide" (MdSlidesTest.slideOf(on ("item number " + (to_string (n - 1))))) 0)
+        c.eqInt("and the next slide is the second" (MdSlidesTest.slideOf(on "Text")) 1)
+        c.eqInt("one slide was shrunk" on.slidesShrunk 1)
+        def big:string "## Long\n\n"
+        def k:int 0
+        while (k < 40) {
+            big = (big + "- line " + (to_string k) + "\n")
+            k = (k + 1)
+        }
+        def far:MdLayout (MdSlidesTest.slidesWith(big css 0.8))
+        c.ok("a long spill is still split" (far.pageCount > 1))
+    }
+
     ; The same document, three ways: the claim `PLAN_SLIDES.md` opens with is
     ; that the deck is a LAYOUT POLICY and not a conversion. One tree, three
     ; calls, and the text is the same text in all three.
@@ -532,6 +579,7 @@ class MdSlidesTest {
         this.keepWithNext(c)
         this.overflow(c)
         this.wholeItems(c)
+        this.shrinkToFit(c)
         this.oneDocument(c)
         this.grow(c)
         print ""

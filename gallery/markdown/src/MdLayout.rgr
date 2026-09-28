@@ -399,6 +399,8 @@ class MdLayout {
     def blockLastPage:[int]
     ; How many slides were grown, and by how much the last one was.
     def slidesGrown:int 0
+    ; slides set a little smaller so that a short spill fits (see shrinkSlide)
+    def slidesShrunk:int 0
     ; The title of the slide being laid out, repeated at the top of a
     ; continuation slide so a reader knows what they are still looking at.
     def slideTitle:string ""
@@ -635,7 +637,11 @@ class MdLayout {
         clear blockFirstPage
         clear blockLastPage
         slidesGrown = 0
+        slidesShrunk = 0
         this.layoutBody(doc)
+        if (slides && (tocLines == 0)) {
+            this.shrinkSlides(doc)
+        }
         if ((slides && (slideGrow > 1.01)) && (tocLines == 0)) {
             this.growSlides(doc)
         }
@@ -1384,6 +1390,181 @@ class MdLayout {
     ; ----------------------------------------------------------------------
     ; Growing a slide that has room
     ; ----------------------------------------------------------------------
+    ; ----------------------------------------------------------------------
+    ; Shrinking a slide that spills a little
+    ; ----------------------------------------------------------------------
+    ;
+    ; A slide whose last block runs over by a line or an item gets a slide of
+    ; its own for that remainder: the title again, "(jatkuu)", and one bullet.
+    ; When the spill is short — at most `slideShrinkSpill` of a slide — and
+    ; that continuation holds nothing else, the slide is laid out again a step
+    ; smaller, down to `slideShrinkMin`, and kept at the first size where it
+    ; fits. The continuation goes, and every later slide moves up one.
+    def slideShrinkMin:double 0.8
+    def slideShrinkSpill:double 0.3
+
+    fn shrinkSlides:void (doc:MdNode) {
+        def n:int (doc.childCount())
+        if ((array_length blockFirstPage) != n) {
+            return
+        }
+        def p:int 0
+        while ((p + 1) < pageCount) {
+            this.shrinkSlide(doc p)
+            p = (p + 1)
+        }
+    }
+
+    fn shrinkSlide:boolean (doc:MdNode p:int) {
+        def n:int (doc.childCount())
+        ; the blocks that start on p; the last of them, and only it, runs on
+        ; to p + 1, and nothing starts there
+        def members:[int]
+        def spanning:int -1
+        def i:int 0
+        while (i < n) {
+            def fp:int (itemAt blockFirstPage i)
+            def lp:int (itemAt blockLastPage i)
+            if ((fp < p) && (lp >= p)) {
+                return false
+            }
+            if (fp == (p + 1)) {
+                return false
+            }
+            if (fp == p) {
+                push members i
+                if (lp == (p + 1)) {
+                    spanning = i
+                } {
+                    if (lp != p) {
+                        return false
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((spanning < 0) || ((array_length members) == 0)) {
+            return false
+        }
+        if ((itemAt members ((array_length members) - 1)) != spanning) {
+            return false
+        }
+        ; how much went over, and where the two slides' boxes are
+        ; what spilled, not counting the title said again above it
+        def b0:int -1
+        def b1:int -1
+        def spillTop:double contentBottom
+        def spillBottom:double contentTop
+        def k:int 0
+        while (k < (array_length boxes)) {
+            def b:MdBox (itemAt boxes k)
+            if ((b.page == p) || (b.page == (p + 1))) {
+                if (b0 < 0) { b0 = k }
+                b1 = (k + 1)
+                if (b.kind == 3) {
+                    return false
+                }
+                def isTitle:boolean ((b.kind == 0) && (b.segSrc < 0))
+                if ((b.page == (p + 1)) && (isTitle == false)) {
+                    if (b.y < spillTop) { spillTop = b.y }
+                    if ((b.y + b.h) > spillBottom) { spillBottom = (b.y + b.h) }
+                }
+            }
+            k = (k + 1)
+        }
+        def spill:double (spillBottom - spillTop)
+        def room:double (contentBottom - contentTop)
+        if ((b0 < 0) || (spill > (room * slideShrinkSpill))) {
+            return false
+        }
+        def kept:[MdBox]
+        def m:int b0
+        while (m < b1) {
+            push kept (itemAt boxes m)
+            m = (m + 1)
+        }
+        def tail:[MdBox]
+        m = b1
+        while (m < (array_length boxes)) {
+            push tail (itemAt boxes m)
+            m = (m + 1)
+        }
+        def saved:[double] (this.styleNumbers())
+        def savedPage:int page
+        def savedPageCount:int pageCount
+        def savedCursor:double cursorY
+        def savedOverflows:int slideOverflows
+        def sc:double 0.95
+        while (sc >= (slideShrinkMin - 0.001)) {
+            this.truncate(b0)
+            this.scaleStyle(saved sc)
+            page = p
+            pageCount = (p + 1)
+            cursorY = contentTop
+            def j:int 0
+            while (j < (array_length members)) {
+                def child:MdNode (doc.childAt((itemAt members j)))
+                if (child.kind == "heading") {
+                    if (child.level <= splitLevel) {
+                        slideTitle = (child.plainText())
+                        slideTitleLevel = child.level
+                    }
+                }
+                this.block(child contentX contentW)
+                j = (j + 1)
+            }
+            def fits:boolean (page == p)
+            this.restoreStyle(saved)
+            if fits {
+                ; the continuation is gone: every later slide moves up one
+                def t:int 0
+                while (t < (array_length tail)) {
+                    def tb:MdBox (itemAt tail t)
+                    tb.page = (tb.page - 1)
+                    push boxes tb
+                    t = (t + 1)
+                }
+                def q:int 0
+                while (q < n) {
+                    if ((itemAt blockFirstPage q) > p) {
+                        set_at blockFirstPage q ((itemAt blockFirstPage q) - 1)
+                    }
+                    if ((itemAt blockLastPage q) > p) {
+                        set_at blockLastPage q ((itemAt blockLastPage q) - 1)
+                    }
+                    q = (q + 1)
+                }
+                page = (savedPage - 1)
+                pageCount = (savedPageCount - 1)
+                cursorY = savedCursor
+                slideOverflows = (savedOverflows - 1)
+                if (slideOverflows < 0) {
+                    slideOverflows = 0
+                }
+                slidesShrunk = (slidesShrunk + 1)
+                return true
+            }
+            sc = (sc - 0.05)
+        }
+        ; nothing smaller fitted: the two slides as they were
+        this.truncate(b0)
+        def r:int 0
+        while (r < (array_length kept)) {
+            push boxes (itemAt kept r)
+            r = (r + 1)
+        }
+        r = 0
+        while (r < (array_length tail)) {
+            push boxes (itemAt tail r)
+            r = (r + 1)
+        }
+        page = savedPage
+        pageCount = savedPageCount
+        cursorY = savedCursor
+        slideOverflows = savedOverflows
+        return false
+    }
+
     fn growSlides:void (doc:MdNode) {
         def n:int (doc.childCount())
         if ((array_length blockFirstPage) != n) {
@@ -2044,7 +2225,7 @@ class MdLayout {
                 def itemH:double (this.itemHeight(firstBox startY startPage))
                 def full:double (contentBottom - contentTop)
                 if ((itemH <= full) && (startY > (contentTop + 0.5))) {
-                    this.dropBoxesFrom(firstBox)
+                    this.truncate(firstBox)
                     page = startPage
                     pageCount = (page + 1)
                     slideOverflows = startOverflows
@@ -2113,12 +2294,6 @@ class MdLayout {
             i = (i + 1)
         }
         return (total + (bottom - top))
-    }
-
-    fn dropBoxesFrom:void (from:int) {
-        while ((array_length boxes) > from) {
-            remove_index boxes ((array_length boxes) - 1)
-        }
     }
 
     ; The first text box from `from` on — not a continuation title — or the
