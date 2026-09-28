@@ -28,6 +28,7 @@ pub mod ops;
 pub mod parser;
 pub mod prelude;
 pub mod regex;
+pub mod typed;
 pub mod value;
 pub mod vm;
 

@@ -51,6 +51,9 @@ pub const C_SYMBOL: int = 17;
 pub const C_PROMISE: int = 18;
 /// a generator object: a saved frame (see Vm::gen_save)
 pub const C_GENERATOR: int = 19;
+/// an ArrayBuffer / SharedArrayBuffer; a typed array or DataView (typed.rs)
+pub const C_ARRAYBUFFER: int = 20;
+pub const C_TYPED: int = 21;
 
 // property attributes
 pub const P_HIDDEN: int = 1;

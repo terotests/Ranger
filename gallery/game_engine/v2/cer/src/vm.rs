@@ -105,6 +105,8 @@ pub struct Vm {
     /// %GeneratorPrototype%, %GeneratorFunction.prototype%,
     /// %AsyncFunction.prototype%
     pub generator_proto: int,
+    /// ArrayBuffer.prototype
+    pub array_buffer_proto: int,
     pub gen_fn_proto: int,
     pub async_fn_proto: int,
     /// the prelude's async function driver
@@ -223,6 +225,7 @@ impl Vm {
             object_proto: -1,
             function_proto: -1,
             generator_proto: -1,
+            array_buffer_proto: -1,
             gen_fn_proto: -1,
             async_fn_proto: -1,
             async_driver: Val::Undef,
@@ -787,6 +790,9 @@ impl Vm {
         match v {
             Val::Obj(o) => {
                 let ob = &self.objs[*o as usize];
+                if ob.class == C_TYPED && ob.func != crate::typed::TA_DATAVIEW {
+                    return self.ta_get(*o, i);
+                }
                 if ob.class == C_ARRAY || ob.class == C_ARGUMENTS {
                     if i < ob.elems.len() as int {
                         return ob.elems[i as usize].clone();
@@ -979,6 +985,10 @@ impl Vm {
 
     pub fn set_index(&mut self, o: int, i: int, v: Val) {
         let class = self.objs[o as usize].class;
+        if class == C_TYPED && self.objs[o as usize].func != crate::typed::TA_DATAVIEW {
+            self.ta_set(o, i, &v);
+            return;
+        }
         if class == C_ARRAY || class == C_ARGUMENTS {
             let len = self.objs[o as usize].elems.len() as int;
             if i < len {
@@ -1090,6 +1100,9 @@ impl Vm {
         let (i, a) = self.to_key(k);
         if i >= 0 {
             let class = self.objs[o as usize].class;
+            if self.is_typed(o) {
+                return i < self.ta_length(o);
+            }
             if (class == C_ARRAY || class == C_ARGUMENTS) && i < self.objs[o as usize].elems.len() as int {
                 return true;
             }
@@ -1134,6 +1147,9 @@ impl Vm {
         let (i, a) = self.to_key(k);
         let class = self.objs[o as usize].class;
         if i >= 0 {
+            if self.is_typed(o) {
+                return i < self.ta_length(o);
+            }
             if (class == C_ARRAY || class == C_ARGUMENTS) && i < self.objs[o as usize].elems.len() as int {
                 return true;
             }
@@ -1200,6 +1216,14 @@ impl Vm {
         if class == C_ARRAY || class == C_ARGUMENTS {
             let n = self.objs[o as usize].elems.len();
             let mut i: usize = 0;
+            while i < n {
+                out.push(string_val(format!("{}", i)));
+                i += 1;
+            }
+        }
+        if self.is_typed(o) {
+            let n = self.ta_length(o);
+            let mut i: int = 0;
             while i < n {
                 out.push(string_val(format!("{}", i)));
                 i += 1;

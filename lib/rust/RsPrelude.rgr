@@ -388,9 +388,30 @@ func rs_f64(x float64) string {
 inline std::string rs_f64(double x) {
     if (std::isnan(x)) { return \"NaN\"; }
     if (std::isinf(x)) { return x > 0 ? \"inf\" : \"-inf\"; }
-    char buf[400];
-    auto r = std::to_chars(buf, buf + sizeof(buf), x, std::chars_format::fixed);
-    return std::string(buf, r.ptr);
+    /* Rust's Display: the shortest digits that read back, written out in
+       full with zeros -- not to_chars(fixed), which writes the exact value
+       of a large number (1e300 as 1000000000000000052504...). */
+    char buf[64];
+    auto r = std::to_chars(buf, buf + sizeof(buf), x, std::chars_format::scientific);
+    std::string s(buf, r.ptr);
+    bool neg = false;
+    size_t i = 0;
+    if (s[0] == '-') { neg = true; i = 1; }
+    size_t e = s.find('e');
+    std::string mant = s.substr(i, e - i);
+    int exp = std::stoi(s.substr(e + 1));
+    std::string digits;
+    for (char c : mant) { if (c != '.') { digits += c; } }
+    int point = exp + 1;
+    std::string out;
+    if (point <= 0) {
+        out = \"0.\" + std::string((size_t)(-point), '0') + digits;
+    } else if ((size_t)point >= digits.size()) {
+        out = digits + std::string((size_t)point - digits.size(), '0');
+    } else {
+        out = digits.substr(0, (size_t)point) + \".\" + digits.substr((size_t)point);
+    }
+    return neg ? \"-\" + out : out;
 }
 "))
       rust ( "format!(\"{}\", " (e 1) ")" )

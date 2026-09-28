@@ -276,6 +276,221 @@ hide(FinalizationRegistry.prototype, 'register', function register(target, held,
 hide(FinalizationRegistry.prototype, 'unregister', function unregister(token) { return false; });
 tag(FinalizationRegistry.prototype, 'FinalizationRegistry');
 hide(globalThis, 'FinalizationRegistry', FinalizationRegistry);
+// ---- ArrayBuffer, SharedArrayBuffer, the typed arrays, DataView,
+// Atomics: over the natives of typed.rs
+var TA = globalThis.__cerTA;
+delete globalThis.__cerTA;
+function getter(o, name, f) { defineProperty(o, name, { get: f, enumerable: false, configurable: true }); }
+function buf(b) { if (!TA.bufInfo(b, 5)) throw new TypeError('Receiver is not an ArrayBuffer'); return b; }
+
+var ABProto = TA.bufferProto;
+function ArrayBuffer(len, opts) {
+  if (new.target === undefined) throw new TypeError("Constructor ArrayBuffer requires 'new'");
+  var max = (isObject(opts) && opts.maxByteLength !== undefined) ? opts.maxByteLength : undefined;
+  var p = isObject(new.target.prototype) ? new.target.prototype : ABProto;
+  return TA.buffer(p, len, max, false);
+}
+defineProperty(ArrayBuffer, 'prototype', { value: ABProto, writable: false, enumerable: false, configurable: false });
+hide(ABProto, 'constructor', ArrayBuffer);
+tag(ABProto, 'ArrayBuffer');
+getter(ABProto, 'byteLength', function () { return TA.bufInfo(buf(this), 0); });
+getter(ABProto, 'maxByteLength', function () { return TA.bufInfo(buf(this), 1); });
+getter(ABProto, 'resizable', function () { return TA.bufInfo(buf(this), 3); });
+getter(ABProto, 'detached', function () { return TA.bufInfo(buf(this), 2); });
+hide(ABProto, 'slice', function slice(start, end) { return TA.slice(buf(this), start, end, getPrototypeOf(this)); });
+hide(ABProto, 'resize', function resize(n) { TA.resize(buf(this), n); });
+hide(ABProto, 'transfer', function transfer(n) { return TA.transfer(buf(this), n, true); });
+hide(ABProto, 'transferToFixedLength', function transferToFixedLength(n) { return TA.transfer(buf(this), n, false); });
+hide(ArrayBuffer, 'isView', function isView(v) { return TA.info(v, 4) >= 0; });
+getter(ArrayBuffer, Symbol.species, function () { return this; });
+hide(globalThis, 'ArrayBuffer', ArrayBuffer);
+
+var SABProto = create(Object.prototype);
+function SharedArrayBuffer(len, opts) {
+  if (new.target === undefined) throw new TypeError("Constructor SharedArrayBuffer requires 'new'");
+  var max = (isObject(opts) && opts.maxByteLength !== undefined) ? opts.maxByteLength : undefined;
+  return TA.buffer(isObject(new.target.prototype) ? new.target.prototype : SABProto, len, max, true);
+}
+defineProperty(SharedArrayBuffer, 'prototype', { value: SABProto, writable: false, enumerable: false, configurable: false });
+hide(SABProto, 'constructor', SharedArrayBuffer);
+tag(SABProto, 'SharedArrayBuffer');
+getter(SABProto, 'byteLength', function () { return TA.bufInfo(buf(this), 0); });
+getter(SABProto, 'maxByteLength', function () { return TA.bufInfo(buf(this), 1); });
+getter(SABProto, 'growable', function () { return TA.bufInfo(buf(this), 3); });
+hide(SABProto, 'slice', function slice(start, end) { return TA.slice(buf(this), start, end, getPrototypeOf(this)); });
+hide(SABProto, 'grow', function grow(n) {
+  if (n < TA.bufInfo(buf(this), 0)) throw new RangeError('SharedArrayBuffer.prototype.grow: Invalid length parameter');
+  TA.resize(this, n);
+});
+hide(globalThis, 'SharedArrayBuffer', SharedArrayBuffer);
+
+var KINDS = ['Int8Array', 'Uint8Array', 'Uint8ClampedArray', 'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array'];
+var SIZES = [1, 1, 1, 2, 2, 4, 4, 4, 8];
+function TypedArray() { throw new TypeError('Abstract class TypedArray not directly constructable'); }
+var TAProto = TypedArray.prototype;
+function kindOf(o) { var k = TA.info(o, 4); if (k < 0 || k > 8) throw new TypeError('this is not a typed array.'); return k; }
+function lenOf(o) { kindOf(o); return TA.info(o, 0); }
+var CTORS = [];
+function species(o, n) {
+  var k = kindOf(o);
+  var C = o.constructor;
+  if (C === undefined) C = CTORS[k];
+  else { var S = C[Symbol.species]; C = (S === undefined || S === null) ? CTORS[k] : S; }
+  var r = new C(n);
+  kindOf(r);
+  return r;
+}
+getter(TAProto, 'length', function () { return lenOf(this); });
+getter(TAProto, 'byteLength', function () { kindOf(this); return TA.info(this, 1); });
+getter(TAProto, 'byteOffset', function () { kindOf(this); return TA.info(this, 2); });
+getter(TAProto, 'buffer', function () { kindOf(this); return TA.info(this, 3); });
+getter(TAProto, Symbol.toStringTag, function () { var k = TA.info(this, 4); return k >= 0 && k <= 8 ? KINDS[k] : undefined; });
+hide(TAProto, 'set', function set(src, offset) {
+  var n = lenOf(this); var off = toIntegerOrInfinity(offset);
+  if (off < 0) throw new RangeError('offset is out of bounds');
+  var o = Object(src); var m = o.length >>> 0;
+  if (m + off > n) throw new RangeError('offset is out of bounds');
+  var tmp = []; for (var i = 0; i < m; i++) tmp.push(o[i]);
+  for (var j = 0; j < m; j++) this[off + j] = tmp[j];
+});
+function rel(v, n, d) { if (v === undefined) return d; var t = toIntegerOrInfinity(v); return t < 0 ? Math.max(n + t, 0) : Math.min(t, n); }
+hide(TAProto, 'subarray', function subarray(begin, end) {
+  var k = kindOf(this); var n = TA.info(this, 0);
+  var b = rel(begin, n, 0); var e = rel(end, n, n); var cnt = Math.max(e - b, 0);
+  var C = this.constructor === undefined ? CTORS[k] : this.constructor;
+  return new C(TA.info(this, 3), TA.info(this, 2) + b * SIZES[k], cnt);
+});
+hide(TAProto, 'slice', function slice(begin, end) {
+  var n = lenOf(this); var b = rel(begin, n, 0); var e = rel(end, n, n); var cnt = Math.max(e - b, 0);
+  var r = species(this, cnt); for (var i = 0; i < cnt; i++) r[i] = this[b + i]; return r;
+});
+hide(TAProto, 'map', function map(f, t) {
+  need(f); var n = lenOf(this); var r = species(this, n);
+  for (var i = 0; i < n; i++) r[i] = f.call(t, this[i], i, this); return r;
+});
+hide(TAProto, 'filter', function filter(f, t) {
+  need(f); var n = lenOf(this); var kept = [];
+  for (var i = 0; i < n; i++) { var v = this[i]; if (f.call(t, v, i, this)) kept.push(v); }
+  var r = species(this, kept.length); for (var j = 0; j < kept.length; j++) r[j] = kept[j]; return r;
+});
+hide(TAProto, 'fill', function fill(v, begin, end) {
+  var n = lenOf(this); var x = Number(v); var b = rel(begin, n, 0); var e = rel(end, n, n);
+  for (var i = b; i < e; i++) this[i] = x; return this;
+});
+hide(TAProto, 'reverse', function reverse() {
+  var n = lenOf(this); for (var i = 0, j = n - 1; i < j; i++, j--) { var t = this[i]; this[i] = this[j]; this[j] = t; } return this;
+});
+hide(TAProto, 'sort', function sort(cmp) {
+  if (cmp !== undefined) need(cmp);
+  var n = lenOf(this); var a = []; for (var i = 0; i < n; i++) a.push(this[i]);
+  a.sort(cmp === undefined ? function (x, y) {
+    if (x !== x) return y !== y ? 0 : 1; if (y !== y) return -1;
+    if (x < y) return -1; if (x > y) return 1;
+    if (x === 0 && y === 0) return (1 / x < 0 ? -1 : 0) - (1 / y < 0 ? -1 : 0);
+    return 0;
+  } : cmp);
+  for (var j = 0; j < n; j++) this[j] = a[j]; return this;
+});
+hide(TAProto, 'toReversed', function toReversed() { var n = lenOf(this); var r = new CTORS[kindOf(this)](n); for (var i = 0; i < n; i++) r[i] = this[n - 1 - i]; return r; });
+hide(TAProto, 'toSorted', function toSorted(cmp) { var n = lenOf(this); var r = new CTORS[kindOf(this)](n); for (var i = 0; i < n; i++) r[i] = this[i]; return r.sort(cmp); });
+hide(TAProto, 'with', function (idx, v) {
+  var n = lenOf(this); var i = toIntegerOrInfinity(idx); if (i < 0) i += n;
+  var x = Number(v);
+  if (i < 0 || i >= n) throw new RangeError('Invalid typed array index');
+  var r = new CTORS[kindOf(this)](n); for (var j = 0; j < n; j++) r[j] = this[j]; r[i] = x; return r;
+});
+hide(TAProto, 'copyWithin', function copyWithin(target, start, end) {
+  var n = lenOf(this); var to = rel(target, n, 0); var from = rel(start, n, 0); var fin = rel(end, n, n);
+  var cnt = Math.min(fin - from, n - to); var tmp = [];
+  for (var i = 0; i < cnt; i++) tmp.push(this[from + i]);
+  for (var j = 0; j < cnt; j++) this[to + j] = tmp[j]; return this;
+});
+['join', 'indexOf', 'lastIndexOf', 'includes', 'forEach', 'reduce', 'reduceRight', 'every', 'some', 'find', 'findIndex', 'findLast', 'findLastIndex', 'at', 'toLocaleString'].forEach(function (name) {
+  var m = Array.prototype[name];
+  if (typeof m === 'function') hide(TAProto, name, function () { kindOf(this); return m.apply(this, arguments); });
+});
+hide(TAProto, 'toString', Array.prototype.toString);
+hide(TAProto, 'keys', function keys() { kindOf(this); return Array.prototype.keys.call(this); });
+hide(TAProto, 'values', function values() { kindOf(this); return Array.prototype.values.call(this); });
+hide(TAProto, 'entries', function entries() { kindOf(this); return Array.prototype.entries.call(this); });
+hide(TAProto, Symbol.iterator, TAProto.values);
+hide(TypedArray, 'from', function from(src, f, t) {
+  var C = this; var items = [];
+  if (src != null && typeof src[Symbol.iterator] === 'function') { for (var v of src) items.push(v); }
+  else { var o = Object(src); var m = o.length >>> 0; for (var i = 0; i < m; i++) items.push(o[i]); }
+  var r = new C(items.length);
+  for (var j = 0; j < items.length; j++) r[j] = f === undefined ? items[j] : f.call(t, items[j], j);
+  return r;
+});
+hide(TypedArray, 'of', function of() { var r = new this(arguments.length); for (var i = 0; i < arguments.length; i++) r[i] = arguments[i]; return r; });
+getter(TypedArray, Symbol.species, function () { return this; });
+KINDS.forEach(function (name, k) {
+  var C = function () {
+    if (new.target === undefined) throw new TypeError("Constructor " + name + " requires 'new'");
+    return TA.create(k, isObject(new.target.prototype) ? new.target.prototype : P, arguments[0], arguments[1], arguments[2]);
+  };
+  defineProperty(C, 'name', { value: name, configurable: true });
+  defineProperty(C, 'length', { value: 3, configurable: true });
+  var P = create(TAProto);
+  defineProperty(C, 'prototype', { value: P, writable: false, enumerable: false, configurable: false });
+  hide(P, 'constructor', C);
+  defineProperty(P, 'BYTES_PER_ELEMENT', { value: SIZES[k] });
+  defineProperty(C, 'BYTES_PER_ELEMENT', { value: SIZES[k] });
+  Object.setPrototypeOf(C, TypedArray);
+  CTORS[k] = C;
+  hide(globalThis, name, C);
+});
+
+var DVProto = create(Object.prototype);
+function DataView(buffer, offset, length) {
+  if (new.target === undefined) throw new TypeError("Constructor DataView requires 'new'");
+  return TA.view(isObject(new.target.prototype) ? new.target.prototype : DVProto, buffer, offset, length);
+}
+defineProperty(DataView, 'prototype', { value: DVProto, writable: false, enumerable: false, configurable: false });
+hide(DVProto, 'constructor', DataView);
+tag(DVProto, 'DataView');
+function dv(o) { if (TA.info(o, 4) !== 20) throw new TypeError('Receiver is not a DataView'); return o; }
+getter(DVProto, 'buffer', function () { return TA.info(dv(this), 3); });
+getter(DVProto, 'byteLength', function () { return TA.info(dv(this), 1); });
+getter(DVProto, 'byteOffset', function () { return TA.info(dv(this), 2); });
+[['Int8', 0], ['Uint8', 1], ['Int16', 3], ['Uint16', 4], ['Int32', 5], ['Uint32', 6], ['Float32', 7], ['Float64', 8]].forEach(function (e) {
+  var k = e[1];
+  hide(DVProto, 'get' + e[0], function (off, little) { return TA.dvGet(this, off, k, little); });
+  hide(DVProto, 'set' + e[0], function (off, v, little) { TA.dvSet(this, off, k, little, v); });
+});
+hide(globalThis, 'DataView', DataView);
+
+// Atomics: every operation is already atomic here
+var Atomics = create(Object.prototype);
+function intView(ta, idx) {
+  var k = TA.info(ta, 4);
+  if (k < 0 || k === 2 || k > 6) throw new TypeError('[object Array] is not an integer shared typed array.');
+  var i = toIntegerOrInfinity(idx);
+  if (i < 0 || i >= TA.info(ta, 0)) throw new RangeError('Invalid atomic access index');
+  return i;
+}
+function rmw(op) {
+  return function (ta, idx, v) { var i = intView(ta, idx); var old = ta[i]; ta[i] = op(old, Number(v)); return old; };
+}
+hide(Atomics, 'add', rmw(function (a, b) { return a + b; }));
+hide(Atomics, 'sub', rmw(function (a, b) { return a - b; }));
+hide(Atomics, 'and', rmw(function (a, b) { return a & b; }));
+hide(Atomics, 'or', rmw(function (a, b) { return a | b; }));
+hide(Atomics, 'xor', rmw(function (a, b) { return a ^ b; }));
+hide(Atomics, 'exchange', rmw(function (a, b) { return b; }));
+hide(Atomics, 'compareExchange', function compareExchange(ta, idx, expected, v) {
+  var i = intView(ta, idx); var old = ta[i]; var probe = new CTORS[TA.info(ta, 4)](1); probe[0] = expected;
+  if (old === probe[0]) ta[i] = v; return old;
+});
+hide(Atomics, 'load', function load(ta, idx) { var i = intView(ta, idx); return ta[i]; });
+hide(Atomics, 'store', function store(ta, idx, v) { var i = intView(ta, idx); var x = toIntegerOrInfinity(v); ta[i] = x; return x; });
+hide(Atomics, 'isLockFree', function isLockFree(n) { return n === 1 || n === 2 || n === 4 || n === 8; });
+hide(Atomics, 'notify', function notify(ta, idx, count) { intView(ta, idx); return 0; });
+hide(Atomics, 'wait', function wait(ta, idx, v, timeout) { var i = intView(ta, idx); return ta[i] !== v ? 'not-equal' : 'timed-out'; });
+hide(Atomics, 'pause', function pause() {});
+tag(Atomics, 'Atomics');
+hide(globalThis, 'Atomics', Atomics);
+
 // ---- the async function driver: runs the function's generator, one
 // step per settled await (the VM takes it out of the global object)
 hide(globalThis, '__cerAsync', function (gen) {

@@ -804,6 +804,28 @@ impl Vm {
         self.objs[afp as usize].add(A_CONSTRUCTOR, Val::Obj(afc), P_HIDDEN | P_READONLY);
         self.objs[afc as usize].add(A_PROTOTYPE, Val::Obj(afp), P_HIDDEN | P_READONLY | P_FIXED);
 
+        // the natives the prelude builds ArrayBuffer, the typed arrays and
+        // DataView on (it takes __cerTA out of the global object)
+        let abp = self.alloc(C_OBJECT, op1);
+        self.roots.push(abp);
+        self.array_buffer_proto = abp;
+        let ta = self.alloc(C_OBJECT, op1);
+        let a_ta = self.intern("__cerTA");
+        let gl = self.global;
+        self.objs[gl as usize].add(a_ta, Val::Obj(ta), P_HIDDEN);
+        let a_bp = self.intern("bufferProto");
+        self.objs[ta as usize].add(a_bp, Val::Obj(abp), 0);
+        self.method(ta, "buffer", crate::typed::NF_TA_BUFFER, 4);
+        self.method(ta, "create", crate::typed::NF_TA_CREATE, 5);
+        self.method(ta, "view", crate::typed::NF_TA_VIEW, 4);
+        self.method(ta, "info", crate::typed::NF_TA_INFO, 2);
+        self.method(ta, "bufInfo", crate::typed::NF_TA_BUFINFO, 2);
+        self.method(ta, "resize", crate::typed::NF_TA_RESIZE, 2);
+        self.method(ta, "transfer", crate::typed::NF_TA_TRANSFER, 3);
+        self.method(ta, "slice", crate::typed::NF_TA_SLICE, 4);
+        self.method(ta, "dvGet", crate::typed::NF_TA_DVGET, 4);
+        self.method(ta, "dvSet", crate::typed::NF_TA_DVSET, 5);
+
         // Promise
         let prc = self.ctor("Promise", NF_PROMISE, 1, pp);
         self.method(prc, "resolve", NF_PR_RESOLVE, 1);
@@ -2604,6 +2626,9 @@ impl Vm {
     pub fn call_native(&mut self, id: int, fobj: int, this: Val, args: Vec<Val>, construct: bool, new_target: Val) -> Val {
         if id >= NF_MATH && id < NF_MATH + 40 {
             return self.math(id - NF_MATH, &args);
+        }
+        if id >= crate::typed::NF_TA_FIRST && id <= crate::typed::NF_TA_LAST {
+            return self.call_typed(id, &args);
         }
         if id == NF_AP_POP || id == NF_AP_SHIFT || id == NF_AP_UNSHIFT || id == NF_AP_SPLICE || id == NF_AP_REVERSE || id == NF_AP_SORT || id == NF_AP_FILL || id == NF_AP_COPYWITHIN {
             // the in-place methods on a frozen array
