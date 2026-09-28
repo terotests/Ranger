@@ -913,7 +913,7 @@
     "selfhost:compile:kotlin": "cross-env node --max-old-space-size=8192 dist/rgrc.js -l=kotlin ./compiler/Compiler.rgr -nodecli -d=./tmp/selfhost-kotlin -o=ranger_compiler.kt",
     "selfhost:compile:llvm": "bash scripts/selfhost-llvm.sh",
     "selfhost:compile:python": "cross-env node --max-old-space-size=8192 dist/rgrc.js -l=python ./compiler/Compiler.rgr -nodecli -d=./tmp/selfhost-python -o=ranger_compiler.py",
-    "selfhost:copylibs": "cp ./compiler/Lang.rgr ./tmp/selfhost/Lang.rgr && cp ./lib/stdops.rgr ./tmp/selfhost/stdops.rgr && mkdir -p ./tmp/selfhost/lib && cp ./lib/*.rgr ./tmp/selfhost/lib/",
+    "selfhost:copylibs": "cp ./compiler/Lang.rgr ./tmp/selfhost/Lang.rgr && cp ./lib/stdops.rgr ./tmp/selfhost/stdops.rgr && mkdir -p ./tmp/selfhost/lib && cp ./lib/*.rgr ./tmp/selfhost/lib/ && cp -r ./lib/rust ./tmp/selfhost/lib/",
     "selfhost:copylibs:csharp": "cp ./compiler/Lang.rgr ./tmp/selfhost-csharp/Lang.rgr && cp ./lib/stdops.rgr ./tmp/selfhost-csharp/stdops.rgr && mkdir -p ./tmp/selfhost-csharp/lib && cp ./lib/*.rgr ./tmp/selfhost-csharp/lib/",
     "selfhost:copylibs:dart": "cp ./compiler/Lang.rgr ./tmp/selfhost-dart/Lang.rgr && cp ./lib/stdops.rgr ./tmp/selfhost-dart/stdops.rgr && mkdir -p ./tmp/selfhost-dart/lib && cp ./lib/*.rgr ./tmp/selfhost-dart/lib/",
     "selfhost:copylibs:go": "cp ./compiler/Lang.rgr ./tmp/selfhost-go/Lang.rgr && cp ./lib/stdops.rgr ./tmp/selfhost-go/stdops.rgr && mkdir -p ./tmp/selfhost-go/lib && cp ./lib/*.rgr ./tmp/selfhost-go/lib/",
