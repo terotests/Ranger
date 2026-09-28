@@ -4695,7 +4695,8 @@ class RustLower {
         return (this.variantTest(pat.name subj t pat))
       }
       if (this.isConstPattern(pat)) {
-        def cv:RsExpr (this.constValue((this.resolveItem(([] _:string (pat.name)) "const"))))
+        def cseg:[string] ([] _:string (pat.name))
+        def cv:RsExpr (this.constValue((this.resolveItem(cseg "const"))))
         return (((("(" + subj) + " == ") + cv.code) + ")")
       }
       return "true"
@@ -4921,7 +4922,8 @@ class RustLower {
     if (pat.hasMod("mut") || pat.hasMod("ref")) {
       return false
     }
-    return ((this.resolveItem(([] _:string (pat.name)) "const")) != "")
+    def segs:[string] ([] _:string (pat.name))
+    return ((this.resolveItem(segs "const")) != "")
   }
 
   ; Declares the variables a pattern binds, from `subj`.

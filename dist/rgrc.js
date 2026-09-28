@@ -91116,7 +91116,8 @@ class RustLower  {
         return this.variantTest(pat.name, subj, t, pat);
       }
       if ( this.isConstPattern(pat) ) {
-        const cv = this.constValue(this.resolveItem([pat.name], "const"));
+        const cseg = [pat.name];
+        const cv = this.constValue(this.resolveItem(cseg, "const"));
         return ((("(" + subj) + " == ") + cv.code) + ")";
       }
       return "true";
@@ -91344,7 +91345,8 @@ class RustLower  {
     if ( pat.hasMod("mut") || pat.hasMod("ref") ) {
       return false;
     }
-    return this.resolveItem([pat.name], "const") != "";
+    const segs = [pat.name];
+    return this.resolveItem(segs, "const") != "";
   };
   bindPattern (pat, subj, t) {
     this.walkBindings(pat, subj, t, false);
