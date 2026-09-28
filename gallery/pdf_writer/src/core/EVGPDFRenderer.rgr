@@ -1776,7 +1776,11 @@ class EVGPDFRenderer {
         def rotated:boolean false
         if ((el.rotate == 0.0) == false) {
             rotated = true
-            def rad:double ((el.rotate / 180.0) * (M_PI))
+            ; (the matrix below turns counter-clockwise for a positive angle in
+            ; PDF's y-up space, so the angle goes in negated: a label at -90,
+            ; which reads bottom to top on the page and in the browser, read
+            ; top to bottom in the PDF before)
+            def rad:double (((0.0 - el.rotate) / 180.0) * (M_PI))
             ; Clockwise on the page. PDF's y axis points up while the layout's
             ; points down, so the sign of the angle flips on the way in and the
             ; matrix below is a standard y-up rotation.

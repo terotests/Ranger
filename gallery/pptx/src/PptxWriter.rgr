@@ -1378,10 +1378,28 @@ class PptxWriter {
     ; slide is a picture of the slide and its number.
     sfn notesXml:string (notes:PptxShape) {
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:notes xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><p:spTree>"
-        out = (out + "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>")
-        out = (out + "<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Notes Placeholder\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"body\" idx=\"1\"/></p:nvPr></p:nvSpPr><p:spPr/>")
+        out = (out + "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>" + (PptxWriter.groupXfrm()))
+        ; the picture of the slide, and the notes under it, each where it is
+        ; drawn: an importer that does not inherit geometry from the master
+        ; (Keynote) has nothing to go on otherwise
+        out = (out + "<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Slide Image Placeholder 1\"/><p:cNvSpPr><a:spLocks noGrp=\"1\" noRot=\"1\" noChangeAspect=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"sldImg\"/></p:nvPr></p:nvSpPr><p:spPr>" + (PptxWriter.notesImageXfrm()) + "</p:spPr></p:sp>")
+        out = (out + "<p:sp><p:nvSpPr><p:cNvPr id=\"3\" name=\"Notes Placeholder\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"body\" idx=\"1\"/></p:nvPr></p:nvSpPr><p:spPr>" + (PptxWriter.notesBodyXfrm()) + "</p:spPr>")
         out = (out + (PptxWriter.bodyXml(notes.text false)))
-        return (out + "</p:sp></p:spTree></p:cSld></p:notes>")
+        return (out + "</p:sp></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:notes>")
+    }
+
+    ; Where a notes page (the 6858000 x 9144000 one presentation.xml names)
+    ; puts the slide and the notes, as PowerPoint's own notes master does.
+    sfn notesImageXfrm:string () {
+        return "<a:xfrm><a:off x=\"685800\" y=\"1143000\"/><a:ext cx=\"5486400\" cy=\"3086100\"/></a:xfrm>"
+    }
+
+    sfn notesBodyXfrm:string () {
+        return "<a:xfrm><a:off x=\"685800\" y=\"4400550\"/><a:ext cx=\"5486400\" cy=\"3600450\"/></a:xfrm>"
+    }
+
+    sfn groupXfrm:string () {
+        return "<p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>"
     }
 
     ; A notes slide names the slide it belongs to and the notes master it
@@ -1397,10 +1415,17 @@ class PptxWriter {
         return (out + "</Relationships>")
     }
 
-    ; A blank notes master, written only when some slide has notes.
+    ; The notes master, written only when some slide has notes: a ground, the
+    ; slide-image and body placeholders a notes slide inherits from, and the
+    ; text style of the notes. An empty one is valid by the schema and is not
+    ; enough for Keynote, which refuses the whole package over it.
     sfn notesMasterXml:string () {
-        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:notesMaster xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld>"
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:notesMaster xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><p:bg><p:bgRef idx=\"1001\"><a:schemeClr val=\"bg1\"/></p:bgRef></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>" + (PptxWriter.groupXfrm())
+        out = (out + "<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Slide Image Placeholder 1\"/><p:cNvSpPr><a:spLocks noGrp=\"1\" noRot=\"1\" noChangeAspect=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"sldImg\" idx=\"2\"/></p:nvPr></p:nvSpPr><p:spPr>" + (PptxWriter.notesImageXfrm()) + "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/><a:ln w=\"12700\"><a:solidFill><a:prstClr val=\"black\"/></a:solidFill></a:ln></p:spPr></p:sp>")
+        out = (out + "<p:sp><p:nvSpPr><p:cNvPr id=\"3\" name=\"Notes Placeholder 2\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"body\" sz=\"quarter\" idx=\"3\"/></p:nvPr></p:nvSpPr><p:spPr>" + (PptxWriter.notesBodyXfrm()) + "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr vert=\"horz\" lIns=\"91440\" tIns=\"45720\" rIns=\"91440\" bIns=\"45720\" rtlCol=\"0\"/><a:lstStyle/><a:p><a:pPr lvl=\"0\"/><a:r><a:rPr lang=\"en-US\"/><a:t>Notes</a:t></a:r></a:p></p:txBody></p:sp>")
+        out = (out + "</p:spTree></p:cSld>")
         out = (out + "<p:clrMap bg1=\"lt1\" tx1=\"dk1\" bg2=\"lt2\" tx2=\"dk2\" accent1=\"accent1\" accent2=\"accent2\" accent3=\"accent3\" accent4=\"accent4\" accent5=\"accent5\" accent6=\"accent6\" hlink=\"hlink\" folHlink=\"folHlink\"/>")
+        out = (out + "<p:notesStyle><a:lvl1pPr marL=\"0\" algn=\"l\" defTabSz=\"914400\" rtl=\"0\" eaLnBrk=\"1\" latinLnBrk=\"0\" hangingPunct=\"1\"><a:defRPr sz=\"1200\" kern=\"1200\"><a:solidFill><a:schemeClr val=\"tx1\"/></a:solidFill><a:latin typeface=\"+mn-lt\"/><a:ea typeface=\"+mn-ea\"/><a:cs typeface=\"+mn-cs\"/></a:defRPr></a:lvl1pPr></p:notesStyle>")
         return (out + "</p:notesMaster>")
     }
 
@@ -1606,29 +1631,103 @@ class PptxWriter {
                 delay = "0"
                 nodeType = "afterEffect"
             }
+            def ms:string (to_string (PptxWriter.msOf(step.seconds)))
+            ; The preset numbers and subtypes are the ones PowerPoint writes for
+            ; the same effect. Keynote reads the preset, not the behaviours: an
+            ; effect whose preset and behaviours disagree, or a filter that is
+            ; not in the list, and it refuses the whole file.
+            def kind:string (PptxWriter.buildKind(step.kind))
+            def preset:string "1"
+            def subtype:string "0"
+            if (kind == "fade") {
+                preset = "10"
+            }
+            if (kind == "fly") {
+                preset = "2"
+                subtype = (PptxWriter.flySubtype(step.dir))
+            }
             ; click group
             out = (out + "<p:par><p:cTn id=\"" + (to_string id) + "\" fill=\"hold\"><p:stCondLst><p:cond delay=\"" + delay + "\"/></p:stCondLst><p:childTnLst>")
             id = (id + 1)
             out = (out + "<p:par><p:cTn id=\"" + (to_string id) + "\" fill=\"hold\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst><p:childTnLst>")
             id = (id + 1)
-            out = (out + "<p:par><p:cTn id=\"" + (to_string id) + "\" presetID=\"1\" presetClass=\"entr\" fill=\"hold\" nodeType=\"" + nodeType + "\" dur=\"" + (to_string (PptxWriter.msOf(step.seconds))) + "\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst><p:childTnLst>")
+            out = (out + "<p:par><p:cTn id=\"" + (to_string id) + "\" presetID=\"" + preset + "\" presetClass=\"entr\" presetSubtype=\"" + subtype + "\" fill=\"hold\" grpId=\"0\" nodeType=\"" + nodeType + "\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst><p:childTnLst>")
             id = (id + 1)
             def tgt:string (PptxWriter.targetXml(step))
             out = (out + "<p:set><p:cBhvr><p:cTn id=\"" + (to_string id) + "\" dur=\"1\" fill=\"hold\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst></p:cTn>" + tgt + "<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val=\"visible\"/></p:to></p:set>")
             id = (id + 1)
-            def filter:string step.kind
-            if ((strlen filter) == 0) {
-                filter = "appear"
+            if (kind == "fade") {
+                out = (out + "<p:animEffect transition=\"in\" filter=\"fade\"><p:cBhvr><p:cTn id=\"" + (to_string id) + "\" dur=\"" + ms + "\"/>" + tgt + "</p:cBhvr></p:animEffect>")
+                id = (id + 1)
             }
-            out = (out + "<p:animEffect transition=\"in\" filter=\"" + (PptxWriter.esc(filter)) + "\"><p:cBhvr><p:cTn id=\"" + (to_string id) + "\" dur=\"" + (to_string (PptxWriter.msOf(step.seconds))) + "\"/>" + tgt + "</p:cBhvr></p:animEffect>")
-            id = (id + 1)
+            if (kind == "fly") {
+                def fromX:string "#ppt_x"
+                def fromY:string "#ppt_y"
+                if (subtype == "8") { fromX = "0-#ppt_w/2" }
+                if (subtype == "2") { fromX = "1+#ppt_w/2" }
+                if (subtype == "1") { fromY = "0-#ppt_h/2" }
+                if (subtype == "4") { fromY = "1+#ppt_h/2" }
+                out = (out + (PptxWriter.flyAnim(id ms tgt "ppt_x" fromX "#ppt_x")))
+                id = (id + 1)
+                out = (out + (PptxWriter.flyAnim(id ms tgt "ppt_y" fromY "#ppt_y")))
+                id = (id + 1)
+            }
             out = (out + "</p:childTnLst></p:cTn></p:par>")
             out = (out + "</p:childTnLst></p:cTn></p:par>")
             out = (out + "</p:childTnLst></p:cTn></p:par>")
             i = (i + 1)
         }
         out = (out + "</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt=\"onPrev\" delay=\"0\"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt=\"onNext\" delay=\"0\"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq>")
-        return (out + "</p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>")
+        out = (out + "</p:childTnLst></p:cTn></p:par></p:tnLst>")
+        ; …and the build list: which text is built paragraph by paragraph. A
+        ; paragraph build without it is a timing tree that points at a build
+        ; nobody declared, and Keynote will not import it.
+        def bld:string ""
+        def seen:[int]
+        def j:int 0
+        while (j < (array_length slide.build)) {
+            def st:PptxBuildStep (itemAt slide.build j)
+            if ((st.shapeId > 0) && (st.paragraph >= 0)) {
+                def known:boolean false
+                def q:int 0
+                while (q < (array_length seen)) {
+                    if ((itemAt seen q) == st.shapeId) {
+                        known = true
+                    }
+                    q = (q + 1)
+                }
+                if (! known) {
+                    push seen st.shapeId
+                    bld = (bld + "<p:bldP spid=\"" + (to_string st.shapeId) + "\" grpId=\"0\" build=\"p\"/>")
+                }
+            }
+            j = (j + 1)
+        }
+        if ((strlen bld) > 0) {
+            out = (out + "<p:bldLst>" + bld + "</p:bldLst>")
+        }
+        return (out + "</p:timing>")
+    }
+
+    ; The effects the writer knows by name; anything else enters as a fade.
+    sfn buildKind:string (kind:string) {
+        if ((kind == "appear") || ((kind == "fly") || (kind == "fade"))) {
+            return kind
+        }
+        return "fade"
+    }
+
+    ; PowerPoint's subtype for Fly In: the side it comes from.
+    sfn flySubtype:string (dir:string) {
+        if (dir == "l") { return "8" }
+        if (dir == "r") { return "2" }
+        if (dir == "u") { return "1" }
+        if (dir == "t") { return "1" }
+        return "4"
+    }
+
+    sfn flyAnim:string (id:int ms:string tgt:string attr:string from:string to:string) {
+        return ("<p:anim calcmode=\"lin\" valueType=\"num\"><p:cBhvr additive=\"base\"><p:cTn id=\"" + (to_string id) + "\" dur=\"" + ms + "\" fill=\"hold\"/>" + tgt + "<p:attrNameLst><p:attrName>" + attr + "</p:attrName></p:attrNameLst></p:cBhvr><p:tavLst><p:tav tm=\"0\"><p:val><p:strVal val=\"" + from + "\"/></p:val></p:tav><p:tav tm=\"100000\"><p:val><p:strVal val=\"" + to + "\"/></p:val></p:tav></p:tavLst></p:anim>")
     }
 
     sfn targetXml:string (step:PptxBuildStep) {
