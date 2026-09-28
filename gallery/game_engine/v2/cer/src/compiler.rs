@@ -96,6 +96,8 @@ pub struct Compiler {
     keep_completion: bool,
     /// the innermost scope entered by the code being written
     cur_scope: int,
+    /// call nodes that are direct `eval` calls
+    direct_evals: HashMap<int, bool>,
 }
 
 impl Compiler {
@@ -114,6 +116,7 @@ impl Compiler {
             error: String::new(),
             keep_completion: true,
             cur_scope: -1,
+            direct_evals: HashMap::new(),
         }
     }
 
@@ -557,6 +560,20 @@ impl Compiler {
             self.visit(a, scope);
             return;
         }
+        if k == N_CALL && a >= 0 && self.ast.nodes[a as usize].kind == N_IDENT && self.ast.nodes[a as usize].s.as_str() == "eval" && self.lookup(scope, "eval") < 0 {
+            // a direct eval: every binding it can see lives in a scope object
+            self.direct_evals.insert(n, true);
+            let mut sc = scope;
+            while sc >= 0 {
+                if !self.scopes[sc as usize].is_program {
+                    let bs = self.scopes[sc as usize].binds.clone();
+                    for b in bs {
+                        self.binds[b as usize].captured = true;
+                    }
+                }
+                sc = self.scopes[sc as usize].parent;
+            }
+        }
         if k == N_SUPER_MEMBER {
             if c == 1 {
                 self.visit(a, scope);
@@ -856,6 +873,138 @@ impl Compiler {
         self.proto_base + (self.protos.len() as int) - 1
     }
 
+    /// Compiles eval code: a function whose outer scopes are those of
+    /// `outer` (the call site of a direct eval; empty for an indirect one)
+    /// and then the global scope. Sloppy code's `var` and function
+    /// declarations land in the caller's scope when it has the name, and
+    /// otherwise in the global scope; strict code keeps its own.
+    pub fn compile_eval(&mut self, root: int, outer: &EvalScope, strict_outer: bool) -> int {
+        let strict = strict_outer || (self.ast.nodes[root as usize].flags & F_STRICT) != 0;
+        let prog = self.new_scope(-1, -1, true, false);
+        self.scopes[prog as usize].is_program = true;
+        let mut maxd: int = -1;
+        for d in outer.depths.iter() {
+            if *d > maxd {
+                maxd = *d;
+            }
+        }
+        // one scope per scope object out from the call site
+        let mut levels: Vec<int> = Vec::new();
+        let mut i: int = 0;
+        while i <= maxd {
+            levels.push(-1);
+            i += 1;
+        }
+        let mut parent = prog;
+        let mut d = maxd;
+        while d >= 0 {
+            let sc = self.new_scope(parent, -1, false, false);
+            self.scopes[sc as usize].has_env = true;
+            levels[d as usize] = sc;
+            parent = sc;
+            d -= 1;
+        }
+        let mut k: usize = 0;
+        while k < outer.names.len() {
+            let sc = levels[outer.depths[k] as usize];
+            let nm = outer.names[k].clone();
+            if !self.scopes[sc as usize].names.contains_key(&nm) {
+                let kind = if outer.consts[k] { K_CONST } else { K_LET };
+                let b = self.declare(sc, nm.as_str(), kind);
+                self.binds[b as usize].in_env = true;
+                self.binds[b as usize].placed = true;
+                self.binds[b as usize].slot = outer.slots[k];
+            }
+            k += 1;
+        }
+        let es = self.new_scope(parent, root, true, false);
+        let list = self.ast.nodes[root as usize].list.clone();
+        if strict {
+            self.hoist_vars(root, es);
+            self.declare_lexical(&list, es);
+        } else {
+            // var and function names: the caller's binding, or a global
+            let tmp = self.new_scope(-1, -1, true, false);
+            self.hoist_vars(root, tmp);
+            let mut vnames: Vec<String> = Vec::new();
+            for b in self.scopes[tmp as usize].binds.iter() {
+                vnames.push(self.binds[*b as usize].name.clone());
+            }
+            for nm in vnames {
+                if self.lookup_from(parent, nm.as_str()) < 0 {
+                    self.declare(prog, nm.as_str(), K_VAR);
+                }
+            }
+            let mut lex: Vec<int> = Vec::new();
+            for st in list.iter() {
+                let sk = self.ast.nodes[*st as usize].kind;
+                if sk == N_FUNC && (self.ast.nodes[*st as usize].flags & F_DECL) != 0 {
+                    let nm = self.ast.nodes[*st as usize].s.clone();
+                    if self.lookup_from(parent, nm.as_str()) < 0 {
+                        self.declare(prog, nm.as_str(), K_FUNC);
+                    }
+                } else {
+                    lex.push(*st);
+                }
+            }
+            self.declare_lexical(&lex, es);
+        }
+        self.visit(root, es);
+        if !self.error.is_empty() {
+            return -1;
+        }
+        let mut proto = Proto::new("");
+        proto.strict = strict;
+        self.fs.push(FnState {
+            proto: proto,
+            next_slot: 1,
+            ctl: Vec::new(),
+            str_consts: HashMap::new(),
+            num_consts: HashMap::new(),
+            chain: Vec::new(),
+            pending_labels: Vec::new(),
+            is_program: true,
+        });
+        self.cur_scope = es;
+        self.enter_scope(es, true);
+        let env_size = self.scopes[es as usize].env_size;
+        self.f().proto.env_size = env_size;
+        let gbinds = self.scopes[prog as usize].binds.clone();
+        for b in gbinds {
+            if self.binds[b as usize].kind == K_VAR {
+                let nm = self.binds[b as usize].name.clone();
+                let a = self.atom(nm.as_str());
+                self.emit(OP_DECL_GLOBAL, a, 0);
+            }
+        }
+        self.hoist_functions(&list);
+        self.op(OP_UNDEF);
+        self.emit(OP_SET_LOCAL, 0, 0);
+        self.op(OP_POP);
+        for st in list {
+            self.statement(st);
+        }
+        self.emit(OP_GET_LOCAL, 0, 0);
+        self.op(OP_RETURN);
+        let fs = self.fs.pop().unwrap();
+        let mut p = fs.proto;
+        p.nslots = fs.next_slot;
+        self.protos.push(p);
+        self.proto_base + (self.protos.len() as int) - 1
+    }
+
+    /// The binding `name` has from `scope` outwards, without marking it.
+    fn lookup_from(&self, scope: int, name: &str) -> int {
+        let mut s = scope;
+        while s >= 0 {
+            if let Some(b) = self.scopes[s as usize].names.get(name) {
+                return *b;
+            }
+            s = self.scopes[s as usize].parent;
+        }
+        -1
+    }
+
     /// Function declarations of a body, made before its statements run.
     fn hoist_functions(&mut self, list: &Vec<int>) {
         for s in list.iter() {
@@ -904,6 +1053,7 @@ impl Compiler {
         proto.class_ctor = (flags & F_CTOR) != 0;
         proto.derived = (flags & F_DERIVED) != 0;
         proto.getter_setter = (flags & (F_GETTER | F_SETTER)) != 0;
+        proto.source = self.ast.nodes[n as usize].text.clone();
         let params = self.ast.nodes[n as usize].list.clone();
         let saved_scope = self.cur_scope;
         self.fs.push(FnState {
@@ -1304,7 +1454,7 @@ impl Compiler {
                 }
             }
         }
-        let is_program_top = self.fs.len() == 1 && self.fs[0].is_program && self.f().ctl.is_empty() && self.keep_completion;
+        let is_program_top = self.fs.len() == 1 && self.fs[0].is_program && self.keep_completion;
         if k == N_ASSIGN && self.ast.nodes[e as usize].op.as_str() == "define" {
             self.define_field(e);
             self.op(OP_POP);
@@ -1380,7 +1530,11 @@ impl Compiler {
             self.op(OP_COPY_ENV);
         }
         if c >= 0 {
+            // the update is not a statement: it leaves the completion value
+            let kc = self.keep_completion;
+            self.keep_completion = false;
             self.expr_statement(c);
+            self.keep_completion = kc;
         }
         self.emit(OP_JUMP, top, 0);
         if jf >= 0 {
@@ -1952,6 +2106,41 @@ impl Compiler {
         } else {
             self.expr(a);
             self.op(OP_UNDEF);
+        }
+        if self.direct_evals.contains_key(&n) && !self.has_spread(&args) {
+            // what the eval code can see: every binding in a scope object
+            // between here and the program, innermost first
+            let mut es = EvalScope::new();
+            let mut sc = self.cur_scope;
+            while sc >= 0 {
+                if !self.scopes[sc as usize].is_program {
+                    let bs = self.scopes[sc as usize].binds.clone();
+                    for b in bs {
+                        let in_env = self.binds[b as usize].in_env;
+                        let placed = self.binds[b as usize].placed;
+                        let global = self.binds[b as usize].global;
+                        if in_env && placed && !global {
+                            let nm = self.binds[b as usize].name.clone();
+                            let slot = self.binds[b as usize].slot;
+                            let is_const = self.binds[b as usize].kind == K_CONST;
+                            let depth = self.env_depth(self.cur_scope, sc);
+                            es.names.push(nm);
+                            es.depths.push(depth);
+                            es.slots.push(slot);
+                            es.consts.push(is_const);
+                        }
+                    }
+                }
+                sc = self.scopes[sc as usize].parent;
+            }
+            let ei = self.f().proto.evals.len() as int;
+            self.f().proto.evals.push(es);
+            let cnt = args.len() as int;
+            for x in args {
+                self.expr(x);
+            }
+            self.emit(OP_EVAL_CALL, cnt, ei);
+            return;
         }
         if optional && !self.f().chain.is_empty() {
             // [f, this] → skip the call when f is null / undefined

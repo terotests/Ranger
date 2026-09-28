@@ -19,6 +19,10 @@ pub struct Parser {
     no_in: bool,
     in_function: bool,
     in_class: bool,
+    /// the source, for functions' text
+    src: Vec<char>,
+    /// where the class or object member being read began
+    member_start: int,
 }
 
 fn binary_prec(op: &str) -> int {
@@ -131,7 +135,12 @@ impl Parser {
             no_in: false,
             in_function: false,
             in_class: false,
+            src: Vec::new(),
+            member_start: -1,
         };
+        for c in src.chars() {
+            p.src.push(c);
+        }
         if !lx.error.is_empty() {
             p.error = lx.error.clone();
         }
@@ -149,6 +158,7 @@ impl Parser {
             m.s = nd.s.clone();
             m.num = nd.num;
             m.flags = nd.flags;
+            m.text = nd.text.clone();
             m.a = if nd.a >= 0 { nd.a + off } else { nd.a };
             m.b = if nd.b >= 0 { nd.b + off } else { nd.b };
             m.c = if nd.c >= 0 && nd.kind != N_SUPER_MEMBER { nd.c + off } else { nd.c };
@@ -277,6 +287,29 @@ impl Parser {
         self.ast.add(kind, l)
     }
 
+    fn tok_start(&self) -> int {
+        self.toks[self.pos as usize].start
+    }
+
+    /// Records the source from `start` to the end of the last token read
+    /// as the text of node `n`.
+    fn set_text(&mut self, n: int, start: int) {
+        if self.pos < 1 || start < 0 {
+            return;
+        }
+        let end = self.toks[(self.pos - 1) as usize].end;
+        if end <= start || end > self.src.len() as int {
+            return;
+        }
+        let mut t = String::new();
+        let mut i = start;
+        while i < end {
+            t.push(self.src[i as usize]);
+            i += 1;
+        }
+        self.ast.nodes[n as usize].text = t;
+    }
+
     // ---- program
 
     pub fn parse_program(&mut self) -> int {
@@ -295,7 +328,10 @@ impl Parser {
     fn directives(&mut self, owner: int) {
         let mut k = self.pos;
         while (k as usize) < self.toks.len() && self.toks[k as usize].kind == T_STR {
-            if self.toks[k as usize].text.as_str() == "use strict" && !self.toks[k as usize].escaped {
+            // exactly 'use strict' or "use strict": no escapes, no line
+            // continuations
+            let raw_len = self.toks[k as usize].end - self.toks[k as usize].start;
+            if self.toks[k as usize].text.as_str() == "use strict" && !self.toks[k as usize].escaped && raw_len == 12 {
                 self.ast.nodes[owner as usize].flags |= F_STRICT;
             }
             k += 1;
@@ -700,6 +736,7 @@ impl Parser {
     /// `function name(…) { … }`; the current token is `function`.
     fn function(&mut self, decl: bool, extra: int) -> int {
         let n = self.node(N_FUNC);
+        let start = if (extra & F_ASYNC) != 0 && self.pos > 0 { self.toks[(self.pos - 1) as usize].start } else { self.tok_start() };
         self.next();
         let mut flags = extra;
         if self.eat("*") {
@@ -716,6 +753,7 @@ impl Parser {
         }
         self.ast.nodes[n as usize].flags = flags;
         self.function_rest(n);
+        self.set_text(n, start);
         n
     }
 
@@ -811,6 +849,7 @@ impl Parser {
 
     fn arrow(&mut self) -> int {
         let n = self.node(N_FUNC);
+        let start = self.tok_start();
         let mut flags = F_ARROW;
         if self.is("async") {
             self.next();
@@ -863,6 +902,7 @@ impl Parser {
             self.ast.nodes[n as usize].a = e;
             self.ast.nodes[n as usize].flags |= F_EXPR_BODY;
         }
+        self.set_text(n, start);
         n
     }
 
@@ -907,12 +947,15 @@ impl Parser {
         let f = self.node(N_FUNC);
         self.ast.nodes[f as usize].flags = flags | F_METHOD;
         self.ast.nodes[f as usize].s = String::from(name);
+        let start = self.member_start;
         self.function_rest(f);
+        self.set_text(f, start);
         f
     }
 
     fn class(&mut self, decl: bool) -> int {
         let n = self.node(N_CLASS);
+        let start = self.tok_start();
         self.next();
         if self.kind() == T_IDENT && !self.is("extends") && !self.is("{") {
             let name = self.binding_ident();
@@ -952,6 +995,7 @@ impl Parser {
                 }
             }
             let mut fflags = 0;
+            self.member_start = self.tok_start();
             if self.is("async") && !self.peek_is(1, "(") && !self.peek_is(1, "=") && !self.toks[(self.pos + 1) as usize].nl {
                 self.next();
                 fflags |= F_ASYNC;
@@ -1069,6 +1113,10 @@ impl Parser {
         let ctor = self.ast.nodes[n as usize].b;
         let cname = self.ast.nodes[n as usize].s.clone();
         self.ast.nodes[ctor as usize].s = cname;
+        // the class's source is its constructor's text
+        self.set_text(n, start);
+        let ctext = self.ast.nodes[n as usize].text.clone();
+        self.ast.nodes[ctor as usize].text = ctext;
         if (self.ast.nodes[n as usize].flags & F_DERIVED) != 0 {
             self.ast.nodes[ctor as usize].flags |= F_DERIVED;
         }
@@ -1655,6 +1703,7 @@ impl Parser {
             }
             let mut flags = 0;
             let mut fflags = 0;
+            self.member_start = self.tok_start();
             if self.is("async") && !self.peek_is(1, "(") && !self.peek_is(1, ":") && !self.peek_is(1, ",") && !self.peek_is(1, "}") && !self.peek_is(1, "=") {
                 self.next();
                 fflags |= F_ASYNC;

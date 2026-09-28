@@ -2544,6 +2544,29 @@ impl Vm {
                 let r = self.instance_of(&a, &b);
                 self.stack.push(Val::Bool(r));
             }
+            OP_EVAL_CALL => {
+                let argc = op.a;
+                let fpos = self.stack.len() - (argc as usize) - 2;
+                let f = self.stack[fpos].clone();
+                let is_eval = match &f {
+                    Val::Obj(o) => self.objs[*o as usize].class == C_NATIVE && self.objs[*o as usize].func == crate::builtins::NF_EVAL,
+                    _ => false,
+                };
+                if !is_eval {
+                    return self.call_op(argc);
+                }
+                let a0 = if argc > 0 { self.stack[fpos + 2].clone() } else { Val::Undef };
+                self.stack.truncate(fpos);
+                if let Val::Str(s) = &a0 {
+                    let src = s.as_ref().clone();
+                    let env = self.frames[fi].env;
+                    let t = self.frames[fi].this_val.clone();
+                    let r = self.eval_direct(src.as_str(), pi as int, op.b, env, t);
+                    self.stack.push(r);
+                } else {
+                    self.stack.push(a0);
+                }
+            }
             OP_GET_PRIVATE => {
                 let v = self.pop();
                 let has = match &v {

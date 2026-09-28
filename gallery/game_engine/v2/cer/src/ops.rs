@@ -222,3 +222,6 @@ pub const OP_SET_PROP_POP: int = 131;
 pub const OP_SET_ELEM_POP: int = 132;
 /// [obj] → [obj.<private atom a>]: a TypeError when obj does not have it
 pub const OP_GET_PRIVATE: int = 133;
+/// [f, this, args…] → [result]: a call that is a direct `eval` when f is
+/// the built-in eval (then the code sees the scopes of evals[b]); argc a
+pub const OP_EVAL_CALL: int = 134;

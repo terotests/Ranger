@@ -99,6 +99,8 @@ pub struct Node {
     pub num: double,
     pub flags: int,
     pub line: int,
+    /// a function's or class's source text (Function.prototype.toString)
+    pub text: String,
 }
 
 pub struct Ast {
@@ -124,6 +126,7 @@ impl Ast {
             num: 0.0,
             flags: 0,
             line: line,
+            text: String::new(),
         });
         (self.nodes.len() as int) - 1
     }

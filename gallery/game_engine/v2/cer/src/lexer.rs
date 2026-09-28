@@ -30,6 +30,9 @@ pub struct Tok {
     /// an identifier written with an escape, or a string with an octal
     /// escape: not a keyword
     pub escaped: bool,
+    /// where the token is in the source (characters): [start, end)
+    pub start: int,
+    pub end: int,
 }
 
 impl Tok {
@@ -44,6 +47,8 @@ impl Tok {
             exprs: Vec::new(),
             flags: String::new(),
             escaped: false,
+            start: -1,
+            end: -1,
         }
     }
 }
@@ -192,8 +197,15 @@ impl Lexer {
         let n = self.src.len() as int;
         // what the previous token allows a `/` to be
         let mut regex_ok = true;
+        let mut start: int = 0;
         loop {
+            if !toks.is_empty() && toks[toks.len() - 1].end < 0 {
+                let k = toks.len() - 1;
+                toks[k].start = start;
+                toks[k].end = self.pos;
+            }
             let nl = self.skip_space();
+            start = self.pos;
             if !self.error.is_empty() {
                 break;
             }

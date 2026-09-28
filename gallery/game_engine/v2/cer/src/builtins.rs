@@ -225,6 +225,7 @@ pub const NF_REFLECT_SET: int = 375;
 pub const NF_REFLECT_GETPROTO: int = 376;
 pub const NF_REFLECT_DEFPROP: int = 377;
 pub const NF_REFLECT_DELETE: int = 378;
+pub const NF_EVAL: int = 379;
 
 fn math_names() -> Vec<String> {
     let v = vec![
@@ -405,6 +406,7 @@ impl Vm {
         self.value_prop(g, "undefined", Val::Undef);
         self.method(g, "print", NF_PRINT, 0);
         self.method(g, "parseInt", NF_PARSEINT, 2);
+        self.method(g, "eval", NF_EVAL, 1);
         self.method(g, "parseFloat", NF_PARSEFLOAT, 1);
         self.method(g, "isNaN", NF_ISNAN, 1);
         self.method(g, "isFinite", NF_ISFINITE, 1);
@@ -2826,9 +2828,37 @@ impl Vm {
                 self.jobs.push(Val::Undef);
                 Val::Undef
             }
+            NF_EVAL => {
+                // an indirect eval: global code
+                if let Val::Str(s) = &a0 {
+                    let src = s.as_ref().clone();
+                    return self.eval_indirect(src.as_str());
+                }
+                a0
+            }
             NF_FUNCTION => {
-                self.throw_type("Function constructor is not supported");
-                Val::Undef
+                // new Function(p1, …, body): the source Node builds, as
+                // global code
+                let mut params = String::new();
+                let mut body = String::new();
+                let mut i: usize = 0;
+                while i < args.len() {
+                    let t = self.to_string(&args[i]);
+                    if self.throwing {
+                        return Val::Undef;
+                    }
+                    if i + 1 == args.len() {
+                        body = t;
+                    } else {
+                        if i > 0 {
+                            params.push(',');
+                        }
+                        params.push_str(t.as_str());
+                    }
+                    i += 1;
+                }
+                let src = format!("(function anonymous({}\n) {{\n{}\n}})", params, body);
+                self.eval_indirect(src.as_str())
             }
             NF_STRING => {
                 let s = if args.is_empty() {
@@ -3027,6 +3057,11 @@ impl Vm {
                 let ns = self.to_string(&n);
                 if self.objs[o as usize].class == C_FUNCTION {
                     let pi = self.objs[o as usize].func;
+                    // the source text; the prelude's functions are built-ins
+                    if pi >= self.prelude_protos && !self.protos[pi as usize].source.is_empty() {
+                        let src = self.protos[pi as usize].source.clone();
+                        return string_val(src);
+                    }
                     if self.protos[pi as usize].class_ctor {
                         return string_val(format!("class {} {{ }}", ns));
                     }

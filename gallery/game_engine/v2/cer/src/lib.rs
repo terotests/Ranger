@@ -20,6 +20,7 @@ pub mod ast;
 pub mod builtins;
 pub mod builtins2;
 pub mod compiler;
+pub mod evaluate;
 pub mod jsstr;
 pub mod lexer;
 pub mod num;

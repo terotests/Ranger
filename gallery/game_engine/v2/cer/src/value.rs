@@ -194,6 +194,22 @@ pub struct Op {
     pub c: int,
 }
 
+/// The names a direct `eval` call site can see: each a binding in a scope
+/// object `depth` scopes out from the call, at `slot`.
+#[derive(Clone)]
+pub struct EvalScope {
+    pub names: Vec<String>,
+    pub depths: Vec<int>,
+    pub slots: Vec<int>,
+    pub consts: Vec<bool>,
+}
+
+impl EvalScope {
+    pub fn new() -> EvalScope {
+        EvalScope { names: Vec::new(), depths: Vec::new(), slots: Vec::new(), consts: Vec::new() }
+    }
+}
+
 pub struct Proto {
     pub code: Vec<Op>,
     pub consts: Vec<Val>,
@@ -214,6 +230,9 @@ pub struct Proto {
     pub derived: bool,
     pub method: bool,
     pub getter_setter: bool,
+    /// the scopes of its direct `eval` calls (OP_EVAL_CALL b)
+    pub evals: Vec<EvalScope>,    /// its source text, for Function.prototype.toString
+    pub source: String,
 }
 
 impl Proto {
@@ -234,6 +253,8 @@ impl Proto {
             derived: false,
             method: false,
             getter_setter: false,
+            evals: Vec::new(),
+            source: String::new(),
         }
     }
 }
