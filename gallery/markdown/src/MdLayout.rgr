@@ -2052,6 +2052,21 @@ class MdLayout {
         def drawn:boolean (known > 0.0)
         def h:double 64.0
         if drawn { h = known }
+        ; On a slide a diagram taller than the room left under its heading is
+        ; given that room rather than a slide of its own: the deck scales a
+        ; scene into its box, and a heading alone on one slide with its
+        ; diagram on the next reads as two broken slides. Only when most of
+        ; the slide is still free; a diagram under a full slide moves on.
+        if (slides && paginate) {
+            def full:double (contentBottom - contentTop)
+            def avail:double (contentBottom - cursorY)
+            if ((h > avail) && (avail >= (full * 0.45))) {
+                h = avail
+            }
+            if (h > full) {
+                h = full
+            }
+        }
         def y:double (this.reserve(h))
         def b:MdBox (new MdBox())
         b.kind = 3
