@@ -13,10 +13,10 @@
 ;
 ;   the table    `vega`, `vega-lite` and `vegalite` name the same reader, and
 ;                a fence word that names a LANGUAGE still names no drawing
-;   the marks    a bar chart arrives as rectangles and strings, and a mark
-;                nothing here can draw — an arc — is REPORTED rather than
-;                approximated, because a pie drawn as rectangles is a wrong
-;                chart and a wrong chart is worse than an absent one
+;   the marks    a bar chart arrives as rectangles and strings, a pie as
+;                one filled slice per arc; a mark nothing here can draw is
+;                REPORTED rather than approximated, because a wrong chart
+;                is worse than an absent one
 ;   the labels   a category name is centred under its own bar while the names
 ;                fit side by side, and turned when they stop fitting — and
 ;                whatever it does, it stays inside the scene it was drawn into
@@ -156,22 +156,37 @@ class MdVegaTest {
         c.ok("through MdDiagram too" ((array_length sc.items) > 4))
     }
 
-    ; What it cannot draw, it says.
+    ; A pie: each slice a filled shape of its own colour, the slices meeting
+    ; at the centre, and nothing left undrawn.
     fn refused:void (c:VegaCheck) {
-        print "-- what it will not approximate --"
+        print "-- a pie is drawn as slices --"
         def d:MdVegaDrawing (MdVegaRender.draw((MdVegaTest.pieSpec()) 520.0 10.0))
-        def sawArc:boolean false
+        c.eqInt("nothing is skipped" (array_length d.skipped) 0)
+        def slices:int 0
+        def fills:[string]
         def i:int 0
-        while (i < (array_length d.skipped)) {
-            if ((itemAt d.skipped i) == "arc") {
-                sawArc = true
+        while (i < (array_length d.scene.items)) {
+            def it:SceneItem (itemAt d.scene.items i)
+            if ((it.tag == "chart") && ((array_length it.pts) >= 20)) {
+                slices = (slices + 1)
+                def seen:boolean false
+                def k:int 0
+                while (k < (array_length fills)) {
+                    if ((itemAt fills k) == it.fill) {
+                        seen = true
+                    }
+                    k = (k + 1)
+                }
+                if (seen == false) {
+                    push fills it.fill
+                }
             }
             i = (i + 1)
         }
-        c.ok("an arc is counted" sawArc)
+        c.eqInt("two slices" slices 2)
+        c.eqInt("in two colours" (array_length fills) 2)
         def why:string (MdDiagram.refusal("vega" (MdVegaTest.pieSpec())))
-        c.ok("and named" ((strlen why) > 0))
-        c.ok("by its own op" (MdVegaTest.mentions(why "arc")))
+        c.ok("and no apology for it" (MdVegaTest.mentions(why "arc") == false))
     }
 
     ; A label sits under the bar it names — which is what a box of width zero
