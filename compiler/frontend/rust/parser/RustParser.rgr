@@ -2975,8 +2975,39 @@ class RustParser {
     if (RustParser.isExprMacro(last)) {
       this.tryParseMacroArgs(m (open + 1) (close - 1))
     }
+    if (last == "matches") {
+      this.parseMatchesArgs(m (open + 1) (close - 1))
+    }
     pos = close
     return (this.done(m))
+  }
+
+  ; `matches!(expr, pattern)` and `matches!(expr, pattern if guard)`: the
+  ; expression, the pattern and the guard as kids.
+  fn parseMatchesArgs:void (m:RustNode a:int b:int) {
+    def savePos:int pos
+    def saveLimit:int limit
+    def saveNo:boolean noStruct
+    pos = a
+    limit = b
+    noStruct = false
+    m.add((this.parseExpr()))
+    if (this.eatP(",")) {
+      m.add((this.parsePattern()))
+      if (this.isKw("if")) {
+        pos = pos + 1
+        m.add((this.parseExpr()))
+      }
+      this.eatP(",")
+    } {
+      this.error("expected `,` and a pattern in `matches!`")
+    }
+    if (pos != b) {
+      this.error("unexpected tokens in `matches!`")
+    }
+    pos = savePos
+    limit = saveLimit
+    noStruct = saveNo
   }
 
   fn tryParseMacroArgs:void (m:RustNode a:int b:int) {

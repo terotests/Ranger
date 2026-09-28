@@ -1877,6 +1877,42 @@ class RangerGolangClassWriter {
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
 
+    ; `arr[i] = v`: a union-typed element takes its value wrapped, as push does
+    if (cmd == "set_at") {
+      def arr:CodeNode (node.getSecond())
+      def idx:CodeNode (node.getThird())
+      def val:CodeNode (itemAt node.children 3)
+      def elemType:string ""
+      if arr.hasParamDesc {
+        def arrDesc:RangerAppParamDesc (unwrap arr.paramDesc)
+        def arrNN@(optional):CodeNode arrDesc.nameNode
+        if (!null? arrNN) {
+          def arrNode:CodeNode (unwrap arrNN)
+          elemType = arrNode.array_type
+        }
+      }
+      if ((strlen elemType) == 0) {
+        elemType = arr.eval_array_type
+      }
+      ctx.setInExpr()
+      this.WalkNode(arr ctx wr)
+      wr.out("[" false)
+      this.WalkNode(idx ctx wr)
+      wr.out("] = " false)
+      def wrote:boolean false
+      if ((strlen elemType) > 0) {
+        wrote = (this.goWriteUnionValue(elemType val ctx wr))
+      }
+      if (wrote == false) {
+        this.WalkNode(val ctx wr)
+      }
+      ctx.unsetInExpr()
+      if ((ctx.expressionLevel()) == 0) {
+        wr.newline()
+      }
+      return
+    }
+
     ; an index loop, or `for _, v := range xs` when that is safe
     if (cmd == "for") {
       this.goWriteForLoop(node ctx wr)

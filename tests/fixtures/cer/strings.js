@@ -1,0 +1,17 @@
+var s = "The Quick brown fox, jumps over 12 lazy dogs! ÄÖ été 😀 end";
+print(s.length, s.charCodeAt(45), s.indexOf("é"), s.slice(40, 50), s.toUpperCase(), s.toLowerCase());
+print(s.replace(/o/g, "0"), s.split(/\s+/).length, s.match(/\d+/)[0], s.search(/fox/));
+print("a,b,,c".split(","), "abc".split(""), "x".repeat(3), "5".padStart(3, "0"));
+var re = /(\w+)@(\w+)\.com/g; var t = "a@b.com c@d.com"; var m; var out = [];
+while ((m = re.exec(t)) !== null) out.push(m[1] + ":" + m[2] + ":" + m.index + ":" + re.lastIndex);
+print(out.join("|"));
+print("aaa".replace(/a*?/g, "-"), "abc".replace(/(b)/, "[$1$&$`$']"), "x-y-z".replace(/-/g, function (m, i) { return i; }));
+print(/^[\w.]+$/.test("a.b_c"), /a{2,3}/.exec("caaaat")[0], /(?:ab)+/.exec("xababab")[0], /\bfoo\b/i.test("a FOO b"));
+print(escape("a b+c/ä"), encodeURIComponent("a b&c=ä€"), decodeURIComponent("%E2%82%AC%20x"));
+print(String.fromCharCode(72, 105), "é".charCodeAt(0), "😀".length, "😀".codePointAt(0));
+print((1234.5678).toFixed(2), (0.000001234).toPrecision(2), (123.456).toExponential(2), (255).toString(2), (-7.5).toString(16));
+print(JSON.stringify({a: [1, "x", null, true], b: {c: 1.5e-7}}), JSON.parse('{"k":[1,2,{"z":"é\\u00e9"}]}').k[2].z);
+var h = 0; for (var i = 0; i < 1000; i++) { h = (h * 31 + i) | 0; h = h ^ (h >>> 7); h = h << 1; } print(h, -1 >>> 0, 1 << 31, ~5, 7 >> 1, -7 >> 1, (0xffffffff & 0x0f0f0f0f));
+print(Math.round(-0.5), Math.round(2.5), Math.floor(-1.5), 1 / Math.round(-0.4), Math.max(), Math.min(1, NaN), Math.atan2(1, 1), Math.sign(-3));
+print([3, 1, 10, 2].sort(), [3, 1, 10, 2].sort(function (a, b) { return a - b; }), ["b", "a", "C"].sort());
+print(parseFloat("3.14abc"), parseInt("0x1F"), Number(""), Number("1e3"), 0.1 * 3, 1e300 * 1e10, -0 === 0, Object.is(-0, 0));

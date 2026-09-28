@@ -598,12 +598,44 @@ class RangerGenericClassWriter {
         ; pieces concatenate back into the character on every target -- which
         ; tests/fixtures/string_units.rgr checks as `roundtrip`.
         default {
-          encoded_str = (encoded_str + (substring node.string_value ii (ii + 1)))
+          if ((cc < 32) || (cc == 127)) {
+            ; the other control characters (NUL, ESC, …) as escapes: a raw
+            ; NUL in a literal is a compile error in Go ("invalid NUL
+            ; character")
+            encoded_str = (encoded_str + (this.controlEscape(cc ctx)))
+          } {
+            encoded_str = (encoded_str + (substring node.string_value ii (ii + 1)))
+          }
         }
       }
       ii = ii + 1
     }
     return encoded_str   
+  }
+
+  ; A control character in the target's string literal syntax: C++ octal
+  ; (a hex escape there runs on into following hex digits), `\xHH` where it
+  ; is exactly two digits, `\u{H}` in Swift, `\u00HH` elsewhere.
+  fn controlEscape:string (cc:int ctx:RangerAppWriterContext) {
+    def hex:string "0123456789abcdef"
+    def lang:string (ctx.getTargetLang())
+    def bs:string (strfromcode 92)
+    def hi:int (idiv cc 16)
+    def lo:int (cc % 16)
+    def h2:string ((substring hex hi (hi + 1)) + (substring hex lo (lo + 1)))
+    if (lang == "cpp") {
+      def o1:int (idiv cc 64)
+      def o2:int ((idiv cc 8) % 8)
+      def o3:int (cc % 8)
+      return (bs + (to_string o1) + (to_string o2) + (to_string o3))
+    }
+    if ((lang == "go") || (lang == "es6") || (lang == "es5") || (lang == "ts") || (lang == "rust") || (lang == "python")) {
+      return (bs + "x" + h2)
+    }
+    if ((lang == "swift3") || (lang == "swift6")) {
+      return (bs + "u{" + h2 + "}")
+    }
+    return (bs + "u00" + h2)
   }
 
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
