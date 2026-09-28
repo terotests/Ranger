@@ -36,6 +36,8 @@ pub struct Binding {
     pub scope: int,
     pub global: bool,
     pub placed: bool,
+    /// a parameter the arguments object maps (sloppy code): its index
+    pub arg_index: int,
 }
 
 pub struct Scope {
@@ -184,6 +186,7 @@ impl Compiler {
             scope: scope,
             global: global,
             placed: false,
+            arg_index: -1,
         });
         let id = (self.binds.len() as int) - 1;
         self.scopes[scope as usize].names.insert(String::from(name), id);
@@ -809,6 +812,11 @@ impl Compiler {
     }
 
     fn load_bind(&mut self, b: int) {
+        if self.binds[b as usize].arg_index >= 0 {
+            let ai = self.binds[b as usize].arg_index;
+            self.emit(OP_GET_ARG, ai, 0);
+            return;
+        }
         let bd = &self.binds[b as usize];
         if bd.in_env {
             let slot = bd.slot;
@@ -822,6 +830,11 @@ impl Compiler {
 
     /// Stores the top of the stack in the binding, keeping it on the stack.
     fn store_bind(&mut self, b: int, init: bool) {
+        if self.binds[b as usize].arg_index >= 0 {
+            let ai = self.binds[b as usize].arg_index;
+            self.emit(OP_SET_ARG, ai, 0);
+            return;
+        }
         let bd = &self.binds[b as usize];
         if bd.kind == K_CONST && !init {
             let nm = bd.name.clone();
@@ -1197,6 +1210,34 @@ impl Compiler {
             }
             j += 1;
         }
+        // a sloppy function with simple parameters that mentions
+        // `arguments`: the parameters and its elements are the same
+        let mut uses_arguments = false;
+        for b in self.scopes[scope as usize].binds.iter() {
+            if self.binds[*b as usize].kind == K_ARGS {
+                uses_arguments = true;
+            }
+        }
+        let mut simple_params = true;
+        for p in params.iter() {
+            if self.ast.nodes[*p as usize].kind != N_IDENT {
+                simple_params = false;
+            }
+        }
+        if uses_arguments && simple_params && !self.f().proto.strict && !self.f().proto.arrow {
+            let mut pi2: int = 0;
+            for p in params.iter() {
+                let nm = self.ast.nodes[*p as usize].s.clone();
+                let b = match self.scopes[scope as usize].names.get(&nm) {
+                    Some(x) => *x,
+                    None => -1,
+                };
+                if b >= 0 && self.binds[b as usize].kind == K_PARAM && !self.binds[b as usize].in_env && self.binds[b as usize].slot == pi2 {
+                    self.binds[b as usize].arg_index = pi2;
+                }
+                pi2 += 1;
+            }
+        }
         // `arguments` and the function's own name
         let binds = self.scopes[scope as usize].binds.clone();
         for b in binds.iter() {
@@ -1546,7 +1587,7 @@ impl Compiler {
                     Some(x) => *x,
                     None => -1,
                 };
-                if b >= 0 && !self.binds[b as usize].in_env && !self.binds[b as usize].global && self.binds[b as usize].kind != K_CONST {
+                if b >= 0 && !self.binds[b as usize].in_env && !self.binds[b as usize].global && self.binds[b as usize].kind != K_CONST && self.binds[b as usize].arg_index < 0 {
                     let slot = self.binds[b as usize].slot;
                     let delta = if self.ast.nodes[e as usize].op.as_str() == "++" { 1 } else { -1 };
                     self.emit(OP_INC_LOCAL, slot, delta);
@@ -2082,7 +2123,7 @@ impl Compiler {
                     Some(x) => *x,
                     None => -1,
                 };
-                if bnd >= 0 && !self.binds[bnd as usize].in_env && !self.binds[bnd as usize].global {
+                if bnd >= 0 && !self.binds[bnd as usize].in_env && !self.binds[bnd as usize].global && self.binds[bnd as usize].arg_index < 0 {
                     let slot = self.binds[bnd as usize].slot;
                     let at = self.atom(s.as_str());
                     self.emit(OP_GET_LOCAL_PROP, slot, at);
@@ -2445,7 +2486,7 @@ impl Compiler {
                 Some(x) => *x,
                 None => -1,
             };
-            if b >= 0 && !self.binds[b as usize].in_env && !self.binds[b as usize].global && self.binds[b as usize].kind != K_CONST {
+            if b >= 0 && !self.binds[b as usize].in_env && !self.binds[b as usize].global && self.binds[b as usize].kind != K_CONST && self.binds[b as usize].arg_index < 0 {
                 let slot = self.binds[b as usize].slot;
                 let delta = if op.as_str() == "++" { 1 } else { -1 };
                 self.emit(if prefix { OP_PREINC_LOCAL } else { OP_POSTINC_LOCAL }, slot, delta);

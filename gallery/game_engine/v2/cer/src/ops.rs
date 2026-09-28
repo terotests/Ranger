@@ -235,3 +235,8 @@ pub const OP_YIELD: int = 136;
 pub const OP_AWAIT: int = 137;
 /// [v] → [ToObject(v)]: a TypeError for null / undefined (`with`)
 pub const OP_TO_OBJECT: int = 138;
+/// a sloppy function's parameter `a` that the arguments object maps: its
+/// element while mapped, else the slot
+pub const OP_GET_ARG: int = 139;
+/// [v] → [v]: writes parameter `a` (and its mapped element)
+pub const OP_SET_ARG: int = 140;

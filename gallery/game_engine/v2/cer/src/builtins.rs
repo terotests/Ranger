@@ -1592,7 +1592,14 @@ impl Vm {
                 return;
             }
         }
-        let arr_index = i >= 0 && self.objs[o as usize].class == C_ARRAY;
+        let arr_index = i >= 0 && (self.objs[o as usize].class == C_ARRAY || (self.objs[o as usize].class == C_ARGUMENTS && (has_get || has_set)));
+        if i >= 0 && self.objs[o as usize].class == C_ARGUMENTS && !has_get && !has_set && (i as usize) < self.objs[o as usize].elems.len() && !self.is_hole(o, i) {
+            // a mapped element takes a new value (the parameter sees it)
+            if has_value {
+                self.objs[o as usize].elems[i as usize] = value.clone();
+            }
+            return;
+        }
         if has_get || has_set {
             if arr_index {
                 self.array_index_to_prop(o, i);

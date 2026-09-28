@@ -1018,8 +1018,9 @@ impl Vm {
                 }
                 if self.is_hole(o, i) {
                     // an element kept as a property takes the write itself
+                    // (a deleted argument stays unmapped: a property too)
                     let at = self.index_atom(i);
-                    if self.objs[o as usize].find(at) >= 0 {
+                    if self.objs[o as usize].find(at) >= 0 || class == C_ARGUMENTS {
                         self.set_obj(o, at, v);
                         return;
                     }
@@ -1222,8 +1223,10 @@ impl Vm {
         if i >= 0 && (class == C_ARRAY || class == C_ARGUMENTS) {
             let len = self.objs[o as usize].elems.len() as int;
             if i < len {
-                if i == len - 1 && class == C_ARGUMENTS {
-                    self.objs[o as usize].elems.pop();
+                if class == C_ARGUMENTS {
+                    // gone, and no longer the parameter
+                    self.objs[o as usize].elems[i as usize] = Val::Undef;
+                    self.set_hole(o, i, true);
                 } else {
                     self.objs[o as usize].elems[i as usize] = Val::Undef;
                     if class == C_ARRAY {
@@ -2510,7 +2513,7 @@ impl Vm {
     /// `saved` is not as long as its elements has none.
     pub fn is_hole(&self, o: int, i: int) -> bool {
         let ob = &self.objs[o as usize];
-        ob.class == C_ARRAY && !ob.saved.is_empty() && ob.saved.len() == ob.elems.len() && i >= 0 && (i as usize) < ob.saved.len() && ob.saved[i as usize] == 1
+        (ob.class == C_ARRAY || ob.class == C_ARGUMENTS) && !ob.saved.is_empty() && ob.saved.len() == ob.elems.len() && i >= 0 && (i as usize) < ob.saved.len() && ob.saved[i as usize] == 1
     }
 
     pub fn has_holes(&self, o: int) -> bool {
@@ -2919,6 +2922,23 @@ impl Vm {
                 }
                 let o = self.to_object(&v);
                 self.stack.push(Val::Obj(o));
+            }
+            OP_GET_ARG | OP_SET_ARG => {
+                // a mapped parameter: the arguments object's element while it
+                // is there, and the slot
+                let i = op.a;
+                let ao = self.frames[fi].args_obj;
+                let mapped = ao >= 0 && (i as usize) < self.objs[ao as usize].elems.len() && !self.is_hole(ao, i);
+                if op.code == OP_GET_ARG {
+                    let v = if mapped { self.objs[ao as usize].elems[i as usize].clone() } else { self.stack[(bp + i) as usize].clone() };
+                    self.stack.push(v);
+                } else {
+                    let v = self.top().clone();
+                    if mapped {
+                        self.objs[ao as usize].elems[i as usize] = v.clone();
+                    }
+                    self.stack[(bp + i) as usize] = v;
+                }
             }
             OP_GET_PRIVATE => {
                 let v = self.pop();
