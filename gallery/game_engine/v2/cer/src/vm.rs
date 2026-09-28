@@ -152,6 +152,8 @@ pub struct Vm {
     pub jobs: Vec<Val>,
     pub regexes: Vec<crate::regex::Regex>,
     pub regex_cache: HashMap<String, int>,
+    /// the Unicode tables, loaded when first used
+    pub uni: crate::unicode::Uni,
 }
 
 pub fn is_obj(v: &Val) -> bool {
@@ -265,6 +267,7 @@ impl Vm {
             jobs: Vec::new(),
             regexes: Vec::new(),
             regex_cache: HashMap::new(),
+            uni: crate::unicode::Uni::new(),
         };
         for n in first_atoms() {
             vm.intern(n.as_str());

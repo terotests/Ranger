@@ -505,3 +505,568 @@ hide(globalThis, '__cerAsync', function (gen) {
   });
 });
 })();"#;
+
+/// Intl, over the natives of `intl.rs` (the helper object `__cerIntl`):
+/// ComponentEngine's D-INTL ported. The CLDR data covers 39 locales; any
+/// other falls back to "en", and resolvedOptions().locale says so.
+pub const INTL: &str = r#"(function () {
+var I = globalThis.__cerIntl;
+delete globalThis.__cerIntl;
+var defineProperty = Object.defineProperty;
+var create = Object.create;
+var isArray = Array.isArray;
+var toLower = String.prototype.toLowerCase;
+var toUpper = String.prototype.toUpperCase;
+var dateNow = Date.now;
+var DP = Date.prototype;
+var getTime = DP.getTime;
+var numValue = Number.prototype.valueOf;
+function hide(o, name, v) { defineProperty(o, name, { value: v, writable: true, enumerable: false, configurable: true }); }
+function tag(o, name) { defineProperty(o, Symbol.toStringTag, { value: name, writable: false, enumerable: false, configurable: true }); }
+function getter(o, name, f) { defineProperty(o, name, { get: f, enumerable: false, configurable: true }); }
+function isObject(v) { return (typeof v === 'object' && v !== null) || typeof v === 'function'; }
+function lower(s) { return toLower.call(s); }
+function upper(s) { return toUpper.call(s); }
+
+// the generated tables, fetched once each
+var T = [];
+function tab(k) { var t = T[k]; if (t === undefined) { t = I.table(k); T[k] = t; } return t; }
+var TAGS = 0, NUMSTR = 1, NUMINT = 2, NAMES = 3, PATINT = 4, PATSTR = 5, CURSTR = 6, CURINT = 7;
+var PTAGS = 8, PKEYS = 9, PENTRIES = 10, PPAIRS = 11, LISTSEPS = 12, CURCOUNT = 13;
+
+// ---- locale tags
+function requested(v) {
+  if (v === undefined) return [];
+  if (isArray(v)) return v.slice();
+  return [v];
+}
+function firstTag(v) { var l = requested(v); return l.length ? String(l[0]) : ''; }
+// IsStructurallyValidLanguageTag, to the depth used here: the language
+// subtag is 2-3 or 5-8 letters, every later subtag 1-8 alphanumerics
+function wellFormed(tag) {
+  if (tag.length === 0) return false;
+  var parts = tag.split('-');
+  for (var i = 0; i < parts.length; i++) {
+    var p = parts[i], np = p.length;
+    if (np === 0 || np > 8) return false;
+    var alpha = true, alnum = true;
+    for (var c = 0; c < np; c++) {
+      var ch = p.charCodeAt(c);
+      var isAl = (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122);
+      var isDi = ch >= 48 && ch <= 57;
+      if (!isAl) alpha = false;
+      if (!isAl && !isDi) alnum = false;
+    }
+    if (!alnum) return false;
+    if (i === 0 && (!alpha || np < 2 || np === 4)) return false;
+  }
+  return true;
+}
+function checkTags(v) {
+  var l = requested(v);
+  for (var i = 0; i < l.length; i++) {
+    var s = String(l[i]);
+    if (s.length === 0) continue;
+    if (!wellFormed(s)) throw new RangeError('Incorrect locale information provided');
+  }
+}
+// language lowercased, script title-cased, region uppercased
+function canonical(tag) {
+  var parts = tag.split('-'), out = '';
+  for (var i = 0; i < parts.length; i++) {
+    var p = parts[i], np = p.length, piece = lower(p);
+    if (i > 0) {
+      if (np === 4) piece = upper(p.slice(0, 1)) + lower(p.slice(1));
+      if (np === 2) piece = upper(p);
+      if (np === 3 && /^[0-9]+$/.test(p)) piece = p;
+    }
+    if (i > 0) out += '-';
+    out += piece;
+  }
+  return out;
+}
+// the index of a tag in a table of tags: the exact tag, else its language,
+// else 0 ("en")
+function indexIn(tags, tag) {
+  if (tag.length === 0) return 0;
+  var want = lower(tag);
+  for (var i = 0; i < tags.length; i++) if (tags[i] === want) return i;
+  var dash = want.indexOf('-');
+  if (dash > 0) {
+    var short = want.slice(0, dash);
+    for (var j = 0; j < tags.length; j++) if (tags[j] === short) return j;
+  }
+  return 0;
+}
+function localeIndex(tag) { return indexIn(tab(TAGS), tag); }
+function isSupported(tag) {
+  var tags = tab(TAGS), want = lower(tag);
+  for (var i = 0; i < tags.length; i++) if (tags[i] === want) return true;
+  var dash = want.indexOf('-');
+  if (dash > 0) {
+    var short = want.slice(0, dash);
+    for (var j = 0; j < tags.length; j++) if (tags[j] === short) return true;
+  }
+  return false;
+}
+function localeList(v, onlySupported) {
+  checkTags(v);
+  var l = requested(v), out = [];
+  for (var i = 0; i < l.length; i++) {
+    var c = canonical(String(l[i]));
+    if (onlySupported && !isSupported(c)) continue;
+    if (out.indexOf(c) < 0) out.push(c);
+  }
+  return out;
+}
+function resolvedLocale(idx) { return canonical(tab(TAGS)[idx]); }
+
+// ---- options
+function stringOption(opts, key) {
+  if (!isObject(opts)) return '';
+  var v = opts[key];
+  return v === undefined ? '' : String(v);
+}
+function intOption(opts, key, fallback) {
+  if (!isObject(opts)) return fallback;
+  var v = opts[key];
+  if (v === undefined) return fallback;
+  var n = Number(v);
+  if (n !== n) throw new RangeError(key + ' value is out of range.');
+  return n < 0 ? -Math.floor(-n) : Math.floor(n);
+}
+function boolOption(opts, key, fallback) {
+  if (!isObject(opts)) return fallback;
+  var v = opts[key];
+  return v === undefined ? fallback : !!v;
+}
+
+// the internal slots of every Intl object
+var slots = new WeakMap();
+function slot(o, kind, what) {
+  var s = isObject(o) ? slots.get(o) : undefined;
+  if (s === undefined || s.kind !== kind) throw new TypeError('Method ' + what + ' called on incompatible receiver ' + String(o));
+  return s;
+}
+function part(t, v) { return { type: t, value: v }; }
+function joinParts(parts) { var s = ''; for (var i = 0; i < parts.length; i++) s += parts[i].value; return s; }
+function makeCtor(name, kind, init, needsNew) {
+  var proto = create(Object.prototype);
+  var C = function () {
+    if (needsNew && new.target === undefined) throw new TypeError("Constructor Intl." + name + " requires 'new'");
+    var p = new.target !== undefined && isObject(new.target.prototype) ? new.target.prototype : proto;
+    var o = create(p);
+    var locales = arguments[0], options = arguments[1];
+    checkTags(locales);
+    var s = { kind: kind, tag: firstTag(locales) };
+    s.loc = localeIndex(s.tag);
+    init(s, options);
+    slots.set(o, s);
+    return o;
+  };
+  defineProperty(C, 'name', { value: name, writable: false, enumerable: false, configurable: true });
+  defineProperty(C, 'length', { value: 0, writable: false, enumerable: false, configurable: true });
+  defineProperty(C, 'prototype', { value: proto, writable: false, enumerable: false, configurable: false });
+  hide(proto, 'constructor', C);
+  tag(proto, 'Intl.' + name);
+  hide(C, 'supportedLocalesOf', function supportedLocalesOf(locales) { return localeList(locales, true); });
+  return C;
+}
+
+var Intl = create(Object.prototype);
+tag(Intl, 'Intl');
+hide(Intl, 'getCanonicalLocales', function getCanonicalLocales(locales) { return localeList(locales, false); });
+
+// ---- Collator: three-level collation with the locale's tailoring
+var Collator = makeCtor('Collator', 'collator', function (s, opts) {
+  var sens = stringOption(opts, 'sensitivity');
+  if (sens.length === 0) sens = 'variant';
+  s.sensitivity = sens;
+  s.numeric = boolOption(opts, 'numeric', false);
+  s.usage = 'sort';
+}, false);
+// {numeric:true}: runs of digits compare by value
+function numericCompare(a, b) {
+  var ia = 0, ib = 0, na = a.length, nb = b.length;
+  while (ia < na && ib < nb) {
+    var ca = a.charCodeAt(ia), cb = b.charCodeAt(ib);
+    var da = ca >= 48 && ca <= 57, db = cb >= 48 && cb <= 57;
+    if (da && db) {
+      var va = 0, vb = 0;
+      while (ia < na) { var x = a.charCodeAt(ia); if (x < 48 || x > 57) break; va = va * 10 + (x - 48); ia++; }
+      while (ib < nb) { var y = b.charCodeAt(ib); if (y < 48 || y > 57) break; vb = vb * 10 + (y - 48); ib++; }
+      return va < vb ? -1 : (va > vb ? 1 : 0);
+    }
+    if (ca !== cb) return 0;
+    ia++; ib++;
+  }
+  return 0;
+}
+function collatorCompare(s, a, b) {
+  if (s.numeric) { var nc = numericCompare(a, b); if (nc !== 0) return nc; }
+  var levels = 3;
+  if (s.sensitivity === 'base' || s.sensitivity === 'case') levels = 1;
+  if (s.sensitivity === 'accent') levels = 2;
+  return I.collate(a, b, s.tag, levels);
+}
+getter(Collator.prototype, 'compare', function () {
+  var s = slot(this, 'collator', 'get Intl.Collator.prototype.compare');
+  if (s.bound === undefined) s.bound = function (x, y) { return collatorCompare(s, String(x), String(y)); };
+  return s.bound;
+});
+hide(Collator.prototype, 'resolvedOptions', function resolvedOptions() {
+  var s = slot(this, 'collator', 'Intl.Collator.prototype.resolvedOptions');
+  return { locale: resolvedLocale(s.loc), usage: s.usage, sensitivity: s.sensitivity, ignorePunctuation: false, collation: 'default', numeric: s.numeric, caseFirst: 'false' };
+});
+
+// ---- NumberFormat
+var NumberFormat = makeCtor('NumberFormat', 'numberformat', function (s, opts) {
+  var style = stringOption(opts, 'style');
+  if (style.length === 0) style = 'decimal';
+  var cur = stringOption(opts, 'currency');
+  if (style === 'currency') {
+    if (cur.length === 0) throw new TypeError('Currency code is required with currency style.');
+    cur = upper(cur);
+  }
+  var defMax = 3, defMin = 0;
+  if (style === 'currency') { defMax = 2; defMin = 2; }
+  if (style === 'percent') defMax = 0;
+  var minF = intOption(opts, 'minimumFractionDigits', defMin);
+  var maxF = intOption(opts, 'maximumFractionDigits', defMax < minF ? minF : defMax);
+  if (minF < 0 || minF > 100 || maxF < 0 || maxF > 100) throw new RangeError('fractionDigits value is out of range.');
+  if (maxF < minF) throw new RangeError('maximumFractionDigits value is out of range.');
+  s.style = style;
+  s.currency = cur;
+  s.minF = minF;
+  s.maxF = maxF;
+  s.minI = intOption(opts, 'minimumIntegerDigits', 1);
+  s.group = boolOption(opts, 'useGrouping', true);
+}, false);
+// grouping from the right; the first group may differ (3 then 2 in South
+// Asian locales), and a number shorter than the minimum is not grouped
+function groupInteger(digits, loc, useGroup) {
+  var sep = tab(NUMSTR)[loc * 22 + 1];
+  if (!useGroup || sep.length === 0) return digits;
+  var ni = tab(NUMINT);
+  var primary = ni[loc * 5], secondary = ni[loc * 5 + 1], minGroup = ni[loc * 5 + 2];
+  var n = digits.length;
+  if (n <= primary || n < primary + minGroup) return digits;
+  var groups = [], end = n, start = n - primary;
+  groups.push(digits.slice(start, end));
+  end = start;
+  while (end > 0) {
+    start = end - secondary;
+    if (start < 0) start = 0;
+    groups.push(digits.slice(start, end));
+    end = start;
+  }
+  var out = '';
+  for (var g = groups.length - 1; g >= 0; g--) { out += groups[g]; if (g > 0) out += sep; }
+  return out;
+}
+function currencyEntry(loc, code) {
+  var per = tab(CURCOUNT)[0], base = loc * per, cs = tab(CURSTR);
+  for (var i = 0; i < per; i++) if (cs[(base + i) * 2] === code) return base + i;
+  return -1;
+}
+function currencySymbol(loc, code) { var e = currencyEntry(loc, code); return e < 0 ? code : tab(CURSTR)[e * 2 + 1]; }
+function currencyIsLetters(loc, code) { var e = currencyEntry(loc, code); return e < 0 ? true : tab(CURINT)[e] === 1; }
+// the text outside the digits, recorded per locale with U+00A4 for the
+// currency symbol
+function affix(loc, style, neg, currency) {
+  var base = loc * 22, off = 4;
+  if (style === 'percent') off = 8;
+  if (style === 'currency') off = currencyIsLetters(loc, currency) ? 12 : 16;
+  if (neg) off += 2;
+  var ns = tab(NUMSTR);
+  var pre = ns[base + off], suf = ns[base + off + 1];
+  if (style === 'currency') {
+    var sym = currencySymbol(loc, currency);
+    pre = pre.split('\u00a4').join(sym);
+    suf = suf.split('\u00a4').join(sym);
+  }
+  return [pre, suf];
+}
+// an affix split into its literal, minus, percent and currency pieces
+function pushAffix(out, text, minus, sym, style, pct) {
+  if (text.length === 0) return;
+  var marks = [minus], types = ['minusSign'];
+  if (style === 'percent') { marks.push(pct); types.push('percentSign'); }
+  if (style === 'currency') { marks.push(sym); types.push('currency'); }
+  var rest = text;
+  for (;;) {
+    var bestAt = -1, bestI = -1;
+    for (var mi = 0; mi < types.length; mi++) {
+      var m = marks[mi];
+      if (m.length === 0) continue;
+      var at = rest.indexOf(m);
+      if (at >= 0 && (bestAt < 0 || at < bestAt)) { bestAt = at; bestI = mi; }
+    }
+    if (bestI < 0) break;
+    if (bestAt > 0) out.push(part('literal', rest.slice(0, bestAt)));
+    out.push(part(types[bestI], marks[bestI]));
+    rest = rest.slice(bestAt + marks[bestI].length);
+  }
+  if (rest.length > 0) out.push(part('literal', rest));
+}
+function numberParts(s, value) {
+  var loc = s.loc, ns = tab(NUMSTR), out = [];
+  var dec = ns[loc * 22], grp = ns[loc * 22 + 1], minus = ns[loc * 22 + 2], pct = ns[loc * 22 + 3];
+  var v = value;
+  if (s.style === 'percent') v = v * 100;
+  if (v !== v) { out.push(part('nan', 'NaN')); return out; }
+  var neg = false;
+  if (v < 0) { neg = true; v = -v; }
+  var aff = affix(loc, s.style, neg, s.currency);
+  var sym = currencySymbol(loc, s.currency);
+  pushAffix(out, aff[0], minus, sym, s.style, pct);
+  if (v === Infinity) {
+    out.push(part('infinity', '\u221e'));
+    pushAffix(out, aff[1], minus, sym, s.style, pct);
+    return out;
+  }
+  var body = v.toFixed(s.maxF);
+  var dot = body.indexOf('.');
+  var intPart = body, fracPart = '';
+  if (dot >= 0) { intPart = body.slice(0, dot); fracPart = body.slice(dot + 1); }
+  var fl = fracPart.length;
+  while (fl > s.minF && fracPart.charCodeAt(fl - 1) === 48) fl--;
+  fracPart = fracPart.slice(0, fl);
+  while (intPart.length < s.minI) intPart = '0' + intPart;
+  var grouped = groupInteger(intPart, loc, s.group);
+  if (grp.length === 0) {
+    out.push(part('integer', grouped));
+  } else {
+    var rest = grouped;
+    for (;;) {
+      var at = rest.indexOf(grp);
+      if (at < 0) break;
+      out.push(part('integer', rest.slice(0, at)));
+      out.push(part('group', grp));
+      rest = rest.slice(at + grp.length);
+    }
+    out.push(part('integer', rest));
+  }
+  if (fracPart.length > 0) {
+    out.push(part('decimal', dec));
+    out.push(part('fraction', fracPart));
+  }
+  pushAffix(out, aff[1], minus, sym, s.style, pct);
+  return out;
+}
+// formatRange: the two ends joined by an en dash, or one when they agree
+function rangeParts(a, b) {
+  if (joinParts(a) === joinParts(b)) return a;
+  return a.concat([part('literal', '\u2013')], b);
+}
+getter(NumberFormat.prototype, 'format', function () {
+  var s = slot(this, 'numberformat', 'get Intl.NumberFormat.prototype.format');
+  if (s.bound === undefined) s.bound = function (x) { return joinParts(numberParts(s, Number(x))); };
+  return s.bound;
+});
+hide(NumberFormat.prototype, 'formatToParts', function formatToParts(x) {
+  var s = slot(this, 'numberformat', 'Intl.NumberFormat.prototype.formatToParts');
+  return numberParts(s, Number(x));
+});
+hide(NumberFormat.prototype, 'formatRange', function formatRange(x, y) {
+  var s = slot(this, 'numberformat', 'Intl.NumberFormat.prototype.formatRange');
+  return joinParts(rangeParts(numberParts(s, Number(x)), numberParts(s, Number(y))));
+});
+hide(NumberFormat.prototype, 'formatRangeToParts', function formatRangeToParts(x, y) {
+  var s = slot(this, 'numberformat', 'Intl.NumberFormat.prototype.formatRangeToParts');
+  return rangeParts(numberParts(s, Number(x)), numberParts(s, Number(y)));
+});
+hide(NumberFormat.prototype, 'resolvedOptions', function resolvedOptions() {
+  var s = slot(this, 'numberformat', 'Intl.NumberFormat.prototype.resolvedOptions');
+  var r = { locale: resolvedLocale(s.loc), numberingSystem: 'latn', style: s.style };
+  if (s.currency.length > 0) r.currency = s.currency;
+  r.minimumIntegerDigits = s.minI;
+  r.minimumFractionDigits = s.minF;
+  r.maximumFractionDigits = s.maxF;
+  r.useGrouping = s.group;
+  return r;
+});
+
+// ---- DateTimeFormat: six patterns per locale (default date, long date,
+// full date, short time, default time, date and time)
+var DateTimeFormat = makeCtor('DateTimeFormat', 'datetimeformat', function (s, opts) {
+  var dStyle = stringOption(opts, 'dateStyle'), tStyle = stringOption(opts, 'timeStyle');
+  var month = stringOption(opts, 'month'), weekday = stringOption(opts, 'weekday');
+  var hour = stringOption(opts, 'hour');
+  var hasTime = hour.length > 0 || tStyle.length > 0;
+  var hasDate = stringOption(opts, 'year').length > 0 || stringOption(opts, 'day').length > 0 || month.length > 0 || weekday.length > 0 || dStyle.length > 0;
+  if (!hasDate && !hasTime) hasDate = true;
+  var which;
+  if (hasDate) {
+    which = 0;
+    if (month === 'long' || dStyle === 'long' || dStyle === 'medium') which = 1;
+    if (weekday.length > 0 || dStyle === 'full') which = 2;
+  } else {
+    which = 3;
+    if (stringOption(opts, 'second').length > 0 || tStyle === 'medium' || tStyle === 'long') which = 4;
+  }
+  s.which = which;
+  // an explicit hour:'2-digit' pads where the locale's pattern does not
+  s.hourW = hour === '2-digit' && tStyle !== 'full' ? 2 : 0;
+}, false);
+function patternOffset(loc, which) {
+  var pi = tab(PATINT), p = 0;
+  for (var i = 0; i < loc * 6 + which; i++) p += 1 + pi[p] * 3;
+  return p;
+}
+function pad(n, width) { var s = String(n); while (s.length < width) s = '0' + s; return s; }
+function dateParts(loc, which, t, hourWidth) {
+  if (t !== t) throw new RangeError('Invalid time value');
+  var d = new Date(t);
+  var ni = tab(NUMINT), names = tab(NAMES), ns = tab(NUMSTR), ps = tab(PATSTR), pi = tab(PATINT);
+  var year = d.getUTCFullYear() + ni[loc * 5 + 4];
+  var month = d.getUTCMonth(), day = d.getUTCDate(), wday = d.getUTCDay();
+  var hour = d.getUTCHours(), minute = d.getUTCMinutes(), second = d.getUTCSeconds();
+  var hour12 = ni[loc * 5 + 3] === 1;
+  var p = patternOffset(loc, which), cnt = pi[p], out = [];
+  for (var i = 0; i < cnt; i++) {
+    var field = pi[p + 1 + i * 3], lit = pi[p + 2 + i * 3], width = pi[p + 3 + i * 3];
+    if (field === 0) out.push(part('literal', ps[lit]));
+    else if (field === 1) out.push(part('year', String(year)));
+    else if (field === 2) out.push(part('month', width === 0 ? names[loc * 38 + month] : pad(month + 1, width)));
+    else if (field === 3) out.push(part('day', pad(day, width)));
+    else if (field === 4) out.push(part('weekday', names[loc * 38 + 24 + wday]));
+    else if (field === 5) {
+      var h = hour;
+      if (hour12) { h = h % 12; if (h === 0) h = 12; }
+      out.push(part('hour', pad(h, hourWidth > 0 ? hourWidth : width)));
+    }
+    else if (field === 6) out.push(part('minute', pad(minute, width)));
+    else if (field === 7) out.push(part('second', pad(second, width)));
+    else if (field === 8) out.push(part('dayPeriod', ns[loc * 22 + 20 + (hour < 12 ? 0 : 1)]));
+  }
+  return out;
+}
+function timeArg(x) { return x === undefined ? dateNow() : Number(x); }
+getter(DateTimeFormat.prototype, 'format', function () {
+  var s = slot(this, 'datetimeformat', 'get Intl.DateTimeFormat.prototype.format');
+  if (s.bound === undefined) s.bound = function (x) { return joinParts(dateParts(s.loc, s.which, timeArg(x), s.hourW)); };
+  return s.bound;
+});
+hide(DateTimeFormat.prototype, 'formatToParts', function formatToParts(x) {
+  var s = slot(this, 'datetimeformat', 'Intl.DateTimeFormat.prototype.formatToParts');
+  return dateParts(s.loc, s.which, timeArg(x), s.hourW);
+});
+hide(DateTimeFormat.prototype, 'formatRange', function formatRange(x, y) {
+  var s = slot(this, 'datetimeformat', 'Intl.DateTimeFormat.prototype.formatRange');
+  return joinParts(rangeParts(dateParts(s.loc, s.which, timeArg(x), s.hourW), dateParts(s.loc, s.which, timeArg(y), s.hourW)));
+});
+hide(DateTimeFormat.prototype, 'formatRangeToParts', function formatRangeToParts(x, y) {
+  var s = slot(this, 'datetimeformat', 'Intl.DateTimeFormat.prototype.formatRangeToParts');
+  return rangeParts(dateParts(s.loc, s.which, timeArg(x), s.hourW), dateParts(s.loc, s.which, timeArg(y), s.hourW));
+});
+hide(DateTimeFormat.prototype, 'resolvedOptions', function resolvedOptions() {
+  var s = slot(this, 'datetimeformat', 'Intl.DateTimeFormat.prototype.resolvedOptions');
+  return { locale: resolvedLocale(s.loc), calendar: 'gregory', numberingSystem: 'latn', timeZone: 'UTC' };
+});
+
+// ---- PluralRules: the category is looked up by a key of the operands
+var CATEGORIES = ['zero', 'one', 'two', 'few', 'many', 'other'];
+var PluralRules = makeCtor('PluralRules', 'pluralrules', function (s, opts) {
+  var type = stringOption(opts, 'type');
+  if (type.length === 0) type = 'cardinal';
+  if (type !== 'cardinal' && type !== 'ordinal') throw new RangeError('Value ' + type + ' out of range for Intl.PluralRules options property type');
+  s.type = type;
+  s.ploc = indexIn(tab(PTAGS), s.tag);
+}, true);
+function pluralKey(v) {
+  var a = v < 0 ? -v : v;
+  var txt = String(a);
+  if (txt.indexOf('e') >= 0) return 'b|0|0|0';
+  var dot = txt.indexOf('.'), intTxt = txt, fracTxt = '';
+  if (dot >= 0) { intTxt = txt.slice(0, dot); fracTxt = txt.slice(dot + 1); }
+  var iv = parseInt(intTxt, 10) || 0;
+  if (fracTxt.length === 0) {
+    if (iv < 1001) return 's' + iv;
+    var big = iv > 0 && iv % 1000000 === 0 ? 1 : 0;
+    return 'b|' + (iv % 100) + '|' + (iv % 10) + '|' + big;
+  }
+  var fv = parseInt(fracTxt, 10) || 0;
+  return 'd|' + (iv > 3 ? 3 : iv) + '|' + (fracTxt.length > 3 ? 3 : fracTxt.length) + '|' + (fv > 3 ? 3 : fv);
+}
+function pluralCategory(loc, ordinal, v) {
+  var e = tab(PENTRIES), pairs = tab(PPAIRS), keys = tab(PKEYS);
+  var base = (loc * 2 + (ordinal ? 1 : 0)) * 3;
+  var off = e[base], cnt = e[base + 1], fb = e[base + 2];
+  var key = pluralKey(v);
+  for (var j = 0; j < cnt; j++) if (keys[pairs[(off + j) * 2]] === key) return pairs[(off + j) * 2 + 1];
+  return fb;
+}
+hide(PluralRules.prototype, 'select', function select(x) {
+  var s = slot(this, 'pluralrules', 'Intl.PluralRules.prototype.select');
+  return CATEGORIES[pluralCategory(s.ploc, s.type === 'ordinal', Number(x))];
+});
+hide(PluralRules.prototype, 'resolvedOptions', function resolvedOptions() {
+  var s = slot(this, 'pluralrules', 'Intl.PluralRules.prototype.resolvedOptions');
+  return { locale: canonical(tab(PTAGS)[s.ploc]), type: s.type };
+});
+
+// ---- ListFormat: the pair separator for two items, the middle and end
+// ones for more
+var ListFormat = makeCtor('ListFormat', 'listformat', function (s, opts) {
+  var type = stringOption(opts, 'type');
+  if (type.length === 0) type = 'conjunction';
+  s.type = type;
+  s.ploc = indexIn(tab(PTAGS), s.tag);
+}, true);
+function listParts(s, list) {
+  var items = [];
+  if (list !== undefined) {
+    var it = list[Symbol.iterator]();
+    for (;;) {
+      var r = it.next();
+      if (r.done) break;
+      if (typeof r.value !== 'string') throw new TypeError('Iterable yielded ' + String(r.value) + ' which is not a string');
+      items.push(r.value);
+    }
+  }
+  var seps = tab(LISTSEPS), base = s.ploc * 6 + (s.type === 'disjunction' ? 3 : 0);
+  var n = items.length, out = [];
+  for (var i = 0; i < n; i++) {
+    if (i > 0) {
+      var sep = n === 2 ? seps[base] : (i === n - 1 ? seps[base + 2] : seps[base + 1]);
+      out.push(part('literal', sep));
+    }
+    out.push(part('element', items[i]));
+  }
+  return out;
+}
+hide(ListFormat.prototype, 'format', function format(list) {
+  return joinParts(listParts(slot(this, 'listformat', 'Intl.ListFormat.prototype.format'), list));
+});
+hide(ListFormat.prototype, 'formatToParts', function formatToParts(list) {
+  return listParts(slot(this, 'listformat', 'Intl.ListFormat.prototype.formatToParts'), list);
+});
+hide(ListFormat.prototype, 'resolvedOptions', function resolvedOptions() {
+  var s = slot(this, 'listformat', 'Intl.ListFormat.prototype.resolvedOptions');
+  return { locale: canonical(tab(PTAGS)[s.ploc]), type: s.type, style: 'long' };
+});
+
+hide(Intl, 'Collator', Collator);
+hide(Intl, 'NumberFormat', NumberFormat);
+hide(Intl, 'DateTimeFormat', DateTimeFormat);
+hide(Intl, 'PluralRules', PluralRules);
+hide(Intl, 'ListFormat', ListFormat);
+hide(globalThis, 'Intl', Intl);
+
+// ---- the toLocaleString family: defined as the Intl objects with the
+// same arguments
+hide(Number.prototype, 'toLocaleString', function toLocaleString() {
+  var x = numValue.call(this);
+  return joinParts(numberParts(slots.get(new NumberFormat(arguments[0], arguments[1])), x));
+});
+function dateLocale(d, locales, which) {
+  var t = getTime.call(d);
+  if (t !== t) return 'Invalid Date';
+  checkTags(locales);
+  return joinParts(dateParts(localeIndex(firstTag(locales)), which, t, 0));
+}
+hide(DP, 'toLocaleString', function toLocaleString() { return dateLocale(this, arguments[0], 5); });
+hide(DP, 'toLocaleDateString', function toLocaleDateString() { return dateLocale(this, arguments[0], 0); });
+hide(DP, 'toLocaleTimeString', function toLocaleTimeString() { return dateLocale(this, arguments[0], 4); });
+})();"#;
