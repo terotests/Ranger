@@ -329,7 +329,8 @@ impl Vm {
             }
             NF_AP_CONCAT => {
                 let o = self.this_array(&this);
-                let mut out = self.elems_of(o);
+                // a receiver that is not an array is one element
+                let mut out = if self.objs[o as usize].class == C_ARRAY { self.elems_of(o) } else { vec![Val::Obj(o)] };
                 for a in args {
                     if let Val::Obj(x) = &a {
                         if self.objs[*x as usize].class == C_ARRAY {
@@ -420,10 +421,13 @@ impl Vm {
                 if self.throwing {
                     return Val::Undef;
                 }
+                let len = self.len_of(&Val::Obj(o));
+                if self.throwing {
+                    return Val::Undef;
+                }
                 if !self.callback(&a0, "callback") {
                     return Val::Undef;
                 }
-                let len = self.len_of(&Val::Obj(o));
                 let back = id == NF_AP_FINDLAST || id == NF_AP_FINDLASTINDEX;
                 let mut out: Vec<Val> = Vec::new();
                 let mut map_holes: Vec<int> = Vec::new();
@@ -615,6 +619,7 @@ impl Vm {
                 let mut i = s;
                 while i < e {
                     self.objs[o as usize].elems[i as usize] = a0.clone();
+                    self.set_hole(o, i, false);
                     i += 1;
                 }
                 Val::Obj(o)

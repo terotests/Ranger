@@ -163,7 +163,7 @@ impl Lexer {
             } else if c == ' ' || c == '\t' || c == '\u{b}' || c == '\u{c}' || c == '\u{a0}' || c == '\u{feff}' || (c as int > 127 && c.is_whitespace()) {
                 self.pos += 1;
             } else if c == '/' && self.at(self.pos + 1) == '/' {
-                while self.pos < n && self.cur() != '\n' && self.cur() != '\r' {
+                while self.pos < n && self.cur() != '\n' && self.cur() != '\r' && self.cur() != '\u{2028}' && self.cur() != '\u{2029}' {
                     self.pos += 1;
                 }
             } else if c == '/' && self.at(self.pos + 1) == '*' {
@@ -175,8 +175,11 @@ impl Lexer {
                         closed = true;
                         break;
                     }
-                    if self.cur() == '\n' {
+                    let cc = self.cur();
+                    if cc == '\n' || cc == '\r' || cc == '\u{2028}' || cc == '\u{2029}' {
                         nl = true;
+                    }
+                    if cc == '\n' {
                         self.line += 1;
                     }
                     self.pos += 1;

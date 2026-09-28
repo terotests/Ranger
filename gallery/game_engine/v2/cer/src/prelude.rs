@@ -244,6 +244,15 @@ if (typeof Promise.race !== 'function') hide(Promise, 'race', function race(item
 });
 
 // ---- Array.prototype.toSpliced (ES2023)
+hide(Array.prototype, 'toLocaleString', function toLocaleString() {
+  var o = Object(this), n = o.length >>> 0, s = '';
+  for (var i = 0; i < n; i++) {
+    if (i > 0) s += ',';
+    var e = o[i];
+    if (e !== undefined && e !== null) s += String(e.toLocaleString());
+  }
+  return s;
+});
 hide(Array.prototype, 'toSpliced', function toSpliced(start, skip) {
   var o = Object(this); var len = o.length >>> 0;
   var s = toIntegerOrInfinity(start);

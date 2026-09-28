@@ -42,6 +42,8 @@ pub const A_TOJSON: int = 26;
 pub const A_HASINSTANCE: int = 27;
 pub const A_ERRORS: int = 28;
 pub const A_THEN: int = 29;
+pub const A_CALLER: int = 35;
+pub const A_ARGUMENTS: int = 36;
 
 fn first_atoms() -> Vec<String> {
     let names = vec![
@@ -80,6 +82,8 @@ fn first_atoms() -> Vec<String> {
         "join",
         "source",
         "flags",
+        "caller",
+        "arguments",
     ];
     let mut out: Vec<String> = Vec::new();
     for n in names {
@@ -107,6 +111,11 @@ pub struct Vm {
     pub generator_proto: int,
     /// BigInt.prototype
     pub bigint_proto: int,
+    /// %ThrowTypeError%'s getter/setter pair (strict `arguments.callee`)
+    pub thrower_pair: int,
+    /// the method name OP_GET_METHOD found not callable, and where
+    pub bad_callee: String,
+    pub bad_callee_at: int,
     /// each tagged template call site's strings object
     pub template_cache: HashMap<String, int>,
     /// ArrayBuffer.prototype
@@ -303,6 +312,9 @@ impl Vm {
             function_proto: -1,
             generator_proto: -1,
             bigint_proto: -1,
+            thrower_pair: -1,
+            bad_callee: String::new(),
+            bad_callee_at: -1,
             template_cache: HashMap::new(),
             array_buffer_proto: -1,
             gen_fn_proto: -1,
@@ -753,6 +765,55 @@ impl Vm {
         self.intern(s.as_str())
     }
 
+    /// The array index an atom names ("0", "12"), or -1.
+    pub fn atom_array_index(&self, a: int) -> int {
+        if self.symbol_atoms.contains_key(&a) {
+            return -1;
+        }
+        let bs = self.atom_names[a as usize].as_bytes();
+        let n = bs.len();
+        if n == 0 || n > 9 || (n > 1 && bs[0] == 48) {
+            return -1;
+        }
+        let mut v: int = 0;
+        let mut k: usize = 0;
+        while k < n {
+            let d = bs[k] as int;
+            if d < 48 || d > 57 {
+                return -1;
+            }
+            v = v * 10 + (d - 48);
+            k += 1;
+        }
+        v
+    }
+
+    /// The array index (up to 2^32 - 2) an atom names, or -1.
+    pub fn atom_uint32_index(&self, a: int) -> double {
+        if self.symbol_atoms.contains_key(&a) {
+            return -1.0;
+        }
+        let bs = self.atom_names[a as usize].as_bytes();
+        let n = bs.len();
+        if n == 0 || n > 10 || (n > 1 && bs[0] == 48) {
+            return -1.0;
+        }
+        let mut v: double = 0.0;
+        let mut k: usize = 0;
+        while k < n {
+            let d = bs[k] as int;
+            if d < 48 || d > 57 {
+                return -1.0;
+            }
+            v = v * 10.0 + ((d - 48) as double);
+            k += 1;
+        }
+        if v > 4294967294.0 {
+            return -1.0;
+        }
+        v
+    }
+
     pub fn key_val(&self, a: int) -> Val {
         match self.symbol_atoms.get(&a) {
             Some(sym) => Val::Obj(*sym),
@@ -840,8 +901,22 @@ impl Vm {
                 if (class == C_ARRAY || class == C_ARGUMENTS) && atom == A_LENGTH {
                     return Val::Num(self.objs[cur as usize].elems.len() as double);
                 }
+                if cur != o && (class == C_ARRAY || class == C_ARGUMENTS) && !self.objs[cur as usize].elems.is_empty() {
+                    // an element of an array further up the chain
+                    let i = self.atom_array_index(atom);
+                    if i >= 0 && (i as usize) < self.objs[cur as usize].elems.len() && !self.is_hole(cur, i) {
+                        return self.objs[cur as usize].elems[i as usize].clone();
+                    }
+                }
+                if class == C_FUNCTION && (atom == A_CALLER || atom == A_ARGUMENTS) {
+                    // a sloppy function's own caller / arguments: null
+                    let p = &self.protos[self.objs[cur as usize].func as usize];
+                    if !p.strict && !p.arrow && !p.method && !p.class_ctor && !p.generator && !p.is_async && !p.getter_setter {
+                        return Val::Null;
+                    }
+                }
                 if class == C_FUNCTION || class == C_BOUND {
-                    if atom == A_LENGTH || atom == A_NAME || atom == A_PROTOTYPE {
+                    if (atom == A_LENGTH || atom == A_NAME || atom == A_PROTOTYPE) && !self.fn_prop_deleted(cur, atom) {
                         let v = self.function_own(cur, atom);
                         if !matches!(v, Val::Undef) || atom != A_PROTOTYPE {
                             return v;
@@ -941,7 +1016,7 @@ impl Vm {
 
     pub fn get_elem(&mut self, v: &Val, k: &Val) -> Val {
         if let Val::Num(n) = k {
-            let i = *n as int;
+            let i = if *n >= 0.0 && *n < 1000000000.0 { *n as int } else { -1 };
             if (i as double) == *n && i >= 0 {
                 return self.get_index(v, i);
             }
@@ -1073,6 +1148,16 @@ impl Vm {
             return;
         }
         let cur = self.objs[o as usize].elems.len() as int;
+        // index properties past the new length (x[4294967294]) go
+        let mut k = self.objs[o as usize].keys.len() as int - 1;
+        while k >= 0 {
+            let at = self.objs[o as usize].keys[k as usize];
+            let ix = self.atom_uint32_index(at);
+            if ix >= 0.0 && ix >= n {
+                self.objs[o as usize].remove(k);
+            }
+            k -= 1;
+        }
         if len < cur {
             let holes = self.has_holes(o);
             self.objs[o as usize].elems.truncate(len as usize);
@@ -1149,7 +1234,7 @@ impl Vm {
     pub fn set_elem(&mut self, target: &Val, k: &Val, v: Val) {
         if let Val::Obj(o) = target {
             if let Val::Num(n) = k {
-                let i = *n as int;
+                let i = if *n >= 0.0 && *n < 1000000000.0 { *n as int } else { -1 };
                 if (i as double) == *n && i >= 0 {
                     self.set_index(*o, i, v);
                     return;
@@ -1259,11 +1344,17 @@ impl Vm {
                 return true;
             }
             let class = self.objs[cur as usize].class;
-            if a == A_LENGTH && (class == C_ARRAY || class == C_ARGUMENTS || class == C_STRING || class == C_FUNCTION || class == C_BOUND) {
+            if a == A_LENGTH && (class == C_ARRAY || class == C_ARGUMENTS || class == C_STRING || class == C_FUNCTION || class == C_BOUND) && !self.fn_prop_deleted(cur, a) {
                 return true;
             }
-            if (a == A_NAME) && (class == C_FUNCTION || class == C_BOUND) {
+            if (a == A_NAME) && (class == C_FUNCTION || class == C_BOUND) && !self.fn_prop_deleted(cur, a) {
                 return true;
+            }
+            if cur != o && (class == C_ARRAY || class == C_ARGUMENTS) && !self.objs[cur as usize].elems.is_empty() {
+                let i = self.atom_array_index(a);
+                if i >= 0 && (i as usize) < self.objs[cur as usize].elems.len() && !self.is_hole(cur, i) {
+                    return true;
+                }
             }
             if a == A_PROTOTYPE && class == C_FUNCTION {
                 let v = self.function_own(cur, a);
@@ -1272,6 +1363,18 @@ impl Vm {
                 }
             }
             cur = self.objs[cur as usize].proto;
+        }
+        false
+    }
+
+    /// A function's own length (bit 1) or name (bit 2) was deleted.
+    pub fn fn_prop_deleted(&self, o: int, atom: int) -> bool {
+        let bits = self.objs[o as usize].pos;
+        if atom == A_LENGTH {
+            return (bits & 1) != 0;
+        }
+        if atom == A_NAME {
+            return (bits & 2) != 0;
         }
         false
     }
@@ -1303,10 +1406,10 @@ impl Vm {
         if self.objs[o as usize].find(a) >= 0 {
             return true;
         }
-        if a == A_LENGTH && (class == C_ARRAY || class == C_ARGUMENTS || class == C_STRING || class == C_FUNCTION) {
+        if a == A_LENGTH && (class == C_ARRAY || class == C_ARGUMENTS || class == C_STRING || class == C_FUNCTION) && !self.fn_prop_deleted(o, a) {
             return true;
         }
-        if a == A_NAME && class == C_FUNCTION {
+        if a == A_NAME && class == C_FUNCTION && !self.fn_prop_deleted(o, a) {
             return true;
         }
         if a == A_PROTOTYPE && class == C_FUNCTION {
@@ -1346,6 +1449,11 @@ impl Vm {
         }
         let atom = if i >= 0 { self.index_atom(i) } else { a };
         let slot = self.objs[o as usize].find(atom);
+        if slot < 0 && (class == C_FUNCTION || class == C_BOUND) && (atom == A_LENGTH || atom == A_NAME) {
+            // a function's own length / name (made on read) is configurable
+            self.objs[o as usize].pos = self.objs[o as usize].pos | (if atom == A_LENGTH { 1 } else { 2 });
+            return true;
+        }
         if slot >= 0 {
             if (self.objs[o as usize].attrs[slot as usize] & P_FIXED) != 0 {
                 if self.strict_now() {
@@ -1858,7 +1966,12 @@ impl Vm {
             let p = self.object_proto;
             args_obj = self.alloc(C_ARGUMENTS, p);
             self.objs[args_obj as usize].elems = items;
-            self.objs[args_obj as usize].add(A_CALLEE, Val::Obj(fo), P_HIDDEN);
+            if strict && self.thrower_pair >= 0 {
+                let tp = self.thrower_pair;
+                self.objs[args_obj as usize].add(A_CALLEE, Val::Obj(tp), P_HIDDEN | P_FIXED | P_ACCESSOR);
+            } else {
+                self.objs[args_obj as usize].add(A_CALLEE, Val::Obj(fo), P_HIDDEN);
+            }
         }
         if rest >= 0 {
             let mut items: Vec<Val> = Vec::new();
@@ -2515,8 +2628,9 @@ impl Vm {
                             f = self.get(&v, atom);
                         }
                         if !self.throwing && op.b == 0 && !self.is_callable(&f) {
-                            let name = self.atom_str(atom);
-                            self.throw_type(format!("{} is not a function", name).as_str());
+                            // thrown by the call, after the arguments
+                            self.bad_callee = self.atom_str(atom);
+                            self.bad_callee_at = self.stack.len() as int;
                         }
                         self.stack.push(f);
                         self.stack.push(v);
@@ -2776,7 +2890,7 @@ impl Vm {
             let f = self.stack[fpos as usize].clone();
             let fo = obj_of(&f);
             if fo < 0 {
-                self.throw_type("value is not a function");
+                self.throw_not_callable(fpos);
                 return false;
             }
             let class = self.objs[fo as usize].class;
@@ -2858,9 +2972,20 @@ impl Vm {
                 argc += k as int;
                 continue;
             }
-            self.throw_type("value is not a function");
+            self.throw_not_callable(fpos);
             return false;
         }
+    }
+
+    /// "x is not a function", named by the OP_GET_METHOD that fetched it.
+    fn throw_not_callable(&mut self, fpos: int) {
+        if fpos == self.bad_callee_at && !self.bad_callee.is_empty() {
+            let m = format!("{} is not a function", self.bad_callee);
+            self.bad_callee_at = -1;
+            self.throw_type(m.as_str());
+            return;
+        }
+        self.throw_type("value is not a function");
     }
 
     pub fn array_like_to_vec(&mut self, v: &Val) -> Vec<Val> {

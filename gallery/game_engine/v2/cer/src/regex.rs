@@ -76,6 +76,9 @@ pub struct Regex {
     pub dot_all: bool,
     pub unicode: bool,
     pub sticky: bool,
+    /// the d flag (match indices) and the v flag (unicode sets)
+    pub has_indices: bool,
+    pub unicode_sets: bool,
     pub error: String,
     nregs: int,
     /// the first unit every match starts with, -1 when not one
@@ -903,6 +906,8 @@ pub fn compile(pattern: &str, flags: &str) -> Regex {
         dot_all: false,
         unicode: false,
         sticky: false,
+        has_indices: false,
+        unicode_sets: false,
         error: String::new(),
         nregs: 0,
         first: -1,
@@ -915,8 +920,8 @@ pub fn compile(pattern: &str, flags: &str) -> Regex {
             's' => re.dot_all,
             'u' => re.unicode,
             'y' => re.sticky,
-            'd' => false,
-            'v' => re.unicode,
+            'd' => re.has_indices,
+            'v' => re.unicode_sets || re.unicode,
             _ => {
                 re.error = format!("Invalid regular expression flags '{}'", flags);
                 return re;
@@ -931,8 +936,18 @@ pub fn compile(pattern: &str, flags: &str) -> Regex {
             'i' => re.ignore_case = true,
             'm' => re.multiline = true,
             's' => re.dot_all = true,
-            'u' => re.unicode = true,
-            'v' => re.unicode = true,
+            'u' => {
+                if re.unicode_sets {
+                    re.error = format!("Invalid regular expression flags '{}'", flags);
+                    return re;
+                }
+                re.unicode = true;
+            }
+            'v' => {
+                re.unicode = true;
+                re.unicode_sets = true;
+            }
+            'd' => re.has_indices = true,
             'y' => re.sticky = true,
             _ => {}
         }

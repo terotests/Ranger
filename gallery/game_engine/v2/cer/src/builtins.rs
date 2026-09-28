@@ -238,6 +238,9 @@ pub const NF_BIGINT_ASINTN: int = 388;
 pub const NF_BIGINT_ASUINTN: int = 389;
 pub const NF_BIGINT_TOSTRING: int = 390;
 pub const NF_BIGINT_VALUEOF: int = 391;
+pub const NF_THROWER: int = 392;
+/// the getters RegExp.prototype.source, global, … unicodeSets (420..428)
+pub const NF_RP_FLAG0: int = 420;
 
 fn math_names() -> Vec<String> {
     let v = vec![
@@ -704,6 +707,12 @@ impl Vm {
         self.method(rp, "test", NF_RP_TEST, 1);
         self.method(rp, "toString", NF_RP_TOSTRING, 0);
         self.getter(rp, "flags", NF_RP_FLAGS);
+        let flag_names = vec!["source", "global", "ignoreCase", "multiline", "dotAll", "unicode", "sticky", "hasIndices", "unicodeSets"];
+        let mut fk: int = 0;
+        for nm in flag_names {
+            self.getter(rp, nm, NF_RP_FLAG0 + fk);
+            fk += 1;
+        }
 
         // Date
         let dc = self.ctor("Date", NF_DATE, 7, dp);
@@ -863,6 +872,18 @@ impl Vm {
         let a_tag4 = self.intern("@@toStringTag");
         self.objs[bip as usize].add(a_tag4, str_val("BigInt"), P_HIDDEN | P_READONLY);
 
+        // %ThrowTypeError%: Function.prototype.caller / arguments, and a
+        // strict function's arguments.callee
+        let thr = self.native_fn("", NF_THROWER, 0);
+        let fpt = self.function_proto;
+        self.define_accessor(fpt, A_CALLER, Val::Obj(thr), 0, true);
+        self.define_accessor(fpt, A_CALLER, Val::Obj(thr), 1, true);
+        self.define_accessor(fpt, A_ARGUMENTS, Val::Obj(thr), 0, true);
+        self.define_accessor(fpt, A_ARGUMENTS, Val::Obj(thr), 1, true);
+        let tp = self.alloc(C_ACCESSOR, -1);
+        self.objs[tp as usize].elems = vec![Val::Obj(thr), Val::Obj(thr)];
+        self.thrower_pair = tp;
+
         // Proxy: a constructor without a prototype
         let pxc = self.native_fn("Proxy", NF_PROXY, 2);
         let a_proxy = self.intern("Proxy");
@@ -1016,29 +1037,56 @@ impl Vm {
         self.objs[o as usize].func = idx;
         self.objs[o as usize].prim = string_val(s.clone());
         self.objs[o as usize].add(A_LASTINDEX, Val::Num(0.0), P_HIDDEN);
-        let re = &self.regexes[idx as usize];
-        let (g, ic, m, sa, u, y) = (re.global, re.ignore_case, re.multiline, re.dot_all, re.unicode, re.sticky);
-        let a_source = self.intern("source");
-        let a_global = self.intern("global");
-        let a_ic = self.intern("ignoreCase");
-        let a_m = self.intern("multiline");
-        let a_s = self.intern("dotAll");
-        let a_u = self.intern("unicode");
-        let a_y = self.intern("sticky");
-        let shown = if s.is_empty() { String::from("(?:)") } else { s.replace("/", "\\/").replace("\\\\/", "\\/") };
-        self.objs[o as usize].add(a_source, string_val(shown), P_HIDDEN | P_READONLY);
-        self.objs[o as usize].add(a_global, Val::Bool(g), P_HIDDEN | P_READONLY);
-        self.objs[o as usize].add(a_ic, Val::Bool(ic), P_HIDDEN | P_READONLY);
-        self.objs[o as usize].add(a_m, Val::Bool(m), P_HIDDEN | P_READONLY);
-        self.objs[o as usize].add(a_s, Val::Bool(sa), P_HIDDEN | P_READONLY);
-        self.objs[o as usize].add(a_u, Val::Bool(u), P_HIDDEN | P_READONLY);
-        self.objs[o as usize].add(a_y, Val::Bool(y), P_HIDDEN | P_READONLY);
         Val::Obj(o)
+    }
+
+    /// RegExp.prototype.source (k 0) and the flag getters (1..8).
+    fn regexp_flag_getter(&mut self, k: int, this: &Val) -> Val {
+        let ro = obj_of(this);
+        if ro < 0 || self.objs[ro as usize].class != C_REGEXP {
+            // RegExp.prototype itself reads as the empty pattern
+            if ro >= 0 && ro == self.regexp_proto {
+                return if k == 0 { str_val("(?:)") } else { Val::Undef };
+            }
+            let nm = if k == 0 { "source" } else { "flags" };
+            self.throw_type(format!("RegExp.prototype.{} getter called on non-object", nm).as_str());
+            return Val::Undef;
+        }
+        if k == 0 {
+            return string_val(self.regexp_source(ro));
+        }
+        let re = &self.regexes[self.objs[ro as usize].func as usize];
+        let b = match k {
+            1 => re.global,
+            2 => re.ignore_case,
+            3 => re.multiline,
+            4 => re.dot_all,
+            5 => re.unicode && !re.unicode_sets,
+            6 => re.sticky,
+            7 => re.has_indices,
+            _ => re.unicode_sets,
+        };
+        Val::Bool(b)
+    }
+
+    /// RegExp.prototype.source: the pattern with `/` escaped.
+    pub fn regexp_source(&self, o: int) -> String {
+        let s = match &self.objs[o as usize].prim {
+            Val::Str(x) => x.as_str().to_string(),
+            _ => String::new(),
+        };
+        if s.is_empty() {
+            return String::from("(?:)");
+        }
+        s.replace("/", "\\/").replace("\\\\/", "\\/")
     }
 
     pub fn regexp_flags(&self, o: int) -> String {
         let re = &self.regexes[self.objs[o as usize].func as usize];
         let mut f = String::new();
+        if re.has_indices {
+            f.push('d');
+        }
         if re.global {
             f.push('g');
         }
@@ -1051,8 +1099,11 @@ impl Vm {
         if re.dot_all {
             f.push('s');
         }
-        if re.unicode {
+        if re.unicode && !re.unicode_sets {
             f.push('u');
+        }
+        if re.unicode_sets {
+            f.push('v');
         }
         if re.sticky {
             f.push('y');
@@ -1116,6 +1167,38 @@ impl Vm {
                 i += 1;
             }
             self.objs[arr as usize].add(A_GROUPS, Val::Obj(go), 0);
+        }
+        if self.regexes[idx as usize].has_indices {
+            // the d flag: [start, end] of the match and of each group
+            let mut pairs: Vec<Val> = Vec::new();
+            let mut k: int = 0;
+            while k <= ngroups {
+                let a = caps[(k * 2) as usize];
+                let b = caps[(k * 2 + 1) as usize];
+                if a < 0 || b < 0 {
+                    pairs.push(Val::Undef);
+                } else {
+                    let pr = self.new_array(vec![Val::Num(a as double), Val::Num(b as double)]);
+                    pairs.push(Val::Obj(pr));
+                }
+                k += 1;
+            }
+            let ind = self.new_array(pairs.clone());
+            if names.is_empty() {
+                self.objs[ind as usize].add(A_GROUPS, Val::Undef, 0);
+            } else {
+                let go = self.alloc(C_OBJECT, -1);
+                let mut i: usize = 0;
+                while i < names.len() {
+                    let a = self.intern(names[i].as_str());
+                    let v = pairs[nidx[i] as usize].clone();
+                    self.objs[go as usize].add(a, v, 0);
+                    i += 1;
+                }
+                self.objs[ind as usize].add(A_GROUPS, Val::Obj(go), 0);
+            }
+            let a_ind = self.intern("indices");
+            self.objs[arr as usize].add(a_ind, Val::Obj(ind), 0);
         }
         Val::Obj(arr)
     }
@@ -1660,12 +1743,25 @@ impl Vm {
         let readonly = self.desc_flag(d, desc, A_WRITABLE, P_READONLY, existing_attr);
         let class = self.objs[o as usize].class;
         if class == C_ARRAY && atom == A_LENGTH {
+            if has_value && (self.objs[o as usize].pos == 2 || self.objs[o as usize].pos == 3) {
+                // a non-writable length keeps its value
+                let n0 = self.to_number(&value);
+                let cur = self.objs[o as usize].elems.len() as double;
+                if n0 != cur {
+                    self.throw_type("Cannot redefine property: length");
+                    return;
+                }
+            }
             if has_value {
                 let n = self.to_number(&value);
                 self.set_length(o, n);
             }
             if readonly != 0 {
                 self.objs[o as usize].extensible = false;
+                if self.objs[o as usize].pos != 2 {
+                    // length is read-only (2: frozen)
+                    self.objs[o as usize].pos = 3;
+                }
             }
             return;
         }
@@ -1788,12 +1884,13 @@ impl Vm {
             if (class == C_ARRAY || class == C_STRING) && atom == A_LENGTH {
                 let l = self.get_obj(o, A_LENGTH, &Val::Obj(o));
                 self.objs[d as usize].add(A_VALUE, l, 0);
-                self.objs[d as usize].add(A_WRITABLE, Val::Bool(class == C_ARRAY), 0);
+                let ro = self.objs[o as usize].pos == 2 || self.objs[o as usize].pos == 3;
+                self.objs[d as usize].add(A_WRITABLE, Val::Bool(class == C_ARRAY && !ro), 0);
                 self.objs[d as usize].add(A_ENUMERABLE, Val::Bool(false), 0);
                 self.objs[d as usize].add(A_CONFIGURABLE, Val::Bool(false), 0);
                 return Val::Obj(d);
             }
-            if class == C_FUNCTION && (atom == A_LENGTH || atom == A_NAME || atom == A_PROTOTYPE) {
+            if class == C_FUNCTION && (atom == A_LENGTH || atom == A_NAME || atom == A_PROTOTYPE) && !self.fn_prop_deleted(o, atom) {
                 let v = self.get_obj(o, atom, &Val::Obj(o));
                 if matches!(v, Val::Undef) {
                     return Val::Undef;
@@ -2224,8 +2321,23 @@ impl Vm {
                 t.push(cs[i]);
                 i += 1;
             }
+            // '.' and an exponent need digits after them ('1.', '1e')
+            let mut ok = true;
+            let mut j = start;
+            while j < *pos {
+                let d = cs[j];
+                if d == '.' || d == 'e' || d == 'E' || d == '-' || d == '+' {
+                    let nx = if j + 1 < *pos { cs[j + 1] } else { ' ' };
+                    let digit_next = nx >= '0' && nx <= '9';
+                    let sign_ok = (d == 'e' || d == 'E') && (nx == '+' || nx == '-');
+                    if !digit_next && !sign_ok {
+                        ok = false;
+                    }
+                }
+                j += 1;
+            }
             let n = string_to_number(t.as_str());
-            if is_nan(n) {
+            if is_nan(n) || !ok {
                 self.throw_syntax("Unexpected number in JSON");
                 return Val::Undef;
             }
@@ -2760,6 +2872,9 @@ impl Vm {
         if id >= NF_MATH && id < NF_MATH + 40 {
             return self.math(id - NF_MATH, &args);
         }
+        if id >= NF_RP_FLAG0 && id <= NF_RP_FLAG0 + 8 {
+            return self.regexp_flag_getter(id - NF_RP_FLAG0, &this);
+        }
         if id >= crate::typed::NF_TA_FIRST && id <= crate::typed::NF_TA_LAST {
             return self.call_typed(id, &args);
         }
@@ -3020,6 +3135,10 @@ impl Vm {
                 Val::Undef
             }
             NF_SPECIES => this,
+            NF_THROWER => {
+                self.throw_type("'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them");
+                Val::Undef
+            }
             NF_BIGINT => {
                 if construct {
                     self.throw_type("BigInt is not a constructor");
@@ -3860,6 +3979,9 @@ impl Vm {
                     0.0
                 } else if x < 0.0 && x >= -0.5 {
                     neg_zero()
+                } else if x >= 4503599627370496.0 || x <= -4503599627370496.0 {
+                    // already an integer; x + 0.5 would round in the double
+                    x
                 } else {
                     (x + 0.5).floor()
                 }

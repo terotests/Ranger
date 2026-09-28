@@ -1162,6 +1162,9 @@ impl Compiler {
             with_slots: Vec::new(),
         });
         self.cur_scope = scope;
+        for p in params.iter() {
+            self.strict_binding_check(*p);
+        }
         // parameters arrive in slots 0..; a simple one is its own binding
         let mut length: int = 0;
         let mut counting = true;
@@ -1623,7 +1626,32 @@ impl Compiler {
         self.op(OP_POP);
     }
 
+    /// Strict code cannot bind eval, arguments or a reserved word.
+    fn strict_binding_check(&mut self, pattern: int) {
+        if !self.f().proto.strict {
+            return;
+        }
+        let mut names: Vec<String> = Vec::new();
+        self.pattern_names(pattern, &mut names);
+        for nm in names {
+            let s = nm.as_str();
+            if s == "eval" || s == "arguments" {
+                self.fail("SyntaxError: Unexpected eval or arguments in strict mode");
+                return;
+            }
+            if s == "implements" || s == "interface" || s == "let" || s == "package" || s == "private" || s == "protected" || s == "public" || s == "static" || s == "yield" {
+                self.fail("SyntaxError: Unexpected strict mode reserved word");
+                return;
+            }
+        }
+    }
+
     fn var_statement(&mut self, n: int) {
+        let decls0 = self.ast.nodes[n as usize].list.clone();
+        for d in decls0 {
+            let pat = self.ast.nodes[d as usize].a;
+            self.strict_binding_check(pat);
+        }
         let kw = self.ast.nodes[n as usize].op.clone();
         let decls = self.ast.nodes[n as usize].list.clone();
         for d in decls {
@@ -2408,6 +2436,33 @@ impl Compiler {
         }
         if o == "delete" {
             let k = self.ast.nodes[a as usize].kind;
+            if k == N_OPT_CHAIN {
+                // `delete o?.a?.b`: the chain's object, then the delete
+                let inner = self.ast.nodes[a as usize].a;
+                let ik = self.ast.nodes[inner as usize].kind;
+                if ik == N_MEMBER || ik == N_INDEX {
+                    self.f().chain.push(Vec::new());
+                    let obj = self.ast.nodes[inner as usize].a;
+                    self.expr(obj);
+                    self.chain_check(inner);
+                    if ik == N_MEMBER {
+                        let s = self.ast.nodes[inner as usize].s.clone();
+                        let at = self.atom(s.as_str());
+                        self.emit(OP_DEL_PROP, at, 0);
+                    } else {
+                        let key = self.ast.nodes[inner as usize].b;
+                        self.expr(key);
+                        self.op(OP_DEL_ELEM);
+                    }
+                    let last = self.f().chain.len() - 1;
+                    let jumps = self.f().chain[last].clone();
+                    self.f().chain.truncate(last);
+                    for j in jumps {
+                        self.patch(j);
+                    }
+                    return;
+                }
+            }
             if k == N_MEMBER {
                 let obj = self.ast.nodes[a as usize].a;
                 let s = self.ast.nodes[a as usize].s.clone();
