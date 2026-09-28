@@ -112,7 +112,7 @@ describe("self-hosting: the compiler compiles for Dart", () => {
     const code = fs.readFileSync(generated, "utf-8");
     // the JSON shapes Dart already has in the language
     expect(code).toContain("Map<String, dynamic>");
-    expect(code).toContain("jsonEncode");
+    expect(code).toContain("List<dynamic>");
     // a systemclass reaches the output under its Dart name, so the Ranger name
     // is never a declared type (it still appears inside string literals — the
     // @serialize writer emits Ranger source)

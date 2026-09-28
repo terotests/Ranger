@@ -176,7 +176,8 @@ describe("Ranger Compiler - borrowed const& call-site copy (PLAN_OWNERSHIP_SOUND
     // Binding the member itself would let the callee's reset() swap the
     // object under the reference (and a vector element case is a
     // use-after-free); the copy pins the call-time object.
-    expect(result.code).toMatch(/use\(std::shared_ptr<Node>\(\(?h->item\)?\)\)/);
+    // `item` is an optional field, so C++ reads it as `h->item.value()`.
+    expect(result.code).toMatch(/use\(std::shared_ptr<Node>\(\(?h->item(\.value\(\))?\)?\)\)/);
   });
 
   it("does not copy a stable local argument", () => {

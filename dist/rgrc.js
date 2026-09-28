@@ -6449,7 +6449,7 @@ TTypeRegistry.targetTypeString = function(lang, typeName) {
       case "charbuffer" : 
         return "Uint8Array";
       case "buffer" : 
-        return "Uint8Array";
+        return "(ArrayBuffer & { _view: DataView })";
       case "int_buffer" : 
         return "BigInt64Array";
       case "double_buffer" : 
@@ -55388,7 +55388,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       case "charbuffer" : 
         return "Uint8Array";
       case "buffer" : 
-        return "Uint8Array";
+        return "(ArrayBuffer & { _view: DataView })";
       case "int_buffer" : 
         return "BigInt64Array";
       case "double_buffer" : 
@@ -55464,7 +55464,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       case "charbuffer" : 
         return "Uint8Array";
       case "buffer" : 
-        return "Uint8Array";
+        return "(ArrayBuffer & { _view: DataView })";
       case "int_buffer" : 
         return "BigInt64Array";
       case "double_buffer" : 
@@ -55567,7 +55567,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.out("Uint8Array", false);
         break;
       case 16 : 
-        wr.out("Uint8Array", false);
+        wr.out("(ArrayBuffer & { _view: DataView })", false);
         break;
       case 17 : 
         wr.out("BigInt64Array", false);
@@ -73959,10 +73959,10 @@ GitSha1.copyRange = function(data, start, count) {
   let n = count;
   const __len = data.byteLength;
   if ( start < 0 ) {
-    return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    return (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
   }
   if ( start >= __len ) {
-    return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    return (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
   }
   if ( start + n > __len ) {
     n = __len - start;
@@ -73970,7 +73970,7 @@ GitSha1.copyRange = function(data, start, count) {
   if ( n < 0 ) {
     n = 0;
   }
-  let out = (function(){ var b = new ArrayBuffer(n); b._view = new DataView(b); return b; })();
+  let out = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(n));
   (function(
     d,
     dOff,
@@ -74025,7 +74025,7 @@ GitSha1.toHex = function(data) {
 GitSha1.fromHex = function(hex) {
   const n = hex.length;
   const outLen = ((n / 2) | 0);
-  let out = (function(){ var b = new ArrayBuffer(outLen); b._view = new DataView(b); return b; })();
+  let out = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(outLen));
   const digits = "0123456789abcdef";
   let i = 0;
   while (i < outLen) {
@@ -74056,7 +74056,7 @@ GitSha1.fromHex = function(hex) {
 GitSha1.hash = function(data) {
   const L = data.byteLength;
   const cap = L + 128;
-  let msg = (function(){ var b = new ArrayBuffer(cap); b._view = new DataView(b); return b; })();
+  let msg = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(cap));
   if ( L > 0 ) {
     (function(
       d,
@@ -74145,7 +74145,7 @@ GitSha1.hash = function(data) {
     h4 = GitSha1.add32(h4, e);
     off = off + 64;
   };
-  const out = (function(){ var b = new ArrayBuffer(20); b._view = new DataView(b); return b; })();
+  const out = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(20));
   GitSha1.writeU32be(out, 0, h0);
   GitSha1.writeU32be(out, 4, h1);
   GitSha1.writeU32be(out, 8, h2);
@@ -74167,7 +74167,7 @@ GitSha1.objectId = function(kind, payload) {
   const prefix = (kind + " ") + sizeText;
   const pLen = prefix.length;
   const n = payload.byteLength;
-  let raw = (function(){ var b = new ArrayBuffer((pLen + 1) + n); b._view = new DataView(b); return b; })();
+  let raw = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer((pLen + 1) + n));
   let i = 0;
   while (i < pLen) {
     raw._view.setUint8(i, prefix.charCodeAt(i ));
@@ -74222,14 +74222,14 @@ class GitWant  {
     this.ok = true;
     this.err = "";
     this.sha = "";
-    this.body = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.body = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
   }
 }
 class GitSideband  {
   constructor() {
     this.ok = true;
     this.err = "";
-    this.pack = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.pack = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.progress = "";
   }
 }
@@ -74273,7 +74273,7 @@ GitPktIO.hex4 = function(n) {
 GitPktIO.encodeLine = function(text) {
   const n = text.length + 4;
   const h = GitPktIO.hex4(n);
-  let raw = (function(){ var b = new ArrayBuffer(n); b._view = new DataView(b); return b; })();
+  let raw = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(n));
   let i = 0;
   while (i < 4) {
     raw._view.setUint8(i, h.charCodeAt(i ));
@@ -74286,7 +74286,7 @@ GitPktIO.encodeLine = function(text) {
   return raw;
 };
 GitPktIO.encodeFlush = function() {
-  let raw = (function(){ var b = new ArrayBuffer(4); b._view = new DataView(b); return b; })();
+  let raw = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(4));
   raw._view.setUint8(0, 48);
   raw._view.setUint8(1, 48);
   raw._view.setUint8(2, 48);
@@ -74488,7 +74488,7 @@ GitPktIO.joinBuf = function(parts) {
     total = total + parts[i].byteLength;
     i = i + 1;
   };
-  let out = (function(){ var b = new ArrayBuffer(total); b._view = new DataView(b); return b; })();
+  let out = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(total));
   let at = 0;
   i = 0;
   while (i < parts.length) {
@@ -74507,7 +74507,7 @@ GitPktIO.joinBuf = function(parts) {
   return out;
 };
 GitPktIO.encodeDelim = function() {
-  let raw = (function(){ var b = new ArrayBuffer(4); b._view = new DataView(b); return b; })();
+  let raw = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(4));
   raw._view.setUint8(0, 48);
   raw._view.setUint8(1, 48);
   raw._view.setUint8(2, 48);
@@ -74651,7 +74651,7 @@ GitPktIO.demux = function(data) {
     sb.err = "no pack data in response";
     return sb;
   }
-  let pack = (function(){ var b = new ArrayBuffer(total); b._view = new DataView(b); return b; })();
+  let pack = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(total));
   let at = 0;
   i = 0;
   while (i < chunks.length) {
@@ -74720,7 +74720,7 @@ GitPktIO.trimNl = function(s) {
 };
 class ZipBuffer  {
   constructor() {
-    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.data = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.pos = 0;
     this.length = 0;
   }
@@ -74730,7 +74730,7 @@ class ZipBuffer  {
     this.pos = 0;
   };
   initWithSize (size) {
-    this.data = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    this.data = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(size));
     this.length = size;
     this.pos = 0;
   };
@@ -74773,7 +74773,7 @@ class ZipBuffer  {
     return ((b0 + b1 * 256) + b2 * 65536) + b3 * 16777216;
   };
   readBytes (count) {
-    let result = (function(){ var b = new ArrayBuffer(count); b._view = new DataView(b); return b; })();
+    let result = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(count));
     let i = 0;
     while (i < count) {
       if ( this.pos < this.length ) {
@@ -74879,13 +74879,13 @@ class GrowableZipBuffer  {
     this.chunks = [];
     this.chunkLens = [];
     this.chunkSize = 65536;
-    this.currentChunk = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.currentChunk = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.currentPos = 0;
     this.totalSize = 0;
     this.currentPos = 0;
     this.totalSize = 0;
     const initSize = this.chunkSize;
-    this.currentChunk = (function(){ var b = new ArrayBuffer(initSize); b._view = new DataView(b); return b; })();
+    this.currentChunk = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(initSize));
   }
   setChunkSize (size) {
     if ( size < 1 ) {
@@ -74895,14 +74895,14 @@ class GrowableZipBuffer  {
       return;
     }
     this.chunkSize = size;
-    this.currentChunk = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    this.currentChunk = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(size));
     this.currentPos = 0;
   };
   allocateNewChunk () {
     this.chunks.push(this.currentChunk);
     this.chunkLens.push(this.currentPos);
     const size = this.chunkSize;
-    this.currentChunk = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    this.currentChunk = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(size));
     this.currentPos = 0;
   };
   writeUint8 (value) {
@@ -74978,7 +74978,7 @@ class GrowableZipBuffer  {
   };
   toBuffer () {
     const size = this.totalSize;
-    let result = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    let result = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(size));
     let destPos = 0;
     const numChunks = this.chunks.length;
     let i = 0;
@@ -75087,7 +75087,7 @@ class InflateHuffmanTable  {
 }
 class InflateBitReader  {
   constructor() {
-    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.data = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.bytePos = 0;
     this.bitPos = 0;
     this.currentByte = 0;
@@ -75152,9 +75152,9 @@ class InflateBitReader  {
 }
 class Inflate  {
   constructor() {
-    this.input = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.input = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.reader = new InflateBitReader();
-    this.outBuf = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.outBuf = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.outLen = 0;
     this.outCap = 0;
     this.fixedLitLen = new InflateHuffmanTable();
@@ -75171,7 +75171,7 @@ class Inflate  {
     if ( cap < 4096 ) {
       cap = 4096;
     }
-    this.outBuf = (function(){ var b = new ArrayBuffer(cap); b._view = new DataView(b); return b; })();
+    this.outBuf = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(cap));
     this.outCap = cap;
     this.outLen = 0;
   };
@@ -75184,7 +75184,7 @@ class Inflate  {
     if ( newCap < need ) {
       newCap = need;
     }
-    let grown = (function(){ var b = new ArrayBuffer(newCap); b._view = new DataView(b); return b; })();
+    let grown = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(newCap));
     (function(
       d,
       dOff,
@@ -75202,7 +75202,7 @@ class Inflate  {
   };
   finalOutput () {
     const size = this.outLen;
-    let result = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    let result = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(size));
     (function(
       d,
       dOff,
@@ -75583,7 +75583,7 @@ class GitZlib  {
     if ( offset + 6 > n ) {
       this.ok = false;
       this.err = "zlib stream truncated";
-      return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+      return (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     }
     const cmf = data._view.getUint8(offset);
     const flg = data._view.getUint8(offset + 1);
@@ -75591,12 +75591,12 @@ class GitZlib  {
     if ( method != 8 ) {
       this.ok = false;
       this.err = "zlib method is not deflate";
-      return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+      return (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     }
     if ( (flg & 32) != 0 ) {
       this.ok = false;
       this.err = "zlib preset dictionary is not used by Git";
-      return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+      return (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     }
     const inf = new Inflate();
     const out = inf.decompressFrom(data, (offset + 2));
@@ -75618,7 +75618,7 @@ class GitObj  {
   constructor() {
     this.kind = 0;
     this.sha = "";
-    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.data = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.packOff = 0;
     this.resolved = false;
     this.delta = false;
@@ -75670,7 +75670,7 @@ GitDelta.apply = function(src, delta) {
   const srcLen = src.byteLength;
   if ( srcSize != srcLen ) {
   }
-  let out = (function(){ var b = new ArrayBuffer(dstSize); b._view = new DataView(b); return b; })();
+  let out = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(dstSize));
   let o = 0;
   const n = delta.byteLength;
   let at = pos[0];
@@ -75947,7 +75947,7 @@ class GitEntry  {
 class GitFile  {
   constructor() {
     this.path = "";
-    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.data = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
   }
 }
 class GitTree  {
@@ -77063,7 +77063,7 @@ class PkgFetch  {
       };
     };
     const out = PkgManifestIO.dumpLock(this.lock);
-    require('fs').writeFileSync(require('path').join(manDir, "ranger.lock"), Buffer.from((function(s){ var b = new ArrayBuffer(s.length); var v = new Uint8Array(b); for(var i=0;i<s.length;i++)v[i]=s.charCodeAt(i); b._view = new DataView(b); return b; })(out)));
+    require('fs').writeFileSync(require('path').join(manDir, "ranger.lock"), Buffer.from((function(s){ var b = new ArrayBuffer(s.length); var v = new Uint8Array(b); for(var i=0;i<s.length;i++)v[i]=s.charCodeAt(i); return Object.assign(b, { _view: new DataView(b) }); })(out)));
     console.log(("wrote " + manDir) + "/ranger.lock");
     return true;
   };
@@ -77196,7 +77196,7 @@ PkgFetch.splitPath = function(path) {
 };
 PkgFetch.readBytes = function(path) {
   const parts = PkgFetch.splitPath(path);
-  return (function(){ var b = require('fs').readFileSync( require('path').join(parts[0], parts[1]) ); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+  return (function(){ var b = require('fs').readFileSync( require('path').join(parts[0], parts[1]) ); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; return Object.assign(ab, { _view: new DataView(ab) }); })();
 };
 PkgFetch.writeBytes = function(path, data) {
   const parts = PkgFetch.splitPath(path);
