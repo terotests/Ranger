@@ -1,0 +1,163 @@
+; SPDX-License-Identifier: MIT
+
+; VP8BoolDecoder.rgr - the boolean entropy decoder of VP8 (RFC 6386 section 7),
+; used by the lossy half of the WebP decoder (WebPLossy.rgr).
+;
+; A port of the bit reader in libwebp (src/utils/bit_reader_*), by way of
+; simplewebp: the same 24-bit refill, the same end-of-data behaviour and the
+; same shortcut for sign bits, so a stream decodes to exactly the bits
+; libwebp reads from it. libwebp is Copyright Google Inc., BSD-3-Clause;
+; this port is MIT like the rest of lib/image.
+;
+; `range` holds range - 1, as in libwebp. `value` holds up to 31 bits, so the
+; arithmetic stays inside a 32-bit int on every target: a valid stream never
+; has more than 7 bits pending when the next bytes come in, and the masks on
+; the refills only matter for corrupt data, where they keep the value in range
+; instead of overflowing.
+
+class VP8BoolDecoder {
+    def data:buffer (buffer_alloc 0)
+    def bufEnd:int 0
+    def bufMax:int 0
+    def pos:int 0
+    def value:int 0
+    def range:int 254
+    def bits:int -8
+    def eof:boolean false
+    def log2tab:int_buffer (int_buffer_alloc 256)
+
+    Constructor () {
+        ; floor(log2(n)) for 1..255
+        def n:int 1
+        while (n < 256) {
+            def l:int 0
+            def v:int n
+            while (v > 1) {
+                v = (bit_shr v 1)
+                l = l + 1
+            }
+            int_buffer_set log2tab n l
+            n = n + 1
+        }
+    }
+
+    ; Start reading `size` bytes of `src` at `start`. The bytes are copied, so
+    ; the decoder does not depend on the caller's buffer afterwards. A range
+    ; that runs past the end of `src` is clipped to it.
+    fn init:void (src:buffer start:int size:int) {
+        def srcLen:int (buffer_length src)
+        def s:int start
+        if (s < 0) {
+            s = 0
+        }
+        if (s > srcLen) {
+            s = srcLen
+        }
+        def e:int (s + size)
+        if (size < 0) {
+            e = s
+        }
+        if (e > srcLen) {
+            e = srcLen
+        }
+        data = (buffer_slice src s e)
+        bufEnd = (e - s)
+        bufMax = 0
+        if (bufEnd >= 4) {
+            bufMax = (bufEnd - 3)
+        }
+        pos = 0
+        value = 0
+        range = 254
+        bits = -8
+        eof = false
+        this.load()
+    }
+
+    fn load:void () {
+        if (pos < bufMax) {
+            def b0:int (buffer_get data pos)
+            def b1:int (buffer_get data (pos + 1))
+            def b2:int (buffer_get data (pos + 2))
+            pos = pos + 3
+            value = (bit_or (bit_or (bit_or b2 (bit_shl b1 8)) (bit_shl b0 16)) (bit_shl (bit_and value 127) 24))
+            bits = bits + 24
+            return
+        }
+        if (pos < bufEnd) {
+            bits = bits + 8
+            value = (bit_or (buffer_get data pos) (bit_shl (bit_and value 8388607) 8))
+            pos = pos + 1
+            return
+        }
+        if (eof == false) {
+            value = (bit_shl (bit_and value 8388607) 8)
+            bits = bits + 8
+            eof = true
+            return
+        }
+        bits = 0
+    }
+
+    ; One bit with probability prob/256 of being zero.
+    fn getBit:int (prob:int) {
+        def rng:int range
+        if (bits < 0) {
+            this.load()
+        }
+        def p:int bits
+        def split:int (bit_shr (rng * prob) 8)
+        def v:int (bit_and (bit_shr value p) 255)
+        def bit:int 0
+        if (v > split) {
+            rng = rng - split
+            value = value - (bit_shl (split + 1) p)
+            bit = 1
+        } {
+            rng = split + 1
+        }
+        def shift:int (7 - (int_buffer_get log2tab rng))
+        rng = (bit_shl rng shift)
+        bits = bits - shift
+        range = rng - 1
+        return bit
+    }
+
+    ; An unsigned value of n bits, most significant bit first.
+    fn getValue:int (n:int) {
+        def v:int 0
+        def k:int n
+        while (k > 0) {
+            k = k - 1
+            v = (bit_or v (bit_shl (this.getBit(128)) k))
+        }
+        return v
+    }
+
+    ; n bits of magnitude followed by a sign bit.
+    fn getSignedValue:int (n:int) {
+        def v:int (this.getValue(n))
+        if ((this.getValue(1)) == 1) {
+            return (0 - v)
+        }
+        return v
+    }
+
+    ; v with a sign read at probability one half (libwebp VP8GetSigned).
+    fn getSigned:int (v:int) {
+        if (bits < 0) {
+            this.load()
+        }
+        def p:int bits
+        def split:int (bit_shr range 1)
+        def val:int (bit_shr value p)
+        bits = bits - 1
+        if (val > split) {
+            range = (bit_or (bit_and (range + 255) 255) 1)
+            value = value - (bit_shl (split + 1) p)
+            return (0 - v)
+        }
+        range = (bit_or range 1)
+        return v
+    }
+}
