@@ -362,6 +362,7 @@
     "evg:blur:check": "node lib/evg/gl/blur-check.mjs",
     "evg:blur:oracle": "node lib/evg/oracle/css_blur_oracle.mjs",
     "evg:box:oracle": "node lib/evg/oracle/css_box_oracle.mjs",
+    "image:webp:test": "bash lib/image/tests/run_webp_tests.sh",
     "evg:box:test": "node dist/rgrc.js -es6 ./lib/evg/EVGBoxShorthandTest.rgr -d=./lib/evg/bin -o=EVGBoxShorthandTest.js -nodecli && node ./lib/evg/bin/EVGBoxShorthandTest.js",
     "evg:color:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/color_check.mjs",
     "evg:color:oracle": "node gallery/ui/conformance/oracle/color_oracle.mjs",

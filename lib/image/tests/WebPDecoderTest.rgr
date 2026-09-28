@@ -1,0 +1,1162 @@
+; SPDX-License-Identifier: MIT
+
+; WebPDecoderTest.rgr - tests for lib/image/WebPDecoder.rgr and its parts.
+;
+;   bash lib/image/tests/run_webp_tests.sh      (JavaScript and C++)
+;
+; 1. every fixture in testdata/webp decodes to the size and RGBA checksum
+;    that libwebp (via Pillow) gives, see fixtures.txt, and together the
+;    fixtures reach every coding tool the decoder has;
+; 2. broken input fails cleanly: truncation, wrong magic, zero and oversized
+;    dimensions, bad chunk sizes, corrupted bytes;
+; 3. unit tests of the pieces: the boolean decoder against an RFC 6386
+;    encoder, prefix-code tables, the inverse DCT / WHT against the RFC's
+;    reference code, the 14 VP8L predictors, the color cache hash, the alpha
+;    filters.
+;
+; An optional first argument is the fixture folder (default
+; lib/image/testdata/webp/, relative to the repository root).
+
+Import "../WebPDecoder.rgr"
+
+; RFC 6386 section 7.3 boolean encoder; `bottom` is kept in a double so its
+; 32 bits survive on every target.
+class BoolEncoderT {
+    def out:[int]
+    def range:int 255
+    def bottom:double 0.0
+    def bitCount:int 24
+
+    fn addOne:void () {
+        def i:int ((array_length out) - 1)
+        while (i >= 0) {
+            if ((itemAt out i) == 255) {
+                set out i 0
+                i = i - 1
+            } {
+                set out i ((itemAt out i) + 1)
+                return
+            }
+        }
+    }
+
+    fn put:void (prob:int bit:int) {
+        def split:int (1 + (bit_shr ((range - 1) * prob) 8))
+        if (bit == 1) {
+            bottom = bottom + (to_double split)
+            range = range - split
+        } {
+            range = split
+        }
+        while (range < 128) {
+            range = range * 2
+            if (bottom >= 2147483648.0) {
+                this.addOne()
+                bottom = bottom - 2147483648.0
+            }
+            bottom = bottom * 2.0
+            bitCount = bitCount - 1
+            if (bitCount == 0) {
+                def byte:int (floor (bottom / 16777216.0))
+                push out byte
+                bottom = bottom - ((to_double byte) * 16777216.0)
+                bitCount = 8
+            }
+        }
+    }
+
+    fn putValue:void (v:int n:int) {
+        def k:int n
+        while (k > 0) {
+            k = k - 1
+            this.put(128 (bit_and (bit_shr v k) 1))
+        }
+    }
+
+    sfn pow2:double (n:int) {
+        def v:double 1.0
+        def i:int 0
+        while (i < n) {
+            v = v * 2.0
+            i = i + 1
+        }
+        return v
+    }
+
+    fn flush:void () {
+        def c:int bitCount
+        def v:double bottom
+        def bitAt:int (floor (v / (BoolEncoderT.pow2((32 - c)))))
+        if ((bit_and bitAt 1) == 1) {
+            this.addOne()
+        }
+        v = v * (BoolEncoderT.pow2((bit_and c 7)))
+        c = (bit_shr c 3)
+        while (c > 0) {
+            v = v * 256.0
+            c = c - 1
+        }
+        v = v - (4294967296.0 * (to_double (floor (v / 4294967296.0))))
+        c = 0
+        while (c < 4) {
+            def byte:int (floor (v / 16777216.0))
+            push out byte
+            v = (v - ((to_double byte) * 16777216.0)) * 256.0
+            c = c + 1
+        }
+    }
+
+    fn toBuffer:buffer () {
+        def n:int (array_length out)
+        def b:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set b i (itemAt out i)
+            i = i + 1
+        }
+        return b
+    }
+}
+
+; least significant bit first, like the VP8L bit reader
+class BitWriterT {
+    def bytes:[int]
+    def cur:int 0
+    def count:int 0
+
+    fn put:void (v:int n:int) {
+        def i:int 0
+        while (i < n) {
+            cur = (bit_or cur (bit_shl (bit_and (bit_shr v i) 1) count))
+            count = count + 1
+            if (count == 8) {
+                push bytes cur
+                cur = 0
+                count = 0
+            }
+            i = i + 1
+        }
+    }
+
+    ; a prefix code, most significant bit first
+    fn putCode:void (code:int len:int) {
+        def i:int (len - 1)
+        while (i >= 0) {
+            this.put((bit_and (bit_shr code i) 1) 1)
+            i = i - 1
+        }
+    }
+
+    fn toBuffer:buffer () {
+        if (count > 0) {
+            push bytes cur
+            cur = 0
+            count = 0
+        }
+        def n:int (array_length bytes)
+        def b:buffer (buffer_alloc (n + 4))
+        def i:int 0
+        while (i < n) {
+            buffer_set b i (itemAt bytes i)
+            i = i + 1
+        }
+        return b
+    }
+}
+
+class RngT {
+    def x:int 2463534242
+    fn next:int () {
+        x = (bit_xor x (bit_shl (bit_and x 524287) 13))
+        x = (bit_xor x (bit_ushr x 17))
+        x = (bit_xor x (bit_shl (bit_and x 134217727) 5))
+        return (bit_and x 2147483647)
+    }
+    fn below:int (n:int) {
+        return ((this.next()) % n)
+    }
+}
+
+class WebPDecoderTest {
+    def passed:int 0
+    def failed:int 0
+    def dir:string "lib/image/testdata/webp/"
+    def rng:RngT (new RngT())
+
+    fn check:void (cond:boolean name:string) {
+        if cond {
+            passed = passed + 1
+        } {
+            failed = failed + 1
+            print ("FAIL " + name)
+        }
+    }
+
+    sfn hex8:string (hi:int lo:int) {
+        def digits:string "0123456789abcdef"
+        def s:string ""
+        def v:int (bit_or (bit_shl hi 16) lo)
+        def k:int 28
+        while (k >= 0) {
+            def d:int (bit_and (bit_ushr v k) 15)
+            s = s + (substring digits d (d + 1))
+            k = k - 4
+        }
+        return s
+    }
+
+    sfn adler32:string (b:buffer) {
+        def a:int 1
+        def s:int 0
+        def n:int (buffer_length b)
+        def i:int 0
+        while (i < n) {
+            a = (a + (buffer_get b i)) % 65521
+            s = (s + a) % 65521
+            i = i + 1
+        }
+        return (WebPDecoderTest.hex8(s a))
+    }
+
+    fn readFile:buffer (name:string) {
+        ; a local: the es6 template of buffer_read_file cannot see `this`
+        def folder:string dir
+        return (buffer_read_file folder name)
+    }
+
+    sfn copyBytes:buffer (src:buffer n:int) {
+        def b:buffer (buffer_alloc n)
+        buffer_copy b 0 src 0 n
+        return b
+    }
+
+    ; ======================================================================
+    ; 1. fixtures against libwebp
+    ; ======================================================================
+
+    fn testFixtures:void () {
+        print "-- fixtures (checksums from libwebp)"
+        def folder:string dir
+        def listing@(optional):string (read_file folder "fixtures.txt")
+        if (null? listing) {
+            this.check(false ("cannot read " + dir + "fixtures.txt"))
+            return
+        }
+        def text:string (unwrap listing)
+        def lines:[string] (strsplit text "\n")
+        def count:int 0
+        ; coverage over all fixtures
+        def transforms:int 0
+        def predModes:int 0
+        def bundles:int 0
+        def maxCache:int 0
+        def maxGroups:int 0
+        def simpleCodes:int 0
+        def normalCodes:int 0
+        def backRefs:int 0
+        def cacheHits:int 0
+        def i4Modes:int 0
+        def i16Modes:int 0
+        def uvModes:int 0
+        def filterTypes:int 0
+        def maxParts:int 0
+        def skipped:int 0
+        def segments:int 0
+        def lfDelta:int 0
+        def sharp:int 0
+        def alphaMethods:int 0
+        def alphaFilters:int 0
+        def alphaPre:int 0
+        def animations:int 0
+        for lines line:string li {
+            def t:string (trim line)
+            if ((strlen t) == 0) {
+                continue
+            }
+            if ((substring t 0 1) == "#") {
+                continue
+            }
+            def parts:[string] (strsplit t " ")
+            if ((array_length parts) < 4) {
+                continue
+            }
+            def name:string (itemAt parts 0)
+            def ew:int (unwrap (to_int (itemAt parts 1)))
+            def eh:int (unwrap (to_int (itemAt parts 2)))
+            def sum:string (itemAt parts 3)
+            def dec (new WebPDecoder())
+            def img:ImageBuffer (dec.decodeBytes((this.readFile(name))))
+            this.check(dec.ok (name + " decodes: " + dec.error))
+            this.check(((img.width == ew) && (img.height == eh)) (name + " size " + (to_string img.width) + "x" + (to_string img.height)))
+            def got:string (WebPDecoderTest.adler32(img.pixels))
+            this.check((got == sum) (name + " RGBA checksum " + got + " expected " + sum))
+            count = count + 1
+            def ll:VP8LDecoder dec.lossless
+            def ly:VP8Decoder dec.lossy
+            if dec.isLossless {
+                transforms = (bit_or transforms ll.statTransforms)
+                predModes = (bit_or predModes ll.statPredModes)
+                if (ll.statBundleBits >= 0) {
+                    bundles = (bit_or bundles (bit_shl 1 ll.statBundleBits))
+                }
+                if (ll.statCacheBits > maxCache) {
+                    maxCache = ll.statCacheBits
+                }
+                if (ll.statGroups > maxGroups) {
+                    maxGroups = ll.statGroups
+                }
+                simpleCodes = simpleCodes + ll.statSimpleCodes
+                normalCodes = normalCodes + ll.statNormalCodes
+                backRefs = backRefs + ll.statBackRefs
+                cacheHits = cacheHits + ll.statCacheHits
+            } {
+                i4Modes = (bit_or i4Modes ly.statI4Modes)
+                i16Modes = (bit_or i16Modes ly.statI16Modes)
+                uvModes = (bit_or uvModes ly.statUvModes)
+                filterTypes = (bit_or filterTypes (bit_shl 1 ly.filterType))
+                if (ly.numParts > maxParts) {
+                    maxParts = ly.numParts
+                }
+                skipped = skipped + ly.statSkipped
+                segments = (bit_or segments ly.statSegments)
+                lfDelta = (bit_or lfDelta ly.useLfDelta)
+                if (ly.sharpness > 0) {
+                    sharp = 1
+                }
+                if (dec.alphaMethod >= 0) {
+                    alphaMethods = (bit_or alphaMethods (bit_shl 1 dec.alphaMethod))
+                    alphaFilters = (bit_or alphaFilters (bit_shl 1 dec.alphaFilter))
+                    alphaPre = (bit_or alphaPre (bit_shl 1 dec.alphaPreprocessing))
+                    ; the ALPH stream is VP8L too
+                    transforms = (bit_or transforms ll.statTransforms)
+                    predModes = (bit_or predModes ll.statPredModes)
+                }
+            }
+            if dec.isAnimated {
+                animations = animations + 1
+            }
+        }
+        this.check((count >= 30) ("fixture count " + (to_string count)))
+        print ("   " + (to_string count) + " fixtures")
+        ; what the fixtures exercise
+        this.check((transforms == 15) ("all four VP8L transforms, got mask " + (to_string transforms)))
+        this.check((predModes == 16383) ("all 14 predictor modes, got mask " + (to_string predModes)))
+        this.check((bundles == 15) ("color indexing with 1, 2, 4 and 8 pixels a byte, got mask " + (to_string bundles)))
+        this.check((maxCache > 0) "color cache")
+        this.check((cacheHits > 0) "color cache hits")
+        this.check((maxGroups > 1) "meta prefix codes")
+        this.check(((simpleCodes > 0) && (normalCodes > 0)) "simple and normal prefix codes")
+        this.check((backRefs > 0) "backward references")
+        this.check((i4Modes == 1023) ("all ten 4x4 modes, got mask " + (to_string i4Modes)))
+        this.check((i16Modes == 15) ("all four 16x16 modes, got mask " + (to_string i16Modes)))
+        this.check((uvModes == 15) ("all four chroma modes, got mask " + (to_string uvModes)))
+        this.check((filterTypes == 7) ("no, simple and normal loop filter, got mask " + (to_string filterTypes)))
+        this.check((maxParts == 8) ("eight token partitions, got " + (to_string maxParts)))
+        this.check((skipped > 0) "skipped macroblocks")
+        this.check((segments == 15) ("four segments, got mask " + (to_string segments)))
+        this.check((lfDelta == 1) "loop filter deltas")
+        this.check((sharp == 1) "filter sharpness")
+        this.check((alphaMethods == 3) "raw and VP8L-compressed alpha")
+        this.check((alphaFilters == 15) ("all four alpha filters, got mask " + (to_string alphaFilters)))
+        this.check((alphaPre == 3) "alpha pre-processing flag 0 and 1")
+        this.check((animations > 0) "animation (first frame)")
+    }
+
+    ; ======================================================================
+    ; 2. broken input
+    ; ======================================================================
+
+    fn expectFail:void (b:buffer name:string) {
+        def dec (new WebPDecoder())
+        def img:ImageBuffer (dec.decodeBytes(b))
+        this.check((dec.ok == false) (name + " is rejected"))
+        this.check(((strlen dec.error) > 0) (name + " has an error message"))
+        this.check(((img.width == 1) && (img.height == 1)) (name + " gives the 1x1 placeholder"))
+    }
+
+    fn testErrors:void () {
+        print "-- broken input"
+        this.expectFail((buffer_alloc 0) "empty buffer")
+        this.expectFail((buffer_alloc 11) "11 zero bytes")
+        this.expectFail((buffer_alloc 64) "64 zero bytes")
+        this.check(((WebPDecoder.isWebP((this.readFile("ly_1x1.webp")))) == true) "isWebP on a WebP file")
+        this.check(((WebPDecoder.isWebP((buffer_alloc 20))) == false) "isWebP on zeros")
+
+        def lossy:buffer (this.readFile("ly_odd_17x9.webp"))
+        def lossless:buffer (this.readFile("ll_noise_17x9.webp"))
+        def alpha:buffer (this.readFile("ly_alph_vp8l_f3_21x13.webp"))
+        def anim:buffer (this.readFile("anim_2f_24x16.webp"))
+
+        ; wrong magic
+        def b1:buffer (WebPDecoderTest.copyBytes(lossy (buffer_length lossy)))
+        buffer_set b1 3 88
+        this.expectFail(b1 "RIFX magic")
+        def b2:buffer (WebPDecoderTest.copyBytes(lossy (buffer_length lossy)))
+        buffer_set b2 11 81
+        this.expectFail(b2 "WEBQ form type")
+        def b3:buffer (WebPDecoderTest.copyBytes(lossless (buffer_length lossless)))
+        buffer_set b3 20 48
+        this.expectFail(b3 "bad VP8L signature")
+        def b4:buffer (WebPDecoderTest.copyBytes(lossy (buffer_length lossy)))
+        buffer_set b4 23 0
+        this.expectFail(b4 "bad VP8 start code")
+
+        ; zero and oversized dimensions
+        def z:buffer (WebPDecoderTest.copyBytes(lossy (buffer_length lossy)))
+        buffer_set z 26 0
+        buffer_set z 27 0
+        this.expectFail(z "VP8 width 0")
+        def big:buffer (WebPDecoderTest.copyBytes(alpha (buffer_length alpha)))
+        buffer_set big 24 255
+        buffer_set big 25 255
+        buffer_set big 26 0
+        this.expectFail(big "VP8X canvas of 65536 pixels a side")
+        def mism:buffer (WebPDecoderTest.copyBytes(alpha (buffer_length alpha)))
+        buffer_set mism 24 30
+        this.expectFail(mism "VP8X canvas that does not match the frame")
+        def cap (new WebPDecoder())
+        cap.maxDimension = 16
+        cap.decodeBytes(lossy)
+        this.check((cap.ok == false) "maxDimension rejects a 17 pixel wide image")
+        def capOk (new WebPDecoder())
+        capOk.maxDimension = 17
+        capOk.decodeBytes(lossy)
+        this.check(capOk.ok "maxDimension 17 accepts it")
+
+        ; chunk and RIFF sizes
+        def rs:buffer (WebPDecoderTest.copyBytes(lossy (buffer_length lossy)))
+        buffer_set rs 7 127
+        this.expectFail(rs "RIFF size past the end")
+        def cs:buffer (WebPDecoderTest.copyBytes(lossy (buffer_length lossy)))
+        buffer_set cs 19 1
+        this.expectFail(cs "chunk size past the RIFF end")
+        def cn:buffer (WebPDecoderTest.copyBytes(lossy (buffer_length lossy)))
+        buffer_set cn 19 128
+        this.expectFail(cn "chunk size of 2^31")
+        def ah:buffer (WebPDecoderTest.copyBytes(alpha (buffer_length alpha)))
+        buffer_set ah 38 (bit_or (buffer_get ah 38) 192)
+        this.expectFail(ah "ALPH header with reserved bits")
+        def am:buffer (WebPDecoderTest.copyBytes(alpha (buffer_length alpha)))
+        buffer_set am 38 (bit_or (buffer_get am 38) 3)
+        this.expectFail(am "ALPH compression method 3")
+
+        ; truncation anywhere
+        def files:[buffer] ([] _:buffer (lossy lossless alpha anim))
+        def names:[string] ([] _:string ("lossy" "lossless" "lossy+alpha" "animation"))
+        for files f:buffer fi {
+            def n:int (buffer_length f)
+            def rejected:int 0
+            def cut:int 0
+            while (cut < n) {
+                def tb:buffer (WebPDecoderTest.copyBytes(f cut))
+                def dec (new WebPDecoder())
+                dec.decodeBytes(tb)
+                if (dec.ok == false) {
+                    rejected = rejected + 1
+                }
+                cut = cut + 1
+            }
+            this.check((rejected == n) ((itemAt names fi) + " truncated at every length is rejected (" + (to_string rejected) + "/" + (to_string n) + ")"))
+        }
+        ; a truncated payload with the sizes patched to match must fail too
+        def pl:buffer (this.patchedTruncation(lossless 60))
+        this.expectFail(pl "VP8L payload cut short, sizes consistent")
+        def py:buffer (this.patchedTruncation(lossy 50))
+        this.expectFail(py "VP8 payload cut short, sizes consistent")
+
+        ; corrupted bytes: never crash, always a definite answer
+        def all:[string] ([] _:string ("ll_meta_32x32.webp" "ll_predictors_64x32.webp" "ly_vpx_parts8_37x45.webp" "ly_alpha_33x17.webp" "anim_2f_24x16.webp" "ll_pal2_19x7.webp"))
+        def decoded:int 0
+        def refused:int 0
+        for all name:string ni {
+            def orig:buffer (this.readFile(name))
+            def n:int (buffer_length orig)
+            def it:int 0
+            while (it < 150) {
+                def b:buffer (WebPDecoderTest.copyBytes(orig n))
+                def flips:int (1 + (rng.below(6)))
+                def k:int 0
+                while (k < flips) {
+                    def p:int (12 + (rng.below((n - 12))))
+                    buffer_set b p (rng.below(256))
+                    k = k + 1
+                }
+                def dec (new WebPDecoder())
+                def img:ImageBuffer (dec.decodeBytes(b))
+                if dec.ok {
+                    decoded = decoded + 1
+                    if ((buffer_length img.pixels) != ((img.width * img.height) * 4)) {
+                        this.check(false (name + " corrupted: pixel buffer size"))
+                    }
+                } {
+                    refused = refused + 1
+                }
+                it = it + 1
+            }
+        }
+        this.check(((decoded + refused) == 900) "900 corrupted files decoded or refused without a crash")
+        print ("   corrupted: " + (to_string decoded) + " decoded, " + (to_string refused) + " refused")
+    }
+
+    ; the first `keep` payload bytes of the image chunk of a simple-format file,
+    ; with the RIFF and chunk sizes rewritten to match
+    fn patchedTruncation:buffer (src:buffer keep:int) {
+        def total:int (20 + keep)
+        def b:buffer (WebPDecoderTest.copyBytes(src total))
+        def riff:int (total - 8)
+        buffer_set b 4 (bit_and riff 255)
+        buffer_set b 5 (bit_and (bit_shr riff 8) 255)
+        buffer_set b 6 0
+        buffer_set b 7 0
+        buffer_set b 16 (bit_and keep 255)
+        buffer_set b 17 (bit_and (bit_shr keep 8) 255)
+        buffer_set b 18 0
+        buffer_set b 19 0
+        return b
+    }
+
+    ; ======================================================================
+    ; 3. pieces
+    ; ======================================================================
+
+    fn testBoolDecoder:void () {
+        print "-- boolean decoder"
+        def enc (new BoolEncoderT())
+        def probs:[int]
+        def bits:[int]
+        def n:int 4000
+        def i:int 0
+        while (i < n) {
+            def p:int (1 + (rng.below(255)))
+            ; skewed bits so both likely and unlikely symbols occur
+            def bit:int 0
+            if ((rng.below(256)) >= p) {
+                bit = 1
+            }
+            push probs p
+            push bits bit
+            enc.put(p bit)
+            i = i + 1
+        }
+        enc.putValue(1234 11)
+        enc.putValue(5 4)
+        enc.putValue(77 7)
+        enc.put(128 1)
+        ; signs as the coefficient reader takes them
+        enc.put(128 1)
+        enc.put(128 0)
+        enc.flush()
+        def data:buffer (enc.toBuffer())
+        def dec (new VP8BoolDecoder())
+        dec.init(data 0 (buffer_length data))
+        def bad:int 0
+        i = 0
+        while (i < n) {
+            if ((dec.getBit((itemAt probs i))) != (itemAt bits i)) {
+                bad = bad + 1
+            }
+            i = i + 1
+        }
+        this.check((bad == 0) ("4000 bits at random probabilities round trip (" + (to_string bad) + " wrong)"))
+        this.check(((dec.getValue(11)) == 1234) "getValue(11)")
+        this.check(((dec.getValue(4)) == 5) "getValue(4)")
+        this.check(((dec.getSignedValue(7)) == -77) "getSignedValue: magnitude then sign")
+        this.check(((dec.getSigned(9)) == -9) "getSigned with a 1 sign bit")
+        this.check(((dec.getSigned(9)) == 9) "getSigned with a 0 sign bit")
+        this.check((dec.eof == false) "no end of data inside the stream")
+        ; reading on past the end sets eof and keeps returning bits
+        def k:int 0
+        while (k < 200) {
+            dec.getBit(128)
+            k = k + 1
+        }
+        this.check(dec.eof "eof after reading past the end")
+        ; an empty stream
+        def empty (new VP8BoolDecoder())
+        empty.init((buffer_alloc 0) 0 0)
+        empty.getValue(16)
+        this.check(empty.eof "empty stream reports eof")
+        ; a range outside the source is clipped, not read
+        def clipped (new VP8BoolDecoder())
+        clipped.init(data 5 1000000)
+        clipped.getValue(8)
+        this.check((clipped.bufEnd == ((buffer_length data) - 5)) "range clipped to the source")
+    }
+
+    fn testPrefixCodes:void () {
+        print "-- VP8L prefix codes"
+        def d (new VP8LDecoder())
+        ; a small complete code: lengths 2 2 2 3 3 -> 00 01 10 110 111
+        def l1:int_buffer (int_buffer_alloc 5)
+        int_buffer_set l1 0 2
+        int_buffer_set l1 1 2
+        int_buffer_set l1 2 2
+        int_buffer_set l1 3 3
+        int_buffer_set l1 4 3
+        def c1:int (d.buildCode(l1 5))
+        this.check((c1 >= 0) "complete code builds")
+        def w (new BitWriterT())
+        def seq:[int] ([] _:int (0 4 3 1 2 4 4 0 3))
+        def codes:[int] ([] _:int (0 1 2 6 7))
+        def lens:[int] ([] _:int (2 2 2 3 3))
+        for seq s:int si {
+            w.putCode((itemAt codes s) (itemAt lens s))
+        }
+        w.put(5 3)
+        def buf:buffer (w.toBuffer())
+        d.initBits(buf 0 (buffer_length buf))
+        def ok:boolean true
+        for seq s:int sj {
+            if ((d.readSymbol(c1)) != s) {
+                ok = false
+            }
+        }
+        this.check(ok "symbols read back through the table")
+        this.check(((d.readBits(3)) == 5) "bit position after the codes")
+
+        ; long codes use second-level tables: lengths 1..12 and 12
+        def n2:int 13
+        def l2:int_buffer (int_buffer_alloc n2)
+        def s:int 0
+        while (s < 12) {
+            int_buffer_set l2 s (s + 1)
+            s = s + 1
+        }
+        int_buffer_set l2 12 12
+        def c2:int (d.buildCode(l2 n2))
+        this.check((c2 >= 0) "code with 12-bit lengths builds")
+        ; canonical codes: symbol k (k < 12) is k ones then a zero; 12 is twelve ones
+        def w2 (new BitWriterT())
+        def order:[int] ([] _:int (11 12 0 9 5 12 1 10 3 11))
+        for order sym:int oi {
+            if (sym == 12) {
+                w2.putCode(4095 12)
+            } {
+                def len:int (sym + 1)
+                w2.putCode((((bit_shl 1 len) - 1) - 1) len)
+            }
+        }
+        def buf2:buffer (w2.toBuffer())
+        d.initBits(buf2 0 (buffer_length buf2))
+        def ok2:boolean true
+        for order sym2:int oj {
+            if ((d.readSymbol(c2)) != sym2) {
+                ok2 = false
+            }
+        }
+        this.check(ok2 "long codes read back")
+
+        ; one used symbol reads no bits
+        def l3:int_buffer (int_buffer_alloc 40)
+        int_buffer_set l3 17 1
+        def c3:int (d.buildCode(l3 40))
+        def w3 (new BitWriterT())
+        w3.put(201 8)
+        def buf3:buffer (w3.toBuffer())
+        d.initBits(buf3 0 (buffer_length buf3))
+        this.check(((d.readSymbol(c3)) == 17) "single-symbol code")
+        this.check(((d.readBits(8)) == 201) "single-symbol code consumes no bits")
+
+        ; invalid codes
+        def inc:int_buffer (int_buffer_alloc 2)
+        int_buffer_set inc 0 1
+        int_buffer_set inc 1 2
+        this.check(((d.buildCode(inc 2)) < 0) "incomplete code is rejected")
+        def over:int_buffer (int_buffer_alloc 3)
+        int_buffer_fill over 1 0 3
+        this.check(((d.buildCode(over 3)) < 0) "over-subscribed code is rejected")
+        def zero:int_buffer (int_buffer_alloc 8)
+        this.check(((d.buildCode(zero 8)) < 0) "all-zero lengths are rejected")
+        def tooLong:int_buffer (int_buffer_alloc 2)
+        int_buffer_set tooLong 0 16
+        int_buffer_set tooLong 1 1
+        this.check(((d.buildCode(tooLong 2)) < 0) "a length above 15 is rejected")
+
+        ; a simple code as the stream writes it: two 8-bit symbols
+        def w4 (new BitWriterT())
+        w4.put(1 1)
+        w4.put(1 1)
+        w4.put(1 1)
+        w4.put(200 8)
+        w4.put(33 8)
+        w4.put(0 1)
+        w4.put(1 1)
+        w4.put(1 1)
+        def buf4:buffer (w4.toBuffer())
+        d.initBits(buf4 0 (buffer_length buf4))
+        def c4:int (d.readCode(256))
+        this.check((c4 >= 0) "simple code reads")
+        this.check(((d.readSymbol(c4)) == 33) "simple code: 0 is the smaller symbol")
+        this.check(((d.readSymbol(c4)) == 200) "simple code: 1 is the larger symbol")
+        this.check(((d.readSymbol(c4)) == 200) "simple code: again")
+        ; a simple code whose symbol is outside a 40-symbol alphabet
+        def w5 (new BitWriterT())
+        w5.put(1 1)
+        w5.put(0 1)
+        w5.put(1 1)
+        w5.put(41 8)
+        def buf5:buffer (w5.toBuffer())
+        d.error = ""
+        d.initBits(buf5 0 (buffer_length buf5))
+        this.check(((d.readCode(40)) < 0) "simple code symbol outside the alphabet is rejected")
+        ; distance map and prefix coding of lengths
+        this.check(((VP8LDecoder.planeCodeToDistance(100 1)) == 100) "distance code 1 is the pixel above")
+        this.check(((VP8LDecoder.planeCodeToDistance(100 2)) == 1) "distance code 2 is the pixel to the left")
+        this.check(((VP8LDecoder.planeCodeToDistance(100 121)) == 1) "distance code 121 is distance 1")
+        this.check(((VP8LDecoder.planeCodeToDistance(1 4)) == 1) "a distance below 1 becomes 1")
+        this.check(((VP8LDecoder.planeCodeToDistance(100 120)) == 708) "distance code 120 is 7 rows up, 8 to the right")
+    }
+
+    sfn ch:int (p:int sh:int) {
+        return (bit_and (bit_shr p sh) 255)
+    }
+
+    sfn clampT:int (v:int) {
+        if (v < 0) {
+            return 0
+        }
+        if (v > 255) {
+            return 255
+        }
+        return v
+    }
+
+    sfn absT:int (v:int) {
+        if (v < 0) {
+            return (0 - v)
+        }
+        return v
+    }
+
+    ; the predictors of RFC 9649 section 4.1, one channel at a time
+    sfn referencePredict:int (mode:int l:int t:int tl:int tr:int) {
+        def out:int 0
+        def sh:int 0
+        def pl:int 0
+        def pt:int 0
+        while (sh < 32) {
+            def cl:int (WebPDecoderTest.ch(l sh))
+            def ct:int (WebPDecoderTest.ch(t sh))
+            def ctl:int (WebPDecoderTest.ch(tl sh))
+            pl = pl + (WebPDecoderTest.absT(((cl + ct) - ctl) - cl))
+            pt = pt + (WebPDecoderTest.absT(((cl + ct) - ctl) - ct))
+            sh = sh + 8
+        }
+        sh = 0
+        while (sh < 32) {
+            def cl:int (WebPDecoderTest.ch(l sh))
+            def ct:int (WebPDecoderTest.ch(t sh))
+            def ctl:int (WebPDecoderTest.ch(tl sh))
+            def ctr:int (WebPDecoderTest.ch(tr sh))
+            def v:int 0
+            if (mode == 0) {
+                v = 0
+                if (sh == 24) {
+                    v = 255
+                }
+            }
+            if (mode == 1) {
+                v = cl
+            }
+            if (mode == 2) {
+                v = ct
+            }
+            if (mode == 3) {
+                v = ctr
+            }
+            if (mode == 4) {
+                v = ctl
+            }
+            if (mode == 5) {
+                v = (bit_shr ((bit_shr (cl + ctr) 1) + ct) 1)
+            }
+            if (mode == 6) {
+                v = (bit_shr (cl + ctl) 1)
+            }
+            if (mode == 7) {
+                v = (bit_shr (cl + ct) 1)
+            }
+            if (mode == 8) {
+                v = (bit_shr (ctl + ct) 1)
+            }
+            if (mode == 9) {
+                v = (bit_shr (ct + ctr) 1)
+            }
+            if (mode == 10) {
+                v = (bit_shr ((bit_shr (cl + ctl) 1) + (bit_shr (ct + ctr) 1)) 1)
+            }
+            if (mode == 11) {
+                if (pl < pt) {
+                    v = cl
+                } {
+                    v = ct
+                }
+            }
+            if (mode == 12) {
+                v = (WebPDecoderTest.clampT(((cl + ct) - ctl)))
+            }
+            if (mode == 13) {
+                def a:int (bit_shr (cl + ct) 1)
+                v = (WebPDecoderTest.clampT((a + (idiv (a - ctl) 2))))
+            }
+            out = (bit_or out (bit_shl v sh))
+            sh = sh + 8
+        }
+        return out
+    }
+
+    fn randomPixel:int () {
+        ; mostly nearby values, so the clamping and select cases both happen
+        def base:int (rng.below(256))
+        def p:int 0
+        def sh:int 0
+        while (sh < 32) {
+            def v:int base
+            if ((rng.below(3)) == 0) {
+                v = (rng.below(256))
+            } {
+                v = (WebPDecoderTest.clampT(((base + (rng.below(41))) - 20)))
+            }
+            p = (bit_or p (bit_shl v sh))
+            sh = sh + 8
+        }
+        return p
+    }
+
+    fn testPredictors:void () {
+        print "-- VP8L predictors and transforms"
+        def mode:int 0
+        while (mode < 14) {
+            def bad:int 0
+            def k:int 0
+            while (k < 400) {
+                def l:int (this.randomPixel())
+                def t:int (this.randomPixel())
+                def tl:int (this.randomPixel())
+                def tr:int (this.randomPixel())
+                if ((VP8LDecoder.predict(mode l t tl tr)) != (WebPDecoderTest.referencePredict(mode l t tl tr))) {
+                    bad = bad + 1
+                }
+                k = k + 1
+            }
+            this.check((bad == 0) ("predictor mode " + (to_string mode) + " (" + (to_string bad) + " wrong)"))
+            mode = mode + 1
+        }
+        ; per-channel addition wraps at 256
+        def a:int (VP8LDecoder.pack(200 100 255 1))
+        def b:int (VP8LDecoder.pack(100 200 1 255))
+        this.check(((VP8LDecoder.addPixels(a b)) == (VP8LDecoder.pack(44 44 0 0))) "addPixels wraps per channel")
+        ; color cache hash, (0x1e35a7bd * argb) >> (32 - bits) on 32 bits
+        this.check(((VP8LDecoder.hashPixel(1 11)) == 241) "hash of 1")
+        this.check(((VP8LDecoder.hashPixel(-16777216 8)) == 67) "hash of 0xff000000")
+        this.check(((VP8LDecoder.hashPixel(305419896 11)) == 1119) "hash of 0x12345678")
+        this.check(((VP8LDecoder.hashPixel(-559038737 4)) == 4) "hash of 0xdeadbeef")
+        this.check(((VP8LDecoder.hashPixel(-1 11)) == 1806) "hash of 0xffffffff")
+        this.check(((VP8LDecoder.hashPixel(2147483647 8)) == 97) "hash of 0x7fffffff")
+        ; cross-color: green_to_red 0x10, green_to_blue 0xf0 (-16), red_to_blue 0x08
+        def d (new VP8LDecoder())
+        def px:int_buffer (int_buffer_alloc 1)
+        int_buffer_set px 0 (VP8LDecoder.pack(255 10 100 20))
+        def m:int_buffer (int_buffer_alloc 1)
+        int_buffer_set m 0 (VP8LDecoder.pack(0 8 240 16))
+        d.inverseCrossColor(px 1 1 2 m)
+        ; red = 10 + (16 * 100 >> 5) = 60; blue = 20 + (-16 * 100 >> 5) + (8 * 60 >> 5) = 20 - 50 + 15
+        this.check(((int_buffer_get px 0) == (VP8LDecoder.pack(255 60 100 241))) "cross-color transform")
+        int_buffer_set px 0 (VP8LDecoder.pack(7 250 20 240))
+        d.inverseSubtractGreen(px 1)
+        this.check(((int_buffer_get px 0) == (VP8LDecoder.pack(7 14 20 4))) "subtract-green transform")
+        ; color indexing, 2 colors packed 8 to a byte
+        def pal:int_buffer (int_buffer_alloc 256)
+        int_buffer_set pal 0 (VP8LDecoder.pack(255 1 2 3))
+        int_buffer_set pal 1 (VP8LDecoder.pack(255 9 8 7))
+        def packed:int_buffer (int_buffer_alloc 2)
+        int_buffer_set packed 0 (bit_shl 178 8)
+        int_buffer_set packed 1 (bit_shl 1 8)
+        def unpacked:int_buffer (d.inverseColorIndex(packed 9 1 3 pal))
+        ; 178 = 0b10110010, least significant bit first
+        def want:[int] ([] _:int (0 1 0 0 1 1 0 1 1))
+        def okIdx:boolean true
+        for want wi:int wk {
+            if ((int_buffer_get unpacked wk) != (int_buffer_get pal wi)) {
+                okIdx = false
+            }
+        }
+        this.check(okIdx "color indexing unpacks 8 pixels a byte")
+    }
+
+    ; RFC 6386 section 14.3, vp8_short_idct4x4llm_c
+    sfn referenceIDCT:int_buffer (input:int_buffer) {
+        def tmp:int_buffer (int_buffer_alloc 16)
+        def out:int_buffer (int_buffer_alloc 16)
+        def i:int 0
+        while (i < 4) {
+            def ip0:int (int_buffer_get input i)
+            def ip4:int (int_buffer_get input (i + 4))
+            def ip8:int (int_buffer_get input (i + 8))
+            def ip12:int (int_buffer_get input (i + 12))
+            def a1:int (ip0 + ip8)
+            def b1:int (ip0 - ip8)
+            def c1:int ((bit_shr (ip4 * 35468) 16) - (ip12 + (bit_shr (ip12 * 20091) 16)))
+            def d1:int ((ip4 + (bit_shr (ip4 * 20091) 16)) + (bit_shr (ip12 * 35468) 16))
+            int_buffer_set tmp i (a1 + d1)
+            int_buffer_set tmp (i + 12) (a1 - d1)
+            int_buffer_set tmp (i + 4) (b1 + c1)
+            int_buffer_set tmp (i + 8) (b1 - c1)
+            i = i + 1
+        }
+        i = 0
+        while (i < 4) {
+            def r:int (i * 4)
+            def ip0:int (int_buffer_get tmp r)
+            def ip1:int (int_buffer_get tmp (r + 1))
+            def ip2:int (int_buffer_get tmp (r + 2))
+            def ip3:int (int_buffer_get tmp (r + 3))
+            def a1:int (ip0 + ip2)
+            def b1:int (ip0 - ip2)
+            def c1:int ((bit_shr (ip1 * 35468) 16) - (ip3 + (bit_shr (ip3 * 20091) 16)))
+            def d1:int ((ip1 + (bit_shr (ip1 * 20091) 16)) + (bit_shr (ip3 * 35468) 16))
+            int_buffer_set out r (bit_shr ((a1 + d1) + 4) 3)
+            int_buffer_set out (r + 3) (bit_shr ((a1 - d1) + 4) 3)
+            int_buffer_set out (r + 1) (bit_shr ((b1 + c1) + 4) 3)
+            int_buffer_set out (r + 2) (bit_shr ((b1 - c1) + 4) 3)
+            i = i + 1
+        }
+        return out
+    }
+
+    ; RFC 6386 section 14.3, vp8_short_inv_walsh4x4_c
+    sfn referenceWHT:int_buffer (input:int_buffer) {
+        def tmp:int_buffer (int_buffer_alloc 16)
+        def out:int_buffer (int_buffer_alloc 16)
+        def i:int 0
+        while (i < 4) {
+            def a1:int ((int_buffer_get input i) + (int_buffer_get input (i + 12)))
+            def b1:int ((int_buffer_get input (i + 4)) + (int_buffer_get input (i + 8)))
+            def c1:int ((int_buffer_get input (i + 4)) - (int_buffer_get input (i + 8)))
+            def d1:int ((int_buffer_get input i) - (int_buffer_get input (i + 12)))
+            int_buffer_set tmp i (a1 + b1)
+            int_buffer_set tmp (i + 4) (c1 + d1)
+            int_buffer_set tmp (i + 8) (a1 - b1)
+            int_buffer_set tmp (i + 12) (d1 - c1)
+            i = i + 1
+        }
+        i = 0
+        while (i < 4) {
+            def r:int (i * 4)
+            def a1:int ((int_buffer_get tmp r) + (int_buffer_get tmp (r + 3)))
+            def b1:int ((int_buffer_get tmp (r + 1)) + (int_buffer_get tmp (r + 2)))
+            def c1:int ((int_buffer_get tmp (r + 1)) - (int_buffer_get tmp (r + 2)))
+            def d1:int ((int_buffer_get tmp r) - (int_buffer_get tmp (r + 3)))
+            int_buffer_set out r (bit_shr ((a1 + b1) + 3) 3)
+            int_buffer_set out (r + 1) (bit_shr ((c1 + d1) + 3) 3)
+            int_buffer_set out (r + 2) (bit_shr ((a1 - b1) + 3) 3)
+            int_buffer_set out (r + 3) (bit_shr ((d1 - c1) + 3) 3)
+            i = i + 1
+        }
+        return out
+    }
+
+    ; runs one of the decoder's 4x4 transforms on a block predicted as 128
+    fn runTransform:int_buffer (v:VP8Decoder kind:int input:int_buffer) {
+        def i:int 0
+        while (i < 16) {
+            int_buffer_set v.coeffs i (int_buffer_get input i)
+            i = i + 1
+        }
+        buffer_fill v.yuvB 128 0 832
+        if (kind == 0) {
+            v.transformOne(0 40)
+        }
+        if (kind == 1) {
+            v.transformAC3(0 40)
+        }
+        if (kind == 2) {
+            v.transformDC(0 40)
+        }
+        def out:int_buffer (int_buffer_alloc 16)
+        i = 0
+        while (i < 16) {
+            int_buffer_set out i ((buffer_get v.yuvB ((40 + ((bit_shr i 2) * 32)) + (bit_and i 3))) - 128)
+            i = i + 1
+        }
+        return out
+    }
+
+    fn testTransforms:void () {
+        print "-- VP8 inverse transforms"
+        def v (new VP8Decoder())
+        def badIdct:int 0
+        def badAc3:int 0
+        def badDc:int 0
+        def badWht:int 0
+        def k:int 0
+        while (k < 300) {
+            def input:int_buffer (int_buffer_alloc 16)
+            def i:int 0
+            while (i < 16) {
+                if ((rng.below(3)) != 0) {
+                    int_buffer_set input i ((rng.below(401)) - 200)
+                }
+                i = i + 1
+            }
+            def got:int_buffer (this.runTransform(v 0 input))
+            def ref:int_buffer (WebPDecoderTest.referenceIDCT(input))
+            i = 0
+            while (i < 16) {
+                if ((int_buffer_get got i) != (WebPDecoderTest.clampT(((int_buffer_get ref i) + 128)) - 128)) {
+                    badIdct = badIdct + 1
+                }
+                i = i + 1
+            }
+            ; the shortcut for blocks with coefficients 0, 1 and 4 only
+            def ac3:int_buffer (int_buffer_alloc 16)
+            int_buffer_set ac3 0 (int_buffer_get input 0)
+            int_buffer_set ac3 1 (int_buffer_get input 1)
+            int_buffer_set ac3 4 (int_buffer_get input 4)
+            def g3:int_buffer (this.runTransform(v 1 ac3))
+            def f3:int_buffer (this.runTransform(v 0 ac3))
+            def dcOnly:int_buffer (int_buffer_alloc 16)
+            int_buffer_set dcOnly 0 (int_buffer_get input 0)
+            def gd:int_buffer (this.runTransform(v 2 dcOnly))
+            def fd:int_buffer (this.runTransform(v 0 dcOnly))
+            i = 0
+            while (i < 16) {
+                if ((int_buffer_get g3 i) != (int_buffer_get f3 i)) {
+                    badAc3 = badAc3 + 1
+                }
+                if ((int_buffer_get gd i) != (int_buffer_get fd i)) {
+                    badDc = badDc + 1
+                }
+                i = i + 1
+            }
+            ; the Walsh-Hadamard transform of the 16 DC values
+            i = 0
+            while (i < 16) {
+                int_buffer_set v.dcBuf i ((rng.below(4001)) - 2000)
+                i = i + 1
+            }
+            def wref:int_buffer (WebPDecoderTest.referenceWHT(v.dcBuf))
+            v.transformWHT()
+            i = 0
+            while (i < 16) {
+                if ((int_buffer_get v.coeffs (i * 16)) != (int_buffer_get wref i)) {
+                    badWht = badWht + 1
+                }
+                i = i + 1
+            }
+            k = k + 1
+        }
+        this.check((badIdct == 0) ("inverse DCT matches RFC 6386 (" + (to_string badIdct) + " wrong)"))
+        this.check((badAc3 == 0) "AC3 shortcut equals the full transform")
+        this.check((badDc == 0) "DC shortcut equals the full transform")
+        this.check((badWht == 0) ("inverse WHT matches RFC 6386 (" + (to_string badWht) + " wrong)"))
+        ; the 16x16 / chroma edge modes
+        this.check(((VP8Decoder.checkMode(0 0 0)) == 6) "DC without top and left at the corner")
+        this.check(((VP8Decoder.checkMode(3 0 0)) == 4) "DC without top on the first row")
+        this.check(((VP8Decoder.checkMode(0 3 0)) == 5) "DC without left on the first column")
+        this.check(((VP8Decoder.checkMode(0 0 1)) == 1) "other modes unchanged")
+        ; 4x4 prediction: vertical, horizontal and DC on a known neighbourhood
+        buffer_fill v.yuvB 0 0 832
+        def t:int 0
+        while (t < 8) {
+            buffer_set v.yuvB ((40 - 32) + t) (10 + (t * 10))
+            t = t + 1
+        }
+        buffer_set v.yuvB (40 - 33) 5
+        t = 0
+        while (t < 4) {
+            buffer_set v.yuvB ((40 + (t * 32)) - 1) (100 + t)
+            t = t + 1
+        }
+        v.predLuma4(2 40)
+        ; VE4: avg3 of top-left/top/top-right neighbours
+        this.check(((buffer_get v.yuvB 40) == (VP8Decoder.avg3(5 10 20))) "VE4 first column")
+        this.check(((buffer_get v.yuvB (40 + 99)) == (VP8Decoder.avg3(30 40 50))) "VE4 last column uses the top-right sample")
+        v.predLuma4(3 40)
+        this.check(((buffer_get v.yuvB (40 + 96)) == (VP8Decoder.avg3(102 103 103))) "HE4 last row")
+        v.predLuma4(0 40)
+        this.check(((buffer_get v.yuvB 40) == (bit_shr ((((10 + 20) + (30 + 40)) + (((100 + 101) + 102) + 103)) + 4) 3)) "DC4")
+        v.predLuma4(1 40)
+        this.check(((buffer_get v.yuvB 40) == (VP8Decoder.clip(((10 + 100) - 5) 255))) "TM4")
+    }
+
+    fn testAlphaFilters:void () {
+        print "-- alpha filters"
+        def w:int 13
+        def h:int 7
+        def f:int 1
+        while (f <= 3) {
+            def orig:buffer (buffer_alloc (w * h))
+            def i:int 0
+            while (i < (w * h)) {
+                buffer_set orig i (rng.below(256))
+                i = i + 1
+            }
+            ; forward filter: residual = value - prediction from the originals
+            def filt:buffer (buffer_alloc (w * h))
+            def y:int 0
+            while (y < h) {
+                def x:int 0
+                while (x < w) {
+                    def j:int ((y * w) + x)
+                    def pred:int 0
+                    if (y == 0) {
+                        if (x > 0) {
+                            pred = (buffer_get orig (j - 1))
+                        }
+                    } {
+                        if (x == 0) {
+                            pred = (buffer_get orig (j - w))
+                        } {
+                            if (f == 1) {
+                                pred = (buffer_get orig (j - 1))
+                            }
+                            if (f == 2) {
+                                pred = (buffer_get orig (j - w))
+                            }
+                            if (f == 3) {
+                                pred = (WebPDecoderTest.clampT((((buffer_get orig (j - 1)) + (buffer_get orig (j - w))) - (buffer_get orig ((j - w) - 1)))))
+                            }
+                        }
+                    }
+                    buffer_set filt j (bit_and ((buffer_get orig j) - pred) 255)
+                    x = x + 1
+                }
+                y = y + 1
+            }
+            WebPDecoder.unfilterAlpha(filt w h f)
+            def same:boolean true
+            i = 0
+            while (i < (w * h)) {
+                if ((buffer_get filt i) != (buffer_get orig i)) {
+                    same = false
+                }
+                i = i + 1
+            }
+            this.check(same ("alpha filter " + (to_string f) + " round trip"))
+            f = f + 1
+        }
+    }
+
+    fn run:void () {
+        if ((shell_arg_cnt) > 0) {
+            dir = (shell_arg 0)
+        }
+        this.testBoolDecoder()
+        this.testPrefixCodes()
+        this.testPredictors()
+        this.testTransforms()
+        this.testAlphaFilters()
+        this.testFixtures()
+        this.testErrors()
+        print ("webp tests: " + (to_string passed) + " passed, " + (to_string failed) + " failed")
+        if (failed == 0) {
+            print "ALL PASS"
+        }
+    }
+
+    sfn m@(main):void () {
+        def t (new WebPDecoderTest())
+        t.run()
+    }
+}

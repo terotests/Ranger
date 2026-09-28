@@ -1,0 +1,1929 @@
+; SPDX-License-Identifier: MIT
+
+; WebPLossy.rgr - the VP8 key frame decoder behind lossy WebP (RFC 6386,
+; RFC 9649 section 2.5): frame header, segmentation, token probabilities,
+; coefficients and dequantization, intra prediction (16x16, the ten 4x4
+; modes, chroma), inverse DCT / WHT, the simple and the normal loop filter,
+; and YUV 4:2:0 to RGBA with the "fancy" upsampler libwebp uses by default.
+;
+; The decoding logic follows libwebp (src/dec/vp8_dec.c, tree_dec.c,
+; frame_dec.c, src/dsp/dec.c, upsampling.c, yuv.h), Copyright Google Inc.,
+; BSD-3-Clause, as condensed by simplewebp; the output matches libwebp byte
+; for byte. The constant tables are the ones printed in RFC 6386. This port
+; is MIT like the rest of lib/image.
+;
+; The reconstruction keeps libwebp's scratch layout: one 32-byte-stride block
+; (yuvB) holding the macroblock being predicted with its top and left
+; neighbours, so the edge cases (127 above the image, 129 left of it, the
+; top-right samples of 4x4 prediction) come out exactly as libwebp's.
+
+Import "VP8BoolDecoder.rgr"
+Import "ImageBuffer.rgr"
+
+class VP8Decoder {
+    def error:string ""
+    def width:int 0
+    def height:int 0
+    def mbW:int 0
+    def mbH:int 0
+    def maxPixels:int 100000000
+
+    def br:VP8BoolDecoder (new VP8BoolDecoder())
+    def parts:[VP8BoolDecoder]
+    def numParts:int 1
+
+    ; segment header
+    def useSegment:boolean false
+    def updateMap:boolean false
+    def absoluteDelta:boolean true
+    def segQuant:int_buffer (int_buffer_alloc 4)
+    def segFilter:int_buffer (int_buffer_alloc 4)
+    def segProba:int_buffer (int_buffer_alloc 3)
+
+    ; filter header
+    def filterSimple:int 0
+    def filterLevel:int 0
+    def sharpness:int 0
+    def useLfDelta:int 0
+    def refLfDelta:int_buffer (int_buffer_alloc 4)
+    def modeLfDelta:int_buffer (int_buffer_alloc 4)
+    def filterType:int 0
+    ; per segment and 4x4-ness: limit, ilevel, inner, hev threshold
+    def fstr:int_buffer (int_buffer_alloc 32)
+
+    ; dequantization, per segment: y1 dc, y1 ac, y2 dc, y2 ac, uv dc, uv ac
+    def dqm:int_buffer (int_buffer_alloc 24)
+    ; coefficient probabilities [type 4][band 8][context 3][11]
+    def proba:int_buffer (int_buffer_alloc 1056)
+    def useSkipProba:int 0
+    def skipProba:int 0
+
+    ; constant tables
+    def bands:int_buffer (int_buffer_alloc 17)
+    def zigzag:int_buffer (int_buffer_alloc 16)
+    def modesProbaT:int_buffer (int_buffer_alloc 900)
+    def dcTab:int_buffer (int_buffer_alloc 128)
+    def acTab:int_buffer (int_buffer_alloc 128)
+
+    ; per macroblock row
+    def intraT:int_buffer (int_buffer_alloc 0)
+    def intraL:int_buffer (int_buffer_alloc 4)
+    def mbSegment:int_buffer (int_buffer_alloc 0)
+    def mbSkip:int_buffer (int_buffer_alloc 0)
+    def mbIsI4:int_buffer (int_buffer_alloc 0)
+    def mbUvMode:int_buffer (int_buffer_alloc 0)
+    def mbModes:int_buffer (int_buffer_alloc 0)
+    def topNz:int_buffer (int_buffer_alloc 0)
+    def topNzDc:int_buffer (int_buffer_alloc 0)
+    def leftNz:int 0
+    def leftNzDc:int 0
+    def fLimit:int_buffer (int_buffer_alloc 0)
+    def fILevel:int_buffer (int_buffer_alloc 0)
+    def fInner:int_buffer (int_buffer_alloc 0)
+    def fHev:int_buffer (int_buffer_alloc 0)
+
+    ; the macroblock being decoded
+    def coeffs:int_buffer (int_buffer_alloc 384)
+    def nzCode:int_buffer (int_buffer_alloc 24)
+    def dcBuf:int_buffer (int_buffer_alloc 16)
+    def tmp:int_buffer (int_buffer_alloc 16)
+
+    ; reconstruction scratch (stride 32) and saved top samples
+    def yuvB:buffer (buffer_alloc 832)
+    def yuvT:buffer (buffer_alloc 0)
+
+    ; the decoded planes, padded to whole macroblocks
+    def yPlane:buffer (buffer_alloc 0)
+    def uPlane:buffer (buffer_alloc 0)
+    def vPlane:buffer (buffer_alloc 0)
+    def yStride:int 0
+    def uvStride:int 0
+
+    ; what the last frame used (read by the tests)
+    def statI4Modes:int 0
+    def statI16Modes:int 0
+    def statUvModes:int 0
+    def statSkipped:int 0
+    def statSegments:int 0
+
+    Constructor () {
+        this.fillTable(bands ([] _:int (0 1 2 3 6 4 5 6 6 6 6 6 6 6 6 7 0)))
+        this.fillTable(zigzag ([] _:int (0 1 4 8 5 2 3 6 9 12 13 10 7 11 14 15)))
+        this.fillTable(modesProbaT (VP8Decoder.modesProba()))
+        this.fillTable(dcTab (VP8Decoder.dcTable()))
+        this.fillTable(acTab (VP8Decoder.acTable()))
+    }
+
+    fn fillTable:void (dst:int_buffer values:[int]) {
+        def i:int 0
+        def n:int (array_length values)
+        while (i < n) {
+            int_buffer_set dst i (itemAt values i)
+            i = i + 1
+        }
+    }
+
+    fn fail:boolean (msg:string) {
+        if ((strlen error) == 0) {
+            error = msg
+        }
+        return false
+    }
+
+    sfn clip:int (v:int m:int) {
+        if (v < 0) {
+            return 0
+        }
+        if (v > m) {
+            return m
+        }
+        return v
+    }
+
+    ; int16 storage of the reference decoder
+    sfn wrap16:int (v:int) {
+        return ((bit_and (v + 32768) 65535) - 32768)
+    }
+
+    ; ======================================================================
+    ; Frame header
+    ; ======================================================================
+
+    ; Parses the VP8 frame header of a 'VP8 ' chunk payload. On success the
+    ; picture size is known and decodeFrame() can run.
+    fn decodeHeader:boolean (src:buffer start:int size:int maxDim:int) {
+        error = ""
+        if ((size < 10) || ((start + size) > (buffer_length src))) {
+            return (this.fail("VP8 chunk too small"))
+        }
+        def b0:int (buffer_get src start)
+        def b1:int (buffer_get src (start + 1))
+        def b2:int (buffer_get src (start + 2))
+        def tag:int (bit_or (bit_or b0 (bit_shl b1 8)) (bit_shl b2 16))
+        if ((bit_and tag 1) != 0) {
+            return (this.fail("not a key frame"))
+        }
+        if ((bit_and (bit_shr tag 1) 7) > 3) {
+            return (this.fail("unknown VP8 profile"))
+        }
+        if ((bit_and (bit_shr tag 4) 1) == 0) {
+            return (this.fail("frame not displayable"))
+        }
+        def partLen:int (bit_shr tag 5)
+        if (((buffer_get src (start + 3)) != 157) || ((buffer_get src (start + 4)) != 1) || ((buffer_get src (start + 5)) != 42)) {
+            return (this.fail("bad VP8 start code"))
+        }
+        width = (bit_and (bit_or (buffer_get src (start + 6)) (bit_shl (buffer_get src (start + 7)) 8)) 16383)
+        height = (bit_and (bit_or (buffer_get src (start + 8)) (bit_shl (buffer_get src (start + 9)) 8)) 16383)
+        if ((width == 0) || (height == 0)) {
+            return (this.fail("zero image size"))
+        }
+        if ((width > maxDim) || (height > maxDim) || (((to_double width) * (to_double height)) > (to_double maxPixels))) {
+            return (this.fail("image too large"))
+        }
+        if (partLen > (size - 10)) {
+            return (this.fail("bad partition length"))
+        }
+        mbW = (bit_shr (width + 15) 4)
+        mbH = (bit_shr (height + 15) 4)
+
+        br.init(src (start + 10) partLen)
+        br.getValue(1)
+        br.getValue(1)
+
+        ; segment header
+        useSegment = false
+        updateMap = false
+        absoluteDelta = true
+        int_buffer_fill segQuant 0 0 4
+        int_buffer_fill segFilter 0 0 4
+        int_buffer_fill segProba 255 0 3
+        if ((br.getValue(1)) == 1) {
+            useSegment = true
+            updateMap = ((br.getValue(1)) == 1)
+            if ((br.getValue(1)) == 1) {
+                absoluteDelta = ((br.getValue(1)) == 1)
+                def s:int 0
+                while (s < 4) {
+                    def qv:int 0
+                    if ((br.getValue(1)) == 1) {
+                        qv = (br.getSignedValue(7))
+                    }
+                    int_buffer_set segQuant s qv
+                    s = s + 1
+                }
+                s = 0
+                while (s < 4) {
+                    def fv:int 0
+                    if ((br.getValue(1)) == 1) {
+                        fv = (br.getSignedValue(6))
+                    }
+                    int_buffer_set segFilter s fv
+                    s = s + 1
+                }
+            }
+            if updateMap {
+                def s:int 0
+                while (s < 3) {
+                    def pv:int 255
+                    if ((br.getValue(1)) == 1) {
+                        pv = (br.getValue(8))
+                    }
+                    int_buffer_set segProba s pv
+                    s = s + 1
+                }
+            }
+        }
+        if br.eof {
+            return (this.fail("cannot parse segment header"))
+        }
+
+        ; filter header
+        filterSimple = (br.getValue(1))
+        filterLevel = (br.getValue(6))
+        sharpness = (br.getValue(3))
+        useLfDelta = (br.getValue(1))
+        int_buffer_fill refLfDelta 0 0 4
+        int_buffer_fill modeLfDelta 0 0 4
+        if (useLfDelta == 1) {
+            if ((br.getValue(1)) == 1) {
+                def i:int 0
+                while (i < 4) {
+                    if ((br.getValue(1)) == 1) {
+                        int_buffer_set refLfDelta i (br.getSignedValue(6))
+                    }
+                    i = i + 1
+                }
+                i = 0
+                while (i < 4) {
+                    if ((br.getValue(1)) == 1) {
+                        int_buffer_set modeLfDelta i (br.getSignedValue(6))
+                    }
+                    i = i + 1
+                }
+            }
+        }
+        filterType = 0
+        if (filterLevel != 0) {
+            filterType = 2
+            if (filterSimple == 1) {
+                filterType = 1
+            }
+        }
+        if br.eof {
+            return (this.fail("cannot parse filter header"))
+        }
+
+        ; token partitions
+        def pstart:int ((start + 10) + partLen)
+        def psize:int ((size - 10) - partLen)
+        def lastPart:int ((bit_shl 1 (br.getValue(2))) - 1)
+        numParts = lastPart + 1
+        if ((3 * lastPart) > psize) {
+            return (this.fail("cannot parse partitions"))
+        }
+        def emptyParts:[VP8BoolDecoder]
+        parts = emptyParts
+        def partStart:int (pstart + (lastPart * 3))
+        def sizeLeft:int (psize - (lastPart * 3))
+        def p:int 0
+        while (p < lastPart) {
+            def sz:int (pstart + (p * 3))
+            def plen:int (bit_or (bit_or (buffer_get src sz) (bit_shl (buffer_get src (sz + 1)) 8)) (bit_shl (buffer_get src (sz + 2)) 16))
+            if (plen > sizeLeft) {
+                plen = sizeLeft
+            }
+            def pd:VP8BoolDecoder (new VP8BoolDecoder())
+            pd.init(src partStart plen)
+            push parts pd
+            partStart = partStart + plen
+            sizeLeft = sizeLeft - plen
+            p = p + 1
+        }
+        def lastDec:VP8BoolDecoder (new VP8BoolDecoder())
+        lastDec.init(src partStart sizeLeft)
+        push parts lastDec
+        if (partStart >= (pstart + psize)) {
+            return (this.fail("cannot parse partitions"))
+        }
+
+        ; quantizers
+        def baseQ:int (br.getValue(7))
+        def dqy1dc:int (this.readDelta())
+        def dqy2dc:int (this.readDelta())
+        def dqy2ac:int (this.readDelta())
+        def dquvdc:int (this.readDelta())
+        def dquvac:int (this.readDelta())
+        def s:int 0
+        while (s < 4) {
+            def q:int baseQ
+            if useSegment {
+                q = (int_buffer_get segQuant s)
+                if (absoluteDelta == false) {
+                    q = q + baseQ
+                }
+            }
+            def m:int (s * 6)
+            int_buffer_set dqm m (int_buffer_get dcTab (VP8Decoder.clip((q + dqy1dc) 127)))
+            int_buffer_set dqm (m + 1) (int_buffer_get acTab (VP8Decoder.clip(q 127)))
+            int_buffer_set dqm (m + 2) ((int_buffer_get dcTab (VP8Decoder.clip((q + dqy2dc) 127))) * 2)
+            def y2ac:int (bit_shr ((int_buffer_get acTab (VP8Decoder.clip((q + dqy2ac) 127))) * 101581) 16)
+            if (y2ac < 8) {
+                y2ac = 8
+            }
+            int_buffer_set dqm (m + 3) y2ac
+            int_buffer_set dqm (m + 4) (int_buffer_get dcTab (VP8Decoder.clip((q + dquvdc) 117)))
+            int_buffer_set dqm (m + 5) (int_buffer_get acTab (VP8Decoder.clip((q + dquvac) 127)))
+            s = s + 1
+        }
+
+        ; refresh_entropy_probs is ignored, then the token probabilities
+        br.getValue(1)
+        def upd:[int] (VP8Decoder.coeffUpdateProba())
+        def def0:[int] (VP8Decoder.coeffProba0())
+        def i:int 0
+        while (i < 1056) {
+            def v:int (itemAt def0 i)
+            if ((br.getBit((itemAt upd i))) == 1) {
+                v = (br.getValue(8))
+            }
+            int_buffer_set proba i v
+            i = i + 1
+        }
+        useSkipProba = (br.getValue(1))
+        skipProba = 0
+        if (useSkipProba == 1) {
+            skipProba = (br.getValue(8))
+        }
+        return true
+    }
+
+    fn readDelta:int () {
+        if ((br.getValue(1)) == 1) {
+            return (br.getSignedValue(4))
+        }
+        return 0
+    }
+
+    ; loop filter strengths per segment and per 4x4-ness (libwebp PrecomputeFilterStrengths)
+    fn computeFilterStrengths:void () {
+        int_buffer_fill fstr 0 0 32
+        if (filterType == 0) {
+            return
+        }
+        def s:int 0
+        while (s < 4) {
+            def baseLevel:int filterLevel
+            if useSegment {
+                baseLevel = (int_buffer_get segFilter s)
+                if (absoluteDelta == false) {
+                    baseLevel = baseLevel + filterLevel
+                }
+            }
+            def i4:int 0
+            while (i4 <= 1) {
+                def o:int (((s * 2) + i4) * 4)
+                def level:int baseLevel
+                if (useLfDelta == 1) {
+                    level = level + (int_buffer_get refLfDelta 0)
+                    if (i4 == 1) {
+                        level = level + (int_buffer_get modeLfDelta 0)
+                    }
+                }
+                level = (VP8Decoder.clip(level 63))
+                if (level > 0) {
+                    def ilevel:int level
+                    if (sharpness > 0) {
+                        if (sharpness > 4) {
+                            ilevel = (bit_shr ilevel 2)
+                        } {
+                            ilevel = (bit_shr ilevel 1)
+                        }
+                        if (ilevel > (9 - sharpness)) {
+                            ilevel = 9 - sharpness
+                        }
+                    }
+                    if (ilevel < 1) {
+                        ilevel = 1
+                    }
+                    int_buffer_set fstr o ((2 * level) + ilevel)
+                    int_buffer_set fstr (o + 1) ilevel
+                    def hev:int 0
+                    if (level >= 15) {
+                        hev = 1
+                    }
+                    if (level >= 40) {
+                        hev = 2
+                    }
+                    int_buffer_set fstr (o + 3) hev
+                } {
+                    int_buffer_set fstr o 0
+                }
+                int_buffer_set fstr (o + 2) i4
+                i4 = i4 + 1
+            }
+            s = s + 1
+        }
+    }
+
+    ; ======================================================================
+    ; Modes and residuals
+    ; ======================================================================
+
+    fn parseIntraMode:void (mbX:int) {
+        def seg:int 0
+        if updateMap {
+            if ((br.getBit((int_buffer_get segProba 0))) == 0) {
+                seg = (br.getBit((int_buffer_get segProba 1)))
+            } {
+                seg = (br.getBit((int_buffer_get segProba 2))) + 2
+            }
+        }
+        int_buffer_set mbSegment mbX seg
+        statSegments = (bit_or statSegments (bit_shl 1 seg))
+        def skip:int 0
+        if (useSkipProba == 1) {
+            skip = (br.getBit(skipProba))
+        }
+        int_buffer_set mbSkip mbX skip
+        def isI4:int 0
+        if ((br.getBit(145)) == 0) {
+            isI4 = 1
+        }
+        int_buffer_set mbIsI4 mbX isI4
+        def top:int (4 * mbX)
+        def mo:int (16 * mbX)
+        if (isI4 == 0) {
+            def ymode:int 0
+            if ((br.getBit(156)) == 1) {
+                if ((br.getBit(128)) == 1) {
+                    ymode = 1
+                } {
+                    ymode = 3
+                }
+            } {
+                if ((br.getBit(163)) == 1) {
+                    ymode = 2
+                }
+            }
+            statI16Modes = (bit_or statI16Modes (bit_shl 1 ymode))
+            int_buffer_set mbModes mo ymode
+            int_buffer_fill intraT ymode top (top + 4)
+            int_buffer_fill intraL ymode 0 4
+        } {
+            def y:int 0
+            while (y < 4) {
+                def ymode:int (int_buffer_get intraL y)
+                def x:int 0
+                while (x < 4) {
+                    def pb:int ((((int_buffer_get intraT (top + x)) * 10) + ymode) * 9)
+                    ymode = (this.readI4Mode(pb))
+                    statI4Modes = (bit_or statI4Modes (bit_shl 1 ymode))
+                    int_buffer_set intraT (top + x) ymode
+                    int_buffer_set mbModes ((mo + (y * 4)) + x) ymode
+                    x = x + 1
+                }
+                int_buffer_set intraL y ymode
+                y = y + 1
+            }
+        }
+        def uv:int 0
+        if ((br.getBit(142)) == 1) {
+            if ((br.getBit(114)) == 0) {
+                uv = 2
+            } {
+                if ((br.getBit(183)) == 1) {
+                    uv = 1
+                } {
+                    uv = 3
+                }
+            }
+        }
+        statUvModes = (bit_or statUvModes (bit_shl 1 uv))
+        int_buffer_set mbUvMode mbX uv
+    }
+
+    ; the 4x4 mode tree of RFC 6386 section 11.2
+    fn readI4Mode:int (pb:int) {
+        if ((br.getBit((int_buffer_get modesProbaT pb))) == 0) {
+            return 0
+        }
+        if ((br.getBit((int_buffer_get modesProbaT (pb + 1)))) == 0) {
+            return 1
+        }
+        if ((br.getBit((int_buffer_get modesProbaT (pb + 2)))) == 0) {
+            return 2
+        }
+        if ((br.getBit((int_buffer_get modesProbaT (pb + 3)))) == 0) {
+            if ((br.getBit((int_buffer_get modesProbaT (pb + 4)))) == 0) {
+                return 3
+            }
+            if ((br.getBit((int_buffer_get modesProbaT (pb + 5)))) == 0) {
+                return 4
+            }
+            return 5
+        }
+        if ((br.getBit((int_buffer_get modesProbaT (pb + 6)))) == 0) {
+            return 6
+        }
+        if ((br.getBit((int_buffer_get modesProbaT (pb + 7)))) == 0) {
+            return 7
+        }
+        if ((br.getBit((int_buffer_get modesProbaT (pb + 8)))) == 0) {
+            return 8
+        }
+        return 9
+    }
+
+    ; offset of the 11 probabilities for coefficient type t at position n, context ctx
+    fn probaAt:int (t:int n:int ctx:int) {
+        return (((((t * 8) + (int_buffer_get bands n)) * 3) + ctx) * 11)
+    }
+
+    fn getLargeValue:int (tb:VP8BoolDecoder p:int) {
+        def v:int 0
+        if ((tb.getBit((int_buffer_get proba (p + 3)))) == 0) {
+            if ((tb.getBit((int_buffer_get proba (p + 4)))) == 0) {
+                return 2
+            }
+            return (3 + (tb.getBit((int_buffer_get proba (p + 5)))))
+        }
+        if ((tb.getBit((int_buffer_get proba (p + 6)))) == 0) {
+            if ((tb.getBit((int_buffer_get proba (p + 7)))) == 0) {
+                return (5 + (tb.getBit(159)))
+            }
+            v = 7 + (2 * (tb.getBit(165)))
+            v = v + (tb.getBit(145))
+            return v
+        }
+        def bit1:int (tb.getBit((int_buffer_get proba (p + 8))))
+        def bit0:int (tb.getBit((int_buffer_get proba ((p + 9) + bit1))))
+        def cat:int ((2 * bit1) + bit0)
+        v = 0
+        if (cat == 0) {
+            v = v + v + (tb.getBit(173))
+            v = v + v + (tb.getBit(148))
+            v = v + v + (tb.getBit(140))
+        }
+        if (cat == 1) {
+            v = v + v + (tb.getBit(176))
+            v = v + v + (tb.getBit(155))
+            v = v + v + (tb.getBit(140))
+            v = v + v + (tb.getBit(135))
+        }
+        if (cat == 2) {
+            v = v + v + (tb.getBit(180))
+            v = v + v + (tb.getBit(157))
+            v = v + v + (tb.getBit(141))
+            v = v + v + (tb.getBit(134))
+            v = v + v + (tb.getBit(130))
+        }
+        if (cat == 3) {
+            v = v + v + (tb.getBit(254))
+            v = v + v + (tb.getBit(254))
+            v = v + v + (tb.getBit(243))
+            v = v + v + (tb.getBit(230))
+            v = v + v + (tb.getBit(196))
+            v = v + v + (tb.getBit(177))
+            v = v + v + (tb.getBit(153))
+            v = v + v + (tb.getBit(140))
+            v = v + v + (tb.getBit(133))
+            v = v + v + (tb.getBit(130))
+            v = v + v + (tb.getBit(129))
+        }
+        return (v + 3 + (bit_shl 8 cat))
+    }
+
+    ; Decodes the tokens of one 4x4 block from position n; returns the index
+    ; after the last non-zero coefficient (16 when a run of zeros ends it).
+    fn getCoeffs:int (tb:VP8BoolDecoder t:int ctx:int dq0:int dq1:int n0:int out:int_buffer off:int) {
+        def n:int n0
+        def p:int (this.probaAt(t n ctx))
+        while (n < 16) {
+            if ((tb.getBit((int_buffer_get proba p))) == 0) {
+                return n
+            }
+            while ((tb.getBit((int_buffer_get proba (p + 1)))) == 0) {
+                n = n + 1
+                if (n == 16) {
+                    return 16
+                }
+                p = (this.probaAt(t n 0))
+            }
+            def v:int 1
+            def next:int 0
+            if ((tb.getBit((int_buffer_get proba (p + 2)))) == 0) {
+                next = (this.probaAt(t (n + 1) 1))
+            } {
+                v = (this.getLargeValue(tb p))
+                next = (this.probaAt(t (n + 1) 2))
+            }
+            def dq:int dq1
+            if (n == 0) {
+                dq = dq0
+            }
+            int_buffer_set out (off + (int_buffer_get zigzag n)) (VP8Decoder.wrap16(((tb.getSigned(v)) * dq)))
+            p = next
+            n = n + 1
+        }
+        return 16
+    }
+
+    sfn nzCodeOf:int (nz:int dcNonZero:int) {
+        if (nz > 3) {
+            return 3
+        }
+        if (nz > 1) {
+            return 2
+        }
+        return dcNonZero
+    }
+
+    ; inverse Walsh-Hadamard transform of the 16 luma DC values
+    fn transformWHT:void () {
+        def i:int 0
+        while (i < 4) {
+            def a0:int ((int_buffer_get dcBuf i) + (int_buffer_get dcBuf (i + 12)))
+            def a1:int ((int_buffer_get dcBuf (i + 4)) + (int_buffer_get dcBuf (i + 8)))
+            def a2:int ((int_buffer_get dcBuf (i + 4)) - (int_buffer_get dcBuf (i + 8)))
+            def a3:int ((int_buffer_get dcBuf i) - (int_buffer_get dcBuf (i + 12)))
+            int_buffer_set tmp i (a0 + a1)
+            int_buffer_set tmp (i + 8) (a0 - a1)
+            int_buffer_set tmp (i + 4) (a3 + a2)
+            int_buffer_set tmp (i + 12) (a3 - a2)
+            i = i + 1
+        }
+        i = 0
+        while (i < 4) {
+            def dc:int ((int_buffer_get tmp (i * 4)) + 3)
+            def a0:int (dc + (int_buffer_get tmp ((i * 4) + 3)))
+            def a1:int ((int_buffer_get tmp ((i * 4) + 1)) + (int_buffer_get tmp ((i * 4) + 2)))
+            def a2:int ((int_buffer_get tmp ((i * 4) + 1)) - (int_buffer_get tmp ((i * 4) + 2)))
+            def a3:int (dc - (int_buffer_get tmp ((i * 4) + 3)))
+            int_buffer_set coeffs (i * 64) (VP8Decoder.wrap16((bit_shr (a0 + a1) 3)))
+            int_buffer_set coeffs ((i * 64) + 16) (VP8Decoder.wrap16((bit_shr (a3 + a2) 3)))
+            int_buffer_set coeffs ((i * 64) + 32) (VP8Decoder.wrap16((bit_shr (a0 - a1) 3)))
+            int_buffer_set coeffs ((i * 64) + 48) (VP8Decoder.wrap16((bit_shr (a3 - a2) 3)))
+            i = i + 1
+        }
+    }
+
+    ; Returns 1 when the macroblock has no non-zero coefficient.
+    fn parseResiduals:int (tb:VP8BoolDecoder mbX:int seg:int isI4:int) {
+        def q:int (seg * 6)
+        int_buffer_fill coeffs 0 0 384
+        def first:int 0
+        def acType:int 3
+        if (isI4 == 0) {
+            int_buffer_fill dcBuf 0 0 16
+            def ctx:int ((int_buffer_get topNzDc mbX) + leftNzDc)
+            def nz:int (this.getCoeffs(tb 1 ctx (int_buffer_get dqm (q + 2)) (int_buffer_get dqm (q + 3)) 0 dcBuf 0))
+            def hasDc:int 0
+            if (nz > 0) {
+                hasDc = 1
+            }
+            int_buffer_set topNzDc mbX hasDc
+            leftNzDc = hasDc
+            if (nz > 1) {
+                this.transformWHT()
+            } {
+                def dc0:int (VP8Decoder.wrap16((bit_shr ((int_buffer_get dcBuf 0) + 3) 3)))
+                def k:int 0
+                while (k < 16) {
+                    int_buffer_set coeffs (k * 16) dc0
+                    k = k + 1
+                }
+            }
+            first = 1
+            acType = 0
+        }
+        def dq0:int (int_buffer_get dqm q)
+        def dq1:int (int_buffer_get dqm (q + 1))
+        def origTop:int (int_buffer_get topNz mbX)
+        def tnz:int (bit_and origTop 15)
+        def lnz:int (bit_and leftNz 15)
+        def dst:int 0
+        def allZero:int 1
+        def y:int 0
+        while (y < 4) {
+            def l:int (bit_and lnz 1)
+            def x:int 0
+            while (x < 4) {
+                def ctx:int (l + (bit_and tnz 1))
+                def nz:int (this.getCoeffs(tb acType ctx dq0 dq1 first coeffs dst))
+                l = 0
+                if (nz > first) {
+                    l = 1
+                }
+                tnz = (bit_or (bit_shr tnz 1) (bit_shl l 7))
+                def dcnz:int 0
+                if ((int_buffer_get coeffs dst) != 0) {
+                    dcnz = 1
+                }
+                def code:int (VP8Decoder.nzCodeOf(nz dcnz))
+                int_buffer_set nzCode ((y * 4) + x) code
+                if (code != 0) {
+                    allZero = 0
+                }
+                dst = dst + 16
+                x = x + 1
+            }
+            tnz = (bit_shr tnz 4)
+            lnz = (bit_or (bit_shr lnz 1) (bit_shl l 7))
+            y = y + 1
+        }
+        def outT:int tnz
+        def outL:int (bit_shr lnz 4)
+        def uq0:int (int_buffer_get dqm (q + 4))
+        def uq1:int (int_buffer_get dqm (q + 5))
+        def ch:int 0
+        while (ch < 4) {
+            tnz = (bit_shr origTop (4 + ch))
+            lnz = (bit_shr leftNz (4 + ch))
+            def cy:int 0
+            while (cy < 2) {
+                def l:int (bit_and lnz 1)
+                def cx:int 0
+                while (cx < 2) {
+                    def ctx:int (l + (bit_and tnz 1))
+                    def nz:int (this.getCoeffs(tb 2 ctx uq0 uq1 0 coeffs dst))
+                    l = 0
+                    if (nz > 0) {
+                        l = 1
+                    }
+                    tnz = (bit_or (bit_shr tnz 1) (bit_shl l 3))
+                    def dcnz:int 0
+                    if ((int_buffer_get coeffs dst) != 0) {
+                        dcnz = 1
+                    }
+                    def code:int (VP8Decoder.nzCodeOf(nz dcnz))
+                    int_buffer_set nzCode (((16 + (ch * 2)) + (cy * 2)) + cx) code
+                    if (code != 0) {
+                        allZero = 0
+                    }
+                    dst = dst + 16
+                    cx = cx + 1
+                }
+                tnz = (bit_shr tnz 2)
+                lnz = (bit_or (bit_shr lnz 1) (bit_shl l 5))
+                cy = cy + 1
+            }
+            outT = (bit_or outT (bit_shl (bit_shl tnz 4) ch))
+            outL = (bit_or outL (bit_shl (bit_and lnz 240) ch))
+            ch = ch + 2
+        }
+        int_buffer_set topNz mbX outT
+        leftNz = outL
+        return allZero
+    }
+
+    fn decodeMB:boolean (tb:VP8BoolDecoder mbX:int) {
+        def seg:int (int_buffer_get mbSegment mbX)
+        def isI4:int (int_buffer_get mbIsI4 mbX)
+        def skip:int 0
+        if (useSkipProba == 1) {
+            skip = (int_buffer_get mbSkip mbX)
+        }
+        if (skip == 0) {
+            skip = (this.parseResiduals(tb mbX seg isI4))
+        } {
+            statSkipped = statSkipped + 1
+            leftNz = 0
+            int_buffer_set topNz mbX 0
+            if (isI4 == 0) {
+                leftNzDc = 0
+                int_buffer_set topNzDc mbX 0
+            }
+            int_buffer_fill nzCode 0 0 24
+        }
+        if (filterType > 0) {
+            def o:int (((seg * 2) + isI4) * 4)
+            int_buffer_set fLimit mbX (int_buffer_get fstr o)
+            int_buffer_set fILevel mbX (int_buffer_get fstr (o + 1))
+            def inner:int (int_buffer_get fstr (o + 2))
+            if (skip == 0) {
+                inner = 1
+            }
+            int_buffer_set fInner mbX inner
+            int_buffer_set fHev mbX (int_buffer_get fstr (o + 3))
+        }
+        return (tb.eof == false)
+    }
+
+    ; ======================================================================
+    ; Intra prediction on the scratch block (stride 32)
+    ; ======================================================================
+
+    fn px:int (i:int) {
+        return (buffer_get yuvB i)
+    }
+
+    fn put:void (i:int v:int) {
+        buffer_set yuvB i v
+    }
+
+    sfn avg3:int (a:int b:int c:int) {
+        return (bit_shr ((a + (2 * b)) + (c + 2)) 2)
+    }
+
+    sfn avg2:int (a:int b:int) {
+        return (bit_shr ((a + b) + 1) 1)
+    }
+
+    fn fillBlock:void (dst:int size:int v:int) {
+        def j:int 0
+        while (j < size) {
+            buffer_fill yuvB v (dst + (j * 32)) ((dst + (j * 32)) + size)
+            j = j + 1
+        }
+    }
+
+    fn trueMotion:void (dst:int size:int) {
+        def top:int (dst - 32)
+        def tl:int (this.px((top - 1)))
+        def y:int 0
+        while (y < size) {
+            def row:int (dst + (y * 32))
+            def l:int (this.px((row - 1)))
+            def x:int 0
+            while (x < size) {
+                this.put((row + x) (VP8Decoder.clip((((this.px((top + x))) + l) - tl) 255)))
+                x = x + 1
+            }
+            y = y + 1
+        }
+    }
+
+    fn predLuma4:void (mode:int d:int) {
+        def t:int (d - 32)
+        if (mode == 0) {
+            def dc:int 4
+            def i:int 0
+            while (i < 4) {
+                dc = dc + (this.px((t + i))) + (this.px(((d - 1) + (i * 32))))
+                i = i + 1
+            }
+            this.fillBlock(d 4 (bit_shr dc 3))
+            return
+        }
+        if (mode == 1) {
+            this.trueMotion(d 4)
+            return
+        }
+        if (mode == 2) {
+            def v0:int (VP8Decoder.avg3((this.px((t - 1))) (this.px(t)) (this.px((t + 1)))))
+            def v1:int (VP8Decoder.avg3((this.px(t)) (this.px((t + 1))) (this.px((t + 2)))))
+            def v2:int (VP8Decoder.avg3((this.px((t + 1))) (this.px((t + 2))) (this.px((t + 3)))))
+            def v3:int (VP8Decoder.avg3((this.px((t + 2))) (this.px((t + 3))) (this.px((t + 4)))))
+            def j:int 0
+            while (j < 4) {
+                def r:int (d + (j * 32))
+                this.put(r v0)
+                this.put((r + 1) v1)
+                this.put((r + 2) v2)
+                this.put((r + 3) v3)
+                j = j + 1
+            }
+            return
+        }
+        ; left column I J K L, corner X, top A B C D E F G H
+        def ci:int (this.px((d - 1)))
+        def cj:int (this.px((d + 31)))
+        def ck:int (this.px((d + 63)))
+        def cl:int (this.px((d + 95)))
+        def cx:int (this.px((t - 1)))
+        def ca:int (this.px(t))
+        def cb:int (this.px((t + 1)))
+        def cc:int (this.px((t + 2)))
+        def cd:int (this.px((t + 3)))
+        if (mode == 3) {
+            buffer_fill yuvB (VP8Decoder.avg3(cx ci cj)) d (d + 4)
+            buffer_fill yuvB (VP8Decoder.avg3(ci cj ck)) (d + 32) (d + 36)
+            buffer_fill yuvB (VP8Decoder.avg3(cj ck cl)) (d + 64) (d + 68)
+            buffer_fill yuvB (VP8Decoder.avg3(ck cl cl)) (d + 96) (d + 100)
+            return
+        }
+        if (mode == 4) {
+            this.put((d + 96) (VP8Decoder.avg3(cj ck cl)))
+            def e1:int (VP8Decoder.avg3(ci cj ck))
+            this.put((d + 97) e1)
+            this.put((d + 64) e1)
+            def e2:int (VP8Decoder.avg3(cx ci cj))
+            this.put((d + 98) e2)
+            this.put((d + 65) e2)
+            this.put((d + 32) e2)
+            def e3:int (VP8Decoder.avg3(ca cx ci))
+            this.put((d + 99) e3)
+            this.put((d + 66) e3)
+            this.put((d + 33) e3)
+            this.put(d e3)
+            def e4:int (VP8Decoder.avg3(cb ca cx))
+            this.put((d + 67) e4)
+            this.put((d + 34) e4)
+            this.put((d + 1) e4)
+            def e5:int (VP8Decoder.avg3(cc cb ca))
+            this.put((d + 35) e5)
+            this.put((d + 2) e5)
+            this.put((d + 3) (VP8Decoder.avg3(cd cc cb)))
+            return
+        }
+        if (mode == 5) {
+            def f1:int (VP8Decoder.avg2(cx ca))
+            this.put(d f1)
+            this.put((d + 65) f1)
+            def f2:int (VP8Decoder.avg2(ca cb))
+            this.put((d + 1) f2)
+            this.put((d + 66) f2)
+            def f3:int (VP8Decoder.avg2(cb cc))
+            this.put((d + 2) f3)
+            this.put((d + 67) f3)
+            this.put((d + 3) (VP8Decoder.avg2(cc cd)))
+            this.put((d + 96) (VP8Decoder.avg3(ck cj ci)))
+            this.put((d + 64) (VP8Decoder.avg3(cj ci cx)))
+            def f4:int (VP8Decoder.avg3(ci cx ca))
+            this.put((d + 32) f4)
+            this.put((d + 97) f4)
+            def f5:int (VP8Decoder.avg3(cx ca cb))
+            this.put((d + 33) f5)
+            this.put((d + 98) f5)
+            def f6:int (VP8Decoder.avg3(ca cb cc))
+            this.put((d + 34) f6)
+            this.put((d + 99) f6)
+            this.put((d + 35) (VP8Decoder.avg3(cb cc cd)))
+            return
+        }
+        def ce:int (this.px((t + 4)))
+        def cf:int (this.px((t + 5)))
+        def cg:int (this.px((t + 6)))
+        def ch:int (this.px((t + 7)))
+        if (mode == 6) {
+            this.put(d (VP8Decoder.avg3(ca cb cc)))
+            def g1:int (VP8Decoder.avg3(cb cc cd))
+            this.put((d + 1) g1)
+            this.put((d + 32) g1)
+            def g2:int (VP8Decoder.avg3(cc cd ce))
+            this.put((d + 2) g2)
+            this.put((d + 33) g2)
+            this.put((d + 64) g2)
+            def g3:int (VP8Decoder.avg3(cd ce cf))
+            this.put((d + 3) g3)
+            this.put((d + 34) g3)
+            this.put((d + 65) g3)
+            this.put((d + 96) g3)
+            def g4:int (VP8Decoder.avg3(ce cf cg))
+            this.put((d + 35) g4)
+            this.put((d + 66) g4)
+            this.put((d + 97) g4)
+            def g5:int (VP8Decoder.avg3(cf cg ch))
+            this.put((d + 67) g5)
+            this.put((d + 98) g5)
+            this.put((d + 99) (VP8Decoder.avg3(cg ch ch)))
+            return
+        }
+        if (mode == 7) {
+            this.put(d (VP8Decoder.avg2(ca cb)))
+            def h1:int (VP8Decoder.avg2(cb cc))
+            this.put((d + 1) h1)
+            this.put((d + 64) h1)
+            def h2:int (VP8Decoder.avg2(cc cd))
+            this.put((d + 2) h2)
+            this.put((d + 65) h2)
+            def h3:int (VP8Decoder.avg2(cd ce))
+            this.put((d + 3) h3)
+            this.put((d + 66) h3)
+            this.put((d + 32) (VP8Decoder.avg3(ca cb cc)))
+            def h4:int (VP8Decoder.avg3(cb cc cd))
+            this.put((d + 33) h4)
+            this.put((d + 96) h4)
+            def h5:int (VP8Decoder.avg3(cc cd ce))
+            this.put((d + 34) h5)
+            this.put((d + 97) h5)
+            def h6:int (VP8Decoder.avg3(cd ce cf))
+            this.put((d + 35) h6)
+            this.put((d + 98) h6)
+            this.put((d + 67) (VP8Decoder.avg3(ce cf cg)))
+            this.put((d + 99) (VP8Decoder.avg3(cf cg ch)))
+            return
+        }
+        if (mode == 8) {
+            def k1:int (VP8Decoder.avg2(ci cx))
+            this.put(d k1)
+            this.put((d + 34) k1)
+            def k2:int (VP8Decoder.avg2(cj ci))
+            this.put((d + 32) k2)
+            this.put((d + 66) k2)
+            def k3:int (VP8Decoder.avg2(ck cj))
+            this.put((d + 64) k3)
+            this.put((d + 98) k3)
+            this.put((d + 96) (VP8Decoder.avg2(cl ck)))
+            this.put((d + 3) (VP8Decoder.avg3(ca cb cc)))
+            this.put((d + 2) (VP8Decoder.avg3(cx ca cb)))
+            def k4:int (VP8Decoder.avg3(ci cx ca))
+            this.put((d + 1) k4)
+            this.put((d + 35) k4)
+            def k5:int (VP8Decoder.avg3(cj ci cx))
+            this.put((d + 33) k5)
+            this.put((d + 67) k5)
+            def k6:int (VP8Decoder.avg3(ck cj ci))
+            this.put((d + 65) k6)
+            this.put((d + 99) k6)
+            this.put((d + 97) (VP8Decoder.avg3(cl ck cj)))
+            return
+        }
+        ; mode 9, horizontal-up
+        this.put(d (VP8Decoder.avg2(ci cj)))
+        def m1:int (VP8Decoder.avg2(cj ck))
+        this.put((d + 2) m1)
+        this.put((d + 32) m1)
+        def m2:int (VP8Decoder.avg2(ck cl))
+        this.put((d + 34) m2)
+        this.put((d + 64) m2)
+        this.put((d + 1) (VP8Decoder.avg3(ci cj ck)))
+        def m3:int (VP8Decoder.avg3(cj ck cl))
+        this.put((d + 3) m3)
+        this.put((d + 33) m3)
+        def m4:int (VP8Decoder.avg3(ck cl cl))
+        this.put((d + 35) m4)
+        this.put((d + 65) m4)
+        this.put((d + 66) cl)
+        this.put((d + 67) cl)
+        buffer_fill yuvB cl (d + 96) (d + 100)
+    }
+
+    ; 16x16 luma (size 16) and 8x8 chroma (size 8) prediction; modes 4..6 are
+    ; the DC variants without top, without left, and without either.
+    fn predBlock:void (mode:int d:int size:int) {
+        def shift:int 4
+        if (size == 8) {
+            shift = 3
+        }
+        if (mode == 0) {
+            def dc:int size
+            def j:int 0
+            while (j < size) {
+                dc = dc + (this.px(((d - 1) + (j * 32)))) + (this.px(((d - 32) + j)))
+                j = j + 1
+            }
+            this.fillBlock(d size (bit_shr dc (shift + 1)))
+            return
+        }
+        if (mode == 1) {
+            this.trueMotion(d size)
+            return
+        }
+        if (mode == 2) {
+            def j:int 0
+            while (j < size) {
+                buffer_copy yuvB (d + (j * 32)) yuvB (d - 32) size
+                j = j + 1
+            }
+            return
+        }
+        if (mode == 3) {
+            def j:int 0
+            while (j < size) {
+                def r:int (d + (j * 32))
+                buffer_fill yuvB (this.px((r - 1))) r (r + size)
+                j = j + 1
+            }
+            return
+        }
+        if (mode == 4) {
+            def dc:int (bit_shr size 1)
+            def j:int 0
+            while (j < size) {
+                dc = dc + (this.px(((d - 1) + (j * 32))))
+                j = j + 1
+            }
+            this.fillBlock(d size (bit_shr dc shift))
+            return
+        }
+        if (mode == 5) {
+            def dc:int (bit_shr size 1)
+            def j:int 0
+            while (j < size) {
+                dc = dc + (this.px(((d - 32) + j)))
+                j = j + 1
+            }
+            this.fillBlock(d size (bit_shr dc shift))
+            return
+        }
+        this.fillBlock(d size 128)
+    }
+
+    sfn checkMode:int (mbX:int mbY:int mode:int) {
+        if (mode == 0) {
+            if (mbX == 0) {
+                if (mbY == 0) {
+                    return 6
+                }
+                return 5
+            }
+            if (mbY == 0) {
+                return 4
+            }
+        }
+        return mode
+    }
+
+    ; ======================================================================
+    ; Inverse transforms, added to the prediction in the scratch block
+    ; ======================================================================
+
+    sfn mul1:int (a:int) {
+        return ((bit_shr (a * 20091) 16) + a)
+    }
+
+    sfn mul2:int (a:int) {
+        return (bit_shr (a * 35468) 16)
+    }
+
+    fn store:void (d:int v:int) {
+        this.put(d (VP8Decoder.clip(((this.px(d)) + (bit_shr v 3)) 255)))
+    }
+
+    fn transformOne:void (src:int d:int) {
+        def i:int 0
+        while (i < 4) {
+            def in0:int (int_buffer_get coeffs (src + i))
+            def in4:int (int_buffer_get coeffs ((src + 4) + i))
+            def in8:int (int_buffer_get coeffs ((src + 8) + i))
+            def in12:int (int_buffer_get coeffs ((src + 12) + i))
+            def a:int (in0 + in8)
+            def b:int (in0 - in8)
+            def c:int ((VP8Decoder.mul2(in4)) - (VP8Decoder.mul1(in12)))
+            def e:int ((VP8Decoder.mul1(in4)) + (VP8Decoder.mul2(in12)))
+            int_buffer_set tmp (i * 4) (a + e)
+            int_buffer_set tmp ((i * 4) + 1) (b + c)
+            int_buffer_set tmp ((i * 4) + 2) (b - c)
+            int_buffer_set tmp ((i * 4) + 3) (a - e)
+            i = i + 1
+        }
+        i = 0
+        while (i < 4) {
+            def dc:int ((int_buffer_get tmp i) + 4)
+            def t4:int (int_buffer_get tmp (i + 4))
+            def t8:int (int_buffer_get tmp (i + 8))
+            def t12:int (int_buffer_get tmp (i + 12))
+            def a:int (dc + t8)
+            def b:int (dc - t8)
+            def c:int ((VP8Decoder.mul2(t4)) - (VP8Decoder.mul1(t12)))
+            def e:int ((VP8Decoder.mul1(t4)) + (VP8Decoder.mul2(t12)))
+            def r:int (d + (i * 32))
+            this.store(r (a + e))
+            this.store((r + 1) (b + c))
+            this.store((r + 2) (b - c))
+            this.store((r + 3) (a - e))
+            i = i + 1
+        }
+    }
+
+    fn transformDC:void (src:int d:int) {
+        def dc:int ((int_buffer_get coeffs src) + 4)
+        def j:int 0
+        while (j < 4) {
+            def r:int (d + (j * 32))
+            this.store(r dc)
+            this.store((r + 1) dc)
+            this.store((r + 2) dc)
+            this.store((r + 3) dc)
+            j = j + 1
+        }
+    }
+
+    fn store2:void (r:int dc:int e:int c:int) {
+        this.store(r (dc + e))
+        this.store((r + 1) (dc + c))
+        this.store((r + 2) (dc - c))
+        this.store((r + 3) (dc - e))
+    }
+
+    fn transformAC3:void (src:int d:int) {
+        def a:int ((int_buffer_get coeffs src) + 4)
+        def in4:int (int_buffer_get coeffs (src + 4))
+        def in1:int (int_buffer_get coeffs (src + 1))
+        def c4:int (VP8Decoder.mul2(in4))
+        def d4:int (VP8Decoder.mul1(in4))
+        def c1:int (VP8Decoder.mul2(in1))
+        def d1:int (VP8Decoder.mul1(in1))
+        this.store2(d (a + d4) d1 c1)
+        this.store2((d + 32) (a + c4) d1 c1)
+        this.store2((d + 64) (a - c4) d1 c1)
+        this.store2((d + 96) (a - d4) d1 c1)
+    }
+
+    ; by the 2-bit code of the block: 3 full, 2 first row and column, 1 DC
+    fn doTransform:void (code:int src:int d:int) {
+        if (code == 3) {
+            this.transformOne(src d)
+            return
+        }
+        if (code == 2) {
+            this.transformAC3(src d)
+            return
+        }
+        if (code == 1) {
+            this.transformDC(src d)
+        }
+    }
+
+    ; the four 4x4 blocks of a chroma plane; first is the index of their codes
+    fn doTransformUV:void (first:int src:int d:int) {
+        def any:boolean false
+        def ac:boolean false
+        def k:int 0
+        while (k < 4) {
+            def c:int (int_buffer_get nzCode (first + k))
+            if (c != 0) {
+                any = true
+            }
+            if (c >= 2) {
+                ac = true
+            }
+            k = k + 1
+        }
+        if (any == false) {
+            return
+        }
+        if ac {
+            this.transformOne(src d)
+            this.transformOne((src + 16) (d + 4))
+            this.transformOne((src + 32) (d + 128))
+            this.transformOne((src + 48) (d + 132))
+            return
+        }
+        if ((int_buffer_get coeffs src) != 0) {
+            this.transformDC(src d)
+        }
+        if ((int_buffer_get coeffs (src + 16)) != 0) {
+            this.transformDC((src + 16) (d + 4))
+        }
+        if ((int_buffer_get coeffs (src + 32)) != 0) {
+            this.transformDC((src + 32) (d + 128))
+        }
+        if ((int_buffer_get coeffs (src + 48)) != 0) {
+            this.transformDC((src + 48) (d + 132))
+        }
+    }
+
+    ; ======================================================================
+    ; Macroblock reconstruction
+    ; ======================================================================
+
+    fn reconstruct:void (mbX:int mbY:int) {
+        def yd:int 40
+        def ud:int 584
+        def vd:int 600
+        if (mbX == 0) {
+            def j:int 0
+            while (j < 16) {
+                this.put(((yd + (j * 32)) - 1) 129)
+                j = j + 1
+            }
+            j = 0
+            while (j < 8) {
+                this.put(((ud + (j * 32)) - 1) 129)
+                this.put(((vd + (j * 32)) - 1) 129)
+                j = j + 1
+            }
+            if (mbY > 0) {
+                this.put((yd - 33) 129)
+                this.put((ud - 33) 129)
+                this.put((vd - 33) 129)
+            } {
+                buffer_fill yuvB 127 (yd - 33) ((yd - 33) + 21)
+                buffer_fill yuvB 127 (ud - 33) ((ud - 33) + 9)
+                buffer_fill yuvB 127 (vd - 33) ((vd - 33) + 9)
+            }
+        } {
+            def j:int -1
+            while (j < 16) {
+                buffer_copy yuvB ((yd + (j * 32)) - 4) yuvB ((yd + (j * 32)) + 12) 4
+                j = j + 1
+            }
+            j = -1
+            while (j < 8) {
+                buffer_copy yuvB ((ud + (j * 32)) - 4) yuvB ((ud + (j * 32)) + 4) 4
+                buffer_copy yuvB ((vd + (j * 32)) - 4) yuvB ((vd + (j * 32)) + 4) 4
+                j = j + 1
+            }
+        }
+        def topOff:int (mbX * 32)
+        if (mbY > 0) {
+            buffer_copy yuvB (yd - 32) yuvT topOff 16
+            buffer_copy yuvB (ud - 32) yuvT (topOff + 16) 8
+            buffer_copy yuvB (vd - 32) yuvT (topOff + 24) 8
+        }
+        def mo:int (mbX * 16)
+        if ((int_buffer_get mbIsI4 mbX) == 1) {
+            def tr:int ((yd - 32) + 16)
+            if (mbY > 0) {
+                if (mbX >= (mbW - 1)) {
+                    buffer_fill yuvB (buffer_get yuvT (topOff + 15)) tr (tr + 4)
+                } {
+                    buffer_copy yuvB tr yuvT (topOff + 32) 4
+                }
+            }
+            buffer_copy yuvB (tr + 128) yuvB tr 4
+            buffer_copy yuvB (tr + 256) yuvB tr 4
+            buffer_copy yuvB (tr + 384) yuvB tr 4
+            def n:int 0
+            while (n < 16) {
+                def d:int ((yd + ((bit_and n 3) * 4)) + ((bit_shr n 2) * 128))
+                this.predLuma4((int_buffer_get mbModes (mo + n)) d)
+                this.doTransform((int_buffer_get nzCode n) (n * 16) d)
+                n = n + 1
+            }
+        } {
+            this.predBlock((VP8Decoder.checkMode(mbX mbY (int_buffer_get mbModes mo))) yd 16)
+            def n:int 0
+            while (n < 16) {
+                def code:int (int_buffer_get nzCode n)
+                if (code != 0) {
+                    this.doTransform(code (n * 16) ((yd + ((bit_and n 3) * 4)) + ((bit_shr n 2) * 128)))
+                }
+                n = n + 1
+            }
+        }
+        def uvMode:int (VP8Decoder.checkMode(mbX mbY (int_buffer_get mbUvMode mbX)))
+        this.predBlock(uvMode ud 8)
+        this.predBlock(uvMode vd 8)
+        this.doTransformUV(16 256 ud)
+        this.doTransformUV(20 320 vd)
+        if (mbY < (mbH - 1)) {
+            buffer_copy yuvT topOff yuvB (yd + 480) 16
+            buffer_copy yuvT (topOff + 16) yuvB (ud + 224) 8
+            buffer_copy yuvT (topOff + 24) yuvB (vd + 224) 8
+        }
+        ; into the frame
+        def j:int 0
+        def yo:int (((mbY * 16) * yStride) + (mbX * 16))
+        while (j < 16) {
+            buffer_copy yPlane (yo + (j * yStride)) yuvB (yd + (j * 32)) 16
+            j = j + 1
+        }
+        def uo:int (((mbY * 8) * uvStride) + (mbX * 8))
+        j = 0
+        while (j < 8) {
+            buffer_copy uPlane (uo + (j * uvStride)) yuvB (ud + (j * 32)) 8
+            buffer_copy vPlane (uo + (j * uvStride)) yuvB (vd + (j * 32)) 8
+            j = j + 1
+        }
+    }
+
+    ; ======================================================================
+    ; Loop filter (on the frame planes)
+    ; ======================================================================
+
+    sfn sclip1:int (v:int) {
+        if (v < -128) {
+            return -128
+        }
+        if (v > 127) {
+            return 127
+        }
+        return v
+    }
+
+    sfn sclip2:int (v:int) {
+        if (v < -16) {
+            return -16
+        }
+        if (v > 15) {
+            return 15
+        }
+        return v
+    }
+
+    sfn clip1:int (v:int) {
+        if (v < 0) {
+            return 0
+        }
+        if (v > 255) {
+            return 255
+        }
+        return v
+    }
+
+    sfn abs0:int (v:int) {
+        if (v < 0) {
+            return (0 - v)
+        }
+        return v
+    }
+
+    ; 4 * |p0 - q0| + |p1 - q1| <= t
+    fn needsFilter:boolean (b:buffer p:int step:int t:int) {
+        def p1:int (buffer_get b (p - (2 * step)))
+        def p0:int (buffer_get b (p - step))
+        def q0:int (buffer_get b p)
+        def q1:int (buffer_get b (p + step))
+        return (((4 * (VP8Decoder.abs0((p0 - q0)))) + (VP8Decoder.abs0((p1 - q1)))) <= t)
+    }
+
+    fn needsFilter2:boolean (b:buffer p:int step:int t:int it:int) {
+        def p3:int (buffer_get b (p - (4 * step)))
+        def p2:int (buffer_get b (p - (3 * step)))
+        def p1:int (buffer_get b (p - (2 * step)))
+        def p0:int (buffer_get b (p - step))
+        def q0:int (buffer_get b p)
+        def q1:int (buffer_get b (p + step))
+        def q2:int (buffer_get b (p + (2 * step)))
+        def q3:int (buffer_get b (p + (3 * step)))
+        if (((4 * (VP8Decoder.abs0((p0 - q0)))) + (VP8Decoder.abs0((p1 - q1)))) > t) {
+            return false
+        }
+        if ((VP8Decoder.abs0((p3 - p2))) > it) {
+            return false
+        }
+        if ((VP8Decoder.abs0((p2 - p1))) > it) {
+            return false
+        }
+        if ((VP8Decoder.abs0((p1 - p0))) > it) {
+            return false
+        }
+        if ((VP8Decoder.abs0((q3 - q2))) > it) {
+            return false
+        }
+        if ((VP8Decoder.abs0((q2 - q1))) > it) {
+            return false
+        }
+        return ((VP8Decoder.abs0((q1 - q0))) <= it)
+    }
+
+    fn hev:boolean (b:buffer p:int step:int thresh:int) {
+        def p1:int (buffer_get b (p - (2 * step)))
+        def p0:int (buffer_get b (p - step))
+        def q0:int (buffer_get b p)
+        def q1:int (buffer_get b (p + step))
+        return (((VP8Decoder.abs0((p1 - p0))) > thresh) || ((VP8Decoder.abs0((q1 - q0))) > thresh))
+    }
+
+    fn doFilter2:void (b:buffer p:int step:int) {
+        def p1:int (buffer_get b (p - (2 * step)))
+        def p0:int (buffer_get b (p - step))
+        def q0:int (buffer_get b p)
+        def q1:int (buffer_get b (p + step))
+        def a:int ((3 * (q0 - p0)) + (VP8Decoder.sclip1((p1 - q1))))
+        def a1:int (VP8Decoder.sclip2((bit_shr (a + 4) 3)))
+        def a2:int (VP8Decoder.sclip2((bit_shr (a + 3) 3)))
+        buffer_set b (p - step) (VP8Decoder.clip1((p0 + a2)))
+        buffer_set b p (VP8Decoder.clip1((q0 - a1)))
+    }
+
+    fn doFilter4:void (b:buffer p:int step:int) {
+        def p1:int (buffer_get b (p - (2 * step)))
+        def p0:int (buffer_get b (p - step))
+        def q0:int (buffer_get b p)
+        def q1:int (buffer_get b (p + step))
+        def a:int (3 * (q0 - p0))
+        def a1:int (VP8Decoder.sclip2((bit_shr (a + 4) 3)))
+        def a2:int (VP8Decoder.sclip2((bit_shr (a + 3) 3)))
+        def a3:int (bit_shr (a1 + 1) 1)
+        buffer_set b (p - (2 * step)) (VP8Decoder.clip1((p1 + a3)))
+        buffer_set b (p - step) (VP8Decoder.clip1((p0 + a2)))
+        buffer_set b p (VP8Decoder.clip1((q0 - a1)))
+        buffer_set b (p + step) (VP8Decoder.clip1((q1 - a3)))
+    }
+
+    fn doFilter6:void (b:buffer p:int step:int) {
+        def p2:int (buffer_get b (p - (3 * step)))
+        def p1:int (buffer_get b (p - (2 * step)))
+        def p0:int (buffer_get b (p - step))
+        def q0:int (buffer_get b p)
+        def q1:int (buffer_get b (p + step))
+        def q2:int (buffer_get b (p + (2 * step)))
+        def a:int (VP8Decoder.sclip1(((3 * (q0 - p0)) + (VP8Decoder.sclip1((p1 - q1))))))
+        def a1:int (bit_shr ((27 * a) + 63) 7)
+        def a2:int (bit_shr ((18 * a) + 63) 7)
+        def a3:int (bit_shr ((9 * a) + 63) 7)
+        buffer_set b (p - (3 * step)) (VP8Decoder.clip1((p2 + a3)))
+        buffer_set b (p - (2 * step)) (VP8Decoder.clip1((p1 + a2)))
+        buffer_set b (p - step) (VP8Decoder.clip1((p0 + a1)))
+        buffer_set b p (VP8Decoder.clip1((q0 - a1)))
+        buffer_set b (p + step) (VP8Decoder.clip1((q1 - a2)))
+        buffer_set b (p + (2 * step)) (VP8Decoder.clip1((q2 - a3)))
+    }
+
+    ; the simple filter across one edge of 16 pixels
+    fn simpleFilter16:void (b:buffer p:int step:int along:int thresh:int) {
+        def t2:int ((2 * thresh) + 1)
+        def i:int 0
+        while (i < 16) {
+            def q:int (p + (i * along))
+            if (this.needsFilter(b q step t2)) {
+                this.doFilter2(b q step)
+            }
+            i = i + 1
+        }
+    }
+
+    ; the normal filter across one edge: 6-tap on macroblock edges, 4-tap inside
+    fn filterLoop:void (b:buffer p:int hstride:int vstride:int size:int thresh:int ithresh:int hevThresh:int mbEdge:boolean) {
+        def t2:int ((2 * thresh) + 1)
+        def i:int 0
+        while (i < size) {
+            def q:int (p + (i * vstride))
+            if (this.needsFilter2(b q hstride t2 ithresh)) {
+                if (this.hev(b q hstride hevThresh)) {
+                    this.doFilter2(b q hstride)
+                } {
+                    if mbEdge {
+                        this.doFilter6(b q hstride)
+                    } {
+                        this.doFilter4(b q hstride)
+                    }
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    fn filterMB:void (mbX:int mbY:int) {
+        def limit:int (int_buffer_get fLimit mbX)
+        if (limit == 0) {
+            return
+        }
+        def ilevel:int (int_buffer_get fILevel mbX)
+        def inner:boolean ((int_buffer_get fInner mbX) == 1)
+        def hevT:int (int_buffer_get fHev mbX)
+        def ys:int yStride
+        def yo:int (((mbY * 16) * ys) + (mbX * 16))
+        if (filterType == 1) {
+            if (mbX > 0) {
+                this.simpleFilter16(yPlane yo 1 ys (limit + 4))
+            }
+            if inner {
+                this.simpleFilter16(yPlane (yo + 4) 1 ys limit)
+                this.simpleFilter16(yPlane (yo + 8) 1 ys limit)
+                this.simpleFilter16(yPlane (yo + 12) 1 ys limit)
+            }
+            if (mbY > 0) {
+                this.simpleFilter16(yPlane yo ys 1 (limit + 4))
+            }
+            if inner {
+                this.simpleFilter16(yPlane (yo + (4 * ys)) ys 1 limit)
+                this.simpleFilter16(yPlane (yo + (8 * ys)) ys 1 limit)
+                this.simpleFilter16(yPlane (yo + (12 * ys)) ys 1 limit)
+            }
+            return
+        }
+        def us:int uvStride
+        def uo:int (((mbY * 8) * us) + (mbX * 8))
+        if (mbX > 0) {
+            this.filterLoop(yPlane yo 1 ys 16 (limit + 4) ilevel hevT true)
+            this.filterLoop(uPlane uo 1 us 8 (limit + 4) ilevel hevT true)
+            this.filterLoop(vPlane uo 1 us 8 (limit + 4) ilevel hevT true)
+        }
+        if inner {
+            this.filterLoop(yPlane (yo + 4) 1 ys 16 limit ilevel hevT false)
+            this.filterLoop(yPlane (yo + 8) 1 ys 16 limit ilevel hevT false)
+            this.filterLoop(yPlane (yo + 12) 1 ys 16 limit ilevel hevT false)
+            this.filterLoop(uPlane (uo + 4) 1 us 8 limit ilevel hevT false)
+            this.filterLoop(vPlane (uo + 4) 1 us 8 limit ilevel hevT false)
+        }
+        if (mbY > 0) {
+            this.filterLoop(yPlane yo ys 1 16 (limit + 4) ilevel hevT true)
+            this.filterLoop(uPlane uo us 1 8 (limit + 4) ilevel hevT true)
+            this.filterLoop(vPlane uo us 1 8 (limit + 4) ilevel hevT true)
+        }
+        if inner {
+            this.filterLoop(yPlane (yo + (4 * ys)) ys 1 16 limit ilevel hevT false)
+            this.filterLoop(yPlane (yo + (8 * ys)) ys 1 16 limit ilevel hevT false)
+            this.filterLoop(yPlane (yo + (12 * ys)) ys 1 16 limit ilevel hevT false)
+            this.filterLoop(uPlane (uo + (4 * us)) us 1 8 limit ilevel hevT false)
+            this.filterLoop(vPlane (uo + (4 * us)) us 1 8 limit ilevel hevT false)
+        }
+    }
+
+    ; ======================================================================
+    ; Frame
+    ; ======================================================================
+
+    ; Decodes the frame whose header decodeHeader() read into yPlane, uPlane
+    ; and vPlane.
+    fn decodeFrame:boolean () {
+        yStride = mbW * 16
+        uvStride = mbW * 8
+        yPlane = (buffer_alloc (yStride * (mbH * 16)))
+        uPlane = (buffer_alloc (uvStride * (mbH * 8)))
+        vPlane = (buffer_alloc (uvStride * (mbH * 8)))
+        yuvT = (buffer_alloc (mbW * 32))
+        intraT = (int_buffer_alloc (mbW * 4))
+        mbSegment = (int_buffer_alloc mbW)
+        mbSkip = (int_buffer_alloc mbW)
+        mbIsI4 = (int_buffer_alloc mbW)
+        mbUvMode = (int_buffer_alloc mbW)
+        mbModes = (int_buffer_alloc (mbW * 16))
+        topNz = (int_buffer_alloc mbW)
+        topNzDc = (int_buffer_alloc mbW)
+        fLimit = (int_buffer_alloc mbW)
+        fILevel = (int_buffer_alloc mbW)
+        fInner = (int_buffer_alloc mbW)
+        fHev = (int_buffer_alloc mbW)
+        buffer_fill yuvB 0 0 832
+        statI4Modes = 0
+        statI16Modes = 0
+        statUvModes = 0
+        statSkipped = 0
+        statSegments = 0
+        this.computeFilterStrengths()
+        def mbY:int 0
+        while (mbY < mbH) {
+            def tb:VP8BoolDecoder (itemAt parts (bit_and mbY (numParts - 1)))
+            int_buffer_fill intraL 0 0 4
+            def mbX:int 0
+            while (mbX < mbW) {
+                this.parseIntraMode(mbX)
+                mbX = mbX + 1
+            }
+            if br.eof {
+                return (this.fail("premature end of partition 0"))
+            }
+            leftNz = 0
+            leftNzDc = 0
+            mbX = 0
+            while (mbX < mbW) {
+                if ((this.decodeMB(tb mbX)) == false) {
+                    return (this.fail("premature end of token partition"))
+                }
+                this.reconstruct(mbX mbY)
+                mbX = mbX + 1
+            }
+            if (filterType > 0) {
+                mbX = 0
+                while (mbX < mbW) {
+                    this.filterMB(mbX mbY)
+                    mbX = mbX + 1
+                }
+            }
+            mbY = mbY + 1
+        }
+        return true
+    }
+
+    ; ======================================================================
+    ; YUV 4:2:0 -> RGBA
+    ; ======================================================================
+
+    sfn yuvClip8:int (v:int) {
+        if ((bit_and v -16384) == 0) {
+            return (bit_shr v 6)
+        }
+        if (v < 0) {
+            return 0
+        }
+        return 255
+    }
+
+    ; One output row with libwebp's fancy upsampler: the chroma of each pixel
+    ; is (9 * nearest + 3 * two neighbours + farthest + 8) / 16 of the four
+    ; closest chroma samples. `near` is the chroma row closest to the pixel
+    ; row, `far` the other one of the pair.
+    fn emitRow:void (img:ImageBuffer alpha:buffer hasAlpha:boolean row:int near:int far:int) {
+        def w:int width
+        def yo:int (row * yStride)
+        def no:int (near * uvStride)
+        def fo:int (far * uvStride)
+        def out:int ((row * w) * 4)
+        def ao:int (row * w)
+        def x:int 0
+        while (x < w) {
+            def u:int 0
+            def v:int 0
+            def cx:int (bit_shr x 1)
+            if ((x == 0) || (((bit_and w 1) == 0) && (x == (w - 1)))) {
+                ; first pixel, and the last one of an even width
+                u = (bit_shr (((3 * (buffer_get uPlane (no + cx))) + (buffer_get uPlane (fo + cx))) + 2) 2)
+                v = (bit_shr (((3 * (buffer_get vPlane (no + cx))) + (buffer_get vPlane (fo + cx))) + 2) 2)
+            } {
+                ; pixels 2k - 1 and 2k fall between chroma columns k - 1 and k
+                def k:int (bit_shr (x + 1) 1)
+                def na:int (buffer_get uPlane ((no + k) - 1))
+                def nb:int (buffer_get uPlane (no + k))
+                def fa:int (buffer_get uPlane ((fo + k) - 1))
+                def fb:int (buffer_get uPlane (fo + k))
+                def avg:int ((((na + nb) + fa) + fb) + 8)
+                if ((bit_and x 1) == 1) {
+                    u = (bit_shr ((bit_shr (avg + (2 * (nb + fa))) 3) + na) 1)
+                } {
+                    u = (bit_shr ((bit_shr (avg + (2 * (na + fb))) 3) + nb) 1)
+                }
+                na = (buffer_get vPlane ((no + k) - 1))
+                nb = (buffer_get vPlane (no + k))
+                fa = (buffer_get vPlane ((fo + k) - 1))
+                fb = (buffer_get vPlane (fo + k))
+                avg = ((((na + nb) + fa) + fb) + 8)
+                if ((bit_and x 1) == 1) {
+                    v = (bit_shr ((bit_shr (avg + (2 * (nb + fa))) 3) + na) 1)
+                } {
+                    v = (bit_shr ((bit_shr (avg + (2 * (na + fb))) 3) + nb) 1)
+                }
+            }
+            def yy:int (bit_shr ((buffer_get yPlane (yo + x)) * 19077) 8)
+            def o:int (out + (x * 4))
+            buffer_set img.pixels o (VP8Decoder.yuvClip8(((yy + (bit_shr (v * 26149) 8)) - 14234)))
+            buffer_set img.pixels (o + 1) (VP8Decoder.yuvClip8((((yy - (bit_shr (u * 6419) 8)) - (bit_shr (v * 13320) 8)) + 8708)))
+            buffer_set img.pixels (o + 2) (VP8Decoder.yuvClip8(((yy + (bit_shr (u * 33050) 8)) - 17685)))
+            if hasAlpha {
+                buffer_set img.pixels (o + 3) (buffer_get alpha (ao + x))
+            } {
+                buffer_set img.pixels (o + 3) 255
+            }
+            x = x + 1
+        }
+    }
+
+    ; The decoded frame as RGBA; alpha holds width * height bytes when hasAlpha.
+    fn toRGBA:void (img:ImageBuffer alpha:buffer hasAlpha:boolean) {
+        img.initClear(width height)
+        def lastUV:int (bit_shr (height - 1) 1)
+        def row:int 0
+        while (row < height) {
+            def near:int 0
+            def far:int 0
+            if (row > 0) {
+                if ((bit_and row 1) == 1) {
+                    near = (bit_shr (row - 1) 1)
+                    far = (bit_shr (row + 1) 1)
+                    if (far > lastUV) {
+                        far = lastUV
+                    }
+                } {
+                    near = (bit_shr row 1)
+                    far = near - 1
+                }
+            }
+            this.emitRow(img alpha hasAlpha row near far)
+            row = row + 1
+        }
+    }
+
+    ; ======================================================================
+    ; Constant tables (RFC 6386)
+    ; ======================================================================
+
+    sfn dcTable:[int] () {
+        return ([] _:int (
+            4 5 6 7 8 9 10 10 11 12 13 14 15 16 17 17 18 19 20 20 21 21 22 22
+            23 23 24 25 25 26 27 28 29 30 31 32 33 34 35 36 37 37 38 39 40 41 42 43
+            44 45 46 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66
+            67 68 69 70 71 72 73 74 75 76 76 77 78 79 80 81 82 83 84 85 86 87 88 89
+            91 93 95 96 98 100 101 102 104 106 108 110 112 114 116 118 122 124 126 128 130 132 134 136
+            138 140 143 145 148 151 154 157
+        ))
+    }
+
+    sfn acTable:[int] () {
+        return ([] _:int (
+            4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27
+            28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51
+            52 53 54 55 56 57 58 60 62 64 66 68 70 72 74 76 78 80 82 84 86 88 90 92
+            94 96 98 100 102 104 106 108 110 112 114 116 119 122 125 128 131 134 137 140 143 146 149 152
+            155 158 161 164 167 170 173 177 181 185 189 193 197 201 205 209 213 217 221 225 229 234 239 245
+            249 254 259 264 269 274 279 284
+        ))
+    }
+
+    sfn coeffUpdateProba:[int] () {
+        return ([] _:int (
+            255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            255 255 255 255 255 255 255 255 255 176 246 255 255 255 255 255 255 255 255 255 223 241 252 255
+            255 255 255 255 255 255 255 249 253 253 255 255 255 255 255 255 255 255 255 244 252 255 255 255
+            255 255 255 255 255 234 254 254 255 255 255 255 255 255 255 255 253 255 255 255 255 255 255 255
+            255 255 255 255 246 254 255 255 255 255 255 255 255 255 239 253 254 255 255 255 255 255 255 255
+            255 254 255 254 255 255 255 255 255 255 255 255 255 248 254 255 255 255 255 255 255 255 255 251
+            255 254 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 253 254
+            255 255 255 255 255 255 255 255 251 254 254 255 255 255 255 255 255 255 255 254 255 254 255 255
+            255 255 255 255 255 255 255 254 253 255 254 255 255 255 255 255 255 250 255 254 255 254 255 255
+            255 255 255 255 254 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            217 255 255 255 255 255 255 255 255 255 255 225 252 241 253 255 255 254 255 255 255 255 234 250
+            241 250 253 255 253 254 255 255 255 255 254 255 255 255 255 255 255 255 255 255 223 254 254 255
+            255 255 255 255 255 255 255 238 253 254 254 255 255 255 255 255 255 255 255 248 254 255 255 255
+            255 255 255 255 255 249 254 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            255 255 255 255 253 255 255 255 255 255 255 255 255 255 247 254 255 255 255 255 255 255 255 255
+            255 255 255 255 255 255 255 255 255 255 255 255 255 253 254 255 255 255 255 255 255 255 255 252
+            255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 254 254
+            255 255 255 255 255 255 255 255 253 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            255 255 255 255 255 255 255 254 253 255 255 255 255 255 255 255 255 250 255 255 255 255 255 255
+            255 255 255 255 254 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            186 251 250 255 255 255 255 255 255 255 255 234 251 244 254 255 255 255 255 255 255 255 251 251
+            243 253 254 255 254 255 255 255 255 255 253 254 255 255 255 255 255 255 255 255 236 253 254 255
+            255 255 255 255 255 255 255 251 253 253 254 254 255 255 255 255 255 255 255 254 254 255 255 255
+            255 255 255 255 255 254 254 254 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            255 255 255 255 254 255 255 255 255 255 255 255 255 255 254 254 255 255 255 255 255 255 255 255
+            255 254 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 254
+            255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            248 255 255 255 255 255 255 255 255 255 255 250 254 252 254 255 255 255 255 255 255 255 248 254
+            249 253 255 255 255 255 255 255 255 255 253 253 255 255 255 255 255 255 255 255 246 253 253 255
+            255 255 255 255 255 255 255 252 254 251 254 254 255 255 255 255 255 255 255 254 252 255 255 255
+            255 255 255 255 255 248 254 253 255 255 255 255 255 255 255 255 253 255 254 254 255 255 255 255
+            255 255 255 255 251 254 255 255 255 255 255 255 255 255 245 251 254 255 255 255 255 255 255 255
+            255 253 253 254 255 255 255 255 255 255 255 255 255 251 253 255 255 255 255 255 255 255 255 252
+            253 254 255 255 255 255 255 255 255 255 255 254 255 255 255 255 255 255 255 255 255 255 252 255
+            255 255 255 255 255 255 255 255 249 255 254 255 255 255 255 255 255 255 255 255 255 254 255 255
+            255 255 255 255 255 255 255 255 253 255 255 255 255 255 255 255 255 250 255 255 255 255 255 255
+            255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+            255 255 254 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255
+        ))
+    }
+
+    sfn coeffProba0:[int] () {
+        return ([] _:int (
+            128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128
+            128 128 128 128 128 128 128 128 128 253 136 254 255 228 219 128 128 128 128 128 189 129 242 255
+            227 213 255 219 128 128 128 106 126 227 252 214 209 255 255 128 128 128 1 98 248 255 236 226
+            255 255 128 128 128 181 133 238 254 221 234 255 154 128 128 128 78 134 202 247 198 180 255 219
+            128 128 128 1 185 249 255 243 255 128 128 128 128 128 184 150 247 255 236 224 128 128 128 128
+            128 77 110 216 255 236 230 128 128 128 128 128 1 101 251 255 241 255 128 128 128 128 128 170
+            139 241 252 236 209 255 255 128 128 128 37 116 196 243 228 255 255 255 128 128 128 1 204 254
+            255 245 255 128 128 128 128 128 207 160 250 255 238 128 128 128 128 128 128 102 103 231 255 211
+            171 128 128 128 128 128 1 152 252 255 240 255 128 128 128 128 128 177 135 243 255 234 225 128
+            128 128 128 128 80 129 211 255 194 224 128 128 128 128 128 1 1 255 128 128 128 128 128 128
+            128 128 246 1 255 128 128 128 128 128 128 128 128 255 128 128 128 128 128 128 128 128 128 128
+            198 35 237 223 193 187 162 160 145 155 62 131 45 198 221 172 176 220 157 252 221 1 68 47
+            146 208 149 167 221 162 255 223 128 1 149 241 255 221 224 255 255 128 128 128 184 141 234 253
+            222 220 255 199 128 128 128 81 99 181 242 176 190 249 202 255 255 128 1 129 232 253 214 197
+            242 196 255 255 128 99 121 210 250 201 198 255 202 128 128 128 23 91 163 242 170 187 247 210
+            255 255 128 1 200 246 255 234 255 128 128 128 128 128 109 178 241 255 231 245 255 255 128 128
+            128 44 130 201 253 205 192 255 255 128 128 128 1 132 239 251 219 209 255 165 128 128 128 94
+            136 225 251 218 190 255 255 128 128 128 22 100 174 245 186 161 255 199 128 128 128 1 182 249
+            255 232 235 128 128 128 128 128 124 143 241 255 227 234 128 128 128 128 128 35 77 181 251 193
+            211 255 205 128 128 128 1 157 247 255 236 231 255 255 128 128 128 121 141 235 255 225 227 255
+            255 128 128 128 45 99 188 251 195 217 255 224 128 128 128 1 1 251 255 213 255 128 128 128
+            128 128 203 1 248 255 255 128 128 128 128 128 128 137 1 177 255 224 255 128 128 128 128 128
+            253 9 248 251 207 208 255 192 128 128 128 175 13 224 243 193 185 249 198 255 255 128 73 17
+            171 221 161 179 236 167 255 234 128 1 95 247 253 212 183 255 255 128 128 128 239 90 244 250
+            211 209 255 255 128 128 128 155 77 195 248 188 195 255 255 128 128 128 1 24 239 251 218 219
+            255 205 128 128 128 201 51 219 255 196 186 128 128 128 128 128 69 46 190 239 201 218 255 228
+            128 128 128 1 191 251 255 255 128 128 128 128 128 128 223 165 249 255 213 255 128 128 128 128
+            128 141 124 248 255 255 128 128 128 128 128 128 1 16 248 255 255 128 128 128 128 128 128 190
+            36 230 255 236 255 128 128 128 128 128 149 1 255 128 128 128 128 128 128 128 128 1 226 255
+            128 128 128 128 128 128 128 128 247 192 255 128 128 128 128 128 128 128 128 240 128 255 128 128
+            128 128 128 128 128 128 1 134 252 255 255 128 128 128 128 128 128 213 62 250 255 255 128 128
+            128 128 128 128 55 93 255 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128
+            128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128
+            202 24 213 235 186 191 220 160 240 175 255 126 38 182 232 169 184 228 174 255 187 128 61 46
+            138 219 151 178 240 170 255 216 128 1 112 230 250 199 191 247 159 255 255 128 166 109 228 252
+            211 215 255 174 128 128 128 39 77 162 232 172 180 245 178 255 255 128 1 52 220 246 198 199
+            249 220 255 255 128 124 74 191 243 183 193 250 221 255 255 128 24 71 130 219 154 170 243 182
+            255 255 128 1 182 225 249 219 240 255 224 128 128 128 149 150 226 252 216 205 255 171 128 128
+            128 28 108 170 242 183 194 254 223 255 255 128 1 81 230 252 204 203 255 192 128 128 128 123
+            102 209 247 188 196 255 233 128 128 128 20 95 153 243 164 173 255 203 128 128 128 1 222 248
+            255 216 213 128 128 128 128 128 168 175 246 252 235 205 255 255 128 128 128 47 116 215 255 211
+            212 255 255 128 128 128 1 121 236 253 212 214 255 255 128 128 128 141 84 213 252 201 202 255
+            219 128 128 128 42 80 160 240 162 185 255 205 128 128 128 1 1 255 128 128 128 128 128 128
+            128 128 244 1 255 128 128 128 128 128 128 128 128 238 1 255 128 128 128 128 128 128 128 128
+        ))
+    }
+
+    sfn modesProba:[int] () {
+        return ([] _:int (
+            231 120 48 89 115 113 120 152 112 152 179 64 126 170 118 46 70 95 175 69 143 80 85 82
+            72 155 103 56 58 10 171 218 189 17 13 152 114 26 17 163 44 195 21 10 173 121 24 80
+            195 26 62 44 64 85 144 71 10 38 171 213 144 34 26 170 46 55 19 136 160 33 206 71
+            63 20 8 114 114 208 12 9 226 81 40 11 96 182 84 29 16 36 134 183 89 137 98 101
+            106 165 148 72 187 100 130 157 111 32 75 80 66 102 167 99 74 62 40 234 128 41 53 9
+            178 241 141 26 8 107 74 43 26 146 73 166 49 23 157 65 38 105 160 51 52 31 115 128
+            104 79 12 27 217 255 87 17 7 87 68 71 44 114 51 15 186 23 47 41 14 110 182 183
+            21 17 194 66 45 25 102 197 189 23 18 22 88 88 147 150 42 46 45 196 205 43 97 183
+            117 85 38 35 179 61 39 53 200 87 26 21 43 232 171 56 34 51 104 114 102 29 93 77
+            39 28 85 171 58 165 90 98 64 34 22 116 206 23 34 43 166 73 107 54 32 26 51 1
+            81 43 31 68 25 106 22 64 171 36 225 114 34 19 21 102 132 188 16 76 124 62 18 78
+            95 85 57 50 48 51 193 101 35 159 215 111 89 46 111 60 148 31 172 219 228 21 18 111
+            112 113 77 85 179 255 38 120 114 40 42 1 196 245 209 10 25 109 88 43 29 140 166 213
+            37 43 154 61 63 30 155 67 45 68 1 209 100 80 8 43 154 1 51 26 71 142 78 78
+            16 255 128 34 197 171 41 40 5 102 211 183 4 1 221 51 50 17 168 209 192 23 25 82
+            138 31 36 171 27 166 38 44 229 67 87 58 169 82 115 26 59 179 63 59 90 180 59 166
+            93 73 154 40 40 21 116 143 209 34 39 175 47 15 16 183 34 223 49 45 183 46 17 33
+            183 6 98 15 32 183 57 46 22 24 128 1 54 17 37 65 32 73 115 28 128 23 128 205
+            40 3 9 115 51 192 18 6 223 87 37 9 115 59 77 64 21 47 104 55 44 218 9 54
+            53 130 226 64 90 70 205 40 41 23 26 57 54 57 112 184 5 41 38 166 213 30 34 26
+            133 152 116 10 32 134 39 19 53 221 26 114 32 73 255 31 9 65 234 2 15 1 118 73
+            75 32 12 51 192 255 160 43 51 88 31 35 67 102 85 55 186 85 56 21 23 111 59 205
+            45 37 192 55 38 70 124 73 102 1 34 98 125 98 42 88 104 85 117 175 82 95 84 53
+            89 128 100 113 101 45 75 79 123 47 51 128 81 171 1 57 17 5 71 102 57 53 41 49
+            38 33 13 121 57 73 26 1 85 41 10 67 138 77 110 90 47 114 115 21 2 10 102 255
+            166 23 6 101 29 16 10 85 128 101 196 26 57 18 10 102 102 213 34 20 43 117 20 15
+            36 163 128 68 1 26 102 61 71 37 34 53 31 243 192 69 60 71 38 73 119 28 222 37
+            68 45 128 34 1 47 11 245 171 62 17 19 70 146 85 55 62 70 37 43 37 154 100 163
+            85 160 1 63 9 92 136 28 64 32 201 85 75 15 9 9 64 255 184 119 16 86 6 28
+            5 64 255 25 248 1 56 8 17 132 137 255 55 116 128 58 15 20 82 135 57 26 121 40
+            164 50 31 137 154 133 25 35 218 51 103 44 131 131 123 31 6 158 86 40 64 135 148 224
+            45 183 128 22 26 17 131 240 154 14 1 209 45 16 21 91 64 222 7 1 197 56 21 39
+            155 60 138 23 102 213 83 12 13 54 192 255 68 47 28 85 26 85 85 128 128 32 146 171
+            18 11 7 63 144 171 4 4 246 35 27 10 146 174 171 12 26 128 190 80 35 99 180 80
+            126 54 45 85 126 47 87 176 51 41 20 32 101 75 128 139 118 146 116 128 85 56 41 15
+            176 236 85 37 9 62 71 30 17 119 118 255 17 18 138 101 38 60 138 55 70 43 26 142
+            146 36 19 30 171 255 97 27 20 138 45 61 62 219 1 81 188 64 32 41 20 117 151 142
+            20 21 163 112 19 12 61 195 128 48 4 24
+        ))
+    }
+
+}
