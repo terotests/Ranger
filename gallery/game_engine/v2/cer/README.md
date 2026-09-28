@@ -49,12 +49,23 @@ npx vitest run --config tests/vitest.config.ts cer.test.ts
   (UTC), Map / Set / WeakMap / WeakSet, a small Promise with a job queue,
   URI functions.
 - `regex.rs`: a backtracking matcher over UTF-16 units: groups (named too),
-  back references, lookahead and lookbehind, lazy quantifiers, classes, the
-  flags `gimsuy`.
+  back references, lookahead and lookbehind, lazy quantifiers, classes,
+  Unicode property escapes `\p{…}`, the flags `gimsuy` and `v` (class set
+  notation: nested classes, `&&`, `--`, `\q{…}`).
+- `unicode.rs`: ComponentEngine's Unicode algorithms -- NFC / NFD,
+  three-level collation with per-locale tailorings (`localeCompare`,
+  `Intl.Collator`), the property sets of `\p{…}` -- over the tables in
+  `unidata.rs`, which `tools/gen-unidata.cjs` generates from
+  ComponentEngine's `Unicode*.rgr` / `Locale*.rgr`: each table a string of
+  integers, parsed the first time a VM needs it.
+- `intl.rs` and `prelude::INTL`: Intl (Collator, NumberFormat,
+  DateTimeFormat, PluralRules, ListFormat, getCanonicalLocales,
+  supportedLocalesOf) and the `toLocaleString` family, ComponentEngine's
+  D-INTL written in JavaScript over a few natives. It is compiled the first
+  time a program reaches for it, so an engine that does not pays nothing.
 
-Not there: generators, `async` / `await` (parsed, run as plain calls),
-Proxy, typed arrays, BigInt (literals read as numbers), `with`, `eval`,
-modules, Intl, Unicode normalization and locale-aware collation.
+Not there: BigInt (literals read as numbers), `with`, modules, the NFKC /
+NFKD normalization forms (answered unchanged, as ComponentEngine does).
 
 ## Conformance
 
@@ -65,16 +76,14 @@ Node gives — through CEr, one engine per probe.
 | | agrees with Node |
 | --- | ---: |
 | ComponentEngine | 2,143 (its KNOWN_GAPS list is empty) |
-| CEr, native | 1,586 |
+| CEr, native | 1,995 |
 
 Every probe CEr gets right ComponentEngine gets right too. Where CEr falls
-short, by the probe groups: the unicode group (92 of 191: no normalization,
-no locale collation), async (10 of 41), es2017 / es2018 / es2024 / es2025
-(generators, async iteration, the newest built-ins), proxy (1 of 33), typed
-arrays (1 of 20), holes (6 of 24: a hole is stored as `undefined`), `with`
-(1 of 12), completion values (0 of 10) and Function.prototype.toString
-(2 of 12). The number, regex, coercion, registry, object and string groups
-all agree.
+short, by the probe groups: es2020 (53 of 86), class (49 of 58), async (33
+of 41), holes (6 of 24: a hole is stored as `undefined`), BigInt (6 of 15),
+`with` (2 of 12), and a few probes in about twenty other groups. The
+unicode (191), es2018, es2024, proxy, typed array, number, regex, coercion,
+registry, object and string groups all agree.
 
 ## Speed
 

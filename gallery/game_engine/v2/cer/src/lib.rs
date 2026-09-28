@@ -22,6 +22,7 @@ pub mod builtins;
 pub mod builtins2;
 pub mod compiler;
 pub mod evaluate;
+pub mod intl;
 pub mod jsstr;
 pub mod lexer;
 pub mod num;
@@ -31,6 +32,8 @@ pub mod prelude;
 pub mod proxy;
 pub mod regex;
 pub mod typed;
+pub mod unicode;
+pub mod unidata;
 pub mod value;
 pub mod vm;
 

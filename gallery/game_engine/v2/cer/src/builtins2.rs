@@ -896,7 +896,23 @@ impl Vm {
             }
             NF_SP_NORMALIZE => {
                 let s = self.this_str(&this);
-                Val::Str(s)
+                if self.throwing {
+                    return Val::Undef;
+                }
+                let form = if matches!(a0, Val::Undef) { String::from("NFC") } else { self.to_str(&a0).as_ref().clone() };
+                if self.throwing {
+                    return Val::Undef;
+                }
+                let f = form.as_str();
+                if f != "NFC" && f != "NFD" && f != "NFKC" && f != "NFKD" {
+                    self.throw_range("The normalization form should be one of NFC, NFD, NFKC, NFKD.");
+                    return Val::Undef;
+                }
+                // the compatibility forms are not carried: unchanged
+                if f == "NFKC" || f == "NFKD" {
+                    return Val::Str(s);
+                }
+                string_val(self.uni.normalize(s.as_str(), f))
             }
             NF_SP_SPLIT => {
                 let s = self.this_str(&this);
@@ -1034,7 +1050,16 @@ impl Vm {
             NF_SP_LOCALECOMPARE => {
                 let s = self.this_str(&this);
                 let t = self.to_str(&a0);
-                Val::Num(jsstr::compare(s.as_str(), t.as_str()) as double)
+                if self.throwing {
+                    return Val::Undef;
+                }
+                // the locales argument: a tag or a list of them (the first
+                // decides the tailoring)
+                let tag = self.first_locale_tag(&a1);
+                if self.throwing {
+                    return Val::Undef;
+                }
+                Val::Num(self.uni.collate(s.as_str(), t.as_str(), tag.as_str(), 3) as double)
             }
             NF_SP_ITERATOR => {
                 let s = self.this_str(&this);

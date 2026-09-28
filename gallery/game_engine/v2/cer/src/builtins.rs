@@ -239,8 +239,8 @@ pub const NF_BIGINT_ASUINTN: int = 389;
 pub const NF_BIGINT_TOSTRING: int = 390;
 pub const NF_BIGINT_VALUEOF: int = 391;
 pub const NF_THROWER: int = 392;
-/// the getters RegExp.prototype.source, global, … unicodeSets (420..428)
-pub const NF_RP_FLAG0: int = 420;
+/// the getters RegExp.prototype.source, global, … unicodeSets (430..438)
+pub const NF_RP_FLAG0: int = 430;
 
 fn math_names() -> Vec<String> {
     let v = vec![
@@ -883,6 +883,9 @@ impl Vm {
         let tp = self.alloc(C_ACCESSOR, -1);
         self.objs[tp as usize].elems = vec![Val::Obj(thr), Val::Obj(thr)];
         self.thrower_pair = tp;
+
+        // the natives under Intl (the prelude takes __cerIntl out)
+        self.setup_intl();
 
         // Proxy: a constructor without a prototype
         let pxc = self.native_fn("Proxy", NF_PROXY, 2);
@@ -2877,6 +2880,9 @@ impl Vm {
         }
         if id >= crate::typed::NF_TA_FIRST && id <= crate::typed::NF_TA_LAST {
             return self.call_typed(id, &args);
+        }
+        if id >= crate::intl::NF_INTL_FIRST && id <= crate::intl::NF_INTL_LAST {
+            return self.call_intl(id, &args);
         }
         if id == NF_AP_POP || id == NF_AP_SHIFT || id == NF_AP_UNSHIFT || id == NF_AP_SPLICE || id == NF_AP_REVERSE || id == NF_AP_SORT || id == NF_AP_FILL || id == NF_AP_COPYWITHIN {
             // the in-place methods on a frozen array
