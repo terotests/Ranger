@@ -229,6 +229,9 @@ pub const NF_EVAL: int = 379;
 pub const NF_GEN_NEXT: int = 380;
 pub const NF_GEN_THROW: int = 381;
 pub const NF_GEN_RETURN: int = 382;
+pub const NF_PROXY: int = 383;
+pub const NF_PROXY_REVOCABLE: int = 384;
+pub const NF_PROXY_REVOKE: int = 385;
 
 fn math_names() -> Vec<String> {
     let v = vec![
@@ -825,6 +828,13 @@ impl Vm {
         self.method(ta, "slice", crate::typed::NF_TA_SLICE, 4);
         self.method(ta, "dvGet", crate::typed::NF_TA_DVGET, 4);
         self.method(ta, "dvSet", crate::typed::NF_TA_DVSET, 5);
+
+        // Proxy: a constructor without a prototype
+        let pxc = self.native_fn("Proxy", NF_PROXY, 2);
+        let a_proxy = self.intern("Proxy");
+        let gl2 = self.global;
+        self.objs[gl2 as usize].add(a_proxy, Val::Obj(pxc), P_HIDDEN);
+        self.method(pxc, "revocable", NF_PROXY_REVOCABLE, 2);
 
         // Promise
         let prc = self.ctor("Promise", NF_PROMISE, 1, pp);
@@ -1506,6 +1516,10 @@ impl Vm {
     }
 
     pub fn to_descriptor(&mut self, o: int, key: &Val, desc: &Val) {
+        if self.objs[o as usize].class == C_PROXY {
+            self.proxy_define(o, key.clone(), desc.clone());
+            return;
+        }
         let d = obj_of(desc);
         if d < 0 {
             self.throw_type("Property description must be an object");
@@ -1630,6 +1644,9 @@ impl Vm {
     }
 
     pub fn from_descriptor(&mut self, o: int, key: &Val) -> Val {
+        if self.objs[o as usize].class == C_PROXY {
+            return self.proxy_own_desc(o, key.clone());
+        }
         let (i, a) = self.to_key(key);
         let class = self.objs[o as usize].class;
         let d = self.new_object();
@@ -2886,6 +2903,37 @@ impl Vm {
                 self.jobs.push(Val::Undef);
                 Val::Undef
             }
+            NF_PROXY => {
+                if !construct {
+                    self.throw_type("Constructor Proxy requires 'new'");
+                    return Val::Undef;
+                }
+                let a1 = arg(&args, 1);
+                self.make_proxy(&a0, &a1)
+            }
+            NF_PROXY_REVOCABLE => {
+                let a1 = arg(&args, 1);
+                let p = self.make_proxy(&a0, &a1);
+                if self.throwing {
+                    return Val::Undef;
+                }
+                let r = self.new_object();
+                self.temp_roots.push(Val::Obj(r));
+                let a_proxy = self.intern("proxy");
+                self.objs[r as usize].add(a_proxy, p.clone(), 0);
+                let rv = self.native_fn("", NF_PROXY_REVOKE, 0);
+                self.objs[rv as usize].env = obj_of(&p);
+                let a_revoke = self.intern("revoke");
+                self.objs[r as usize].add(a_revoke, Val::Obj(rv), 0);
+                self.temp_roots.pop();
+                Val::Obj(r)
+            }
+            NF_PROXY_REVOKE => {
+                let p = self.objs[fobj as usize].env;
+                self.revoke_proxy(p);
+                self.objs[fobj as usize].env = -1;
+                Val::Undef
+            }
             NF_GEN_NEXT | NF_GEN_THROW | NF_GEN_RETURN => {
                 let g = obj_of(&this);
                 if g < 0 || self.objs[g as usize].class != C_GENERATOR {
@@ -3101,7 +3149,7 @@ impl Vm {
                     self.throw_type("Bind must be called on a function");
                     return Val::Undef;
                 }
-                let fp = self.objs[obj_of(&this) as usize].proto;
+                let fp = self.proto_of(obj_of(&this));
                 let b = self.alloc(C_BOUND, fp);
                 self.objs[b as usize].env = obj_of(&this);
                 self.objs[b as usize].prim = a0;
@@ -3214,7 +3262,7 @@ impl Vm {
                 if self.throwing {
                     return Val::Undef;
                 }
-                let p = self.objs[o as usize].proto;
+                let p = self.proto_of(o);
                 if p >= 0 {
                     Val::Obj(p)
                 } else {

@@ -369,6 +369,12 @@ impl Vm {
 
     pub fn is_callable(&self, v: &Val) -> bool {
         let c = self.class_of(v);
+        if c == C_PROXY {
+            // a proxy of a function (callable while revoked too)
+            let o = obj_of(v);
+            let t = self.objs[o as usize].env;
+            return t < 0 || self.is_callable(&Val::Obj(t));
+        }
         c == C_FUNCTION || c == C_NATIVE || c == C_BOUND
     }
 
@@ -381,7 +387,7 @@ impl Vm {
             Val::Str(_) => "string",
             Val::Obj(o) => {
                 let c = self.objs[*o as usize].class;
-                if c == C_FUNCTION || c == C_NATIVE || c == C_BOUND {
+                if c == C_FUNCTION || c == C_NATIVE || c == C_BOUND || (c == C_PROXY && self.is_callable(v)) {
                     "function"
                 } else if c == C_SYMBOL {
                     "symbol"
@@ -714,6 +720,10 @@ impl Vm {
         let mut cur = o;
         let mut hops = 0;
         while cur >= 0 {
+            if self.objs[cur as usize].class == C_PROXY {
+                let k = self.key_val(atom);
+                return self.proxy_get(cur, k, receiver.clone());
+            }
             let slot = self.objs[cur as usize].find(atom);
             if slot >= 0 {
                 let attr = self.objs[cur as usize].attrs[slot as usize];
@@ -882,6 +892,11 @@ impl Vm {
     }
 
     pub fn set_obj(&mut self, o: int, atom: int, v: Val) {
+        if self.objs[o as usize].class == C_PROXY {
+            let k = self.key_val(atom);
+            self.proxy_set(o, k, v, Val::Obj(o));
+            return;
+        }
         let slot = self.objs[o as usize].find(atom);
         if slot >= 0 {
             let attr = self.objs[o as usize].attrs[slot as usize];
@@ -940,7 +955,7 @@ impl Vm {
         self.objs[o as usize].add(atom, v, 0);
     }
 
-    fn strict_now(&self) -> bool {
+    pub fn strict_now(&self) -> bool {
         if self.frames.is_empty() {
             return false;
         }
@@ -1097,6 +1112,9 @@ impl Vm {
     }
 
     pub fn has_property(&mut self, o: int, k: &Val) -> bool {
+        if self.objs[o as usize].class == C_PROXY {
+            return self.proxy_has(o, k.clone());
+        }
         let (i, a) = self.to_key(k);
         if i >= 0 {
             let class = self.objs[o as usize].class;
@@ -1144,6 +1162,10 @@ impl Vm {
     }
 
     pub fn has_own(&mut self, o: int, k: &Val) -> bool {
+        if self.objs[o as usize].class == C_PROXY {
+            let d = self.proxy_own_desc(o, k.clone());
+            return is_obj(&d);
+        }
         let (i, a) = self.to_key(k);
         let class = self.objs[o as usize].class;
         if i >= 0 {
@@ -1180,6 +1202,9 @@ impl Vm {
     }
 
     pub fn delete(&mut self, o: int, k: &Val) -> bool {
+        if self.objs[o as usize].class == C_PROXY {
+            return self.proxy_delete(o, k.clone());
+        }
         let (i, a) = self.to_key(k);
         let class = self.objs[o as usize].class;
         if i >= 0 && (class == C_ARRAY || class == C_ARGUMENTS) {
@@ -1211,6 +1236,9 @@ impl Vm {
     /// Own enumerable string keys in the order JavaScript lists them:
     /// integer keys ascending, then the others as they were added.
     pub fn own_keys(&mut self, o: int, include_hidden: bool, symbols: bool) -> Vec<Val> {
+        if self.objs[o as usize].class == C_PROXY {
+            return self.proxy_keys(o, include_hidden, symbols);
+        }
         let mut out: Vec<Val> = Vec::new();
         let class = self.objs[o as usize].class;
         if class == C_ARRAY || class == C_ARGUMENTS {
@@ -1355,12 +1383,12 @@ impl Vm {
                 return false;
             }
         };
-        let mut cur = self.objs[o as usize].proto;
-        while cur >= 0 {
+        let mut cur = self.proto_of(o);
+        while cur >= 0 && !self.throwing {
             if cur == proto {
                 return true;
             }
-            cur = self.objs[cur as usize].proto;
+            cur = self.proto_of(cur);
         }
         false
     }
@@ -1489,6 +1517,9 @@ impl Vm {
             let id = self.objs[fo as usize].func;
             return self.call_native(id, fo, this, args, false, Val::Undef);
         }
+        if class == C_PROXY {
+            return self.proxy_call(fo, this, args);
+        }
         if class == C_BOUND {
             let target = self.objs[fo as usize].env;
             let bthis = self.objs[fo as usize].prim.clone();
@@ -1538,6 +1569,9 @@ impl Vm {
             let id = self.objs[fo as usize].func;
             let this = Val::Undef;
             return self.call_native(id, fo, this, args, true, new_target);
+        }
+        if class == C_PROXY {
+            return self.proxy_construct(fo, args, new_target);
         }
         if class == C_BOUND {
             let target = self.objs[fo as usize].env;
@@ -2509,6 +2543,22 @@ impl Vm {
                 self.stack.truncate(fpos as usize);
                 self.native_depth += 1;
                 let r = self.call_native(id, fo, this, args, false, Val::Undef);
+                self.native_depth -= 1;
+                self.stack.push(r);
+                return false;
+            }
+            if class == C_PROXY {
+                let bp = fpos + 2;
+                let mut args: Vec<Val> = Vec::new();
+                let mut i = 0;
+                while i < argc {
+                    args.push(self.stack[(bp + i) as usize].clone());
+                    i += 1;
+                }
+                let this = self.stack[(fpos + 1) as usize].clone();
+                self.stack.truncate(fpos as usize);
+                self.native_depth += 1;
+                let r = self.proxy_call(fo, this, args);
                 self.native_depth -= 1;
                 self.stack.push(r);
                 return false;

@@ -27,6 +27,7 @@ pub mod num;
 pub mod ops;
 pub mod parser;
 pub mod prelude;
+pub mod proxy;
 pub mod regex;
 pub mod typed;
 pub mod value;
