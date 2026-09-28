@@ -182,10 +182,75 @@ class UITextRenderer {
         def shaped:string (OfficeText.forMetrics(text))
         this.applyFace()
         if hasFont {
-            return (measurer.measureTextWidth(shaped fontFamily size))
+            def w:double (measurer.measureTextWidth(shaped fontFamily size))
+            if (missingEm > 0.0) {
+                w = (w + (this.missingCorrection(shaped size)))
+            }
+            return w
         }
         def step:double (to_double (this.bmCharStep(size)))
         return ((to_double (strlen shaped)) * step)
+    }
+
+    ; --- characters the face does not have -------------------------------------
+    ;
+    ; A browser draws a character the text face lacks — an emoji, above all —
+    ; from another face, and that face's advance is not the text face's
+    ; `.notdef`. Measured as `.notdef`, every emoji came out half as wide as
+    ; it is drawn, and in an editor the caret after one stood a character to
+    ; the left of where the text ended. A host that knows what its platform
+    ; draws such a character at says so here, in ems; 0 leaves the face's own
+    ; answer.
+    def missingEm:double 0.0
+
+    fn setMissingGlyphEm:void (em:double) {
+        missingEm = em
+        this.clearCache()
+    }
+
+    ; What to add to the face's measure of `text`: for each character it
+    ; lacks, the host's width in place of `.notdef`'s. A variation selector
+    ; or a joiner draws nothing, and what a joiner joins is one picture.
+    fn missingCorrection:double (text:string size:double) {
+        def font:TrueTypeFont (fm.getFont(fontFamily))
+        if (font.unitsPerEm <= 0) {
+            return 0.0
+        }
+        def add:double 0.0
+        def i:int 0
+        def n:int (strlen text)
+        def joined:boolean false
+        while (i < n) {
+            def cp:int (charAt text i)
+            def units:int 1
+            if (((cp >= 55296) && (cp <= 56319)) && ((i + 1) < n)) {
+                def lo:int (charAt text (i + 1))
+                if ((lo >= 56320) && (lo <= 57343)) {
+                    cp = ((((cp - 55296) * 1024) + (lo - 56320)) + 65536)
+                    units = 2
+                }
+            }
+            if (cp >= 8192) {
+                def ignorable:boolean ((cp == 8205) || (((cp >= 65024) && (cp <= 65039)) || ((cp >= 127995) && (cp <= 127999))))
+                if ((font.getGlyphIndex(cp)) == 0) {
+                    def notdef:double (font.getCharWidthPoints(cp size))
+                    if ignorable {
+                        add = (add - notdef)
+                    } {
+                        if joined {
+                            add = (add - notdef)
+                        } {
+                            add = (add + ((missingEm * size) - notdef))
+                        }
+                    }
+                }
+                joined = (cp == 8205)
+            } {
+                joined = false
+            }
+            i = (i + units)
+        }
+        return add
     }
 
     ; Where the baseline sits inside the line box. Callers that must place
