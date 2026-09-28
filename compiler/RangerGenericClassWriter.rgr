@@ -29,6 +29,12 @@ class RangerGenericClassWriter {
   ; whole context chain to answer it.
   def fmtMode:int (0 - 1)
 
+  ; Class name -> the sealable-union interfaces it implements. Built once on
+  ; the first question: every class writer asks it, and scanning every class
+  ; for every class made writing a program with many classes quadratic.
+  def unionIfaces:[string:[string]]
+  def unionIfacesBuilt:boolean false
+
   ; ---------------------------------------------------------------------------
   ; PARENTHESES AROUND A CALL RECEIVER (PLAN_FORMAT.md S4)
   ;
@@ -468,13 +474,30 @@ class RangerGenericClassWriter {
 
   ; The interfaces this class implements: one per sealable union it belongs to.
   fn unionInterfacesOf:[string] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
-    def out:[string]
-    def rootCtx:RangerAppWriterContext (ctx.getRoot())
-    for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
-      if (this.unionIsSealable(ucl ctx)) {
-        if ((indexOf ucl.is_union_of cl.name) >= 0) {
-          push out (this.unionInterfaceName(ucl.name))
+    if (unionIfacesBuilt == false) {
+      unionIfacesBuilt = true
+      def rootCtx:RangerAppWriterContext (ctx.getRoot())
+      for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
+        if (this.unionIsSealable(ucl ctx)) {
+          def iface:string (this.unionInterfaceName(ucl.name))
+          for ucl.is_union_of mname:string mi {
+            def lst:[string]
+            if (has unionIfaces mname) {
+              lst = (unwrap (get unionIfaces mname))
+            }
+            if ((indexOf lst iface) < 0) {
+              push lst iface
+              set unionIfaces mname lst
+            }
+          }
         }
+      }
+    }
+    def out:[string]
+    if (has unionIfaces cl.name) {
+      def lst:[string] (unwrap (get unionIfaces cl.name))
+      for lst name:string i {
+        push out name
       }
     }
     return out

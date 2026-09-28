@@ -25150,6 +25150,8 @@ class RangerGenericClassWriter  {
     this.compiler = undefined;
     this.compFlags = {};     /* note: unused */
     this.fmtMode = 0 - 1;
+    this.unionIfaces = {};
+    this.unionIfacesBuilt = false;
   }
   bindingPowerOf (opName) {
     if ( opName == "||" ) {
@@ -25485,18 +25487,37 @@ class RangerGenericClassWriter  {
     return out;
   };
   unionInterfacesOf (cl, ctx) {
-    let out = [];
-    const rootCtx = ctx.getRoot();
-    for( var uci in rootCtx.definedClasses) {
-      if(rootCtx.definedClasses.hasOwnProperty(uci)) {
-        var ucl = rootCtx.definedClasses[uci] 
-        if ( this.unionIsSealable(ucl, ctx) ) {
-          if ( ucl.is_union_of.indexOf(cl.name) >= 0 ) {
-            out.push(this.unionInterfaceName(ucl.name));
+    if ( this.unionIfacesBuilt == false ) {
+      this.unionIfacesBuilt = true;
+      const rootCtx = ctx.getRoot();
+      for( var uci in rootCtx.definedClasses) {
+        if(rootCtx.definedClasses.hasOwnProperty(uci)) {
+          var ucl = rootCtx.definedClasses[uci] 
+          if ( this.unionIsSealable(ucl, ctx) ) {
+            const iface = this.unionInterfaceName(ucl.name);
+            // Loop start
+            for ( const mname of ucl.is_union_of) {
+              let lst = [];
+              if ( ( typeof(this.unionIfaces[mname] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.unionIfaces, mname) ) ) {
+                lst = ( Object.prototype.hasOwnProperty.call(this.unionIfaces, mname) ? this.unionIfaces[mname] : undefined );
+              }
+              if ( lst.indexOf(iface) < 0 ) {
+                lst.push(iface);
+                this.unionIfaces[mname] = lst;
+              }
+            }
           }
         }
+      };
+    }
+    let out = [];
+    if ( ( typeof(this.unionIfaces[cl.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.unionIfaces, cl.name) ) ) {
+      const lst_1 = ( Object.prototype.hasOwnProperty.call(this.unionIfaces, cl.name) ? this.unionIfaces[cl.name] : undefined );
+      // Loop start
+      for ( const name of lst_1) {
+        out.push(name);
       }
-    };
+    }
     return out;
   };
   classInSealableUnion (cl, ctx) {
