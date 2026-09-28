@@ -463,8 +463,15 @@ impl Parser {
                 return self.node(N_EMPTY);
             }
             if ws == "with" {
-                self.fail("'with' is not supported");
-                return self.node(N_EMPTY);
+                let n = self.node(N_WITH);
+                self.next();
+                self.expect("(");
+                let e = self.expression();
+                self.expect(")");
+                let body = self.statement();
+                self.ast.nodes[n as usize].a = e;
+                self.ast.nodes[n as usize].b = body;
+                return n;
             }
             if ws == "import" && !self.peek_is(1, "(") && !self.peek_is(1, ".") {
                 self.fail("modules are not supported");

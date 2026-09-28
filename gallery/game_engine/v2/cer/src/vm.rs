@@ -2911,6 +2911,15 @@ impl Vm {
                     self.stack.push(a0);
                 }
             }
+            OP_TO_OBJECT => {
+                let v = self.pop();
+                if matches!(v, Val::Undef) || matches!(v, Val::Null) {
+                    self.throw_type("Cannot convert undefined or null to object");
+                    return false;
+                }
+                let o = self.to_object(&v);
+                self.stack.push(Val::Obj(o));
+            }
             OP_GET_PRIVATE => {
                 let v = self.pop();
                 let has = match &v {

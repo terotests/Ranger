@@ -233,3 +233,5 @@ pub const OP_GEN_START: int = 135;
 pub const OP_YIELD: int = 136;
 /// `await v`: a yield the async driver resolves
 pub const OP_AWAIT: int = 137;
+/// [v] → [ToObject(v)]: a TypeError for null / undefined (`with`)
+pub const OP_TO_OBJECT: int = 138;

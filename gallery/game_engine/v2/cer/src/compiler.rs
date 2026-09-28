@@ -78,6 +78,9 @@ struct FnState {
     /// labels waiting for the loop that follows them
     pending_labels: Vec<String>,
     is_program: bool,
+    /// the slots holding the objects of the `with` statements around the
+    /// code being written, innermost last
+    with_slots: Vec<int>,
 }
 
 pub struct Compiler {
@@ -262,6 +265,10 @@ impl Compiler {
         }
         if k == N_DOWHILE || k == N_LABELED {
             self.hoist_vars(a, scope);
+            return;
+        }
+        if k == N_WITH {
+            self.hoist_vars(b, scope);
             return;
         }
         if k == N_TRY {
@@ -735,7 +742,55 @@ impl Compiler {
         d
     }
 
+    /// Inside `with` statements: for each object, innermost first, `name`
+    /// comes from it when it has the property. Emits the tests and answers
+    /// the jumps to patch past the plain code that follows.
+    fn with_lookup(&mut self, name: &str, mode: int) -> Vec<int> {
+        let mut ends: Vec<int> = Vec::new();
+        let slots = self.f().with_slots.clone();
+        let atom = self.atom(name);
+        let mut i = slots.len();
+        while i > 0 {
+            i -= 1;
+            let slot = slots[i];
+            self.push_str(name);
+            self.emit(OP_GET_LOCAL, slot, 0);
+            self.op(OP_IN);
+            let jf = self.emit(OP_JF, 0, 0);
+            if mode == 0 {
+                // read
+                self.emit(OP_GET_LOCAL, slot, 0);
+                self.emit(OP_GET_PROP, atom, 0);
+            } else if mode == 1 {
+                // write the value on the stack, keeping it
+                self.emit(OP_GET_LOCAL, slot, 0);
+                self.op(OP_SWAP);
+                self.emit(OP_SET_PROP, atom, 0);
+            } else {
+                // delete
+                self.emit(OP_GET_LOCAL, slot, 0);
+                self.emit(OP_DEL_PROP, atom, 0);
+            }
+            ends.push(self.emit(OP_JUMP, 0, 0));
+            self.patch(jf);
+        }
+        ends
+    }
+
     fn load_name(&mut self, n: int) {
+        if !self.f().with_slots.is_empty() {
+            let name = self.ast.nodes[n as usize].s.clone();
+            let ends = self.with_lookup(name.as_str(), 0);
+            self.load_name_plain(n);
+            for e in ends {
+                self.patch(e);
+            }
+            return;
+        }
+        self.load_name_plain(n);
+    }
+
+    fn load_name_plain(&mut self, n: int) {
         let name = self.ast.nodes[n as usize].s.clone();
         let b = match self.ref_bind.get(&n) {
             Some(x) => *x,
@@ -791,6 +846,27 @@ impl Compiler {
     }
 
     fn store_name(&mut self, n: int, init: bool) {
+        if !self.f().with_slots.is_empty() {
+            // a let / const / class declared inside is not looked up
+            let b = match self.ref_bind.get(&n) {
+                Some(x) => *x,
+                None => -1,
+            };
+            let lexical = b >= 0 && (self.binds[b as usize].kind == K_LET || self.binds[b as usize].kind == K_CONST || self.binds[b as usize].kind == K_CLASS) && init;
+            if !lexical {
+                let name = self.ast.nodes[n as usize].s.clone();
+                let ends = self.with_lookup(name.as_str(), 1);
+                self.store_name_plain(n, init);
+                for e in ends {
+                    self.patch(e);
+                }
+                return;
+            }
+        }
+        self.store_name_plain(n, init);
+    }
+
+    fn store_name_plain(&mut self, n: int, init: bool) {
         let name = self.ast.nodes[n as usize].s.clone();
         let b = match self.ref_bind.get(&n) {
             Some(x) => *x,
@@ -845,6 +921,7 @@ impl Compiler {
             chain: Vec::new(),
             pending_labels: Vec::new(),
             is_program: true,
+            with_slots: Vec::new(),
         });
         self.cur_scope = s;
         // top-level vars exist before the code runs
@@ -964,6 +1041,7 @@ impl Compiler {
             chain: Vec::new(),
             pending_labels: Vec::new(),
             is_program: true,
+            with_slots: Vec::new(),
         });
         self.cur_scope = es;
         self.enter_scope(es, true);
@@ -1067,6 +1145,7 @@ impl Compiler {
             chain: Vec::new(),
             pending_labels: Vec::new(),
             is_program: false,
+            with_slots: Vec::new(),
         });
         self.cur_scope = scope;
         // parameters arrive in slots 0..; a simple one is its own binding
@@ -1226,6 +1305,21 @@ impl Compiler {
             } else {
                 self.patch(jf);
             }
+            return;
+        }
+        if k == N_WITH {
+            // the object goes in a slot of its own; names inside look in it
+            // first (with_lookup)
+            let (wa, wb) = (self.ast.nodes[n as usize].a, self.ast.nodes[n as usize].b);
+            self.expr(wa);
+            self.op(OP_TO_OBJECT);
+            let slot = self.f().next_slot;
+            self.f().next_slot = slot + 1;
+            self.emit(OP_SET_LOCAL, slot, 0);
+            self.op(OP_POP);
+            self.f().with_slots.push(slot);
+            self.statement(wb);
+            self.f().with_slots.pop();
             return;
         }
         if k == N_WHILE {
@@ -2224,6 +2318,26 @@ impl Compiler {
         let op = self.ast.nodes[n as usize].op.clone();
         let a = self.ast.nodes[n as usize].a;
         let o = op.as_str();
+        if o == "typeof" && self.ast.nodes[a as usize].kind == N_IDENT && !self.f().with_slots.is_empty() {
+            let name = self.ast.nodes[a as usize].s.clone();
+            let ends = self.with_lookup(name.as_str(), 0);
+            let skip = self.emit(OP_JUMP, 0, 0);
+            for e in ends {
+                self.patch(e);
+            }
+            self.op(OP_TYPEOF);
+            let done = self.emit(OP_JUMP, 0, 0);
+            self.patch(skip);
+            if !self.ref_bind.contains_key(&a) {
+                let at = self.atom(name.as_str());
+                self.emit(OP_TYPEOF_GLOBAL, at, 0);
+            } else {
+                self.load_name_plain(a);
+                self.op(OP_TYPEOF);
+            }
+            self.patch(done);
+            return;
+        }
         if o == "typeof" {
             if self.ast.nodes[a as usize].kind == N_IDENT && !self.ref_bind.contains_key(&a) {
                 let s = self.ast.nodes[a as usize].s.clone();
@@ -2251,6 +2365,22 @@ impl Compiler {
                 self.expr(obj);
                 self.expr(key);
                 self.op(OP_DEL_ELEM);
+                return;
+            }
+            if k == N_IDENT && !self.f().with_slots.is_empty() {
+                let name = self.ast.nodes[a as usize].s.clone();
+                let ends = self.with_lookup(name.as_str(), 2);
+                if self.ref_bind.contains_key(&a) {
+                    self.op(OP_FALSE);
+                } else {
+                    let g = self.atom_const("globalThis");
+                    self.emit(OP_GET_GLOBAL, g, 0);
+                    let at = self.atom(name.as_str());
+                    self.emit(OP_DEL_PROP, at, 0);
+                }
+                for e in ends {
+                    self.patch(e);
+                }
                 return;
             }
             if k == N_IDENT {
