@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`npm run build:dist:module` failed with 140 TypeScript errors.** The
+  TypeScript writer typed `buffer` as `Uint8Array`, but the es6 buffer
+  templates make an `ArrayBuffer` with a `DataView` in `_view`. `buffer` is
+  now `(ArrayBuffer & { _view: DataView })` on TypeScript, and the
+  templates attach `_view` with `Object.assign`, which gives that type.
+  The generated JavaScript behaves as before.
 - **A document's `theme` now turns on its `.theme-<name> .class` rules.**
   `EVGLayout` applied a document's stylesheet with an empty theme, so every
   theme-scoped rule was dead in the live page, `measure` and every other

@@ -202,7 +202,8 @@ class TTypeRegistry {
           return "Uint8Array"
         }
         case "buffer" {
-          return "Uint8Array"
+          ; es6 buffers are an ArrayBuffer carrying a DataView in _view
+          return "(ArrayBuffer & { _view: DataView })"
         }
         case "int_buffer" {
           return "BigInt64Array"
