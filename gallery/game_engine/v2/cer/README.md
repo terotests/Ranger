@@ -105,19 +105,22 @@ development container, ComponentEngine with a 600 s limit per suite:
 
 | suite | Node | ComponentEngine (es6) | CEr rustc | CEr → JS | CEr → C++ | CEr → Go |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Richards | 656 | 40.9 | 295 | 92.8 | 38.7 | 45.8 |
-| DeltaBlue | 1963 | 40.3 | 330 | 125 | 64.6 | 59.6 |
-| Crypto | 8043 | 10.1 | 256 | 68.3 | 34.0 | 27.1 |
-| RayTrace | 4933 | 22.4 | 569 | 182 | 124 | 141 |
-| EarleyBoyer | 2244 | 19.4 | 814 | 249 | 122 | 197 |
-| RegExp | 4812 | 22.9 | 156 | 41.9 | 18.1 | 18.0 |
-| Splay | 4502 | 34.2 | 1477 | 298 | 351 | 257 |
-| NavierStokes | 36289 | 17.8 | 555 | 105 | 70.3 | 58.6 |
-| geometric mean | 4163 | 23.7 | 443 | 121 | 70.0 | 69.7 |
+| Richards | 723 | 40.9 | 428 | 144 | 56.1 | 60.5 |
+| DeltaBlue | 2061 | 40.3 | 421 | 126 | 76.3 | 77.4 |
+| Crypto | 9135 | 10.1 | 300 | 82.6 | 41.2 | 31.5 |
+| RayTrace | 5999 | 22.4 | 684 | 227 | 150 | 168 |
+| EarleyBoyer | 2361 | 19.4 | 913 | 250 | 129 | 217 |
+| RegExp | 6272 | 22.9 | 150 | 45.0 | 18.9 | 18.8 |
+| Splay | 5278 | 34.2 | 1474 | 321 | 319 | 268 |
+| NavierStokes | 39353 | 17.8 | 654 | 123 | 82.0 | 65.0 |
+| geometric mean | 4731 | 23.7 | 514 | 140 | 80.1 | 80.5 |
 
-CEr built by rustc is about 19 times ComponentEngine's es6 build and a tenth
-of Node. The same source compiled to JavaScript by rgrc is five times
-ComponentEngine; compiled to C++ and Go it is about three times. The C++ and
+ComponentEngine was measured in an earlier run of the same harness; it takes
+about 25 minutes and its build did not change.
+
+CEr built by rustc is about 22 times ComponentEngine's es6 build and a ninth
+of Node. The same source compiled to JavaScript by rgrc is six times
+ComponentEngine; compiled to C++ and Go it is about three and a half times. The C++ and
 Go builds are slower than the JavaScript one: their `Rc` values are
 reference-counted `shared_ptr`s and boxed interfaces, where V8 optimises
 the JavaScript objects.
@@ -130,20 +133,30 @@ from `PATH` or the binary `QJS` names. One run on the development container:
 
 | suite | Node | QuickJS | CEr rustc | QuickJS / CEr |
 | --- | ---: | ---: | ---: | ---: |
-| Richards | 991 | 813 | 328 | 2.5 |
-| DeltaBlue | 1800 | 748 | 368 | 2.0 |
-| Crypto | 8267 | 1002 | 243 | 4.1 |
-| RayTrace | 5823 | 1507 | 696 | 2.2 |
-| EarleyBoyer | 2424 | 1905 | 846 | 2.3 |
-| RegExp | 7135 | 391 | 155 | 2.5 |
-| Splay | 4619 | 2757 | 1247 | 2.2 |
-| NavierStokes | 35943 | 2160 | 577 | 3.7 |
-| geometric mean | 4721 | 1192 | 458 | 2.6 |
+| Richards | 723 | 864 | 428 | 2.0 |
+| DeltaBlue | 2061 | 739 | 421 | 1.8 |
+| Crypto | 9135 | 1073 | 300 | 3.6 |
+| RayTrace | 5999 | 1481 | 684 | 2.2 |
+| EarleyBoyer | 2361 | 1949 | 913 | 2.1 |
+| RegExp | 6272 | 375 | 150 | 2.5 |
+| Splay | 5278 | 2875 | 1474 | 2.0 |
+| NavierStokes | 39353 | 2115 | 654 | 3.2 |
+| geometric mean | 4731 | 1207 | 514 | 2.3 |
 
-The widest gaps are the integer and array suites (Crypto, NavierStokes):
-QuickJS keeps small integers untagged as `int32` and arrays of them in a
-flat fast array, where every CEr number is a double and every value a
-16-byte enum.
+The widest gaps are the integer and array suites (Crypto, NavierStokes).
+Profiled with callgrind, CEr spends its time in the interpreter loop
+itself -- the value stack's pushes and pops, bounds checks, dropping the
+value a slot held -- and in the dispatch: about half of the jumps to an
+op's code are mispredicted, where QuickJS threads its dispatch with
+computed gotos. The arithmetic is under a tenth of Crypto.
+
+Counting the ops each suite runs led to fused ops for the common pairs
+(`this.x`, an assignment statement's store and pop, `i++` inside an
+expression) and a fast path for `==` / `===` of objects, `null` and
+`undefined`; together about 12% (the geometric mean went from 458 to 514
+on the native build, and the Ranger builds gained as much). A tagged
+32-bit integer value was tried as well and measured no faster: the
+conversions it saves are a small part of the time.
 
 ## The Ranger targets
 
