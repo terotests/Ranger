@@ -1,0 +1,34 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+;
+; CEr on a Ranger target: runs one script file and prints what it prints.
+;
+;   cer_main <dir> <file.js>
+;
+; bench/speed.mjs builds this for C++ and Go (and bench/octane.mjs runs the
+; Octane suites through it), as zoo_octane/octane_main.rgr runs
+; ComponentEngine.
+
+Import "../src/lib.rs"
+
+class CerMain {
+    sfn m@(main):void () {
+        if ((shell_arg_cnt) < 2) {
+            print "usage: cer_main <dir> <file.js>"
+            return
+        }
+        def dirPath:string (shell_arg 0)
+        def fileName:string (shell_arg 1)
+        def content@(optional):string (read_file dirPath fileName)
+        if (null? content) {
+            print ("error: could not read " + (dirPath + ("/" + fileName)))
+            return
+        }
+        def src:string (unwrap content)
+        def e:Engine (Engine.new_())
+        e.set_echo(true)
+        def r:string (e.eval(src))
+        if ((strlen e.error) > 0) {
+            print r
+        }
+    }
+}

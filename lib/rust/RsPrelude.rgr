@@ -1145,6 +1145,285 @@ function rs_trunc($x) {
       * ( "Math.floor(" (e 1) ")" )
     }
   }
+  ; the rest of f64's functions
+  rs_asin _:double (a:double) {
+    templates {
+      ranger ( "(rs_asin " (e 1) ")" )
+      es6 ( "Math.asin(" (e 1) ")" )
+      rust ( "(" (e 1) ").asin()" )
+      python ( "math.asin(" (e 1) ")" (imp "math") )
+      go ( "math.Asin(" (e 1) ")" (imp "math") )
+      cpp ( "std::asin(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Asin(" (e 1) ")" )
+      dart ( "asin(" (e 1) ")" (imp "dart:math") )
+      scala ( "math.asin(" (e 1) ")" )
+      php ( "asin(" (e 1) ")" )
+      swift6 ( "asin(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.asin(" (e 1) ")" )
+    }
+  }
+  rs_acos _:double (a:double) {
+    templates {
+      ranger ( "(rs_acos " (e 1) ")" )
+      es6 ( "Math.acos(" (e 1) ")" )
+      rust ( "(" (e 1) ").acos()" )
+      python ( "math.acos(" (e 1) ")" (imp "math") )
+      go ( "math.Acos(" (e 1) ")" (imp "math") )
+      cpp ( "std::acos(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Acos(" (e 1) ")" )
+      dart ( "acos(" (e 1) ")" (imp "dart:math") )
+      scala ( "math.acos(" (e 1) ")" )
+      php ( "acos(" (e 1) ")" )
+      swift6 ( "acos(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.acos(" (e 1) ")" )
+    }
+  }
+  rs_atan _:double (a:double) {
+    templates {
+      ranger ( "(rs_atan " (e 1) ")" )
+      es6 ( "Math.atan(" (e 1) ")" )
+      rust ( "(" (e 1) ").atan()" )
+      python ( "math.atan(" (e 1) ")" (imp "math") )
+      go ( "math.Atan(" (e 1) ")" (imp "math") )
+      cpp ( "std::atan(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Atan(" (e 1) ")" )
+      dart ( "atan(" (e 1) ")" (imp "dart:math") )
+      scala ( "math.atan(" (e 1) ")" )
+      php ( "atan(" (e 1) ")" )
+      swift6 ( "atan(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.atan(" (e 1) ")" )
+    }
+  }
+  rs_sinh _:double (a:double) {
+    templates {
+      ranger ( "(rs_sinh " (e 1) ")" )
+      es6 ( "Math.sinh(" (e 1) ")" )
+      rust ( "(" (e 1) ").sinh()" )
+      python ( "math.sinh(" (e 1) ")" (imp "math") )
+      go ( "math.Sinh(" (e 1) ")" (imp "math") )
+      cpp ( "std::sinh(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Sinh(" (e 1) ")" )
+      dart ( "rs_sinh(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_sinh(double x) { return (exp(x) - exp(-x)) / 2; }
+"))
+      scala ( "math.sinh(" (e 1) ")" )
+      php ( "sinh(" (e 1) ")" )
+      swift6 ( "sinh(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.sinh(" (e 1) ")" )
+    }
+  }
+  rs_cosh _:double (a:double) {
+    templates {
+      ranger ( "(rs_cosh " (e 1) ")" )
+      es6 ( "Math.cosh(" (e 1) ")" )
+      rust ( "(" (e 1) ").cosh()" )
+      python ( "math.cosh(" (e 1) ")" (imp "math") )
+      go ( "math.Cosh(" (e 1) ")" (imp "math") )
+      cpp ( "std::cosh(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Cosh(" (e 1) ")" )
+      dart ( "rs_cosh(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_cosh(double x) { return (exp(x) + exp(-x)) / 2; }
+"))
+      scala ( "math.cosh(" (e 1) ")" )
+      php ( "cosh(" (e 1) ")" )
+      swift6 ( "cosh(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.cosh(" (e 1) ")" )
+    }
+  }
+  rs_tanh _:double (a:double) {
+    templates {
+      ranger ( "(rs_tanh " (e 1) ")" )
+      es6 ( "Math.tanh(" (e 1) ")" )
+      rust ( "(" (e 1) ").tanh()" )
+      python ( "math.tanh(" (e 1) ")" (imp "math") )
+      go ( "math.Tanh(" (e 1) ")" (imp "math") )
+      cpp ( "std::tanh(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Tanh(" (e 1) ")" )
+      dart ( "rs_tanh(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_tanh(double x) { return x > 20 ? 1.0 : (x < -20 ? -1.0 : (exp(2 * x) - 1) / (exp(2 * x) + 1)); }
+"))
+      scala ( "math.tanh(" (e 1) ")" )
+      php ( "tanh(" (e 1) ")" )
+      swift6 ( "tanh(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.tanh(" (e 1) ")" )
+    }
+  }
+  rs_asinh _:double (a:double) {
+    templates {
+      ranger ( "(rs_asinh " (e 1) ")" )
+      es6 ( "Math.asinh(" (e 1) ")" )
+      rust ( "(" (e 1) ").asinh()" )
+      python ( "math.asinh(" (e 1) ")" (imp "math") )
+      go ( "math.Asinh(" (e 1) ")" (imp "math") )
+      cpp ( "std::asinh(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Asinh(" (e 1) ")" )
+      dart ( "rs_asinh(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_asinh(double x) { return log(x + sqrt(x * x + 1)); }
+"))
+      scala ( "((x: Double) => math.log(x + math.sqrt(x * x + 1)))(" (e 1) ")" )
+      php ( "asinh(" (e 1) ")" )
+      swift6 ( "asinh(" (e 1) ")" (imp "Foundation") )
+      kotlin ( "((fun(x: Double): Double = Math.log(x + Math.sqrt(x * x + 1))))(" (e 1) ")" )
+      java7 ( "rs_asinh(" (e 1) ")"
+(create_polyfill "
+static double rs_asinh(double x) { return Math.log(x + Math.sqrt(x * x + 1)); }
+"))
+      * ( "rs_asinh(" (e 1) ")" )
+    }
+  }
+  rs_acosh _:double (a:double) {
+    templates {
+      ranger ( "(rs_acosh " (e 1) ")" )
+      es6 ( "Math.acosh(" (e 1) ")" )
+      rust ( "(" (e 1) ").acosh()" )
+      python ( "math.acosh(" (e 1) ")" (imp "math") )
+      go ( "math.Acosh(" (e 1) ")" (imp "math") )
+      cpp ( "std::acosh(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Acosh(" (e 1) ")" )
+      dart ( "rs_acosh(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_acosh(double x) { return log(x + sqrt(x * x - 1)); }
+"))
+      scala ( "((x: Double) => math.log(x + math.sqrt(x * x - 1)))(" (e 1) ")" )
+      php ( "acosh(" (e 1) ")" )
+      swift6 ( "acosh(" (e 1) ")" (imp "Foundation") )
+      kotlin ( "((fun(x: Double): Double = Math.log(x + Math.sqrt(x * x - 1))))(" (e 1) ")" )
+      java7 ( "rs_acosh(" (e 1) ")"
+(create_polyfill "
+static double rs_acosh(double x) { return Math.log(x + Math.sqrt(x * x - 1)); }
+"))
+      * ( "rs_acosh(" (e 1) ")" )
+    }
+  }
+  rs_atanh _:double (a:double) {
+    templates {
+      ranger ( "(rs_atanh " (e 1) ")" )
+      es6 ( "Math.atanh(" (e 1) ")" )
+      rust ( "(" (e 1) ").atanh()" )
+      python ( "math.atanh(" (e 1) ")" (imp "math") )
+      go ( "math.Atanh(" (e 1) ")" (imp "math") )
+      cpp ( "std::atanh(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Atanh(" (e 1) ")" )
+      dart ( "rs_atanh(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_atanh(double x) { return 0.5 * log((1 + x) / (1 - x)); }
+"))
+      scala ( "((x: Double) => 0.5 * math.log((1 + x) / (1 - x)))(" (e 1) ")" )
+      php ( "atanh(" (e 1) ")" )
+      swift6 ( "atanh(" (e 1) ")" (imp "Foundation") )
+      kotlin ( "((fun(x: Double): Double = 0.5 * Math.log((1 + x) / (1 - x))))(" (e 1) ")" )
+      java7 ( "rs_atanh(" (e 1) ")"
+(create_polyfill "
+static double rs_atanh(double x) { return 0.5 * Math.log((1 + x) / (1 - x)); }
+"))
+      * ( "rs_atanh(" (e 1) ")" )
+    }
+  }
+  rs_cbrt _:double (a:double) {
+    templates {
+      ranger ( "(rs_cbrt " (e 1) ")" )
+      es6 ( "Math.cbrt(" (e 1) ")" )
+      rust ( "(" (e 1) ").cbrt()" )
+      python ( "rs_cbrt(" (e 1) ")" (imp "math")
+(create_polyfill "
+def rs_cbrt(x):
+    return math.copysign(abs(x) ** (1.0 / 3.0), x)
+"))
+      go ( "math.Cbrt(" (e 1) ")" (imp "math") )
+      cpp ( "std::cbrt(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Cbrt(" (e 1) ")" )
+      dart ( "rs_cbrt(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_cbrt(double x) { return x < 0 ? -pow(-x, 1 / 3) : pow(x, 1 / 3); }
+"))
+      scala ( "math.cbrt(" (e 1) ")" )
+      php ( "(function($x) { return ($x < 0 ? -pow(-$x, 1 / 3) : pow($x, 1 / 3)); })(" (e 1) ")" )
+      swift6 ( "cbrt(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.cbrt(" (e 1) ")" )
+    }
+  }
+  rs_exp_m1 _:double (a:double) {
+    templates {
+      ranger ( "(rs_exp_m1 " (e 1) ")" )
+      es6 ( "Math.expm1(" (e 1) ")" )
+      rust ( "(" (e 1) ").exp_m1()" )
+      python ( "math.expm1(" (e 1) ")" (imp "math") )
+      go ( "math.Expm1(" (e 1) ")" (imp "math") )
+      cpp ( "std::expm1(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "((System.Func<double, double>)(x => (System.Math.Exp(x) - 1.0)))(" (e 1) ")" )
+      dart ( "rs_exp_m1(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_exp_m1(double x) { return exp(x) - 1; }
+"))
+      scala ( "math.expm1(" (e 1) ")" )
+      php ( "expm1(" (e 1) ")" )
+      swift6 ( "expm1(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.expm1(" (e 1) ")" )
+    }
+  }
+  rs_ln_1p _:double (a:double) {
+    templates {
+      ranger ( "(rs_ln_1p " (e 1) ")" )
+      es6 ( "Math.log1p(" (e 1) ")" )
+      rust ( "(" (e 1) ").ln_1p()" )
+      python ( "math.log1p(" (e 1) ")" (imp "math") )
+      go ( "math.Log1p(" (e 1) ")" (imp "math") )
+      cpp ( "std::log1p(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "((System.Func<double, double>)(x => System.Math.Log(1.0 + x)))(" (e 1) ")" )
+      dart ( "rs_ln_1p(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_ln_1p(double x) { return log(1 + x); }
+"))
+      scala ( "math.log1p(" (e 1) ")" )
+      php ( "log1p(" (e 1) ")" )
+      swift6 ( "log1p(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.log1p(" (e 1) ")" )
+    }
+  }
+  rs_log2 _:double (a:double) {
+    templates {
+      ranger ( "(rs_log2 " (e 1) ")" )
+      es6 ( "Math.log2(" (e 1) ")" )
+      rust ( "(" (e 1) ").log2()" )
+      python ( "math.log2(" (e 1) ")" (imp "math") )
+      go ( "math.Log2(" (e 1) ")" (imp "math") )
+      cpp ( "std::log2(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Log2(" (e 1) ")" )
+      dart ( "rs_log2(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_log2(double x) { return log(x) / ln2; }
+"))
+      scala ( "((x: Double) => math.log(x) / math.log(2.0))(" (e 1) ")" )
+      php ( "(function($x) { return log($x, 2); })(" (e 1) ")" )
+      swift6 ( "log2(" (e 1) ")" (imp "Foundation") )
+      kotlin ( "((fun(x: Double): Double = Math.log(x) / Math.log(2.0)))(" (e 1) ")" )
+      java7 ( "rs_log2(" (e 1) ")"
+(create_polyfill "
+static double rs_log2(double x) { return Math.log(x) / Math.log(2.0); }
+"))
+      * ( "rs_log2(" (e 1) ")" )
+    }
+  }
+  rs_atan2 _:double (y:double x:double) {
+    templates {
+      ranger ( "(rs_atan2 " (e 1) " " (e 2) ")" )
+      es6 ( "Math.atan2(" (e 1) ", " (e 2) ")" )
+      rust ( "(" (e 1) ").atan2(" (e 2) ")" )
+      python ( "math.atan2(" (e 1) ", " (e 2) ")" (imp "math") )
+      go ( "math.Atan2(" (e 1) ", " (e 2) ")" (imp "math") )
+      cpp ( "std::atan2(" (e 1) ", " (e 2) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Atan2(" (e 1) ", " (e 2) ")" )
+      dart ( "atan2(" (e 1) ", " (e 2) ")" (imp "dart:math") )
+      scala ( "math.atan2(" (e 1) ", " (e 2) ")" )
+      php ( "atan2(" (e 1) ", " (e 2) ")" )
+      swift6 ( "atan2(" (e 1) ", " (e 2) ")" (imp "Foundation") )
+      * ( "Math.atan2(" (e 1) ", " (e 2) ")" )
+    }
+  }
   rs_ln _:double (a:double) {
     templates {
       ranger ( "(rs_ln " (e 1) ")" )

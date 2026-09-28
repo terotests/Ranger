@@ -9741,7 +9741,8 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
             templates {
                  ranger ( nl "set_at " (e 1) " " (e 2) " " (e 3) nl)
                  es6 ( (e 1) "[" (e 2) "] = " (e 3) ";" )
-                 go ( (e 1) "[" (e 2) "] = " (e 3) )
+                 ; a union element is wrapped (mk_<union>_<case>): CustomOperator
+                 go ( (custom _) )
                  cpp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                  swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
                  swift6 ( (e 1) "[" (e 2) "] = " (e 3) )

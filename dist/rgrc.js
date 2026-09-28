@@ -25571,12 +25571,37 @@ class RangerGenericClassWriter  {
           encoded_str_2 = (encoded_str_2 + String.fromCharCode(92)) + String.fromCharCode(92);
           break;
         default: 
-          encoded_str_2 = encoded_str_2 + node.string_value.substring(ii, ii + 1 );
+          if ( cc < 32 || cc == 127 ) {
+            encoded_str_2 = encoded_str_2 + this.controlEscape(cc, ctx);
+          } else {
+            encoded_str_2 = encoded_str_2 + node.string_value.substring(ii, ii + 1 );
+          }
           break;
       };
       ii = ii + 1;
     };
     return encoded_str_2;
+  };
+  controlEscape (cc, ctx) {
+    const hex = "0123456789abcdef";
+    const lang = operatorsOf_15.getTargetLang_16(ctx);
+    const bs = String.fromCharCode(92);
+    const hi = ((cc / 16) | 0);
+    const lo = cc % 16;
+    const h2 = hex.substring(hi, hi + 1 ) + hex.substring(lo, lo + 1 );
+    if ( lang == "cpp" ) {
+      const o1 = ((cc / 64) | 0);
+      const o2 = ((cc / 8) | 0) % 8;
+      const o3 = cc % 8;
+      return ((bs + (o1.toString())) + (o2.toString())) + (o3.toString());
+    }
+    if ( ((((lang == "go" || lang == "es6") || lang == "es5") || lang == "ts") || lang == "rust") || lang == "python" ) {
+      return (bs + "x") + h2;
+    }
+    if ( lang == "swift3" || lang == "swift6" ) {
+      return ((bs + "u{") + h2) + "}";
+    }
+    return (bs + "u00") + h2;
   };
   CustomOperator (node, ctx, wr) {
   };
@@ -31117,7 +31142,13 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         break;
       case 4 : 
         const s = this.escapeCppTrigraphs(this.EncodeString(node, ctx, wr));
-        wr.out(("std::string(" + (("\"" + s) + "\"")) + ")", false);
+        if ( node.string_value.indexOf(String.fromCharCode(0)) >= 0 ) {
+          const nbuf = r_cb_enc.encode(node.string_value);
+          const nbytes = nbuf.length;
+          wr.out(((("std::string(" + (("\"" + s) + "\"")) + ", ") + (nbytes.toString())) + ")", false);
+        } else {
+          wr.out(("std::string(" + (("\"" + s) + "\"")) + ")", false);
+        }
         break;
       case 3 : 
         wr.out("" + node.int_value, false);
@@ -51956,6 +51987,40 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
   CustomOperator (node, ctx, wr) {
     const fc = node.getFirst();
     const cmd = fc.vref;
+    if ( cmd == "set_at" ) {
+      const arr = node.getSecond();
+      const idx = node.getThird();
+      const val = node.children[3];
+      let elemType = "";
+      if ( arr.hasParamDesc ) {
+        const arrDesc = arr.paramDesc;
+        const arrNN = arrDesc.nameNode;
+        if ( (typeof(arrNN) !== "undefined" && arrNN != null )  ) {
+          const arrNode = arrNN;
+          elemType = arrNode.array_type;
+        }
+      }
+      if ( elemType.length == 0 ) {
+        elemType = arr.eval_array_type;
+      }
+      ctx.setInExpr();
+      this.WalkNode(arr, ctx, wr);
+      wr.out("[", false);
+      this.WalkNode(idx, ctx, wr);
+      wr.out("] = ", false);
+      let wrote = false;
+      if ( elemType.length > 0 ) {
+        wrote = this.goWriteUnionValue(elemType, val, ctx, wr);
+      }
+      if ( wrote == false ) {
+        this.WalkNode(val, ctx, wr);
+      }
+      ctx.unsetInExpr();
+      if ( ctx.expressionLevel() == 0 ) {
+        wr.newline();
+      }
+      return;
+    }
     if ( cmd == "for" ) {
       this.goWriteForLoop(node, ctx, wr);
       return;
@@ -56687,6 +56752,9 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
     super()
     this.compiler = undefined;     /* note: unused */
   }
+  formatterEnabled (ctx) {
+    return false;
+  };
   adjustType (tn) {
     if ( tn == "this" ) {
       return "this";
@@ -85224,8 +85292,36 @@ class RustParser  {
     if ( RustParser.isExprMacro(last) ) {
       this.tryParseMacroArgs(m, open + 1, close - 1);
     }
+    if ( last == "matches" ) {
+      this.parseMatchesArgs(m, open + 1, close - 1);
+    }
     this.pos = close;
     return this.done(m);
+  };
+  parseMatchesArgs (m, a, b) {
+    const savePos = this.pos;
+    const saveLimit = this.limit;
+    const saveNo = this.noStruct;
+    this.pos = a;
+    this.limit = b;
+    this.noStruct = false;
+    m.add(this.parseExpr());
+    if ( this.eatP(",") ) {
+      m.add(this.parsePattern());
+      if ( this.isKw("if") ) {
+        this.pos = this.pos + 1;
+        m.add(this.parseExpr());
+      }
+      this.eatP(",");
+    } else {
+      this.error("expected `,` and a pattern in `matches!`");
+    }
+    if ( this.pos != b ) {
+      this.error("unexpected tokens in `matches!`");
+    }
+    this.pos = savePos;
+    this.limit = saveLimit;
+    this.noStruct = saveNo;
   };
   tryParseMacroArgs (m, a, b) {
     const savePos = this.pos;
@@ -86787,6 +86883,7 @@ class RustLower  {
     this.loopFlagKind = [];
     this.genericEnv = {};
     this.fnLocals = [];
+    this.loopBindStart = -1;
     this.clonerOut = [];
     this.moduleDoc = new RustDocInfo();
     this.docExamples = {};
@@ -88956,9 +89053,31 @@ class RustLower  {
     }
     return ((((("  sfn zeroOf:" + cname) + " () {\n    return (new ") + this.caseType(e.name, pick)) + "(") + args.join(" ")) + "))\n  }";
   };
+  enumIsValue (e) {
+    // Loop start
+    for ( const vr of e.variants) {
+      // Loop start
+      for ( const f of vr.fields) {
+        const k = f.ty.kind;
+        if ( f.ty.shared ) {
+          continue;
+        }
+        if ( (((k == "int" || k == "double") || k == "bool") || k == "char") || k == "string" ) {
+          continue;
+        }
+        return false;
+      }
+    }
+    return true;
+  };
   emitEnumClone (e, cname) {
     let lines = [];
     lines.push(((("  sfn cloneOf:" + cname) + " (v:") + cname) + ") {");
+    if ( this.enumIsValue(e) ) {
+      lines.push("    return v");
+      lines.push("  }");
+      return lines.join("\n");
+    }
     // Loop start
     for ( let i = 0; i < e.variants.length; i++) {
       var vr = e.variants[i];
@@ -90353,7 +90472,11 @@ class RustLower  {
   };
   lowerLoopBody (body) {
     const before = this.movedSnapshot();
-    const firstInside = this.fnLocals.length;
+    let firstInside = this.fnLocals.length;
+    if ( this.loopBindStart >= 0 && this.loopBindStart < firstInside ) {
+      firstInside = this.loopBindStart;
+    }
+    this.loopBindStart = -1;
     this.pushScope();
     this.lowerBlockStmts(body);
     this.popScope();
@@ -90501,6 +90624,7 @@ class RustLower  {
     return false;
   };
   lowerFor (e) {
+    this.loopBindStart = this.fnLocals.length;
     const pat = e.kid(0);
     const iter = e.kid(1);
     const body = e.kid(2);
@@ -90991,6 +91115,10 @@ class RustLower  {
       if ( this.isUnitVariantName(pat.name, t) ) {
         return this.variantTest(pat.name, subj, t, pat);
       }
+      if ( this.isConstPattern(pat) ) {
+        const cv = this.constValue(this.resolveItem([pat.name], "const"));
+        return ((("(" + subj) + " == ") + cv.code) + ")";
+      }
       return "true";
     }
     if ( k == "pat_paren" ) {
@@ -91198,7 +91326,7 @@ class RustLower  {
     return "true";
   };
   patBinds (pat) {
-    if ( pat.kind == "pat_ident" && false == this.isUnitVariantName(pat.name, RsType.mk("unknown")) ) {
+    if ( (pat.kind == "pat_ident" && false == this.isUnitVariantName(pat.name, RsType.mk("unknown"))) && false == this.isConstPattern(pat) ) {
       return true;
     }
     // Loop start
@@ -91208,6 +91336,15 @@ class RustLower  {
       }
     }
     return false;
+  };
+  isConstPattern (pat) {
+    if ( pat.kids.length > 0 ) {
+      return false;
+    }
+    if ( pat.hasMod("mut") || pat.hasMod("ref") ) {
+      return false;
+    }
+    return this.resolveItem([pat.name], "const") != "";
   };
   bindPattern (pat, subj, t) {
     this.walkBindings(pat, subj, t, false);
@@ -91219,6 +91356,9 @@ class RustLower  {
     const k = pat.kind;
     if ( k == "pat_ident" ) {
       if ( this.isUnitVariantName(pat.name, t) ) {
+        return;
+      }
+      if ( this.isConstPattern(pat) ) {
         return;
       }
       if ( aliasOnly ) {
@@ -91916,7 +92056,48 @@ class RustLower  {
   };
   constValue (key) {
     const c = ( Object.prototype.hasOwnProperty.call(this.consts, key) ? this.consts[key] : undefined );
+    const lit = this.constLiteral(c);
+    if ( lit != "" ) {
+      const le = RsExpr.of(lit, c.ty);
+      le.simple = true;
+      return le;
+    }
     return RsExpr.of((((("(" + c.modCls) + ".") + this.staticName(c.name)) + "())"), c.ty);
+  };
+  constLiteral (c) {
+    if ( typeof(c.node) === "undefined" ) {
+      return "";
+    }
+    const node = c.node;
+    if ( node.kids.length < 2 ) {
+      return "";
+    }
+    let v = node.kid(1);
+    const k = c.ty.kind;
+    if ( false == ((k == "int" || k == "double") || k == "bool") ) {
+      return "";
+    }
+    let neg = false;
+    if ( (v.kind == "unary" && v.name == "-") && v.kids.length > 0 ) {
+      neg = true;
+      v = v.kid(0);
+    }
+    if ( v.kind != "lit" ) {
+      return "";
+    }
+    const e = this.lowerExpr(v, c.ty);
+    if ( false == e.simple ) {
+      if ( e.code.length == 0 ) {
+        return "";
+      }
+    }
+    if ( neg ) {
+      if ( k == "bool" ) {
+        return "";
+      }
+      return ("(-1 * " + e.code) + ")";
+    }
+    return e.code;
   };
   fnValue (name, at) {
     const f = ( Object.prototype.hasOwnProperty.call(this.fns, name) ? this.fns[name] : undefined );
@@ -92156,6 +92337,9 @@ class RustLower  {
     if ( op == "-" ) {
       if ( c.kind == "lit" ) {
         const lv = this.lowerExpr(c, expect);
+        if ( lv.ty.kind == "double" && ((lv.code == "0.0" || lv.code == "0.") || lv.code == "0") ) {
+          return RsExpr.of((("(-1.0 * " + lv.code) + ")"), lv.ty);
+        }
         const neg = RsExpr.of(("-" + lv.code), lv.ty);
         neg.simple = true;
         return neg;
@@ -92165,7 +92349,7 @@ class RustLower  {
         return RsExpr.of((("(0 - " + v2.code) + ")"), v2.ty);
       }
       if ( v2.ty.kind == "double" ) {
-        return RsExpr.of((("(0.0 - " + v2.code) + ")"), v2.ty);
+        return RsExpr.of((("(-1.0 * " + v2.code) + ")"), v2.ty);
       }
       if ( v2.ty.kind == "named" && ( typeof(this.structs[v2.ty.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, v2.ty.name) ) ) {
         const s = ( Object.prototype.hasOwnProperty.call(this.structs, v2.ty.name) ? this.structs[v2.ty.name] : undefined );
@@ -92543,7 +92727,20 @@ class RustLower  {
     if ( ((full == "std::mem::take" || full == "mem::take") || full == "std::mem::replace") || full == "mem::replace" ) {
       return this.lowerTake(full, args, at);
     }
-    if ( full == "char::from_u32" || full == "char::from_digit" ) {
+    if ( full == "char::from_u32" || full == "std::char::from_u32" ) {
+      const cv_1 = this.arg0(args, RsType.mk("int"));
+      const cn = this.bindTemp(cv_1, RsType.mk("int"), "cp");
+      const ot = RsType.of1("opt", RsType.mk("char"));
+      const rn = this.tmp("ch");
+      this.out.line("def " + this.declText(rn, ot));
+      this.out.line(((((((("if ((" + cn) + " >= 0) && (") + cn) + " <= 1114111) && ((") + cn) + " < 55296) || (") + cn) + " > 57343))) {");
+      this.out.line(((("  " + rn) + " = (rs_char_from ") + cn) + ")");
+      this.out.line("}");
+      const cr = RsExpr.of(rn, ot);
+      cr.simple = true;
+      return cr;
+    }
+    if ( full == "char::from_digit" ) {
       this.unsupported(at, ("`" + full) + "` (stage R2)");
       return this.unit();
     }
@@ -92956,7 +93153,7 @@ class RustLower  {
     if ( name == "insert" ) {
       const iv3 = this.lowerExpr(args[0], it);
       const xv = this.lowerExprCopy(args[1], et);
-      this.out.line((((((this.vecInserter(t) + "(") + v) + " ") + iv3.code) + " ") + (xv.code + ")"));
+      this.out.line((((((((v + " = ") + this.vecInserter(t)) + "(") + v) + " ") + iv3.code) + " ") + (xv.code + ")"));
       return this.unit();
     }
     if ( name == "join" ) {
@@ -93053,7 +93250,7 @@ class RustLower  {
     const rt = this.rtype(t);
     const et = this.rtype(t.arg(0));
     let lines = [];
-    lines.push((((("  sfn " + key) + ":void (v:") + rt) + " at:int x:") + (et + ") {"));
+    lines.push((((((("  sfn " + key) + ":") + rt) + " (v:") + rt) + " at:int x:") + (et + ") {"));
     lines.push("    push v x");
     lines.push("    def i:int ((array_length v) - 1)");
     lines.push("    while (i > at) {");
@@ -93061,6 +93258,7 @@ class RustLower  {
     lines.push("      i = i - 1");
     lines.push("    }");
     lines.push("    set_at v at x");
+    lines.push("    return v");
     lines.push("  }");
     this.clonerOut.push(lines.join("\n"));
     return name;
@@ -93322,6 +93520,14 @@ class RustLower  {
     }
     if ( ((((name == "round" || name == "trunc") || name == "ln") || name == "exp") || name == "log10") || name == "signum" ) {
       return RsExpr.of((((("(rs_" + name) + " ") + c) + ")"), t);
+    }
+    if ( (((((((((((name == "asin" || name == "acos") || name == "atan") || name == "sinh") || name == "cosh") || name == "tanh") || name == "asinh") || name == "acosh") || name == "atanh") || name == "cbrt") || name == "exp_m1") || name == "ln_1p") || name == "log2" ) {
+      return RsExpr.of((((("(rs_" + name) + " ") + c) + ")"), t);
+    }
+    if ( name == "atan2" ) {
+      const ya = this.bindTemp(rv, t, "y");
+      const xa = this.arg0(args, t);
+      return RsExpr.of((((("(rs_atan2 " + ya) + " ") + xa.code) + ")"), t);
     }
     if ( name == "then" || name == "then_with" ) {
       const first = this.bindTemp(rv, t, "ord");
@@ -94990,6 +95196,15 @@ class RustLower  {
       }
     }
     if ( false == found ) {
+      // Loop start
+      for ( const arm2 of arms.kids) {
+        if ( RustLower.targetAlias(arm2.name) == "rust" ) {
+          const rex = arm2.kid(0);
+          if ( false == (rex.kind == "lit" && rex.hasMod("str")) ) {
+            return this.lowerExpr(rex, expect);
+          }
+        }
+      }
       this.err(m, ((("native! has no arm for the target `" + want) + "` (it has ") + listed.join(", ")) + ")");
       return this.unit();
     }
@@ -95406,6 +95621,37 @@ class RustLower  {
     }
     return false;
   };
+  lowerMatches (m) {
+    const bt = RsType.mk("bool");
+    if ( m.kids.length < 2 ) {
+      this.err(m, "`matches!` needs an expression and a pattern");
+      return this.unit();
+    }
+    const v = this.lowerExpr(m.kid(0), RsType.mk("unknown"));
+    const subj = this.bindTemp(v, v.ty, "m");
+    const pc = this.patCond(m.kid(1), subj, v.ty);
+    if ( m.kids.length < 3 ) {
+      const r0 = this.tmp("mt");
+      this.out.line((("def " + r0) + ":boolean ") + pc);
+      const e0 = RsExpr.of(r0, bt);
+      e0.simple = true;
+      return e0;
+    }
+    const r = this.tmp("mt");
+    this.out.line(("def " + r) + ":boolean false");
+    this.out.line(("if " + pc) + " {");
+    this.out.indent();
+    this.pushScope();
+    this.bindPattern(m.kid(1), subj, v.ty);
+    const g = this.lowerExpr(m.kid(2), bt);
+    this.out.line((r + " = ") + g.code);
+    this.popScope();
+    this.out.dedent();
+    this.out.line("}");
+    const e = RsExpr.of(r, bt);
+    e.simple = true;
+    return e;
+  };
   lowerMacroExpr (m, expect) {
     const name = m.name;
     if ( name == "native" || name == "ranger::native" ) {
@@ -95439,6 +95685,9 @@ class RustLower  {
         return this.emptyCollection(expect, m);
       }
       return this.lowerArray(arr, expect);
+    }
+    if ( name == "matches" ) {
+      return this.lowerMatches(m);
     }
     if ( this.lowerMacroStmt(m) ) {
       return RsExpr.of("", RsType.mk("never"));
@@ -96355,7 +96604,8 @@ class RustLower  {
     if ( false == ( typeof(this.genNames[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, name) ) ) {
       this.genNames[name] = true;
       const decl = this.fieldDecl("v", plain);
-      this.genOut.push(((("class " + name) + " {\n  def ") + decl) + "\n}");
+      const dt = this.helperDoc("A `&mut` place passed to a function.");
+      this.genOut.push((((("class " + name) + " {\n  def ") + decl) + "\n}") + dt);
     }
     return name;
   };

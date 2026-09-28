@@ -209,6 +209,8 @@ class RustLower {
 
   ; every local of the function being lowered, in declaration order
   def fnLocals:[RsLocal]
+  ; where the locals of the `for` being lowered start (its pattern), -1
+  def loopBindStart:int -1
 
   ; Binds a Rust name to an existing Ranger expression (match bindings used in
   ; a guard, `self`).
@@ -2478,9 +2480,35 @@ class RustLower {
     return (((((("  sfn zeroOf:" + cname) + " () {\n    return (new ") + (this.caseType(e.name pick))) + "(") + (join args " ")) + "))\n  }")
   }
 
+  ; An enum whose payloads are all numbers, booleans, chars, strings or `Rc`
+  ; is a value: no variant object is changed after it is made (a match
+  ; binds copies of the fields), so a clone may be the object itself. For a
+  ; small enum read on every step (an interpreter's value type) the copy
+  ; was most of the time spent on the reference targets.
+  fn enumIsValue:boolean (e:RsEnum) {
+    for e.variants vr:RsVariant i {
+      for vr.fields f:RsField j {
+        def k:string f.ty.kind
+        if (f.ty.shared) {
+          continue
+        }
+        if ((k == "int") || (k == "double") || (k == "bool") || (k == "char") || (k == "string")) {
+          continue
+        }
+        return false
+      }
+    }
+    return true
+  }
+
   fn emitEnumClone:string (e:RsEnum cname:string) {
     def lines:[string]
     push lines (((("  sfn cloneOf:" + cname) + " (v:") + cname) + ") {")
+    if (this.enumIsValue(e)) {
+      push lines "    return v"
+      push lines "  }"
+      return (join lines "\n")
+    }
     for e.variants vr:RsVariant i {
       def ct:string (this.caseType(e.name vr.name))
       if ((array_length vr.fields) == 0) {
@@ -3950,6 +3978,11 @@ class RustLower {
   fn lowerLoopBody:void (body:RustNode) {
     def before:[RsLocal] (this.movedSnapshot())
     def firstInside:int (array_length fnLocals)
+    ; a `for` pattern is bound afresh by every iteration: it counts as inside
+    if ((loopBindStart >= 0) && (loopBindStart < firstInside)) {
+      firstInside = loopBindStart
+    }
+    loopBindStart = -1
     this.pushScope()
     this.lowerBlockStmts(body)
     this.popScope()
@@ -4130,6 +4163,7 @@ class RustLower {
   def forBody@(optional):RustNode
 
   fn lowerFor:void (e:RustNode) {
+    loopBindStart = (array_length fnLocals)
     def pat:RustNode (e.kid(0))
     def iter:RustNode (e.kid(1))
     def body:RustNode (e.kid(2))
@@ -4658,6 +4692,10 @@ class RustLower {
       if (this.isUnitVariantName(pat.name t)) {
         return (this.variantTest(pat.name subj t pat))
       }
+      if (this.isConstPattern(pat)) {
+        def cv:RsExpr (this.constValue((this.resolveItem(([] _:string (pat.name)) "const"))))
+        return (((("(" + subj) + " == ") + cv.code) + ")")
+      }
       return "true"
     }
     if (k == "pat_paren") {
@@ -4860,7 +4898,7 @@ class RustLower {
   }
 
   fn patBinds:boolean (pat:RustNode) {
-    if ((pat.kind == "pat_ident") && (false == (this.isUnitVariantName(pat.name (RsType.mk("unknown")))))) {
+    if ((pat.kind == "pat_ident") && (false == (this.isUnitVariantName(pat.name (RsType.mk("unknown"))))) && (false == (this.isConstPattern(pat)))) {
       return true
     }
     for pat.kids k:RustNode i {
@@ -4869,6 +4907,19 @@ class RustLower {
       }
     }
     return false
+  }
+
+  ; `OP_ADD =>` in a match: an identifier pattern naming a constant in scope
+  ; compares with it, as in Rust; it binds only when no constant has the
+  ; name (or with `name @ …`).
+  fn isConstPattern:boolean (pat:RustNode) {
+    if ((array_length pat.kids) > 0) {
+      return false
+    }
+    if (pat.hasMod("mut") || pat.hasMod("ref")) {
+      return false
+    }
+    return ((this.resolveItem(([] _:string (pat.name)) "const")) != "")
   }
 
   ; Declares the variables a pattern binds, from `subj`.
@@ -4885,6 +4936,9 @@ class RustLower {
     def k:string pat.kind
     if (k == "pat_ident") {
       if (this.isUnitVariantName(pat.name t)) {
+        return
+      }
+      if (this.isConstPattern(pat)) {
         return
       }
       if (aliasOnly) {
@@ -5599,7 +5653,55 @@ class RustLower {
 
   fn constValue:RsExpr (key:string) {
     def c:RsConst (unwrap (get consts key))
+    ; a number, boolean or string literal is written where it is used, as
+    ; rustc inlines a const: a `match` over many constants (an
+    ; interpreter's opcodes) otherwise calls a function per arm
+    def lit:string (this.constLiteral(c))
+    if (lit != "") {
+      def le:RsExpr (RsExpr.of(lit c.ty))
+      le.simple = true
+      return le
+    }
     return (RsExpr.of((((("(" + c.modCls) + ".") + (this.staticName(c.name))) + "())") c.ty))
+  }
+
+  ; The Ranger literal of a const whose value is a plain literal (or a
+  ; negated number), else "".
+  fn constLiteral:string (c:RsConst) {
+    if (null? c.node) {
+      return ""
+    }
+    def node:RustNode (unwrap c.node)
+    if ((array_length node.kids) < 2) {
+      return ""
+    }
+    def v:RustNode (node.kid(1))
+    def k:string c.ty.kind
+    if (false == ((k == "int") || (k == "double") || (k == "bool"))) {
+      return ""
+    }
+    def neg:boolean false
+    if ((v.kind == "unary") && (v.name == "-") && ((array_length v.kids) > 0)) {
+      neg = true
+      v = (v.kid(0))
+    }
+    if (v.kind != "lit") {
+      return ""
+    }
+    def e:RsExpr (this.lowerExpr(v c.ty))
+    if (false == e.simple) {
+      if ((strlen e.code) == 0) {
+        return ""
+      }
+    }
+    if neg {
+      if (k == "bool") {
+        return ""
+      }
+      ; a negative zero keeps its sign through the multiplication
+      return (("(-1 * " + e.code) + ")")
+    }
+    return e.code
   }
 
   ; A free function used as a value: a lambda that calls it.
@@ -5855,6 +5957,10 @@ class RustLower {
     if (op == "-") {
       if (c.kind == "lit") {
         def lv:RsExpr (this.lowerExpr(c expect))
+        ; `-0.0` keeps its sign: a zero literal's minus would be dropped
+        if ((lv.ty.kind == "double") && ((lv.code == "0.0") || (lv.code == "0.") || (lv.code == "0"))) {
+          return (RsExpr.of((("(-1.0 * " + lv.code) + ")") lv.ty))
+        }
         def neg:RsExpr (RsExpr.of(("-" + lv.code) lv.ty))
         neg.simple = true
         return neg
@@ -5864,7 +5970,8 @@ class RustLower {
         return (RsExpr.of((("(0 - " + v2.code) + ")") v2.ty))
       }
       if (v2.ty.kind == "double") {
-        return (RsExpr.of((("(0.0 - " + v2.code) + ")") v2.ty))
+        ; not `0.0 - x`: that is +0 for x = 0, where Rust answers -0
+        return (RsExpr.of((("(-1.0 * " + v2.code) + ")") v2.ty))
       }
       if ((v2.ty.kind == "named") && (has structs v2.ty.name)) {
         def s:RsStruct (unwrap (get structs v2.ty.name))
@@ -6254,7 +6361,21 @@ class RustLower {
     if ((full == "std::mem::take") || (full == "mem::take") || (full == "std::mem::replace") || (full == "mem::replace")) {
       return (this.lowerTake(full args at))
     }
-    if ((full == "char::from_u32") || (full == "char::from_digit")) {
+    if ((full == "char::from_u32") || (full == "std::char::from_u32")) {
+      ; Some(char) for a scalar value, None for a surrogate or past U+10FFFF
+      def cv:RsExpr (this.arg0(args (RsType.mk("int"))))
+      def cn:string (this.bindTemp(cv (RsType.mk("int")) "cp"))
+      def ot:RsType (RsType.of1("opt" (RsType.mk("char"))))
+      def rn:string (this.tmp("ch"))
+      out.line(("def " + (this.declText(rn ot))))
+      out.line((((((((("if ((" + cn) + " >= 0) && (") + cn) + " <= 1114111) && ((") + cn) + " < 55296) || (") + cn) + " > 57343))) {"))
+      out.line((((("  " + rn) + " = (rs_char_from ") + cn) + ")"))
+      out.line("}")
+      def cr:RsExpr (RsExpr.of(rn ot))
+      cr.simple = true
+      return cr
+    }
+    if (full == "char::from_digit") {
       this.unsupported(at (("`" + full) + "` (stage R2)"))
       return (this.unit())
     }
@@ -6666,7 +6787,9 @@ class RustLower {
     if (name == "insert") {
       def iv3:RsExpr (this.lowerExpr((itemAt args 0) it))
       def xv:RsExpr (this.lowerExprCopy((itemAt args 1) et))
-      out.line(((((((this.vecInserter(t)) + "(") + v) + " ") + iv3.code) + " ") + (xv.code + ")"))
+      ; the helper answers the array: on Go a push inside it makes a new
+      ; slice the caller would not see
+      out.line((((((((v + " = ") + (this.vecInserter(t))) + "(") + v) + " ") + iv3.code) + " ") + (xv.code + ")"))
       return (this.unit())
     }
     if (name == "join") {
@@ -6764,7 +6887,7 @@ class RustLower {
     def rt:string (this.rtype(t))
     def et:string (this.rtype((t.arg(0))))
     def lines:[string]
-    push lines ((((("  sfn " + key) + ":void (v:") + rt) + " at:int x:") + (et + ") {"))
+    push lines ((((((("  sfn " + key) + ":") + rt) + " (v:") + rt) + " at:int x:") + (et + ") {"))
     push lines "    push v x"
     push lines "    def i:int ((array_length v) - 1)"
     push lines "    while (i > at) {"
@@ -6772,6 +6895,7 @@ class RustLower {
     push lines "      i = i - 1"
     push lines "    }"
     push lines "    set_at v at x"
+    push lines "    return v"
     push lines "  }"
     push clonerOut (join lines "\n")
     return name
@@ -7040,6 +7164,14 @@ class RustLower {
     }
     if ((name == "round") || (name == "trunc") || (name == "ln") || (name == "exp") || (name == "log10") || (name == "signum")) {
       return (RsExpr.of((((("(rs_" + name) + " ") + c) + ")") t))
+    }
+    if ((name == "asin") || (name == "acos") || (name == "atan") || (name == "sinh") || (name == "cosh") || (name == "tanh") || (name == "asinh") || (name == "acosh") || (name == "atanh") || (name == "cbrt") || (name == "exp_m1") || (name == "ln_1p") || (name == "log2")) {
+      return (RsExpr.of((((("(rs_" + name) + " ") + c) + ")") t))
+    }
+    if (name == "atan2") {
+      def ya:string (this.bindTemp(rv t "y"))
+      def xa:RsExpr (this.arg0(args t))
+      return (RsExpr.of((((("(rs_atan2 " + ya) + " ") + xa.code) + ")") t))
     }
     ; Ordering is an int: -1, 0, 1
     if ((name == "then") || (name == "then_with")) {
@@ -8790,6 +8922,16 @@ class RustLower {
       }
     }
     if (false == found) {
+      ; the `rust` arm is Rust code: a target without an arm of its own
+      ; gets it lowered like the rest of the module
+      for arms.kids arm2:RustNode aj {
+        if ((RustLower.targetAlias(arm2.name)) == "rust") {
+          def rex:RustNode (arm2.kid(0))
+          if (false == ((rex.kind == "lit") && (rex.hasMod("str")))) {
+            return (this.lowerExpr(rex expect))
+          }
+        }
+      }
       this.err(m (((("native! has no arm for the target `" + want) + "` (it has ") + (join listed ", ")) + ")"))
       return (this.unit())
     }
@@ -9220,6 +9362,40 @@ class RustLower {
     return false
   }
 
+  ; `matches!(e, P)` → the pattern test on e; with a guard the pattern's
+  ; bindings are made for it.
+  fn lowerMatches:RsExpr (m:RustNode) {
+    def bt:RsType (RsType.mk("bool"))
+    if ((array_length m.kids) < 2) {
+      this.err(m "`matches!` needs an expression and a pattern")
+      return (this.unit())
+    }
+    def v:RsExpr (this.lowerExpr((m.kid(0)) (RsType.mk("unknown"))))
+    def subj:string (this.bindTemp(v v.ty "m"))
+    def pc:string (this.patCond((m.kid(1)) subj v.ty))
+    if ((array_length m.kids) < 3) {
+      def r0:string (this.tmp("mt"))
+      out.line(((("def " + r0) + ":boolean ") + pc))
+      def e0:RsExpr (RsExpr.of(r0 bt))
+      e0.simple = true
+      return e0
+    }
+    def r:string (this.tmp("mt"))
+    out.line((("def " + r) + ":boolean false"))
+    out.line((("if " + pc) + " {"))
+    out.indent()
+    this.pushScope()
+    this.bindPattern((m.kid(1)) subj v.ty)
+    def g:RsExpr (this.lowerExpr((m.kid(2)) bt))
+    out.line(((r + " = ") + g.code))
+    this.popScope()
+    out.dedent()
+    out.line("}")
+    def e:RsExpr (RsExpr.of(r bt))
+    e.simple = true
+    return e
+  }
+
   fn lowerMacroExpr:RsExpr (m:RustNode expect:RsType) {
     def name:string m.name
     if ((name == "native") || (name == "ranger::native")) {
@@ -9252,6 +9428,9 @@ class RustLower {
         return (this.emptyCollection(expect m))
       }
       return (this.lowerArray(arr expect))
+    }
+    if (name == "matches") {
+      return (this.lowerMatches(m))
     }
     if (this.lowerMacroStmt(m)) {
       return (RsExpr.of("" (RsType.mk("never"))))
@@ -10227,7 +10406,9 @@ class RustLower {
     if (false == (has genNames name)) {
       set genNames name true
       def decl:string (this.fieldDecl("v" plain))
-      push genOut (((("class " + name) + " {\n  def ") + decl) + "\n}")
+      ; public: a public function with a `&mut` parameter takes the box
+      def dt:string (this.helperDoc("A `&mut` place passed to a function."))
+      push genOut ((((("class " + name) + " {\n  def ") + decl) + "\n}") + dt)
     }
     return name
   }

@@ -191,7 +191,14 @@ class RangerCppClassWriter {
       }
       case RangerNodeType.String {
         def s:string (this.escapeCppTrigraphs((this.EncodeString(node ctx wr))))
-        wr.out( "std::string(" + (("\"" + s) + "\"") + ")" , false)
+        ; a NUL inside ends a C string: give the length (UTF-8 bytes)
+        if ((indexOf node.string_value (strfromcode 0)) >= 0) {
+          def nbuf:charbuffer (to_charbuffer node.string_value)
+          def nbytes:int (length nbuf)
+          wr.out( "std::string(" + (("\"" + s) + "\"") + ", " + (to_string nbytes) + ")" , false)
+        } {
+          wr.out( "std::string(" + (("\"" + s) + "\"") + ")" , false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out(("" + node.int_value) , false)
