@@ -2269,8 +2269,9 @@ class MdLayout {
     fn baselineIn:double (seg:MdSeg) {
         def face:string (style.faceFor(seg.family seg.bold seg.italic))
         def m:EVGTextMetrics (engine.measureRun("Hg" face seg.size))
-        def asc:double m.ascent
-        def desc:double m.descent
+        ; a TrueType measurer reports hhea's descender, which is negative
+        def asc:double (fabs m.ascent)
+        def desc:double (fabs m.descent)
         if ((asc + desc) <= 0.0) {
             return (seg.size * 0.9)
         }
