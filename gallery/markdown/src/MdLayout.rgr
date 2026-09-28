@@ -2000,11 +2000,37 @@ class MdLayout {
             def innerW:double (w - indent)
             def markerY:double cursorY
             def markerPage:int page
+            def firstBox:int (array_length boxes)
+            def startPage:int page
+            def startY:double cursorY
+            def startOverflows:int slideOverflows
             inTightItem = node.listTight
             this.blocks(item innerX innerW)
+            ; On a slide an item is not cut in two when it fits on one: its
+            ; bullet on one slide and its words on the next reads as a slide
+            ; that lost a line. Undone and laid out again on the next slide.
+            if ((slides && paginate) && (page > startPage)) {
+                def itemH:double (this.itemHeight(firstBox startY startPage))
+                def full:double (contentBottom - contentTop)
+                if ((itemH <= full) && (startY > (contentTop + 0.5))) {
+                    this.dropBoxesFrom(firstBox)
+                    page = startPage
+                    pageCount = (page + 1)
+                    slideOverflows = startOverflows
+                    ; the next reserve starts the next slide, with its title
+                    cursorY = contentBottom
+                    firstBox = (array_length boxes)
+                    this.blocks(item innerX innerW)
+                }
+            }
             inTightItem = wasTight
-            ; The marker is emitted with the page the item STARTED on, which
-            ; is where its first line went.
+            ; The marker goes where the item's first line went: the page and
+            ; the top of its first box.
+            if (firstBox < (array_length boxes)) {
+                def fb:MdBox (this.firstTextBox(firstBox))
+                markerY = fb.y
+                markerPage = fb.page
+            }
             def savedPage:int page
             page = markerPage
             def markerW:double (this.measureRun(marker probe))
@@ -2032,6 +2058,53 @@ class MdLayout {
                 }
             }
         }
+    }
+
+    ; How tall an item laid out from box `from` on is, counting from where it
+    ; started — across a slide break, the part on each slide.
+    fn itemHeight:double (from:int startY:double startPage:int) {
+        def total:double 0.0
+        def top:double startY
+        def bottom:double startY
+        def pg:int startPage
+        def i:int from
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            if (b.page != pg) {
+                total = (total + (bottom - top))
+                pg = b.page
+                top = b.y
+                bottom = b.y
+            }
+            if ((b.y + b.h) > bottom) {
+                bottom = (b.y + b.h)
+            }
+            i = (i + 1)
+        }
+        return (total + (bottom - top))
+    }
+
+    fn dropBoxesFrom:void (from:int) {
+        while ((array_length boxes) > from) {
+            remove_index boxes ((array_length boxes) - 1)
+        }
+    }
+
+    ; The first text box from `from` on — not a continuation title — or the
+    ; first box at all.
+    fn firstTextBox:MdBox (from:int) {
+        def i:int from
+        while (i < (array_length boxes)) {
+            def b:MdBox (itemAt boxes i)
+            if ((b.kind == 0) && (b.segSrc >= 0)) {
+                return b
+            }
+            if (b.kind == 5) {
+                return b
+            }
+            i = (i + 1)
+        }
+        return (itemAt boxes from)
     }
 
     ; A fenced diagram. The layout cannot draw one and must still leave a
