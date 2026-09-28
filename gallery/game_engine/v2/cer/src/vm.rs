@@ -804,12 +804,13 @@ impl Vm {
                     return self.ta_get(*o, i);
                 }
                 if ob.class == C_ARRAY || ob.class == C_ARGUMENTS {
-                    if i < ob.elems.len() as int {
+                    if i < ob.elems.len() as int && !self.is_hole(*o, i) {
                         return ob.elems[i as usize].clone();
                     }
-                    if ob.class == C_ARRAY {
+                    if ob.class == C_ARRAY && i >= ob.elems.len() as int {
                         return Val::Undef;
                     }
+                    // a hole: an element kept as a property, or the prototype's
                 }
                 if ob.class == C_STRING {
                     if let Val::Str(s) = &ob.prim {
@@ -971,13 +972,14 @@ impl Vm {
         }
         let cur = self.objs[o as usize].elems.len() as int;
         if len < cur {
+            let holes = self.has_holes(o);
             self.objs[o as usize].elems.truncate(len as usize);
-        } else {
-            let mut i = cur;
-            while i < len {
-                self.objs[o as usize].elems.push(Val::Undef);
-                i += 1;
+            if holes {
+                self.objs[o as usize].saved.truncate(len as usize);
             }
+        } else {
+            // a longer array has holes at the end
+            self.push_holes(o, len - cur);
         }
     }
 
@@ -1014,16 +1016,26 @@ impl Vm {
                     }
                     return;
                 }
+                if self.is_hole(o, i) {
+                    // an element kept as a property takes the write itself
+                    let at = self.index_atom(i);
+                    if self.objs[o as usize].find(at) >= 0 {
+                        self.set_obj(o, at, v);
+                        return;
+                    }
+                    self.set_hole(o, i, false);
+                }
                 self.objs[o as usize].elems[i as usize] = v;
                 return;
             }
             if class == C_ARRAY && self.objs[o as usize].extensible && i < len + 50000000 {
-                let mut k = len;
-                while k < i {
-                    self.objs[o as usize].elems.push(Val::Undef);
-                    k += 1;
-                }
+                // the elements between the old end and i are holes
+                self.push_holes(o, i - len);
+                let holes = self.has_holes(o);
                 self.objs[o as usize].elems.push(v);
+                if holes {
+                    self.objs[o as usize].saved.push(0);
+                }
                 return;
             }
         }
@@ -1121,7 +1133,7 @@ impl Vm {
             if self.is_typed(o) {
                 return i < self.ta_length(o);
             }
-            if (class == C_ARRAY || class == C_ARGUMENTS) && i < self.objs[o as usize].elems.len() as int {
+            if (class == C_ARRAY || class == C_ARGUMENTS) && i < self.objs[o as usize].elems.len() as int && !self.is_hole(o, i) {
                 return true;
             }
             if class == C_STRING {
@@ -1172,7 +1184,7 @@ impl Vm {
             if self.is_typed(o) {
                 return i < self.ta_length(o);
             }
-            if (class == C_ARRAY || class == C_ARGUMENTS) && i < self.objs[o as usize].elems.len() as int {
+            if (class == C_ARRAY || class == C_ARGUMENTS) && i < self.objs[o as usize].elems.len() as int && !self.is_hole(o, i) {
                 return true;
             }
             if class == C_STRING {
@@ -1214,6 +1226,15 @@ impl Vm {
                     self.objs[o as usize].elems.pop();
                 } else {
                     self.objs[o as usize].elems[i as usize] = Val::Undef;
+                    if class == C_ARRAY {
+                        self.set_hole(o, i, true);
+                        // an element kept as a property (an accessor, …) goes too
+                        let at = self.index_atom(i);
+                        let slot = self.objs[o as usize].find(at);
+                        if slot >= 0 {
+                            self.objs[o as usize].remove(slot);
+                        }
+                    }
                 }
             }
             return true;
@@ -1245,7 +1266,9 @@ impl Vm {
             let n = self.objs[o as usize].elems.len();
             let mut i: usize = 0;
             while i < n {
-                out.push(string_val(format!("{}", i)));
+                if !self.is_hole(o, i as int) {
+                    out.push(string_val(format!("{}", i)));
+                }
                 i += 1;
             }
         }
@@ -2211,7 +2234,7 @@ impl Vm {
                         let mut done = false;
                         if let (Val::Obj(o), Val::Num(n)) = (&v, &k) {
                             let ob = &self.objs[*o as usize];
-                            if ob.class == C_ARRAY {
+                            if ob.class == C_ARRAY && ob.saved.is_empty() {
                                 let i = *n as int;
                                 if i >= 0 && (i as usize) < ob.elems.len() && (i as double) == *n {
                                     let r = ob.elems[i as usize].clone();
@@ -2233,7 +2256,7 @@ impl Vm {
                         let mut done = false;
                         if let (Val::Obj(o), Val::Num(n)) = (&target, &k) {
                             let ob = &mut self.objs[*o as usize];
-                            if ob.class == C_ARRAY {
+                            if ob.class == C_ARRAY && ob.saved.is_empty() {
                                 let i = *n as int;
                                 if i >= 0 && (i as usize) < ob.elems.len() && (i as double) == *n && ob.pos != 2 {
                                     ob.elems[i as usize] = val.clone();
@@ -2480,6 +2503,62 @@ impl Vm {
         self.objs[r as usize].add(A_VALUE, v, 0);
         self.objs[r as usize].add(A_DONE, Val::Bool(done), 0);
         Val::Obj(r)
+    }
+
+    /// An array's element `i` is a hole: no element there. Arrays that have
+    /// holes keep one flag per element in `saved` (1: a hole); one whose
+    /// `saved` is not as long as its elements has none.
+    pub fn is_hole(&self, o: int, i: int) -> bool {
+        let ob = &self.objs[o as usize];
+        ob.class == C_ARRAY && !ob.saved.is_empty() && ob.saved.len() == ob.elems.len() && i >= 0 && (i as usize) < ob.saved.len() && ob.saved[i as usize] == 1
+    }
+
+    pub fn has_holes(&self, o: int) -> bool {
+        let ob = &self.objs[o as usize];
+        ob.class == C_ARRAY && !ob.saved.is_empty() && ob.saved.len() == ob.elems.len()
+    }
+
+    /// Marks element `i` a hole or not (it must exist).
+    pub fn set_hole(&mut self, o: int, i: int, hole: bool) {
+        let n = self.objs[o as usize].elems.len();
+        if self.objs[o as usize].saved.len() != n {
+            if !hole {
+                return;
+            }
+            let mut flags: Vec<int> = Vec::new();
+            let mut k: usize = 0;
+            while k < n {
+                flags.push(0);
+                k += 1;
+            }
+            self.objs[o as usize].saved = flags;
+        }
+        if i >= 0 && (i as usize) < n {
+            self.objs[o as usize].saved[i as usize] = if hole { 1 } else { 0 };
+        }
+    }
+
+    /// Appends `count` holes to array `o`.
+    pub fn push_holes(&mut self, o: int, count: int) {
+        let n = self.objs[o as usize].elems.len();
+        if count <= 0 {
+            return;
+        }
+        if self.objs[o as usize].saved.len() != n {
+            let mut flags: Vec<int> = Vec::new();
+            let mut k: usize = 0;
+            while k < n {
+                flags.push(0);
+                k += 1;
+            }
+            self.objs[o as usize].saved = flags;
+        }
+        let mut i: int = 0;
+        while i < count {
+            self.objs[o as usize].elems.push(Val::Undef);
+            self.objs[o as usize].saved.push(1);
+            i += 1;
+        }
     }
 
     pub fn gc_due(&self) -> bool {
@@ -3171,11 +3250,15 @@ impl Vm {
             OP_ARRAY_PUSH => {
                 let v = self.pop();
                 let a = obj_of(self.top());
+                let holes = self.has_holes(a);
                 self.objs[a as usize].elems.push(v);
+                if holes {
+                    self.objs[a as usize].saved.push(0);
+                }
             }
             OP_ARRAY_HOLE => {
                 let a = obj_of(self.top());
-                self.objs[a as usize].elems.push(Val::Undef);
+                self.push_holes(a, 1);
             }
             OP_ARRAY_SPREAD => {
                 let src = self.pop();
@@ -3184,8 +3267,12 @@ impl Vm {
                     return false;
                 }
                 let a = obj_of(self.top());
+                let holes = self.has_holes(a);
                 for x in items {
                     self.objs[a as usize].elems.push(x);
+                    if holes {
+                        self.objs[a as usize].saved.push(0);
+                    }
                 }
             }
             OP_TEMPLATE_OBJ => {

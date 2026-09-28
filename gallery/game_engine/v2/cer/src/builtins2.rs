@@ -28,10 +28,35 @@ impl Vm {
             return Vec::new();
         }
         let class = self.objs[o as usize].class;
+        if class == C_ARRAY && self.has_holes(o) {
+            // a hole reads through to a property or the prototype
+            let n = self.objs[o as usize].elems.len() as int;
+            let mut out: Vec<Val> = Vec::new();
+            let mut i: int = 0;
+            while i < n {
+                let v = self.get_index(&Val::Obj(o), i);
+                out.push(v);
+                i += 1;
+            }
+            return out;
+        }
         if class == C_ARRAY || class == C_ARGUMENTS {
             return self.objs[o as usize].elems.clone();
         }
         self.array_like_to_vec(&Val::Obj(o))
+    }
+
+    /// Element `i` of array `o` is there (not a hole, or a hole held by a
+    /// property).
+    fn elem_present(&mut self, o: int, i: int) -> bool {
+        if (i as usize) >= self.objs[o as usize].elems.len() {
+            return false;
+        }
+        if !self.is_hole(o, i) {
+            return true;
+        }
+        let at = self.index_atom(i);
+        self.objs[o as usize].find(at) >= 0
     }
 
     fn is_array_obj(&self, o: int) -> bool {
@@ -148,8 +173,12 @@ impl Vm {
                         self.throw_type(format!("Cannot add property {}, object is not extensible", n).as_str());
                         return Val::Undef;
                     }
+                    let holes = self.has_holes(o);
                     for a in args {
                         self.objs[o as usize].elems.push(a);
+                        if holes {
+                            self.objs[o as usize].saved.push(0);
+                        }
                     }
                     return Val::Num(self.objs[o as usize].elems.len() as double);
                 }
@@ -313,7 +342,7 @@ impl Vm {
                         len - 1
                     };
                     while i >= 0 {
-                        if self.strict_equals(&items[i as usize], &a0) {
+                        if self.strict_equals(&items[i as usize], &a0) && !self.is_hole(o, i) {
                             return Val::Num(i as double);
                         }
                         i -= 1;
@@ -322,7 +351,7 @@ impl Vm {
                 }
                 let mut i = self.rel_index(&a1, len, 0);
                 while i < len {
-                    let hit = if id == NF_AP_INCLUDES { self.same_value_zero(&items[i as usize], &a0) } else { self.strict_equals(&items[i as usize], &a0) };
+                    let hit = if id == NF_AP_INCLUDES { self.same_value_zero(&items[i as usize], &a0) } else { self.strict_equals(&items[i as usize], &a0) && !self.is_hole(o, i) };
                     if hit {
                         return if id == NF_AP_INCLUDES { Val::Bool(true) } else { Val::Num(i as double) };
                     }
@@ -345,6 +374,7 @@ impl Vm {
                 let len = self.len_of(&Val::Obj(o));
                 let back = id == NF_AP_FINDLAST || id == NF_AP_FINDLASTINDEX;
                 let mut out: Vec<Val> = Vec::new();
+                let mut map_holes: Vec<int> = Vec::new();
                 let mut k: int = 0;
                 while k < len {
                     let i = if back { len - 1 - k } else { k };
@@ -353,12 +383,17 @@ impl Vm {
                     let present = if id == NF_AP_FIND || id == NF_AP_FINDINDEX || back {
                         true
                     } else if self.objs[o as usize].class == C_ARRAY {
-                        (i as usize) < self.objs[o as usize].elems.len()
+                        self.elem_present(o, i)
                     } else {
                         let kv = Val::Num(i as double);
                         self.has_property(o, &kv)
                     };
                     if !present {
+                        if id == NF_AP_MAP {
+                            // map keeps the hole
+                            out.push(Val::Undef);
+                            map_holes.push(i);
+                        }
                         k += 1;
                         continue;
                     }
@@ -414,6 +449,9 @@ impl Vm {
                 match id {
                     NF_AP_MAP | NF_AP_FILTER | NF_AP_FLATMAP => {
                         let a = self.new_array(out);
+                        for h in map_holes {
+                            self.set_hole(a, h, true);
+                        }
                         Val::Obj(a)
                     }
                     NF_AP_SOME => Val::Bool(false),
@@ -430,20 +468,29 @@ impl Vm {
                 let items = self.elems_of(o);
                 let len = items.len() as int;
                 let right = id == NF_AP_REDUCERIGHT;
+                let holey = self.has_holes(o);
                 let mut k: int = 0;
                 let mut acc: Val;
                 if args.len() >= 2 {
                     acc = a1.clone();
                 } else {
-                    if len == 0 {
+                    // the first element there
+                    while k < len && holey && !self.elem_present(o, if right { len - 1 - k } else { k }) {
+                        k += 1;
+                    }
+                    if k >= len {
                         self.throw_type("Reduce of empty array with no initial value");
                         return Val::Undef;
                     }
-                    acc = items[if right { (len - 1) as usize } else { 0 }].clone();
-                    k = 1;
+                    acc = items[if right { (len - 1 - k) as usize } else { k as usize }].clone();
+                    k += 1;
                 }
                 while k < len {
                     let i = if right { len - 1 - k } else { k };
+                    if holey && !self.elem_present(o, i) {
+                        k += 1;
+                        continue;
+                    }
                     let v = items[i as usize].clone();
                     acc = self.call_value(a0.clone(), Val::Undef, vec![acc, v, Val::Num(i as double), Val::Obj(o)]);
                     if self.throwing {
@@ -459,7 +506,20 @@ impl Vm {
                     self.throw_type("The comparison function must be either a function or undefined");
                     return Val::Undef;
                 }
-                let mut items = self.elems_of(o);
+                let all = self.elems_of(o);
+                // holes sort after everything, and stay holes
+                let mut items: Vec<Val> = Vec::new();
+                let mut nholes: int = 0;
+                let holey = id == NF_AP_SORT && self.has_holes(o);
+                let mut hi: int = 0;
+                for it in all {
+                    if holey && !self.elem_present(o, hi) {
+                        nholes += 1;
+                    } else {
+                        items.push(it);
+                    }
+                    hi += 1;
+                }
                 self.temp_roots.push(Val::Obj(o));
                 self.merge_sort(&mut items, &a0);
                 self.temp_roots.pop();
@@ -471,7 +531,18 @@ impl Vm {
                     return Val::Obj(a);
                 }
                 if self.objs[o as usize].class == C_ARRAY {
+                    let kept = items.len();
                     self.objs[o as usize].elems = items;
+                    if holey {
+                        let mut flags: Vec<int> = Vec::new();
+                        let mut k: usize = 0;
+                        while k < kept {
+                            flags.push(0);
+                            k += 1;
+                        }
+                        self.objs[o as usize].saved = flags;
+                        self.push_holes(o, nholes);
+                    }
                 } else {
                     let mut i: int = 0;
                     for it in items {

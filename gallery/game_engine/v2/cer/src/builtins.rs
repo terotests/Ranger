@@ -1592,7 +1592,11 @@ impl Vm {
                 return;
             }
         }
+        let arr_index = i >= 0 && self.objs[o as usize].class == C_ARRAY;
         if has_get || has_set {
+            if arr_index {
+                self.array_index_to_prop(o, i);
+            }
             if has_get {
                 if !matches!(get_v, Val::Undef) && !self.is_callable(&get_v) {
                     self.throw_type("Getter must be a function");
@@ -1623,14 +1627,20 @@ impl Vm {
             }
             return;
         }
-        if i >= 0 && class == C_ARRAY && (hidden | readonly | fixed) == 0 {
-            self.set_index(o, i, value);
+        let plain_elem = arr_index && (i as usize) < self.objs[o as usize].elems.len() && !self.is_hole(o, i);
+        if arr_index && (hidden | readonly | fixed) == 0 && (plain_elem || slot < 0) {
+            let v = if has_value { value } else if plain_elem { self.objs[o as usize].elems[i as usize].clone() } else { Val::Undef };
+            self.set_index(o, i, v);
             return;
         }
-        if i >= 0 && class == C_ARRAY && (i as usize) < self.objs[o as usize].elems.len() {
-            // an element with attributes: keep it as a property instead
-            let v = if has_value { value.clone() } else { self.objs[o as usize].elems[i as usize].clone() };
-            self.objs[o as usize].elems[i as usize] = v.clone();
+        if arr_index {
+            // an element with attributes: a property, and a hole in the
+            // elements
+            self.array_index_to_prop(o, i);
+            let s2 = self.objs[o as usize].find(atom);
+            let cur = if s2 >= 0 { self.objs[o as usize].vals[s2 as usize].clone() } else { Val::Undef };
+            let v = if has_value { value } else { cur };
+            self.define(o, atom, v, hidden | readonly | fixed);
             return;
         }
         let v = if has_value {
@@ -1643,6 +1653,26 @@ impl Vm {
         self.define(o, atom, v, hidden | readonly | fixed);
     }
 
+    /// Moves array element `i` out of the elements into a property (made a
+    /// hole there), growing the array to reach it.
+    pub fn array_index_to_prop(&mut self, o: int, i: int) {
+        let len = self.objs[o as usize].elems.len() as int;
+        let atom = self.index_atom(i);
+        if i >= len {
+            self.push_holes(o, i + 1 - len);
+            return;
+        }
+        if self.is_hole(o, i) {
+            return;
+        }
+        let cur = self.objs[o as usize].elems[i as usize].clone();
+        self.objs[o as usize].elems[i as usize] = Val::Undef;
+        self.set_hole(o, i, true);
+        if self.objs[o as usize].find(atom) < 0 {
+            self.objs[o as usize].add(atom, cur, 0);
+        }
+    }
+
     pub fn from_descriptor(&mut self, o: int, key: &Val) -> Val {
         if self.objs[o as usize].class == C_PROXY {
             return self.proxy_own_desc(o, key.clone());
@@ -1650,7 +1680,7 @@ impl Vm {
         let (i, a) = self.to_key(key);
         let class = self.objs[o as usize].class;
         let d = self.new_object();
-        if i >= 0 && (class == C_ARRAY || class == C_ARGUMENTS) && (i as usize) < self.objs[o as usize].elems.len() {
+        if i >= 0 && (class == C_ARRAY || class == C_ARGUMENTS) && (i as usize) < self.objs[o as usize].elems.len() && !self.is_hole(o, i) {
             let v = self.objs[o as usize].elems[i as usize].clone();
             self.objs[d as usize].add(A_VALUE, v, 0);
             self.objs[d as usize].add(A_WRITABLE, Val::Bool(true), 0);
@@ -3041,13 +3071,8 @@ impl Vm {
                             return Val::Undef;
                         }
                         let len = if n > 100000000.0 { 100000000 } else { n as int };
-                        let mut v: Vec<Val> = Vec::new();
-                        let mut i = 0;
-                        while i < len {
-                            v.push(Val::Undef);
-                            i += 1;
-                        }
-                        self.objs[a as usize].elems = v;
+                        // new Array(n): n holes
+                        self.push_holes(a, len);
                         return Val::Obj(a);
                     }
                 }
