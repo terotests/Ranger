@@ -877,7 +877,7 @@ impl Parser {
         if self.kind() == T_PRIVATE {
             *private = true;
             let n = self.node(N_STR);
-            let s = format!("#{}", self.text());
+            let s = format!("\u{1}#{}", self.text());
             self.ast.nodes[n as usize].s = s;
             self.next();
             return n;
@@ -1354,7 +1354,7 @@ impl Parser {
                 self.next();
                 let n = self.ast.add(N_MEMBER, l);
                 if self.kind() == T_PRIVATE {
-                    let s = format!("#{}", self.text());
+                    let s = format!("\u{1}#{}", self.text());
                     self.ast.nodes[n as usize].s = s;
                     self.next();
                 } else {
@@ -1366,7 +1366,16 @@ impl Parser {
             } else if self.is("?.") {
                 self.next();
                 chain = true;
-                if self.is("(") {
+                if self.kind() == T_PRIVATE {
+                    // `o?.#x`
+                    let n = self.ast.add(N_MEMBER, l);
+                    let s = format!("\u{1}#{}", self.text());
+                    self.ast.nodes[n as usize].s = s;
+                    self.next();
+                    self.ast.nodes[n as usize].a = e;
+                    self.ast.nodes[n as usize].d = 1;
+                    e = n;
+                } else if self.is("(") {
                     let args = self.arguments();
                     let n = self.ast.add(N_CALL, l);
                     self.ast.nodes[n as usize].a = e;
@@ -1527,7 +1536,7 @@ impl Parser {
         if k == T_PRIVATE {
             // `#x in obj`
             let n = self.node(N_STR);
-            let s = format!("#{}", self.text());
+            let s = format!("\u{1}#{}", self.text());
             self.ast.nodes[n as usize].s = s;
             self.next();
             return n;

@@ -828,10 +828,17 @@ impl Vm {
                     let s = self.objs[pair as usize].elems[1].clone();
                     if self.is_callable(&s) {
                         self.call_value(s, receiver.clone(), vec![v.clone()]);
+                    } else if self.strict_now() {
+                        let n = self.atom_str(atom);
+                        self.throw_type(format!("Cannot set property {} of #<Object> which has only a getter", n).as_str());
                     }
                     return true;
                 }
                 if (attr & P_READONLY) != 0 {
+                    if self.strict_now() {
+                        let n = self.atom_str(atom);
+                        self.throw_type(format!("Cannot assign to read only property '{}' of object '#<Object>'", n).as_str());
+                    }
                     return true;
                 }
                 return false;
@@ -854,6 +861,9 @@ impl Vm {
                 let s = self.objs[pair as usize].elems[1].clone();
                 if self.is_callable(&s) {
                     self.call_value(s, Val::Obj(o), vec![v]);
+                } else if self.strict_now() {
+                    let n = self.atom_str(atom);
+                    self.throw_type(format!("Cannot set property {} of #<Object> which has only a getter", n).as_str());
                 }
                 return;
             }
@@ -1190,7 +1200,9 @@ impl Vm {
                 k += 1;
                 continue;
             }
-            if self.symbol_atoms.contains_key(&a) {
+            if self.atom_names[a as usize].starts_with('\u{1}') {
+                // a private name: never a key
+            } else if self.symbol_atoms.contains_key(&a) {
                 syms.push(a);
             } else if jsstr::array_index(self.atom_names[a as usize].as_str()) >= 0 {
                 ints.push(a);
@@ -2478,6 +2490,10 @@ impl Vm {
                 let slot = self.objs[g as usize].find(op.a);
                 if slot >= 0 && self.objs[g as usize].attrs[slot as usize] == 0 {
                     self.objs[g as usize].vals[slot as usize] = v;
+                } else if slot < 0 && self.strict_now() && !self.has_atom(g, op.a) {
+                    // strict code does not create globals by assignment
+                    let n = self.atom_str(op.a);
+                    self.throw_ref(format!("{} is not defined", n).as_str());
                 } else {
                     self.set_obj(g, op.a, v);
                 }
@@ -2527,6 +2543,24 @@ impl Vm {
                 let a = self.pop();
                 let r = self.instance_of(&a, &b);
                 self.stack.push(Val::Bool(r));
+            }
+            OP_GET_PRIVATE => {
+                let v = self.pop();
+                let has = match &v {
+                    Val::Obj(o) => {
+                        let k = self.key_val(op.a);
+                        self.has_property(*o, &k)
+                    }
+                    _ => false,
+                };
+                if !has {
+                    let n = self.atom_str(op.a);
+                    let shown = if n.starts_with('\u{1}') { jsstr::slice(n.as_str(), 1, jsstr::len(n.as_str())) } else { n.clone() };
+                    self.throw_type(format!("Cannot read private member {} from an object whose class did not declare it", shown).as_str());
+                } else {
+                    let r = self.get(&v, op.a);
+                    self.stack.push(r);
+                }
             }
             OP_IN => {
                 let b = self.pop();

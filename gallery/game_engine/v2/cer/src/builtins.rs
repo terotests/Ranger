@@ -703,17 +703,23 @@ impl Vm {
             let uname = format!("getUTC{}", f);
             self.method(dp, uname.as_str(), NF_DP_GET + fi, 0);
             if f.as_str() != "Day" && f.as_str() != "TimezoneOffset" {
+                // the setters' lengths: how many fields each takes
+                let arity: int = if fi == 0 || fi == 5 { 3 } else if fi == 1 || fi == 6 { 2 } else if fi == 4 { 4 } else { 1 };
                 let sname = format!("set{}", f);
-                self.method(dp, sname.as_str(), NF_DP_SET + fi, 1);
-                let suname = format!("setUTC{}", f);
-                self.method(dp, suname.as_str(), NF_DP_SET + fi, 1);
+                self.method(dp, sname.as_str(), NF_DP_SET + fi, arity);
+                if f.as_str() != "Year" && f.as_str() != "Time" {
+                    let suname = format!("setUTC{}", f);
+                    self.method(dp, suname.as_str(), NF_DP_SET + fi, arity);
+                }
             }
             fi += 1;
         }
         self.method(dp, "toISOString", NF_DP_TOISO, 0);
         self.method(dp, "toJSON", NF_DP_TOJSON, 1);
         self.method(dp, "toString", NF_DP_TOSTRING, 0);
-        self.method(dp, "toUTCString", NF_DP_TOSTRING, 0);
+        let utcs = self.method(dp, "toUTCString", NF_DP_TOSTRING, 0);
+        let a_gmt = self.intern("toGMTString");
+        self.objs[dp as usize].add(a_gmt, Val::Obj(utcs), P_HIDDEN);
         self.method(dp, "toDateString", NF_DP_TOSTRING, 0);
         self.method(dp, "toLocaleString", NF_DP_TOSTRING, 0);
         self.method(dp, "valueOf", NF_DP_VALUEOF, 0);
@@ -1459,16 +1465,57 @@ impl Vm {
             self.has_atom(d, a_value)
         };
         let value = self.get_obj(d, A_VALUE, desc);
+        let has_writable = self.has_atom(d, A_WRITABLE);
+        if (has_get || has_set) && (has_value || has_writable) {
+            self.throw_type("Invalid property descriptor. Cannot both specify accessors and a value or writable attribute");
+            return;
+        }
         let slot = self.objs[o as usize].find(atom);
         let existing_attr = if slot >= 0 { self.objs[o as usize].attrs[slot as usize] } else { -1 };
+        let in_elems = i >= 0 && (self.objs[o as usize].class == C_ARRAY || self.objs[o as usize].class == C_ARGUMENTS) && (i as usize) < self.objs[o as usize].elems.len();
+        if slot < 0 && !in_elems && !self.objs[o as usize].extensible && !(self.objs[o as usize].class == C_ARRAY && atom == A_LENGTH) {
+            let n = self.atom_str(atom);
+            self.throw_type(format!("Cannot define property {}, object is not extensible", n).as_str());
+            return;
+        }
         let hidden = self.desc_flag(d, desc, A_ENUMERABLE, P_HIDDEN, existing_attr);
         let fixed = self.desc_flag(d, desc, A_CONFIGURABLE, P_FIXED, existing_attr);
         if existing_attr >= 0 && (existing_attr & P_FIXED) != 0 {
-            // a non-configurable property: only its value may change, and
-            // only when writable
-            if (existing_attr & P_READONLY) != 0 || has_get || has_set {
-                if has_value && !self.same_value(&value, &self.objs[o as usize].vals[slot as usize].clone()) || has_get || has_set {
-                    self.throw_type("Cannot redefine property");
+            // a non-configurable property (ValidateAndApplyPropertyDescriptor)
+            let n = self.atom_str(atom);
+            let msg = format!("Cannot redefine property: {}", n);
+            if fixed == 0 || (self.has_atom(d, A_ENUMERABLE) && hidden != (existing_attr & P_HIDDEN)) {
+                self.throw_type(msg.as_str());
+                return;
+            }
+            let was_accessor = (existing_attr & P_ACCESSOR) != 0;
+            if was_accessor {
+                if has_value || has_writable {
+                    self.throw_type(msg.as_str());
+                    return;
+                }
+                let pair = obj_of(&self.objs[o as usize].vals[slot as usize]);
+                let g0 = self.objs[pair as usize].elems[0].clone();
+                let s0 = self.objs[pair as usize].elems[1].clone();
+                if (has_get && !self.same_value(&get_v, &g0)) || (has_set && !self.same_value(&set_v, &s0)) {
+                    self.throw_type(msg.as_str());
+                    return;
+                }
+                return;
+            }
+            if has_get || has_set {
+                self.throw_type(msg.as_str());
+                return;
+            }
+            if (existing_attr & P_READONLY) != 0 {
+                let wv = self.get_obj(d, A_WRITABLE, desc);
+                if has_writable && truthy(&wv) {
+                    self.throw_type(msg.as_str());
+                    return;
+                }
+                let cur = self.objs[o as usize].vals[slot as usize].clone();
+                if has_value && !self.same_value(&value, &cur) {
+                    self.throw_type(msg.as_str());
                     return;
                 }
                 return;
@@ -2613,7 +2660,8 @@ impl Vm {
             let o = obj_of(&this);
             if field == 8 {
                 let n = self.to_number(&arg(&args, 0));
-                let v = if is_finite(n) && n.abs() <= 8.64e15 { to_integer(n) } else { nan() };
+                // TimeClip: + 0 turns -0 into +0
+                let v = if is_finite(n) && n.abs() <= 8.64e15 { to_integer(n) + 0.0 } else { nan() };
                 self.objs[o as usize].prim = Val::Num(v);
                 return Val::Num(v);
             }
@@ -2642,6 +2690,10 @@ impl Vm {
                 if y >= 0.0 && y <= 99.0 {
                     parts[0] = y + 1900.0;
                 }
+            }
+            if is_nan(t) && field != 0 && field != 10 {
+                // an invalid date stays invalid, except through the year
+                return Val::Num(nan());
             }
             let v = Vm::make_time(&parts);
             self.objs[o as usize].prim = Val::Num(v);

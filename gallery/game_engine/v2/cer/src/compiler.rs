@@ -1787,6 +1787,14 @@ impl Compiler {
             let s = self.ast.nodes[n as usize].s.clone();
             // fused: a local's property
             let mut fused = false;
+            if s.starts_with('\u{1}') {
+                // `o.#x`: the brand check
+                self.expr(a);
+                self.chain_check(n);
+                let at = self.atom(s.as_str());
+                self.emit(OP_GET_PRIVATE, at, 0);
+                return;
+            }
             if self.ast.nodes[a as usize].kind == N_THIS && self.ast.nodes[n as usize].d != 1 {
                 let at = self.atom(s.as_str());
                 self.emit(OP_GET_THIS_PROP, at, 0);

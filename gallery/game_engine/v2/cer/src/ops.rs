@@ -220,3 +220,5 @@ pub const OP_PREINC_LOCAL: int = 130;
 pub const OP_SET_PROP_POP: int = 131;
 /// OP_SET_ELEM likewise
 pub const OP_SET_ELEM_POP: int = 132;
+/// [obj] → [obj.<private atom a>]: a TypeError when obj does not have it
+pub const OP_GET_PRIVATE: int = 133;

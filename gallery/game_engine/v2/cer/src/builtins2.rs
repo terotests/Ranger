@@ -1111,7 +1111,7 @@ impl Vm {
                             } else {
                                 let n = self.to_number(&p);
                                 if is_finite(n) && n.abs() <= 8.64e15 {
-                                    to_integer(n)
+                                    to_integer(n) + 0.0
                                 } else {
                                     nan()
                                 }
