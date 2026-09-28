@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now `(ArrayBuffer & { _view: DataView })` on TypeScript, and the
   templates attach `_view` with `Object.assign`, which gives that type.
   The generated JavaScript behaves as before.
+- **`npm run test:publish` passes again.** `tests/http-server.test.ts` and
+  its fixture are removed: they ran the es6 HTTP server that the plugin
+  removal took out (`start` / `stop` and `RangerJavaScriptHttpServerWriter`).
+  The C++ ownership test accepts `h->item.value()` for an optional field,
+  and the Dart self-host test checks for `List<dynamic>` in place of
+  `jsonEncode`, which the compiler no longer calls.
 - **A document's `theme` now turns on its `.theme-<name> .class` rules.**
   `EVGLayout` applied a document's stylesheet with an empty theme, so every
   theme-scoped rule was dead in the live page, `measure` and every other
