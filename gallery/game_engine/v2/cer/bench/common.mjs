@@ -90,6 +90,16 @@ export function runCerJs(src) {
   return out;
 }
 
+/** QuickJS (`qjs`, or the binary QJS names), for comparison. */
+export function runQuickJs(src) {
+  const f = tmpFile(PRINT_PRELUDE + src);
+  const r = spawnSync(process.env.QJS || "qjs", [f], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 600000 });
+  fs.unlinkSync(f);
+  const out = lines(r.stdout).concat(lines(r.stderr));
+  if (r.error) out.push(String(r.error.message));
+  return out;
+}
+
 /** CEr compiled by rgrc to C++ or Go (bin/cer_main_<target>). */
 export function runCerBinary(target, src) {
   const bin = path.join(CER, "bin", "cer_main_" + target);
@@ -107,6 +117,7 @@ export function engines(want) {
     "cer-js": runCerJs,
     "cer-cpp": (s) => runCerBinary("cpp", s),
     "cer-go": (s) => runCerBinary("go", s),
+    qjs: runQuickJs,
   };
   const out = {};
   for (const k of want) {

@@ -21,7 +21,7 @@ npx vitest run --config tests/vitest.config.ts cer.test.ts
 
 `bench/micro.mjs` and `bench/octane.mjs` take `--engines=` with any of
 `node`, `ce-js` (ComponentEngine's es6 build), `cer-rust`, `cer-js`,
-`cer-cpp`, `cer-go`; they build what they need.
+`cer-cpp`, `cer-go`, `qjs` (QuickJS); they build what they need.
 
 ## How it works
 
@@ -121,6 +121,29 @@ ComponentEngine; compiled to C++ and Go it is about three times. The C++ and
 Go builds are slower than the JavaScript one: their `Rc` values are
 reference-counted `shared_ptr`s and boxed interfaces, where V8 optimises
 the JavaScript objects.
+
+### Next to QuickJS
+
+QuickJS (Bellard, 2026-06-04, built with its own Makefile at `-O2`) is the
+bytecode interpreter CEr is closest to in design. `--engines=qjs` runs it,
+from `PATH` or the binary `QJS` names. One run on the development container:
+
+| suite | Node | QuickJS | CEr rustc | QuickJS / CEr |
+| --- | ---: | ---: | ---: | ---: |
+| Richards | 991 | 813 | 328 | 2.5 |
+| DeltaBlue | 1800 | 748 | 368 | 2.0 |
+| Crypto | 8267 | 1002 | 243 | 4.1 |
+| RayTrace | 5823 | 1507 | 696 | 2.2 |
+| EarleyBoyer | 2424 | 1905 | 846 | 2.3 |
+| RegExp | 7135 | 391 | 155 | 2.5 |
+| Splay | 4619 | 2757 | 1247 | 2.2 |
+| NavierStokes | 35943 | 2160 | 577 | 3.7 |
+| geometric mean | 4721 | 1192 | 458 | 2.6 |
+
+The widest gaps are the integer and array suites (Crypto, NavierStokes):
+QuickJS keeps small integers untagged as `int32` and arrays of them in a
+flat fast array, where every CEr number is a double and every value a
+16-byte enum.
 
 ## The Ranger targets
 
