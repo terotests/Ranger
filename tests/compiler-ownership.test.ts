@@ -353,8 +353,10 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
 
   it.skipIf(!HAS_RUSTC)("and so does the weak back-reference program", () => {
     const rs = path.join(ROOT_DIR, outDir, "shared_weak.rs");
+    // rustc makes its temp dir beside the output, so not `-o /dev/null`
+    const meta = path.join(ROOT_DIR, outDir, "shared_weak.rmeta");
     execSync(
-      `rustc --edition 2021 --emit=metadata --crate-type bin -o /dev/null "${rs}"`,
+      `rustc --edition 2021 --emit=metadata --crate-type bin -o "${meta}" "${rs}"`,
       { stdio: "pipe" }
     );
   }, 120000);
