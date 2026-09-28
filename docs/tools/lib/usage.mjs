@@ -4,6 +4,7 @@
  * tests/docs-usage.test.ts uses this so a `legacy` / `stable` status in
  * docs/sources.json cannot drift from the tree without a failing test.
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { ROOT } from "./paths.mjs";
@@ -14,8 +15,31 @@ import { ROOT } from "./paths.mjs";
 // tmp/selfhost-rust/lib/ViewLib.rgr` out of a file nobody edited.
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".cache", "bin", "tmp"]);
 
-/** Repository-relative paths of every `.rgr` file, excluding build trees. */
+/**
+ * Repository-relative paths of every `.rgr` file git tracks. Anything on disk
+ * that git does not track -- a test's output tree, a self-host build's copy of
+ * `lib/`, a project that moved out and left its ignored files behind -- is not
+ * the tree the registry describes. Outside a git checkout, the walk below.
+ */
 export function walkRgrFiles(root = ROOT) {
+  try {
+    const listed = execFileSync("git", ["ls-files", "-z", "--", "*.rgr"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    return listed
+      .split("\0")
+      .filter((f) => f.length > 0 && fs.existsSync(path.join(root, f)))
+      .sort();
+  } catch {
+    return walkRgrTree(root);
+  }
+}
+
+/** Every `.rgr` file on disk, excluding build trees. */
+export function walkRgrTree(root = ROOT) {
   const out = [];
   function walk(dir) {
     let entries;

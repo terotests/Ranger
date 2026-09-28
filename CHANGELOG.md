@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`npm run test:publish` depended on the machine it ran on.** The
+  interpreter's local time is UTC, and `runtime-conformance` compared it with
+  Node formatting in the host's zone, so the `Intl` date probes failed
+  anywhere but UTC. `tests/vitest.config.ts` sets `TZ=UTC` for every fork.
+  `docs-usage` counted every `.rgr` file on disk, so test output, self-host
+  copies of `lib/` and files a moved-out project left behind could mark a
+  legacy library as used; it now reads `git ls-files`.
 - **`npm run build:dist:module` failed with 140 TypeScript errors.** The
   TypeScript writer typed `buffer` as `Uint8Array`, but the es6 buffer
   templates make an `ArrayBuffer` with a `DataView` in `_view`. `buffer` is
