@@ -25,6 +25,7 @@ pub mod lexer;
 pub mod num;
 pub mod ops;
 pub mod parser;
+pub mod prelude;
 pub mod regex;
 pub mod value;
 pub mod vm;
@@ -42,7 +43,17 @@ impl Engine {
     pub fn new() -> Engine {
         let mut vm = Vm::new();
         vm.setup();
-        Engine { vm: vm, error: String::new() }
+        let mut e = Engine { vm: vm, error: String::new() };
+        // the built-ins written in JavaScript
+        e.eval(prelude::PRELUDE);
+        if !e.error.is_empty() {
+            e.vm.out.push(format!("prelude: {}", e.error));
+        } else {
+            e.vm.out.clear();
+        }
+        e.vm.prelude_protos = e.vm.protos.len() as int;
+        e.error = String::new();
+        e
     }
 
     /// Echo `print` / `console.log` lines to stdout as they come.

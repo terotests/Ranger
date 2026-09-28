@@ -743,12 +743,25 @@ impl Vm {
         self.objs[setp as usize].add(a_keys, Val::Obj(sv), P_HIDDEN);
         self.objs[setp as usize].add(A_ITERATOR, Val::Obj(sv), P_HIDDEN);
         self.getter(setp, "size", NF_MP_SIZE);
-        let wmp = self.alloc(C_OBJECT, mp);
+        // WeakMap / WeakSet: a Map / Set underneath, with only the methods a
+        // weak collection has (no size, no iteration)
+        let op0 = self.object_proto;
+        let wmp = self.alloc(C_OBJECT, op0);
         self.roots.push(wmp);
         self.ctor("WeakMap", NF_WEAKMAP, 0, wmp);
-        let wsp = self.alloc(C_OBJECT, setp);
+        self.method(wmp, "get", NF_MP_GET, 1);
+        self.method(wmp, "set", NF_MP_SET, 2);
+        self.method(wmp, "has", NF_MP_HAS, 1);
+        self.method(wmp, "delete", NF_MP_DELETE, 1);
+        let wsp = self.alloc(C_OBJECT, op0);
         self.roots.push(wsp);
         self.ctor("WeakSet", NF_WEAKSET, 0, wsp);
+        self.method(wsp, "add", NF_SETP_ADD, 1);
+        self.method(wsp, "has", NF_MP_HAS, 1);
+        self.method(wsp, "delete", NF_MP_DELETE, 1);
+        let a_tag2 = self.intern("@@toStringTag");
+        self.objs[wmp as usize].add(a_tag2, str_val("WeakMap"), P_HIDDEN | P_READONLY);
+        self.objs[wsp as usize].add(a_tag2, str_val("WeakSet"), P_HIDDEN | P_READONLY);
 
         // Promise
         let prc = self.ctor("Promise", NF_PROMISE, 1, pp);
@@ -2514,9 +2527,23 @@ impl Vm {
             // the in-place methods on a frozen array
             if let Val::Obj(o) = &this {
                 let ob = &self.objs[*o as usize];
-                if ob.class == C_ARRAY && ob.pos == 2 && (!ob.elems.is_empty() || !args.is_empty()) {
-                    self.throw_type("Cannot assign to read only property '0' of object '[object Array]'");
-                    return Val::Undef;
+                if ob.class == C_ARRAY && ob.pos == 2 {
+                    let n = ob.elems.len();
+                    let msg = if n == 0 && (id == NF_AP_POP || id == NF_AP_SHIFT) {
+                        String::from("Cannot assign to read only property 'length' of object '[object Array]'")
+                    } else if id == NF_AP_POP {
+                        format!("Cannot delete property '{}' of [object Array]", n - 1)
+                    } else if id == NF_AP_UNSHIFT && !args.is_empty() {
+                        format!("Cannot add property {}, object is not extensible", n)
+                    } else if n > 0 {
+                        String::from("Cannot assign to read only property '0' of object '[object Array]'")
+                    } else {
+                        String::new()
+                    };
+                    if !msg.is_empty() {
+                        self.throw_type(msg.as_str());
+                        return Val::Undef;
+                    }
                 }
             }
         }

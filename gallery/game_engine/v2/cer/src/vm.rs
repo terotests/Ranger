@@ -127,6 +127,8 @@ pub struct Vm {
     pub alloc_count: int,
     pub gc_threshold: int,
     pub native_depth: int,
+    /// functions compiled from the prelude (protos below this) are built-ins
+    pub prelude_protos: int,
     pub temp_roots: Vec<Val>,
     /// some object has a setter or a read-only property: writes that miss
     /// look along the prototype chain
@@ -230,6 +232,7 @@ impl Vm {
             alloc_count: 0,
             gc_threshold: 200000,
             native_depth: 0,
+            prelude_protos: 0,
             temp_roots: Vec::new(),
             any_setter: false,
             rng: 42,
@@ -883,7 +886,8 @@ impl Vm {
         }
         if !self.objs[o as usize].extensible {
             if self.strict_now() {
-                self.throw_type("Cannot add property, object is not extensible");
+                let n = self.atom_str(atom);
+                self.throw_type(format!("Cannot add property {}, object is not extensible", n).as_str());
             }
             return;
         }

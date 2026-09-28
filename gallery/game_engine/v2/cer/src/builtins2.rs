@@ -144,7 +144,8 @@ impl Vm {
                 let o = self.this_array(&this);
                 if self.is_array_obj(o) {
                     if !self.objs[o as usize].extensible {
-                        self.throw_type("Cannot add property, object is not extensible");
+                        let n = self.objs[o as usize].elems.len();
+                        self.throw_type(format!("Cannot add property {}, object is not extensible", n).as_str());
                         return Val::Undef;
                     }
                     for a in args {
@@ -1186,6 +1187,10 @@ impl Vm {
                 let dflt = if is_map { self.map_proto } else { self.set_proto };
                 let proto = self.proto_from(&new_target, dflt);
                 let m = self.alloc(if is_map { C_MAP } else { C_SET }, proto);
+                if id == NF_WEAKMAP || id == NF_WEAKSET {
+                    // weak: keys must be objects
+                    self.objs[m as usize].func = 1;
+                }
                 if !matches!(a0, Val::Undef) && !matches!(a0, Val::Null) {
                     self.temp_roots.push(Val::Obj(m));
                     let items = self.iterable_to_vec(&a0);
@@ -1201,8 +1206,16 @@ impl Vm {
                             }
                             let k = self.get_index(&it, 0);
                             let v = self.get_index(&it, 1);
+                            if id == NF_WEAKMAP && !is_obj(&k) {
+                                self.throw_type("Invalid value used as weak map key");
+                                return Val::Undef;
+                            }
                             self.map_set(m, k, v);
                         } else {
+                            if id == NF_WEAKSET && !is_obj(&it) {
+                                self.throw_type("Invalid value used in weak set");
+                                return Val::Undef;
+                            }
                             self.map_set(m, it.clone(), it);
                         }
                     }
@@ -1225,10 +1238,18 @@ impl Vm {
                         }
                     }
                     NF_MP_SET => {
+                        if self.objs[o as usize].func == 1 && !is_obj(&a0) {
+                            self.throw_type("Invalid value used as weak map key");
+                            return Val::Undef;
+                        }
                         self.map_set(o, a0, a1);
                         this
                     }
                     NF_SETP_ADD => {
+                        if self.objs[o as usize].func == 1 && !is_obj(&a0) {
+                            self.throw_type("Invalid value used in weak set");
+                            return Val::Undef;
+                        }
                         self.map_set(o, a0.clone(), a0);
                         this
                     }
