@@ -88,17 +88,39 @@ container:
 
 | case | Node | ComponentEngine (es6) | CEr rustc | CEr → JS | CEr → C++ | CEr → Go |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| loop | 0.10 | 2.20 | 2.49 | 9.67 | 21.8 | 15.1 |
-| fib | 0.12 | 7.18 | 2.34 | 5.79 | 16.6 | 15.4 |
-| strcat | 0.20 | 2.63 | 18.7 | 5.57 | 48.7 | 125 |
-| array | 0.38 | 6.96 | 4.13 | 18.1 | 24.1 | 29.9 |
-| object | 1.02 | 20.7 | 4.67 | 67.0 | 20.3 | 20.0 |
-| method | 0.34 | 67.6 | 12.4 | 31.5 | 48.2 | 55.8 |
-| regex | 1.01 | 62.5 | 8.64 | 25.4 | 39.3 | 41.7 |
+| loop | 0.04 | 2.23 | 2.39 | 9.79 | 17.1 | 15.3 |
+| fib | 0.12 | 6.46 | 2.33 | 6.83 | 15.7 | 14.7 |
+| strcat | 0.78 | 2.92 | 18.3 | 9.67 | 48.9 | 122 |
+| array | 0.33 | 9.36 | 6.61 | 32.2 | 24.4 | 40.3 |
+| object | 1.19 | 23.6 | 7.47 | 70.9 | 20.7 | 21.0 |
+| method | 0.39 | 60.6 | 11.2 | 20.6 | 48.1 | 50.7 |
+| regex | 1.11 | 60.0 | 8.84 | 32.8 | 42.4 | 46.1 |
 
 ### Octane
 
-OCTANE_TABLE
+The eight suites of `interp/bench/zoo_octane`, prepared as its `run.cjs`
+prepares them. Octane checks its own results, so a score means the suite
+computed the right answers. Scores, higher is faster; one run on the
+development container, ComponentEngine with a 600 s limit per suite:
+
+| suite | Node | ComponentEngine (es6) | CEr rustc | CEr → JS | CEr → C++ | CEr → Go |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Richards | 656 | 40.9 | 295 | 92.8 | 38.7 | 45.8 |
+| DeltaBlue | 1963 | 40.3 | 330 | 125 | 64.6 | 59.6 |
+| Crypto | 8043 | 10.1 | 256 | 68.3 | 34.0 | 27.1 |
+| RayTrace | 4933 | 22.4 | 569 | 182 | 124 | 141 |
+| EarleyBoyer | 2244 | 19.4 | 814 | 249 | 122 | 197 |
+| RegExp | 4812 | 22.9 | 156 | 41.9 | 18.1 | 18.0 |
+| Splay | 4502 | 34.2 | 1477 | 298 | 351 | 257 |
+| NavierStokes | 36289 | 17.8 | 555 | 105 | 70.3 | 58.6 |
+| geometric mean | 4163 | 23.7 | 443 | 121 | 70.0 | 69.7 |
+
+CEr built by rustc is about 19 times ComponentEngine's es6 build and a tenth
+of Node. The same source compiled to JavaScript by rgrc is five times
+ComponentEngine; compiled to C++ and Go it is about three times. The C++ and
+Go builds are slower than the JavaScript one: their `Rc` values are
+reference-counted `shared_ptr`s and boxed interfaces, where V8 optimises
+the JavaScript objects.
 
 ## The Ranger targets
 
@@ -112,11 +134,9 @@ halves), integers inside 32 bits (C++'s `int` is 32 bits: dates and
 constant `-0.0` to +0), and `ranger::native!` for the string primitives the
 JavaScript build would otherwise re-encode as UTF-8 on every call.
 
-- JavaScript: the fixture scripts, the micro workloads and seven of the
-  eight Octane suites give Node's answers.
-- Go: all eight Octane suites pass their checks.
-- C++: seven of eight; RegExp reports `Wrong checksum.` (not found yet).
-  `Math.cbrt(27)` answers 3.0000000000000004, which is glibc's `cbrt`.
+- JavaScript, C++ and Go: the fixture scripts and all eight Octane suites
+  give Node's answers. `Math.cbrt(27)` answers 3.0000000000000004 on C++,
+  which is glibc's `cbrt`.
 
 ## Found on the way
 
@@ -141,6 +161,11 @@ compiler, the prelude or the writers:
   slice); `arr[i] = v` of an enum value did not compile on Go.
 - A NUL in a string literal was a raw byte on Go (a compile error) and ended
   the literal on C++ (`std::string("\0")` is empty).
+- A C++ `charbuffer` is a bare `const char*`, so the byte count of a
+  string (a byte loop, `.as_bytes().len()`) stopped at the first NUL: the
+  RegExp suite failed its checksum on C++.
+- `(to_string 10)` wrote `10.toString()` on JavaScript, which does not
+  parse.
 - `ranger::native!` needed an arm for every target; the `rust` arm is now
   the fallback, lowered like the rest of the module.
 - An enum whose payloads are all numbers, strings or `Rc` was deep-copied on
