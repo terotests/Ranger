@@ -25,6 +25,9 @@ class RsType {
   def weak:boolean false
   ; the type came through Rc / RefCell / Box
   def shared:boolean false
+  ; the value lives behind a pointer: Box / Rc / Arc / Weak / a raw pointer
+  ; (RefCell / Cell / Mutex only set `shared`: they hold the value inline)
+  def indirect:boolean false
   ; a `dyn Trait` / `impl Trait` / generic bounded by a trait
   def isDyn:boolean false
   ; an Option field marked `#[ranger::late]`: `@(late)` (R7)
@@ -87,6 +90,7 @@ class RsType {
     t.isMutRef = isMutRef
     t.weak = weak
     t.shared = shared
+    t.indirect = indirect
     t.isDyn = isDyn
     t.late = late
     return t
@@ -168,6 +172,8 @@ class RsField {
   def name:string ""
   def ty:RsType (new RsType("unknown"))
   def node@(optional):RustNode
+  ; the file declaring it, for errors reported after collection
+  def file:string ""
 }
 
 class RsParam {

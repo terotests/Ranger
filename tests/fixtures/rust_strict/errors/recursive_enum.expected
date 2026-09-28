@@ -1,0 +1,1 @@
+recursive type `List` has infinite size (the field `1` holds it by value): insert some indirection, e.g. `Box<List>`

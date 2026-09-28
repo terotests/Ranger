@@ -789,6 +789,135 @@ class RustLower {
     }
     this.enterModule(0)
     this.collectRest()
+    this.checkInfiniteSize()
+  }
+
+  ; rustc's E0072: a struct or enum holding itself with no Box / Rc / Vec /
+  ; reference in between has no size. The other targets would accept it
+  ; (their objects are references) and the rust target writes the `.rs`
+  ; file back unchanged, so without this check nothing reports it.
+  fn checkInfiniteSize:void () {
+    def names:[string]
+    for structOrder sn:string si {
+      push names sn
+    }
+    for enumOrder en:string ei {
+      push names en
+    }
+    def reported:[string:boolean]
+    for names root:string ri {
+      if (has reported root) {
+        continue
+      }
+      def rfields:[RsField] (this.inlineFields(root))
+      def found:boolean false
+      for rfields rf:RsField rfi {
+        if found {
+          break
+        }
+        def deps:[string]
+        this.inlineNamed(rf.ty deps)
+        for deps d:string di {
+          if found {
+            break
+          }
+          def path:[string]
+          push path root
+          def cyc:boolean (d == root)
+          if (false == cyc) {
+            def seen:[string:boolean]
+            set seen d true
+            push path d
+            cyc = (this.reaches(d root path seen))
+          }
+          if cyc {
+            found = true
+            def quoted:[string]
+            for path pn:string pi {
+              set reported pn true
+              push quoted (("`" + pn) + "`")
+            }
+            def msg:string (("recursive type " + (itemAt quoted 0)) + " has infinite size")
+            if ((array_length quoted) > 1) {
+              msg = (("recursive types " + (join quoted " and ")) + " have infinite size")
+            }
+            def at:RustNode (unwrap rf.node)
+            msg = (msg + (((" (the field `" + at.name) + "` holds it by value): insert some indirection, e.g. `Box<") + (d + ">`")))
+            push errors ((((((rf.file + ":") + (to_string at.line)) + ":") + (to_string at.col)) + ": ") + msg)
+          }
+        }
+      }
+    }
+  }
+
+  ; the fields of a struct, or of every variant of an enum
+  fn inlineFields:[RsField] (name:string) {
+    def res:[RsField]
+    if (has structs name) {
+      def st:RsStruct (unwrap (get structs name))
+      if (false == st.rgr) {
+        for st.fields f:RsField fi {
+          if (!null? f.node) {
+            push res f
+          }
+        }
+      }
+      return res
+    }
+    if (has enums name) {
+      def en:RsEnum (unwrap (get enums name))
+      for en.variants v:RsVariant vi {
+        for v.fields vf:RsField vfi {
+          if (!null? vf.node) {
+            push res vf
+          }
+        }
+      }
+    }
+    return res
+  }
+
+  ; the struct / enum names a value of type t holds inline: through Option,
+  ; tuples and Result, not through a pointer, a reference or a collection
+  fn inlineNamed:void (t:RsType into:[string]) {
+    if ((t.isRef || t.indirect) || t.isDyn) {
+      return
+    }
+    if (t.kind == "named") {
+      if ((has structs t.name) || (has enums t.name)) {
+        push into t.name
+      }
+      return
+    }
+    if (((t.kind == "opt") || (t.kind == "tuple")) || (t.kind == "result")) {
+      for t.args a:RsType ai {
+        this.inlineNamed(a into)
+      }
+    }
+  }
+
+  ; whether root is held inline, directly or not, by cur; path gets the chain
+  fn reaches:boolean (cur:string root:string path:[string] seen:[string:boolean]) {
+    def fields:[RsField] (this.inlineFields(cur))
+    for fields f:RsField fi {
+      def deps:[string]
+      this.inlineNamed(f.ty deps)
+      for deps d:string di {
+        if (d == root) {
+          return true
+        }
+        if (has seen d) {
+          continue
+        }
+        set seen d true
+        push path d
+        if (this.reaches(d root path seen)) {
+          return true
+        }
+        removeLast path
+      }
+    }
+    return false
   }
 
   fn enterModule:void (i:int) {
@@ -920,6 +1049,7 @@ class RustLower {
           rf.name = ("f" + f.name)
         }
         rf.node = f
+        rf.file = fileName
         rf.ty = (this.typeOfIn((f.kid(0)) s.generics))
         this.fieldMarkers(f rf s)
         if (rf.ty.isRef) {
@@ -956,6 +1086,8 @@ class RustLower {
           if (rv.shape == "tuple") {
             rf.name = ("f" + f.name)
           }
+          rf.node = f
+          rf.file = fileName
           rf.ty = (this.typeOfIn((f.kid(0)) e.generics))
           push rv.fields rf
         }
@@ -1275,8 +1407,13 @@ class RustLower {
       }
       return inner
     }
-    if ((k == "paren_type") || (k == "ptr_type")) {
+    if (k == "paren_type") {
       return (this.typeOfIn((t.kid(0)) generics))
+    }
+    if (k == "ptr_type") {
+      def pt:RsType ((this.typeOfIn((t.kid(0)) generics)).copy())
+      pt.indirect = true
+      return pt
     }
     if ((k == "slice_type") || (k == "array_type")) {
       return (RsType.of1("vec" (this.typeOfIn((t.kid(0)) generics))))
@@ -1443,12 +1580,16 @@ class RustLower {
     if ((name == "Box") || (name == "Rc") || (name == "Arc") || (name == "RefCell") || (name == "Cell") || (name == "Mutex")) {
       def inner:RsType ((this.argOr(args 0)).copy())
       inner.shared = true
+      if ((name == "Box") || (name == "Rc") || (name == "Arc")) {
+        inner.indirect = true
+      }
       return inner
     }
     if (name == "Weak") {
       def w:RsType ((this.argOr(args 0)).copy())
       w.weak = true
       w.shared = true
+      w.indirect = true
       return w
     }
     if (name == "Self") {

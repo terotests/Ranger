@@ -85357,6 +85357,7 @@ class RsType  {
     this.isMutRef = false;
     this.weak = false;
     this.shared = false;
+    this.indirect = false;
     this.isDyn = false;
     this.late = false;
     this.kind = k;
@@ -85388,6 +85389,7 @@ class RsType  {
     t.isMutRef = this.isMutRef;
     t.weak = this.weak;
     t.shared = this.shared;
+    t.indirect = this.indirect;
     t.isDyn = this.isDyn;
     t.late = this.late;
     return t;
@@ -85485,6 +85487,7 @@ class RsField  {
     this.name = "";
     this.ty = new RsType("unknown");
     this.node = undefined;
+    this.file = "";
   }
 }
 class RsParam  {
@@ -87335,6 +87338,135 @@ class RustLower  {
     };
     this.enterModule(0);
     this.collectRest();
+    this.checkInfiniteSize();
+  };
+  checkInfiniteSize () {
+    let names = [];
+    // Loop start
+    for ( const sn of this.structOrder) {
+      names.push(sn);
+    }
+    // Loop start
+    for ( const en of this.enumOrder) {
+      names.push(en);
+    }
+    let reported = {};
+    // Loop start
+    for ( const root of names) {
+      if ( ( typeof(reported[root] ) != "undefined" && Object.prototype.hasOwnProperty.call(reported, root) ) ) {
+        continue;
+      }
+      const rfields = this.inlineFields(root);
+      let found = false;
+      // Loop start
+      for ( const rf of rfields) {
+        if ( found ) {
+          break;
+        }
+        let deps = [];
+        this.inlineNamed(rf.ty, deps);
+        // Loop start
+        for ( const d of deps) {
+          if ( found ) {
+            break;
+          }
+          let path = [];
+          path.push(root);
+          let cyc = d == root;
+          if ( false == cyc ) {
+            let seen = {};
+            seen[d] = true;
+            path.push(d);
+            cyc = this.reaches(d, root, path, seen);
+          }
+          if ( cyc ) {
+            found = true;
+            let quoted = [];
+            // Loop start
+            for ( const pn of path) {
+              reported[pn] = true;
+              quoted.push(("`" + pn) + "`");
+            }
+            let msg = ("recursive type " + quoted[0]) + " has infinite size";
+            if ( quoted.length > 1 ) {
+              msg = ("recursive types " + quoted.join(" and ")) + " have infinite size";
+            }
+            const at = rf.node;
+            msg = msg + (((" (the field `" + at.name) + "` holds it by value): insert some indirection, e.g. `Box<") + (d + ">`"));
+            this.errors.push((((((rf.file + ":") + (at.line.toString())) + ":") + (at.col.toString())) + ": ") + msg);
+          }
+        }
+      }
+    }
+  };
+  inlineFields (name) {
+    let res = [];
+    if ( ( typeof(this.structs[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, name) ) ) {
+      const st = ( Object.prototype.hasOwnProperty.call(this.structs, name) ? this.structs[name] : undefined );
+      if ( false == st.rgr ) {
+        // Loop start
+        for ( const f of st.fields) {
+          if ( (typeof(f.node) !== "undefined" && f.node != null )  ) {
+            res.push(f);
+          }
+        }
+      }
+      return res;
+    }
+    if ( ( typeof(this.enums[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, name) ) ) {
+      const en = ( Object.prototype.hasOwnProperty.call(this.enums, name) ? this.enums[name] : undefined );
+      // Loop start
+      for ( const v of en.variants) {
+        // Loop start
+        for ( const vf of v.fields) {
+          if ( (typeof(vf.node) !== "undefined" && vf.node != null )  ) {
+            res.push(vf);
+          }
+        }
+      }
+    }
+    return res;
+  };
+  inlineNamed (t, into) {
+    if ( (t.isRef || t.indirect) || t.isDyn ) {
+      return;
+    }
+    if ( t.kind == "named" ) {
+      if ( ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) || ( typeof(this.enums[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, t.name) ) ) {
+        into.push(t.name);
+      }
+      return;
+    }
+    if ( (t.kind == "opt" || t.kind == "tuple") || t.kind == "result" ) {
+      // Loop start
+      for ( const a of t.args) {
+        this.inlineNamed(a, into);
+      }
+    }
+  };
+  reaches (cur, root, path, seen) {
+    const fields = this.inlineFields(cur);
+    // Loop start
+    for ( const f of fields) {
+      let deps = [];
+      this.inlineNamed(f.ty, deps);
+      // Loop start
+      for ( const d of deps) {
+        if ( d == root ) {
+          return true;
+        }
+        if ( ( typeof(seen[d] ) != "undefined" && Object.prototype.hasOwnProperty.call(seen, d) ) ) {
+          continue;
+        }
+        seen[d] = true;
+        path.push(d);
+        if ( this.reaches(d, root, path, seen) ) {
+          return true;
+        }
+        path.pop();
+      }
+    }
+    return false;
   };
   enterModule (i) {
     this.curMod = this.modKeys[i];
@@ -87466,6 +87598,7 @@ class RustLower  {
           rf.name = "f" + f.name;
         }
         rf.node = f;
+        rf.file = this.fileName;
         rf.ty = this.typeOfIn(f.kid(0), s.generics);
         this.fieldMarkers(f, rf, s);
         if ( rf.ty.isRef ) {
@@ -87503,6 +87636,8 @@ class RustLower  {
           if ( rv.shape == "tuple" ) {
             rf_1.name = "f" + f_1.name;
           }
+          rf_1.node = f_1;
+          rf_1.file = this.fileName;
           rf_1.ty = this.typeOfIn(f_1.kid(0), e.generics);
           rv.fields.push(rf_1);
         }
@@ -87816,8 +87951,13 @@ class RustLower  {
       }
       return inner;
     }
-    if ( k == "paren_type" || k == "ptr_type" ) {
+    if ( k == "paren_type" ) {
       return this.typeOfIn(t.kid(0), generics);
+    }
+    if ( k == "ptr_type" ) {
+      const pt = this.typeOfIn(t.kid(0), generics).copy();
+      pt.indirect = true;
+      return pt;
     }
     if ( k == "slice_type" || k == "array_type" ) {
       return RsType.of1("vec", this.typeOfIn(t.kid(0), generics));
@@ -87980,12 +88120,16 @@ class RustLower  {
     if ( ((((name == "Box" || name == "Rc") || name == "Arc") || name == "RefCell") || name == "Cell") || name == "Mutex" ) {
       const inner = this.argOr(args, 0).copy();
       inner.shared = true;
+      if ( (name == "Box" || name == "Rc") || name == "Arc" ) {
+        inner.indirect = true;
+      }
       return inner;
     }
     if ( name == "Weak" ) {
       const w = this.argOr(args, 0).copy();
       w.weak = true;
       w.shared = true;
+      w.indirect = true;
       return w;
     }
     if ( name == "Self" ) {
