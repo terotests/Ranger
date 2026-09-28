@@ -8,9 +8,10 @@
 //   node bench/octane.mjs                          # all suites
 //   node bench/octane.mjs richards,deltablue --engines=cer-rust,cer-js
 //   node bench/octane.mjs --json
+//   node bench/octane.mjs --dump=/tmp/oct       # the prepared sources only
 import fs from "fs";
 import path from "path";
-import { engines, build, ROOT } from "./common.mjs";
+import { engines, build, ROOT, PRINT_PRELUDE } from "./common.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name, d) => {
@@ -41,6 +42,16 @@ function prepare(src) {
   `);
   s = s.replace(/elapsed = new Date\(\) - start;/g, "elapsed = performance.now() - start;");
   return s;
+}
+
+const dump = opt("dump", "");
+if (dump) {
+  // the prepared suites as files, to run or profile an engine by hand
+  fs.mkdirSync(dump, { recursive: true });
+  for (const suite of SUITES) {
+    fs.writeFileSync(path.join(dump, suite + ".js"), PRINT_PRELUDE + prepare(fs.readFileSync(path.join(DIR, suite + ".js"), "utf8")));
+  }
+  process.exit(0);
 }
 
 build(WANT.filter((e) => e !== "node"));
