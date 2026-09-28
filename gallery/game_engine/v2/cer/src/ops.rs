@@ -225,3 +225,11 @@ pub const OP_GET_PRIVATE: int = 133;
 /// [f, this, args…] → [result]: a call that is a direct `eval` when f is
 /// the built-in eval (then the code sees the scopes of evals[b]); argc a
 pub const OP_EVAL_CALL: int = 134;
+/// a generator's or async function's body starts: the frame is saved into
+/// a generator object, which the call answers (an async function: the
+/// promise of its driver)
+pub const OP_GEN_START: int = 135;
+/// [v] → the frame is saved and `v` goes out of next(); on resume, [sent]
+pub const OP_YIELD: int = 136;
+/// `await v`: a yield the async driver resolves
+pub const OP_AWAIT: int = 137;

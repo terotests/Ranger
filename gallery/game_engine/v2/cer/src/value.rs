@@ -49,6 +49,8 @@ pub const C_MAP: int = 15;
 pub const C_SET: int = 16;
 pub const C_SYMBOL: int = 17;
 pub const C_PROMISE: int = 18;
+/// a generator object: a saved frame (see Vm::gen_save)
+pub const C_GENERATOR: int = 19;
 
 // property attributes
 pub const P_HIDDEN: int = 1;
@@ -90,6 +92,8 @@ pub struct JsObj {
     pub free: bool,
     /// a function's own `prototype` object was made
     pub has_proto_obj: bool,
+    /// a generator's saved pc and handlers
+    pub saved: Vec<int>,
 }
 
 impl JsObj {
@@ -112,6 +116,7 @@ impl JsObj {
             marked: false,
             free: false,
             has_proto_obj: false,
+            saved: Vec::new(),
         }
     }
 
@@ -182,6 +187,7 @@ impl JsObj {
         self.pos = 0;
         self.extensible = true;
         self.has_proto_obj = false;
+        self.saved = Vec::new();
     }
 }
 
@@ -233,6 +239,9 @@ pub struct Proto {
     /// the scopes of its direct `eval` calls (OP_EVAL_CALL b)
     pub evals: Vec<EvalScope>,    /// its source text, for Function.prototype.toString
     pub source: String,
+    /// `function*` / `async function`
+    pub generator: bool,
+    pub is_async: bool,
 }
 
 impl Proto {
@@ -255,6 +264,8 @@ impl Proto {
             getter_setter: false,
             evals: Vec::new(),
             source: String::new(),
+            generator: false,
+            is_async: false,
         }
     }
 }
@@ -273,6 +284,8 @@ pub struct Frame {
     pub args_obj: int,
     /// a constructor call: an object result replaces `this`
     pub construct: bool,
+    /// the generator object this frame runs in, -1 for none
+    pub gen: int,
 }
 
 pub struct Handler {

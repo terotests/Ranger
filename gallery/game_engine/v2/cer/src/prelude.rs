@@ -72,6 +72,8 @@ var ArrayIteratorProto = getPrototypeOf([][Symbol.iterator]());
 var IteratorProto = create(Object.prototype);
 hide(IteratorProto, Symbol.iterator, function () { return this; });
 Object.setPrototypeOf(ArrayIteratorProto, IteratorProto);
+var GeneratorProto = getPrototypeOf(function* () {}).prototype;
+Object.setPrototypeOf(GeneratorProto, IteratorProto);
 function Iterator() {
   if (new.target === undefined || new.target === Iterator) throw new TypeError('Abstract class Iterator not directly constructable');
 }
@@ -274,4 +276,17 @@ hide(FinalizationRegistry.prototype, 'register', function register(target, held,
 hide(FinalizationRegistry.prototype, 'unregister', function unregister(token) { return false; });
 tag(FinalizationRegistry.prototype, 'FinalizationRegistry');
 hide(globalThis, 'FinalizationRegistry', FinalizationRegistry);
+// ---- the async function driver: runs the function's generator, one
+// step per settled await (the VM takes it out of the global object)
+hide(globalThis, '__cerAsync', function (gen) {
+  return new Promise(function (resolve, reject) {
+    function step(method, arg) {
+      var r;
+      try { r = gen[method](arg); } catch (e) { reject(e); return; }
+      if (r.done) { resolve(r.value); return; }
+      Promise.resolve(r.value).then(function (v) { step('next', v); }, function (e) { step('throw', e); });
+    }
+    step('next', undefined);
+  });
+});
 })();"#;

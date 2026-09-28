@@ -63,6 +63,8 @@ pub const N_EMPTY: int = 57;
 pub const N_PROGRAM: int = 58;
 pub const N_DEBUGGER: int = 59;
 pub const N_WITH: int = 60;
+/// `yield a` (flags 1: `yield*`), a = -1 for a bare yield
+pub const N_YIELD: int = 61;
 
 // flags of N_FUNC / N_PROP
 pub const F_ARROW: int = 1;

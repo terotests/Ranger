@@ -19,6 +19,9 @@ pub struct Parser {
     no_in: bool,
     in_function: bool,
     in_class: bool,
+    /// inside an async function (`await` is an operator) / a generator
+    in_async: bool,
+    in_generator: bool,
     /// the source, for functions' text
     src: Vec<char>,
     /// where the class or object member being read began
@@ -135,6 +138,8 @@ impl Parser {
             no_in: false,
             in_function: false,
             in_class: false,
+            in_async: false,
+            in_generator: false,
             src: Vec::new(),
             member_start: -1,
         };
@@ -791,6 +796,11 @@ impl Parser {
     fn function_body(&mut self, owner: int) -> int {
         let saved = self.in_function;
         self.in_function = true;
+        let saved_async = self.in_async;
+        let saved_gen = self.in_generator;
+        let of = self.ast.nodes[owner as usize].flags;
+        self.in_async = (of & F_ASYNC) != 0;
+        self.in_generator = (of & F_GENERATOR) != 0;
         let n = self.node(N_BLOCK);
         self.expect("{");
         self.directives(owner);
@@ -802,6 +812,8 @@ impl Parser {
         self.expect("}");
         self.ast.nodes[n as usize].list = body;
         self.in_function = saved;
+        self.in_async = saved_async;
+        self.in_generator = saved_gen;
         n
     }
 
@@ -895,10 +907,16 @@ impl Parser {
         } else {
             let saved = self.in_function;
             self.in_function = true;
+            let saved_async = self.in_async;
+            let saved_gen = self.in_generator;
+            self.in_async = (self.ast.nodes[n as usize].flags & F_ASYNC) != 0;
+            self.in_generator = false;
             let saved_no_in = self.no_in;
             let e = self.assign();
             self.no_in = saved_no_in;
             self.in_function = saved;
+            self.in_async = saved_async;
+            self.in_generator = saved_gen;
             self.ast.nodes[n as usize].a = e;
             self.ast.nodes[n as usize].flags |= F_EXPR_BODY;
         }
@@ -1040,8 +1058,14 @@ impl Parser {
                     // a field initializer runs as a method of the instance
                     let saved_fn = self.in_function;
                     self.in_function = true;
+                    let saved_async = self.in_async;
+                    let saved_gen = self.in_generator;
+                    self.in_async = false;
+                    self.in_generator = false;
                     let e = self.assign();
                     self.in_function = saved_fn;
+                    self.in_async = saved_async;
+                    self.in_generator = saved_gen;
                     self.ast.nodes[m as usize].b = e;
                 }
                 self.semicolon();
@@ -1189,9 +1213,21 @@ impl Parser {
         if self.arrow_ahead() {
             return self.arrow();
         }
-        if self.is("yield") && self.in_function {
-            self.fail("generators are not supported");
-            return self.node(N_UNDEF);
+        if self.is("yield") && self.in_generator && !self.toks[self.pos as usize].escaped {
+            let n = self.node(N_YIELD);
+            self.next();
+            if self.eat("*") {
+                self.ast.nodes[n as usize].flags = 1;
+                let e = self.assign();
+                self.ast.nodes[n as usize].a = e;
+                return n;
+            }
+            let ends = self.nl_before() || self.kind() == T_EOF || self.is(")") || self.is("]") || self.is("}") || self.is(",") || self.is(";") || self.is(":") || self.is("in") || self.is("of");
+            if !ends {
+                let e = self.assign();
+                self.ast.nodes[n as usize].a = e;
+            }
+            return n;
         }
         let line = self.line();
         let left = self.conditional();
@@ -1298,7 +1334,7 @@ impl Parser {
         if self.kind() == T_IDENT && !self.toks[self.pos as usize].escaped {
             let op = self.text();
             let s = op.as_str();
-            if s == "typeof" || s == "void" || s == "delete" || (s == "await" && self.in_function) {
+            if s == "typeof" || s == "void" || s == "delete" || (s == "await" && self.in_async) {
                 self.next();
                 let a = self.unary();
                 let n = self.ast.add(N_UNARY, line);
@@ -1537,6 +1573,8 @@ impl Parser {
             let mut sp = Parser::new(src.as_str());
             sp.in_function = self.in_function;
             sp.in_class = self.in_class;
+            sp.in_async = self.in_async;
+            sp.in_generator = self.in_generator;
             let e = sp.expression();
             if sp.kind() != T_EOF && sp.error.is_empty() {
                 sp.fail("bad template substitution");

@@ -226,6 +226,9 @@ pub const NF_REFLECT_GETPROTO: int = 376;
 pub const NF_REFLECT_DEFPROP: int = 377;
 pub const NF_REFLECT_DELETE: int = 378;
 pub const NF_EVAL: int = 379;
+pub const NF_GEN_NEXT: int = 380;
+pub const NF_GEN_THROW: int = 381;
+pub const NF_GEN_RETURN: int = 382;
 
 fn math_names() -> Vec<String> {
     let v = vec![
@@ -770,6 +773,36 @@ impl Vm {
         let a_tag2 = self.intern("@@toStringTag");
         self.objs[wmp as usize].add(a_tag2, str_val("WeakMap"), P_HIDDEN | P_READONLY);
         self.objs[wsp as usize].add(a_tag2, str_val("WeakSet"), P_HIDDEN | P_READONLY);
+
+        // generators and async functions: %GeneratorPrototype% (whose
+        // prototype the prelude sets to Iterator.prototype),
+        // %GeneratorFunction.prototype%, %AsyncFunction.prototype%
+        let a_tag3 = self.intern("@@toStringTag");
+        let op1 = self.object_proto;
+        let fp1 = self.function_proto;
+        let gp = self.alloc(C_OBJECT, op1);
+        self.roots.push(gp);
+        self.generator_proto = gp;
+        self.method(gp, "next", NF_GEN_NEXT, 1);
+        self.method(gp, "return", NF_GEN_RETURN, 1);
+        self.method(gp, "throw", NF_GEN_THROW, 1);
+        self.objs[gp as usize].add(a_tag3, str_val("Generator"), P_HIDDEN | P_READONLY);
+        let gfp = self.alloc(C_OBJECT, fp1);
+        self.roots.push(gfp);
+        self.gen_fn_proto = gfp;
+        self.objs[gfp as usize].add(A_PROTOTYPE, Val::Obj(gp), P_HIDDEN | P_READONLY);
+        self.objs[gp as usize].add(A_CONSTRUCTOR, Val::Obj(gfp), P_HIDDEN | P_READONLY);
+        self.objs[gfp as usize].add(a_tag3, str_val("GeneratorFunction"), P_HIDDEN | P_READONLY);
+        let gfc = self.native_fn("GeneratorFunction", NF_FUNCTION, 1);
+        self.objs[gfp as usize].add(A_CONSTRUCTOR, Val::Obj(gfc), P_HIDDEN | P_READONLY);
+        self.objs[gfc as usize].add(A_PROTOTYPE, Val::Obj(gfp), P_HIDDEN | P_READONLY | P_FIXED);
+        let afp = self.alloc(C_OBJECT, fp1);
+        self.roots.push(afp);
+        self.async_fn_proto = afp;
+        self.objs[afp as usize].add(a_tag3, str_val("AsyncFunction"), P_HIDDEN | P_READONLY);
+        let afc = self.native_fn("AsyncFunction", NF_FUNCTION, 1);
+        self.objs[afp as usize].add(A_CONSTRUCTOR, Val::Obj(afc), P_HIDDEN | P_READONLY);
+        self.objs[afc as usize].add(A_PROTOTYPE, Val::Obj(afp), P_HIDDEN | P_READONLY | P_FIXED);
 
         // Promise
         let prc = self.ctor("Promise", NF_PROMISE, 1, pp);
@@ -2827,6 +2860,15 @@ impl Vm {
                 self.jobs.push(Val::Undef);
                 self.jobs.push(Val::Undef);
                 Val::Undef
+            }
+            NF_GEN_NEXT | NF_GEN_THROW | NF_GEN_RETURN => {
+                let g = obj_of(&this);
+                if g < 0 || self.objs[g as usize].class != C_GENERATOR {
+                    self.throw_type("next method called on incompatible receiver");
+                    return Val::Undef;
+                }
+                let mode = if id == NF_GEN_NEXT { 0 } else if id == NF_GEN_THROW { 1 } else { 2 };
+                self.gen_resume(g, mode, a0)
             }
             NF_EVAL => {
                 // an indirect eval: global code

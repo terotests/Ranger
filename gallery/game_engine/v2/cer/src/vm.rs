@@ -102,6 +102,15 @@ pub struct Vm {
     pub global: int,
     pub object_proto: int,
     pub function_proto: int,
+    /// %GeneratorPrototype%, %GeneratorFunction.prototype%,
+    /// %AsyncFunction.prototype%
+    pub generator_proto: int,
+    pub gen_fn_proto: int,
+    pub async_fn_proto: int,
+    /// the prelude's async function driver
+    pub async_driver: Val,
+    /// set by a yield, read by the resume that ran it
+    pub gen_yielded: bool,
     pub array_proto: int,
     pub string_proto: int,
     pub number_proto: int,
@@ -181,6 +190,12 @@ pub fn quick_eq(a: &Val, b: &Val, strict: bool) -> int {
     }
 }
 
+// generator states (JsObj.pos of a C_GENERATOR)
+pub const GS_START: int = 0;
+pub const GS_YIELD: int = 1;
+pub const GS_RUNNING: int = 2;
+pub const GS_DONE: int = 3;
+
 pub fn truthy(v: &Val) -> bool {
     match v {
         Val::Undef => false,
@@ -207,6 +222,11 @@ impl Vm {
             global: -1,
             object_proto: -1,
             function_proto: -1,
+            generator_proto: -1,
+            gen_fn_proto: -1,
+            async_fn_proto: -1,
+            async_driver: Val::Undef,
+            gen_yielded: false,
             array_proto: -1,
             string_proto: -1,
             number_proto: -1,
@@ -658,7 +678,14 @@ impl Vm {
             }
             if atom == A_PROTOTYPE && !self.objs[f as usize].has_proto_obj {
                 let p = &self.protos[pi as usize];
-                if !p.arrow && !(p.method && !p.class_ctor) && !p.getter_setter {
+                if p.generator {
+                    let gp = self.generator_proto;
+                    let o = self.alloc(C_OBJECT, gp);
+                    self.objs[f as usize].add(A_PROTOTYPE, Val::Obj(o), P_HIDDEN | P_FIXED);
+                    self.objs[f as usize].has_proto_obj = true;
+                    return Val::Obj(o);
+                }
+                if !p.arrow && !(p.method && !p.class_ctor) && !p.getter_setter && !p.is_async {
                     return self.function_prototype(f);
                 }
             }
@@ -1498,7 +1525,7 @@ impl Vm {
             return self.construct(Val::Obj(target), all, nt);
         }
         let pi = self.objs[fo as usize].func;
-        if self.protos[pi as usize].arrow || (self.protos[pi as usize].method && !self.protos[pi as usize].class_ctor) {
+        if self.protos[pi as usize].arrow || (self.protos[pi as usize].method && !self.protos[pi as usize].class_ctor) || self.protos[pi as usize].generator || self.protos[pi as usize].is_async {
             self.throw_type("value is not a constructor");
             return Val::Undef;
         }
@@ -1615,6 +1642,7 @@ impl Vm {
             new_target: nt,
             args_obj: args_obj,
             construct: construct,
+            gen: -1,
         });
         if construct && class_ctor && !derived {
             self.run_fields(fo, &this_val);
@@ -1669,7 +1697,13 @@ impl Vm {
     }
 
     fn closure(&mut self, pi: int) -> int {
-        let fp = self.function_proto;
+        let fp = if self.protos[pi as usize].generator {
+            self.gen_fn_proto
+        } else if self.protos[pi as usize].is_async {
+            self.async_fn_proto
+        } else {
+            self.function_proto
+        };
         let f = self.alloc(C_FUNCTION, fp);
         let fi = self.frames.len() - 1;
         let env = self.frames[fi].env;
@@ -2270,6 +2304,126 @@ impl Vm {
         }
     }
 
+    /// Saves frame `fi` (the top one) with its stack and handlers into the
+    /// generator object `g`, and takes it off the stack.
+    pub fn gen_save(&mut self, g: int, fi: usize) {
+        let bp = self.frames[fi].bp;
+        let start = (bp - 2) as usize;
+        let mut seg: Vec<Val> = Vec::new();
+        let mut i = start;
+        while i < self.stack.len() {
+            seg.push(self.stack[i].clone());
+            i += 1;
+        }
+        self.stack.truncate(start);
+        let fr = self.frames.pop().unwrap();
+        let mut hs: Vec<Handler> = Vec::new();
+        while !self.handlers.is_empty() && self.handlers[self.handlers.len() - 1].frame >= fi as int {
+            hs.push(self.handlers.pop().unwrap());
+        }
+        let mut saved: Vec<int> = vec![fr.pc];
+        let mut e2: Vec<Val> = vec![fr.new_target.clone(), if fr.args_obj >= 0 { Val::Obj(fr.args_obj) } else { Val::Undef }];
+        let mut k = hs.len();
+        while k > 0 {
+            k -= 1;
+            saved.push(hs[k].catch_pc);
+            saved.push(hs[k].sp - bp);
+            e2.push(if hs[k].env >= 0 { Val::Obj(hs[k].env) } else { Val::Undef });
+        }
+        let ob = &mut self.objs[g as usize];
+        ob.elems = seg;
+        ob.elems2 = e2;
+        ob.saved = saved;
+        ob.func = fr.proto;
+        ob.env = fr.env;
+        ob.home = fr.fobj;
+        ob.prim = fr.this_val;
+    }
+
+    /// next(v) (mode 0), throw(v) (1), return(v) (2) of the generator `g`.
+    pub fn gen_resume(&mut self, g: int, mode: int, v: Val) -> Val {
+        let st = self.objs[g as usize].pos;
+        if st == GS_RUNNING {
+            self.throw_type("Generator is already running");
+            return Val::Undef;
+        }
+        if st == GS_DONE || (st == GS_START && mode != 0) || (st == GS_YIELD && mode == 2) {
+            self.objs[g as usize].pos = GS_DONE;
+            self.objs[g as usize].elems = Vec::new();
+            if mode == 1 {
+                self.throwing = true;
+                self.exc = v;
+                return Val::Undef;
+            }
+            let rv = if mode == 2 { v } else { Val::Undef };
+            return self.iter_result(rv, true);
+        }
+        let base = self.frames.len() as int;
+        let seg = self.objs[g as usize].elems.clone();
+        let start = self.stack.len() as int;
+        for x in seg {
+            self.stack.push(x);
+        }
+        let bp = start + 2;
+        let saved = self.objs[g as usize].saved.clone();
+        let e2 = self.objs[g as usize].elems2.clone();
+        let ao = obj_of(&e2[1]);
+        self.frames.push(Frame {
+            proto: self.objs[g as usize].func,
+            fobj: self.objs[g as usize].home,
+            pc: saved[0],
+            bp: bp,
+            env: self.objs[g as usize].env,
+            this_val: self.objs[g as usize].prim.clone(),
+            new_target: e2[0].clone(),
+            args_obj: ao,
+            construct: false,
+            gen: g,
+        });
+        let fi = (self.frames.len() - 1) as int;
+        let mut k: usize = 1;
+        let mut hi: usize = 2;
+        while k + 1 < saved.len() {
+            let env = obj_of(&e2[hi]);
+            self.handlers.push(Handler { frame: fi, catch_pc: saved[k], sp: bp + saved[k + 1], env: env });
+            k += 2;
+            hi += 1;
+        }
+        self.objs[g as usize].elems = Vec::new();
+        self.objs[g as usize].pos = GS_RUNNING;
+        if st == GS_YIELD {
+            if mode == 1 {
+                self.throwing = true;
+                self.exc = v;
+            } else {
+                self.stack.push(v);
+            }
+        }
+        self.gen_yielded = false;
+        self.native_depth += 1;
+        self.run(base);
+        self.native_depth -= 1;
+        if self.throwing {
+            self.objs[g as usize].pos = GS_DONE;
+            return Val::Undef;
+        }
+        let r = self.stack.pop().unwrap();
+        if self.gen_yielded {
+            self.gen_yielded = false;
+            self.objs[g as usize].pos = GS_YIELD;
+            return self.iter_result(r, false);
+        }
+        self.objs[g as usize].pos = GS_DONE;
+        self.iter_result(r, true)
+    }
+
+    pub fn iter_result(&mut self, v: Val, done: bool) -> Val {
+        let r = self.new_object();
+        self.objs[r as usize].add(A_VALUE, v, 0);
+        self.objs[r as usize].add(A_DONE, Val::Bool(done), 0);
+        Val::Obj(r)
+    }
+
     pub fn gc_due(&self) -> bool {
         self.alloc_count >= self.gc_threshold && self.native_depth == 0
     }
@@ -2392,7 +2546,7 @@ impl Vm {
         let class = self.objs[fo as usize].class;
         if class == C_FUNCTION {
             let pi = self.objs[fo as usize].func;
-            if self.protos[pi as usize].arrow || (self.protos[pi as usize].method && !self.protos[pi as usize].class_ctor) || self.protos[pi as usize].getter_setter {
+            if self.protos[pi as usize].arrow || (self.protos[pi as usize].method && !self.protos[pi as usize].class_ctor) || self.protos[pi as usize].getter_setter || self.protos[pi as usize].generator || self.protos[pi as usize].is_async {
                 self.throw_type("value is not a constructor");
                 return false;
             }
@@ -2543,6 +2697,43 @@ impl Vm {
                 let a = self.pop();
                 let r = self.instance_of(&a, &b);
                 self.stack.push(Val::Bool(r));
+            }
+            OP_GEN_START => {
+                // the call answers a generator object holding this frame
+                let fobj = self.frames[fi].fobj;
+                let is_async = self.protos[pi].is_async;
+                let gproto = if is_async {
+                    self.generator_proto
+                } else {
+                    let pv = self.get_obj(fobj, A_PROTOTYPE, &Val::Obj(fobj));
+                    match pv {
+                        Val::Obj(p) => p,
+                        _ => self.generator_proto,
+                    }
+                };
+                let g = self.alloc(C_GENERATOR, gproto);
+                self.gen_save(g, fi);
+                self.objs[g as usize].pos = GS_START;
+                if is_async {
+                    let d = self.async_driver.clone();
+                    let r = self.call_value(d, Val::Undef, vec![Val::Obj(g)]);
+                    self.stack.push(r);
+                } else {
+                    self.stack.push(Val::Obj(g));
+                }
+                return true;
+            }
+            OP_YIELD | OP_AWAIT => {
+                let v = self.pop();
+                let g = self.frames[fi].gen;
+                if g < 0 {
+                    self.throw_syntax("yield outside a generator");
+                    return false;
+                }
+                self.gen_save(g, fi);
+                self.stack.push(v);
+                self.gen_yielded = true;
+                return true;
             }
             OP_EVAL_CALL => {
                 let argc = op.a;

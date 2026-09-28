@@ -53,6 +53,18 @@ impl Engine {
             e.vm.out.clear();
         }
         e.vm.prelude_protos = e.vm.protos.len() as int;
+        // the async driver: kept by the VM, gone from the global object
+        let g = e.vm.global;
+        let a = e.vm.intern("__cerAsync");
+        let d = e.vm.get_obj(g, a, &Val::Obj(g));
+        if let Val::Obj(o) = &d {
+            e.vm.roots.push(*o);
+        }
+        e.vm.async_driver = d;
+        let slot = e.vm.objs[g as usize].find(a);
+        if slot >= 0 {
+            e.vm.objs[g as usize].remove(slot);
+        }
         e.error = String::new();
         e
     }

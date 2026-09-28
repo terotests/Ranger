@@ -1054,6 +1054,8 @@ impl Compiler {
         proto.derived = (flags & F_DERIVED) != 0;
         proto.getter_setter = (flags & (F_GETTER | F_SETTER)) != 0;
         proto.source = self.ast.nodes[n as usize].text.clone();
+        proto.generator = (flags & F_GENERATOR) != 0;
+        proto.is_async = (flags & F_ASYNC) != 0;
         let params = self.ast.nodes[n as usize].list.clone();
         let saved_scope = self.cur_scope;
         self.fs.push(FnState {
@@ -1145,6 +1147,10 @@ impl Compiler {
                 }
             }
             pi += 1;
+        }
+        if (flags & (F_GENERATOR | F_ASYNC)) != 0 {
+            // the parameters are bound; the body waits for next()
+            self.op(OP_GEN_START);
         }
         let body = self.ast.nodes[n as usize].a;
         if (flags & F_EXPR_BODY) != 0 {
@@ -1881,6 +1887,29 @@ impl Compiler {
             self.update(n, true);
             return;
         }
+        if k == N_YIELD {
+            if self.ast.nodes[n as usize].flags == 1 {
+                // yield*: every value of the iterable in turn
+                self.expr(a);
+                self.op(OP_ITER_VALUES);
+                let top = self.pc();
+                let next = self.emit(OP_ITER_NEXT, 0, 0);
+                self.op(OP_YIELD);
+                self.op(OP_POP);
+                self.emit(OP_JUMP, top, 0);
+                self.patch(next);
+                self.op(OP_POP);
+                self.op(OP_UNDEF);
+                return;
+            }
+            if a >= 0 {
+                self.expr(a);
+            } else {
+                self.op(OP_UNDEF);
+            }
+            self.op(OP_YIELD);
+            return;
+        }
         if k == N_BINARY {
             let op = self.ast.nodes[n as usize].op.clone();
             self.expr(a);
@@ -2250,6 +2279,7 @@ impl Compiler {
         }
         if o == "await" {
             self.expr(a);
+            self.op(OP_AWAIT);
             return;
         }
         if o == "-" && self.ast.nodes[a as usize].kind == N_NUM {
