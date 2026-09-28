@@ -9,11 +9,9 @@ import path from "path";
 import vm from "vm";
 import { spawnSync } from "child_process";
 import { fileURLToPath } from "url";
-import { createRequire } from "module";
 
 export const CER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const ROOT = path.resolve(CER, "../../../..");
-const req = createRequire(import.meta.url);
 
 export const PRINT_PRELUDE = `
 function print() {
@@ -75,15 +73,20 @@ export function runCerNative(src) {
   return lines(r.stdout).concat(lines(r.stderr));
 }
 
-/** CEr compiled to JavaScript by rgrc (bin/Cer.cjs). */
+/** CEr compiled to JavaScript by rgrc (bin/Cer.cjs), in a process of its
+ * own with a time limit (CE_TIMEOUT_MS) and a 4 GB heap. */
 export function runCerJs(src) {
-  const mod = req(path.join(CER, "bin/Cer.cjs"));
-  const e = mod.Engine.new_();
-  const r = e.eval(src);
-  const out = [];
-  const n = e.output_count();
-  for (let i = 0; i < n; i++) out.push(e.output_at(i));
-  if (e.error) out.push(r);
+  const f = tmpFile(src);
+  const limit = Number(process.env.CE_TIMEOUT_MS || 300000);
+  const r = spawnSync(process.execPath, ["--max-old-space-size=4096", path.join(CER, "bench/cer_js_runner.cjs"), f], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: limit,
+  });
+  fs.unlinkSync(f);
+  const out = lines(r.stdout);
+  if (r.error) out.push("timeout: no result in " + limit / 1000 + " s");
+  else if (r.status !== 0) out.push("exited with " + (r.status ?? r.signal) + (/heap out of memory/.test(r.stderr) ? " (out of memory)" : ""));
   return out;
 }
 

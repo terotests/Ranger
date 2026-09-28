@@ -78,7 +78,7 @@ impl Engine {
         let f = self.vm.alloc(C_FUNCTION, fp);
         self.vm.objs[f as usize].func = entry;
         let g = Val::Obj(self.vm.global);
-        let r = self.vm.call_value(Val::Obj(f), g, Vec::new());
+        let r = self.vm.run_program(Val::Obj(f), g);
         if self.vm.throwing {
             return self.uncaught();
         }
@@ -117,7 +117,7 @@ impl Engine {
         let f = self.vm.alloc(C_FUNCTION, fp);
         self.vm.objs[f as usize].func = entry;
         let g = Val::Obj(self.vm.global);
-        let r = self.vm.call_value(Val::Obj(f), g, Vec::new());
+        let r = self.vm.run_program(Val::Obj(f), g);
         if self.vm.throwing {
             let u = self.uncaught();
             return format!("t:{}", u);

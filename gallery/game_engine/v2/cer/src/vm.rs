@@ -1421,6 +1421,15 @@ impl Vm {
         self.stack.pop().unwrap()
     }
 
+    /// Runs a script's entry function. Unlike `call_value` from a native,
+    /// the script's own frames are safe points for the collector.
+    pub fn run_program(&mut self, f: Val, this: Val) -> Val {
+        self.native_depth -= 1;
+        let r = self.call_value(f, this, Vec::new());
+        self.native_depth += 1;
+        r
+    }
+
     /// `new f(...args)` from native code.
     pub fn construct(&mut self, f: Val, args: Vec<Val>, new_target: Val) -> Val {
         let fo = obj_of(&f);
