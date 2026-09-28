@@ -491,6 +491,26 @@ hide(Atomics, 'pause', function pause() {});
 tag(Atomics, 'Atomics');
 hide(globalThis, 'Atomics', Atomics);
 
+// ---- Intl: prelude::INTL, compiled when a program first reaches for it
+// (the global Intl, or a toLocaleString that is defined through it)
+var IH = globalThis.__cerIntl;
+delete globalThis.__cerIntl;
+var intlK = { Object: Object, Date: Date, WeakMap: WeakMap, String: String, Number: Number, Math: Math, Symbol: Symbol,
+  RangeError: RangeError, TypeError: TypeError, parseInt: parseInt, global: globalThis,
+  defineProperty: defineProperty, create: create, isArray: Array.isArray,
+  toLower: String.prototype.toLowerCase, toUpper: String.prototype.toUpperCase, dateNow: Date.now,
+  getTime: Date.prototype.getTime, numValue: Number.prototype.valueOf };
+var intlImpl;
+function intl() { if (intlImpl === undefined) intlImpl = IH.load(IH, intlK); return intlImpl; }
+defineProperty(globalThis, 'Intl', {
+  get: function () { return intl().Intl; },
+  set: function (v) { defineProperty(globalThis, 'Intl', { value: v, writable: true, enumerable: false, configurable: true }); },
+  enumerable: false, configurable: true });
+hide(Number.prototype, 'toLocaleString', function toLocaleString() { return intl().numberLocale(this, arguments[0], arguments[1]); });
+hide(Date.prototype, 'toLocaleString', function toLocaleString() { return intl().dateLocale(this, arguments[0], 5); });
+hide(Date.prototype, 'toLocaleDateString', function toLocaleDateString() { return intl().dateLocale(this, arguments[0], 0); });
+hide(Date.prototype, 'toLocaleTimeString', function toLocaleTimeString() { return intl().dateLocale(this, arguments[0], 4); });
+
 // ---- the async function driver: runs the function's generator, one
 // step per settled await (the VM takes it out of the global object)
 hide(globalThis, '__cerAsync', function (gen) {
@@ -506,21 +526,23 @@ hide(globalThis, '__cerAsync', function (gen) {
 });
 })();"#;
 
-/// Intl, over the natives of `intl.rs` (the helper object `__cerIntl`):
-/// ComponentEngine's D-INTL ported. The CLDR data covers 39 locales; any
+/// Intl, over the natives of `intl.rs`: ComponentEngine's D-INTL ported.
+/// A function of the helper object and the intrinsics, compiled the first
+/// time a program reaches for Intl (`__cerIntl.load`), so an engine that
+/// never does pays nothing for it. The CLDR data covers 39 locales; any
 /// other falls back to "en", and resolvedOptions().locale says so.
-pub const INTL: &str = r#"(function () {
-var I = globalThis.__cerIntl;
-delete globalThis.__cerIntl;
-var defineProperty = Object.defineProperty;
-var create = Object.create;
-var isArray = Array.isArray;
-var toLower = String.prototype.toLowerCase;
-var toUpper = String.prototype.toUpperCase;
-var dateNow = Date.now;
-var DP = Date.prototype;
-var getTime = DP.getTime;
-var numValue = Number.prototype.valueOf;
+pub const INTL: &str = r#"(function (I, K) {
+// the intrinsics, as they were when the engine started
+var Object = K.Object, Date = K.Date, WeakMap = K.WeakMap, String = K.String, Number = K.Number, Math = K.Math, Symbol = K.Symbol;
+var RangeError = K.RangeError, TypeError = K.TypeError, parseInt = K.parseInt, globalThis = K.global;
+var defineProperty = K.defineProperty;
+var create = K.create;
+var isArray = K.isArray;
+var toLower = K.toLower;
+var toUpper = K.toUpper;
+var dateNow = K.dateNow;
+var getTime = K.getTime;
+var numValue = K.numValue;
 function hide(o, name, v) { defineProperty(o, name, { value: v, writable: true, enumerable: false, configurable: true }); }
 function tag(o, name) { defineProperty(o, Symbol.toStringTag, { value: name, writable: false, enumerable: false, configurable: true }); }
 function getter(o, name, f) { defineProperty(o, name, { get: f, enumerable: false, configurable: true }); }
@@ -729,7 +751,7 @@ var NumberFormat = makeCtor('NumberFormat', 'numberformat', function (s, opts) {
     cur = upper(cur);
   }
   var defMax = 3, defMin = 0;
-  if (style === 'currency') { defMax = 2; defMin = 2; }
+  if (style === 'currency') { defMax = currencyDigits(cur); defMin = defMax; }
   if (style === 'percent') defMax = 0;
   var minF = intOption(opts, 'minimumFractionDigits', defMin);
   var maxF = intOption(opts, 'maximumFractionDigits', defMax < minF ? minF : defMax);
@@ -742,6 +764,12 @@ var NumberFormat = makeCtor('NumberFormat', 'numberformat', function (s, opts) {
   s.minI = intOption(opts, 'minimumIntegerDigits', 1);
   s.group = boolOption(opts, 'useGrouping', true);
 }, false);
+// ISO 4217 minor units: 2 but for these
+function currencyDigits(code) {
+  if (/^(BIF|CLP|DJF|GNF|ISK|JPY|KMF|KRW|PYG|RWF|UGX|UYI|VND|VUV|XAF|XOF|XPF)$/.test(code)) return 0;
+  if (/^(BHD|IQD|JOD|KWD|LYD|OMR|TND)$/.test(code)) return 3;
+  return 2;
+}
 // grouping from the right; the first group may differ (3 then 2 in South
 // Asian locales), and a number shorter than the minimum is not grouped
 function groupInteger(digits, loc, useGroup) {
@@ -826,12 +854,15 @@ function numberParts(s, value) {
     return out;
   }
   var body = v.toFixed(s.maxF);
+  // toFixed answers in exponent form from 1e21 up: the digits written out
+  if (body.indexOf('e') >= 0) body = plainDigits(String(v));
   var dot = body.indexOf('.');
   var intPart = body, fracPart = '';
   if (dot >= 0) { intPart = body.slice(0, dot); fracPart = body.slice(dot + 1); }
   var fl = fracPart.length;
   while (fl > s.minF && fracPart.charCodeAt(fl - 1) === 48) fl--;
   fracPart = fracPart.slice(0, fl);
+  while (fracPart.length < s.minF) fracPart += '0';
   while (intPart.length < s.minI) intPart = '0' + intPart;
   var grouped = groupInteger(intPart, loc, s.group);
   if (grp.length === 0) {
@@ -853,6 +884,15 @@ function numberParts(s, value) {
   }
   pushAffix(out, aff[1], minus, sym, s.style, pct);
   return out;
+}
+// the integer digits of a number written as "1.2345e+22"
+function plainDigits(t) {
+  var e = t.indexOf('e'), mant = t.slice(0, e), exp = Number(t.slice(e + 1));
+  var dot = mant.indexOf('.');
+  var digits = dot < 0 ? mant : mant.slice(0, dot) + mant.slice(dot + 1);
+  var intLen = (dot < 0 ? mant.length : dot) + exp;
+  while (digits.length < intLen) digits += '0';
+  return digits.slice(0, intLen);
 }
 // formatRange: the two ends joined by an en dash, or one when they agree
 function rangeParts(a, b) {
@@ -1056,17 +1096,17 @@ hide(globalThis, 'Intl', Intl);
 
 // ---- the toLocaleString family: defined as the Intl objects with the
 // same arguments
-hide(Number.prototype, 'toLocaleString', function toLocaleString() {
-  var x = numValue.call(this);
-  return joinParts(numberParts(slots.get(new NumberFormat(arguments[0], arguments[1])), x));
-});
+// (the prelude's Number.prototype.toLocaleString and the Date ones call
+// these)
+function numberLocale(n, locales, options) {
+  var x = numValue.call(n);
+  return joinParts(numberParts(slots.get(new NumberFormat(locales, options)), x));
+}
 function dateLocale(d, locales, which) {
   var t = getTime.call(d);
   if (t !== t) return 'Invalid Date';
   checkTags(locales);
   return joinParts(dateParts(localeIndex(firstTag(locales)), which, t, 0));
 }
-hide(DP, 'toLocaleString', function toLocaleString() { return dateLocale(this, arguments[0], 5); });
-hide(DP, 'toLocaleDateString', function toLocaleDateString() { return dateLocale(this, arguments[0], 0); });
-hide(DP, 'toLocaleTimeString', function toLocaleTimeString() { return dateLocale(this, arguments[0], 4); });
-})();"#;
+return { Intl: Intl, numberLocale: numberLocale, dateLocale: dateLocale };
+})"#;

@@ -5,7 +5,9 @@
 //! Supported: alternation, groups (capturing, `(?:`, named `(?<n>`),
 //! quantifiers `* + ? {n} {n,} {n,m}` greedy and lazy, classes with ranges
 //! and `\d \w \s`, `.`, anchors `^ $ \b \B`, back references `\1 \k<n>`,
-//! lookahead and lookbehind, and the flags `g i m s u y`.
+//! lookahead and lookbehind, Unicode property escapes `\p{…}` / `\P{…}`
+//! (unicode.rs), the flags `g i m s u y`, and `v` with its class set
+//! notation: nested classes, `&&`, `--` and `\q{…}` strings.
 
 use ranger::prelude::*;
 
@@ -66,6 +68,7 @@ pub struct RClass {
 
 pub struct Regex {
     code: Vec<Inst>,
+    pub unicode_sets: bool,
     classes: Vec<RClass>,
     pub ngroups: int,
     pub names: Vec<String>,
@@ -92,6 +95,7 @@ struct RParser {
     name_index: Vec<int>,
     error: String,
     unicode: bool,
+    vmode: bool,
 }
 
 fn is_digit(c: int) -> bool {
@@ -307,6 +311,11 @@ impl RParser {
         } else if c == 46 {
             self.pos += 1;
             atom = self.node(R_ANY);
+        } else if c == 91 && self.vmode {
+            atom = self.class_v();
+            if atom < 0 {
+                return -1;
+            }
         } else if c == 91 {
             atom = self.class();
         } else if c == 92 {
@@ -613,6 +622,18 @@ impl RParser {
                     self.add_class_escape(&mut ranges, e);
                     continue;
                 }
+                if (e == 112 || e == 80) && self.unicode {
+                    let r = self.property();
+                    if !self.error.is_empty() {
+                        break;
+                    }
+                    let mut i: usize = 0;
+                    while i < r.len() {
+                        ranges.push(r[i]);
+                        i += 1;
+                    }
+                    continue;
+                }
                 lo = self.char_escape(true);
             } else {
                 lo = c;
@@ -658,10 +679,292 @@ impl RParser {
                 ranges.push(lo);
             }
         }
-        self.classes.push(RClass { ranges: ranges, negate: negate });
+        self.class_node(ranges, negate)
+    }
+
+    /// A class node over `ranges` (sorted and merged here, so matching can
+    /// search them).
+    fn class_node(&mut self, ranges: Vec<int>, negate: bool) -> int {
+        let r = norm_ranges(&ranges);
+        self.classes.push(RClass { ranges: r, negate: negate });
         let n = self.node(R_CLASS);
         self.nodes[n as usize].c = (self.classes.len() as int) - 1;
         n
+    }
+
+    /// `\p{…}` / `\P{…}` after the backslash (at the `p`): the property's
+    /// ranges, complemented for `\P`; fails on a malformed or unknown name.
+    fn property(&mut self) -> Vec<int> {
+        let neg = self.cur() == 80;
+        self.pos += 1;
+        if self.cur() != 123 {
+            self.fail("Invalid regular expression: invalid property name");
+            return Vec::new();
+        }
+        self.pos += 1;
+        let mut raw = String::new();
+        while self.cur() >= 0 && self.cur() != 125 {
+            crate::jsstr::push_cp(&mut raw, self.cur());
+            self.pos += 1;
+        }
+        if self.cur() != 125 || raw.is_empty() {
+            self.fail("Invalid regular expression: invalid property name");
+            return Vec::new();
+        }
+        self.pos += 1;
+        let r = crate::unicode::property_ranges(raw.as_str());
+        if r.len() == 1 {
+            self.fail("Invalid regular expression: invalid property name");
+            return Vec::new();
+        }
+        if neg {
+            return complement(&r);
+        }
+        r
+    }
+
+    /// A class under the `v` flag, at its `[`: the set and the strings
+    /// (`\q{…}` alternatives longer than one character) it matches.
+    fn class_set(&mut self, strings: &mut Vec<Vec<int>>) -> Vec<int> {
+        self.pos += 1;
+        let mut negate = false;
+        if self.cur() == 94 {
+            negate = true;
+            self.pos += 1;
+        }
+        let mut set: Vec<int> = Vec::new();
+        let mut strs: Vec<Vec<int>> = Vec::new();
+        // 0 union, 1 intersection, 2 subtraction
+        let mut op = 0;
+        let mut first = true;
+        loop {
+            let c = self.cur();
+            if c < 0 {
+                self.fail("Invalid regular expression: missing /");
+                return Vec::new();
+            }
+            if c == 93 {
+                self.pos += 1;
+                break;
+            }
+            if !first && ((c == 38 && self.peek(1) == 38) || (c == 45 && self.peek(1) == 45)) {
+                let this_op = if c == 38 { 1 } else { 2 };
+                if op != 0 && op != this_op {
+                    self.fail("Invalid regular expression: invalid set operation in character class");
+                    return Vec::new();
+                }
+                op = this_op;
+                self.pos += 2;
+                let mut rs: Vec<Vec<int>> = Vec::new();
+                let r = self.class_operand(&mut rs, false);
+                if !self.error.is_empty() {
+                    return Vec::new();
+                }
+                if op == 1 {
+                    set = intersect(&set, &r);
+                    let mut kept: Vec<Vec<int>> = Vec::new();
+                    let mut i: usize = 0;
+                    while i < strs.len() {
+                        if has_string(&rs, &strs[i]) {
+                            kept.push(strs[i].clone());
+                        }
+                        i += 1;
+                    }
+                    strs = kept;
+                } else {
+                    set = intersect(&set, &complement(&r));
+                    let mut kept: Vec<Vec<int>> = Vec::new();
+                    let mut i: usize = 0;
+                    while i < strs.len() {
+                        if !has_string(&rs, &strs[i]) {
+                            kept.push(strs[i].clone());
+                        }
+                        i += 1;
+                    }
+                    strs = kept;
+                }
+                continue;
+            }
+            if op != 0 {
+                self.fail("Invalid regular expression: invalid set operation in character class");
+                return Vec::new();
+            }
+            let r = self.class_operand(&mut strs, true);
+            if !self.error.is_empty() {
+                return Vec::new();
+            }
+            let mut both = set.clone();
+            let mut i: usize = 0;
+            while i < r.len() {
+                both.push(r[i]);
+                i += 1;
+            }
+            set = norm_ranges(&both);
+            first = false;
+        }
+        if negate {
+            if !strs.is_empty() {
+                self.fail("Invalid regular expression: negated character class may contain strings");
+                return Vec::new();
+            }
+            return complement(&set);
+        }
+        let mut i: usize = 0;
+        while i < strs.len() {
+            strings.push(strs[i].clone());
+            i += 1;
+        }
+        set
+    }
+
+    /// One operand of a `v` class: a nested class, `\p{…}`, `\q{…}`, a
+    /// class escape, or a character (with `ranges`, a range `a-z`).
+    fn class_operand(&mut self, strings: &mut Vec<Vec<int>>, ranges: bool) -> Vec<int> {
+        let c = self.cur();
+        let mut out: Vec<int> = Vec::new();
+        if c == 91 {
+            return self.class_set(strings);
+        }
+        let lo: int;
+        if c == 92 {
+            self.pos += 1;
+            let e = self.cur();
+            if e == 112 || e == 80 {
+                return self.property();
+            }
+            if e == 100 || e == 68 || e == 119 || e == 87 || e == 115 || e == 83 {
+                self.pos += 1;
+                self.add_class_escape(&mut out, e);
+                return norm_ranges(&out);
+            }
+            if e == 113 && self.peek(1) == 123 {
+                // \q{abc|d}: strings; a one-character one is a character
+                self.pos += 2;
+                let mut cur: Vec<int> = Vec::new();
+                loop {
+                    let x = self.cur();
+                    if x < 0 {
+                        self.fail("Invalid regular expression: invalid escape");
+                        return Vec::new();
+                    }
+                    if x == 125 || x == 124 {
+                        self.pos += 1;
+                        if cur.len() == 1 {
+                            out.push(cur[0]);
+                            out.push(cur[0]);
+                        } else {
+                            strings.push(cur.clone());
+                        }
+                        cur = Vec::new();
+                        if x == 125 {
+                            break;
+                        }
+                        continue;
+                    }
+                    let v = if x == 92 {
+                        self.pos += 1;
+                        self.char_escape(true)
+                    } else {
+                        self.pos += 1;
+                        self.pair_after(x)
+                    };
+                    cur.push(v);
+                }
+                return norm_ranges(&out);
+            }
+            lo = self.char_escape(true);
+        } else {
+            self.pos += 1;
+            lo = self.pair_after(c);
+        }
+        if ranges && self.cur() == 45 && self.peek(1) != 45 && self.peek(1) != 93 && self.peek(1) >= 0 {
+            self.pos += 1;
+            let h = self.cur();
+            let hi: int;
+            if h == 92 {
+                self.pos += 1;
+                hi = self.char_escape(true);
+            } else {
+                self.pos += 1;
+                hi = self.pair_after(h);
+            }
+            if hi < lo {
+                self.fail("Invalid regular expression: range out of order in character class");
+                return Vec::new();
+            }
+            out.push(lo);
+            out.push(hi);
+            return out;
+        }
+        out.push(lo);
+        out.push(lo);
+        out
+    }
+
+    /// `c` just read; with the one after it a surrogate pair, the code
+    /// point of the pair (consumed).
+    fn pair_after(&mut self, c: int) -> int {
+        if c >= 0xd800 && c <= 0xdbff && self.cur() >= 0xdc00 && self.cur() <= 0xdfff {
+            let cp = 0x10000 + ((c - 0xd800) << 10) + (self.cur() - 0xdc00);
+            self.pos += 1;
+            return cp;
+        }
+        c
+    }
+
+    /// A `v` class as a node: its strings, longest first, then its set.
+    fn class_v(&mut self) -> int {
+        let mut strings: Vec<Vec<int>> = Vec::new();
+        let negate = self.peek(1) == 94;
+        let set = self.class_set(&mut strings);
+        if !self.error.is_empty() {
+            return -1;
+        }
+        if strings.is_empty() {
+            // a negated class came back complemented
+            if negate {
+                return self.class_node(complement(&set), true);
+            }
+            return self.class_node(set, false);
+        }
+        // longest first (stable)
+        let mut a: usize = 1;
+        while a < strings.len() {
+            let mut b = a;
+            while b > 0 && strings[b - 1].len() < strings[b].len() {
+                let t = strings[b].clone();
+                strings[b] = strings[b - 1].clone();
+                strings[b - 1] = t;
+                b -= 1;
+            }
+            a += 1;
+        }
+        let mut alts: Vec<int> = Vec::new();
+        let mut i: usize = 0;
+        while i < strings.len() {
+            let sq = self.node(R_SEQ);
+            let mut items: Vec<int> = Vec::new();
+            let mut k: usize = 0;
+            while k < strings[i].len() {
+                let ch = self.node(R_CHAR);
+                self.nodes[ch as usize].c = strings[i][k];
+                items.push(ch);
+                k += 1;
+            }
+            self.nodes[sq as usize].list = items;
+            alts.push(sq);
+            i += 1;
+        }
+        if !set.is_empty() {
+            let cl = self.class_node(set, false);
+            alts.push(cl);
+        }
+        let alt = self.node(R_ALT);
+        self.nodes[alt as usize].list = alts;
+        let g = self.node(R_GROUP);
+        self.nodes[g as usize].c = -1;
+        self.nodes[g as usize].list = vec![alt];
+        g
     }
 
     fn escape(&mut self) -> int {
@@ -675,10 +978,14 @@ impl RParser {
             self.pos += 1;
             let mut ranges: Vec<int> = Vec::new();
             self.add_class_escape(&mut ranges, c);
-            self.classes.push(RClass { ranges: ranges, negate: false });
-            let n = self.node(R_CLASS);
-            self.nodes[n as usize].c = (self.classes.len() as int) - 1;
-            return n;
+            return self.class_node(ranges, false);
+        }
+        if (c == 112 || c == 80) && self.unicode {
+            let r = self.property();
+            if !self.error.is_empty() {
+                return -1;
+            }
+            return self.class_node(r, false);
         }
         if c >= 49 && c <= 57 {
             // a back reference \1..\99
@@ -902,6 +1209,7 @@ pub fn compile(pattern: &str, flags: &str) -> Regex {
         multiline: false,
         dot_all: false,
         unicode: false,
+        unicode_sets: false,
         sticky: false,
         error: String::new(),
         nregs: 0,
@@ -932,7 +1240,10 @@ pub fn compile(pattern: &str, flags: &str) -> Regex {
             'm' => re.multiline = true,
             's' => re.dot_all = true,
             'u' => re.unicode = true,
-            'v' => re.unicode = true,
+            'v' => {
+                re.unicode = true;
+                re.unicode_sets = true;
+            }
             'y' => re.sticky = true,
             _ => {}
         }
@@ -947,6 +1258,7 @@ pub fn compile(pattern: &str, flags: &str) -> Regex {
         name_index: Vec::new(),
         error: String::new(),
         unicode: re.unicode,
+        vmode: re.unicode_sets,
     };
     let root = p.disjunction();
     if p.error.is_empty() && p.cur() >= 0 {
@@ -1295,13 +1607,142 @@ impl Regex {
     }
 }
 
+/// Whether `c` is in sorted, merged [lo, hi] ranges (binary search).
 fn in_ranges(r: &Vec<int>, c: int) -> bool {
-    let mut i: usize = 0;
-    while i + 1 < r.len() {
-        if c >= r[i] && c <= r[i + 1] {
+    let mut lo: int = 0;
+    let mut hi = (r.len() as int) / 2 - 1;
+    while lo <= hi {
+        let mid = (lo + hi) / 2;
+        let a = r[(mid * 2) as usize];
+        if c < a {
+            hi = mid - 1;
+        } else if c > r[(mid * 2 + 1) as usize] {
+            lo = mid + 1;
+        } else {
             return true;
         }
+    }
+    false
+}
+
+/// [lo, hi] pairs sorted by lo (a merge sort) with overlapping and
+/// adjacent ones merged.
+fn norm_ranges(r: &Vec<int>) -> Vec<int> {
+    let n = r.len() / 2;
+    let mut idx: Vec<int> = Vec::new();
+    let mut i: usize = 0;
+    while i < n {
+        idx.push(i as int);
+        i += 1;
+    }
+    let mut tmp: Vec<int> = idx.clone();
+    let mut width: usize = 1;
+    while width < n {
+        let mut start: usize = 0;
+        while start < n {
+            let mid = if start + width < n { start + width } else { n };
+            let end = if start + 2 * width < n { start + 2 * width } else { n };
+            let mut a = start;
+            let mut b = mid;
+            let mut k = start;
+            while k < end {
+                if a < mid && (b >= end || r[(idx[a] * 2) as usize] <= r[(idx[b] * 2) as usize]) {
+                    tmp[k] = idx[a];
+                    a += 1;
+                } else {
+                    tmp[k] = idx[b];
+                    b += 1;
+                }
+                k += 1;
+            }
+            start = end;
+        }
+        let mut j: usize = 0;
+        while j < n {
+            idx[j] = tmp[j];
+            j += 1;
+        }
+        width *= 2;
+    }
+    let mut out: Vec<int> = Vec::new();
+    let mut j: usize = 0;
+    while j < n {
+        let lo = r[(idx[j] * 2) as usize];
+        let hi = r[(idx[j] * 2 + 1) as usize];
+        let m = out.len();
+        if m > 0 && lo <= out[m - 1] + 1 {
+            if hi > out[m - 1] {
+                out[m - 1] = hi;
+            }
+        } else {
+            out.push(lo);
+            out.push(hi);
+        }
+        j += 1;
+    }
+    out
+}
+
+/// Every code point not in sorted, merged ranges.
+fn complement(r: &Vec<int>) -> Vec<int> {
+    let mut out: Vec<int> = Vec::new();
+    let mut next: int = 0;
+    let mut i: usize = 0;
+    while i + 1 < r.len() {
+        if r[i] > next {
+            out.push(next);
+            out.push(r[i] - 1);
+        }
+        next = r[i + 1] + 1;
         i += 2;
+    }
+    if next <= 0x10ffff {
+        out.push(next);
+        out.push(0x10ffff);
+    }
+    out
+}
+
+/// The intersection of two sorted, merged range lists.
+fn intersect(a: &Vec<int>, b: &Vec<int>) -> Vec<int> {
+    let mut out: Vec<int> = Vec::new();
+    let mut i: usize = 0;
+    let mut j: usize = 0;
+    while i + 1 < a.len() && j + 1 < b.len() {
+        let lo = if a[i] > b[j] { a[i] } else { b[j] };
+        let hi = if a[i + 1] < b[j + 1] { a[i + 1] } else { b[j + 1] };
+        if lo <= hi {
+            out.push(lo);
+            out.push(hi);
+        }
+        if a[i + 1] < b[j + 1] {
+            i += 2;
+        } else {
+            j += 2;
+        }
+    }
+    out
+}
+
+fn has_string(list: &Vec<Vec<int>>, s: &Vec<int>) -> bool {
+    let mut i: usize = 0;
+    while i < list.len() {
+        let t = &list[i];
+        if t.len() == s.len() {
+            let mut same = true;
+            let mut k: usize = 0;
+            while k < t.len() {
+                if t[k] != s[k] {
+                    same = false;
+                    break;
+                }
+                k += 1;
+            }
+            if same {
+                return true;
+            }
+        }
+        i += 1;
     }
     false
 }

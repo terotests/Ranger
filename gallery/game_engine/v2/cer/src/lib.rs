@@ -52,9 +52,6 @@ impl Engine {
         let mut e = Engine { vm: vm, error: String::new() };
         // the built-ins written in JavaScript
         e.eval(prelude::PRELUDE);
-        if e.error.is_empty() {
-            e.eval(prelude::INTL);
-        }
         if !e.error.is_empty() {
             e.vm.out.push(format!("prelude: {}", e.error));
         } else {

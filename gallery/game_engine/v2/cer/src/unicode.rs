@@ -477,7 +477,8 @@ impl Uni {
     }
 
     /// The longest tailored element at `i` as (weight, length); length 0
-    /// when none matches.
+    /// when none matches. Compared in lowercase, so Å is filed with å
+    /// (ComponentEngine compares the text as written).
     fn tailor_match(&self, cps: &Vec<int>, i: usize, off: int, count: int) -> (int, int) {
         if count == 0 {
             return (0, 0);
@@ -495,7 +496,8 @@ impl Uni {
                 let mut ok = true;
                 let mut q: usize = 0;
                 while q < elen {
-                    if cps[i + q] != self.tailor_entries[p + 3 + q] {
+                    // an uppercase letter takes its lowercase one's place
+                    if lower_cp(cps[i + q]) != self.tailor_entries[p + 3 + q] {
                         ok = false;
                         break;
                     }
@@ -514,7 +516,7 @@ impl Uni {
 
     /// The three sort keys laid end to end: (primary count, primary…,
     /// secondary count, secondary…, tertiary count, tertiary…).
-    fn keys(&mut self, s: &str, toff: int, tcnt: int) -> Vec<int> {
+    fn keys(&mut self, s: &str, toff: int, tcnt: int, upper_first: bool) -> Vec<int> {
         self.ensure_coll();
         let mut prim: Vec<int> = Vec::new();
         let mut sec: Vec<int> = Vec::new();
@@ -531,7 +533,8 @@ impl Uni {
                 prim.push(tw);
                 let mut tk = 0;
                 while tk < tl {
-                    ter.push(0);
+                    let u = cps[i + (tk as usize)];
+                    ter.push(if (lower_cp(u) != u) != upper_first { 1 } else { 0 });
                     tk += 1;
                 }
                 i += tl as usize;
@@ -573,7 +576,7 @@ impl Uni {
                     } else {
                         prim.push((100000 + bcp) * 1000);
                     }
-                    ter.push(is_upper);
+                    ter.push(if upper_first { 1 - is_upper } else { is_upper });
                     pk += 1;
                 }
             }
@@ -609,8 +612,11 @@ impl Uni {
             return 0;
         }
         let (toff, tcnt) = self.tailor_select(tag);
-        let ka = self.keys(a, toff, tcnt);
-        let kb = self.keys(b, toff, tcnt);
+        // Danish and Maltese sort uppercase first (CLDR caseFirst=upper)
+        let lang = jsstr::to_lower(tag);
+        let upper_first = lang == "da" || lang == "mt" || jsstr::index_of(lang.as_str(), "da-", 0) == 0 || jsstr::index_of(lang.as_str(), "mt-", 0) == 0;
+        let ka = self.keys(a, toff, tcnt, upper_first);
+        let kb = self.keys(b, toff, tcnt, upper_first);
         let mut ia: usize = 0;
         let mut ib: usize = 0;
         let mut lvl = 0;

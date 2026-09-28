@@ -986,7 +986,8 @@ impl Vm {
         self.objs[o as usize].prim = string_val(s.clone());
         self.objs[o as usize].add(A_LASTINDEX, Val::Num(0.0), P_HIDDEN);
         let re = &self.regexes[idx as usize];
-        let (g, ic, m, sa, u, y) = (re.global, re.ignore_case, re.multiline, re.dot_all, re.unicode, re.sticky);
+        let (g, ic, m, sa, u, y) = (re.global, re.ignore_case, re.multiline, re.dot_all, re.unicode && !re.unicode_sets, re.sticky);
+        let v = re.unicode_sets;
         let a_source = self.intern("source");
         let a_global = self.intern("global");
         let a_ic = self.intern("ignoreCase");
@@ -994,6 +995,7 @@ impl Vm {
         let a_s = self.intern("dotAll");
         let a_u = self.intern("unicode");
         let a_y = self.intern("sticky");
+        let a_v = self.intern("unicodeSets");
         let shown = if s.is_empty() { String::from("(?:)") } else { s.replace("/", "\\/").replace("\\\\/", "\\/") };
         self.objs[o as usize].add(a_source, string_val(shown), P_HIDDEN | P_READONLY);
         self.objs[o as usize].add(a_global, Val::Bool(g), P_HIDDEN | P_READONLY);
@@ -1002,6 +1004,7 @@ impl Vm {
         self.objs[o as usize].add(a_s, Val::Bool(sa), P_HIDDEN | P_READONLY);
         self.objs[o as usize].add(a_u, Val::Bool(u), P_HIDDEN | P_READONLY);
         self.objs[o as usize].add(a_y, Val::Bool(y), P_HIDDEN | P_READONLY);
+        self.objs[o as usize].add(a_v, Val::Bool(v), P_HIDDEN | P_READONLY);
         Val::Obj(o)
     }
 
@@ -1020,8 +1023,11 @@ impl Vm {
         if re.dot_all {
             f.push('s');
         }
-        if re.unicode {
+        if re.unicode && !re.unicode_sets {
             f.push('u');
+        }
+        if re.unicode_sets {
+            f.push('v');
         }
         if re.sticky {
             f.push('y');

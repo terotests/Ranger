@@ -20,7 +20,9 @@ pub const NF_INTL_FIRST: int = 420;
 pub const NF_INTL_COLLATE: int = 420;
 /// (k): the generated table k as an array
 pub const NF_INTL_TABLE: int = 421;
-pub const NF_INTL_LAST: int = 421;
+/// (helper, intrinsics): compiles prelude::INTL and runs it
+pub const NF_INTL_LOAD: int = 422;
+pub const NF_INTL_LAST: int = 422;
 
 impl Vm {
     pub fn setup_intl(&mut self) {
@@ -31,6 +33,7 @@ impl Vm {
         self.objs[g as usize].add(a, Val::Obj(h), P_HIDDEN);
         self.method(h, "collate", NF_INTL_COLLATE, 4);
         self.method(h, "table", NF_INTL_TABLE, 1);
+        self.method(h, "load", NF_INTL_LOAD, 2);
     }
 
     /// The first tag of a `locales` argument (a tag or a list of them), ""
@@ -83,6 +86,22 @@ impl Vm {
             }
             let r = self.uni.collate(a.as_str(), b.as_str(), tag.as_str(), levels);
             return Val::Num(r as double);
+        }
+        if id == NF_INTL_LOAD {
+            // global code whose value is the function; its functions are
+            // built-ins (no source text: they print as [native code])
+            let base = self.protos.len();
+            let f = self.eval_indirect(crate::prelude::INTL);
+            if self.throwing {
+                return Val::Undef;
+            }
+            let mut i = base;
+            while i < self.protos.len() {
+                self.protos[i].source = String::new();
+                i += 1;
+            }
+            let call_args = vec![a0, arg(args, 1)];
+            return self.call_value(f, Val::Undef, call_args);
         }
         if id == NF_INTL_TABLE {
             let k = self.to_number(&a0) as int;

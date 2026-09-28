@@ -97,9 +97,48 @@ konst('COLL_EXPAND', ints(coll.expansions), 'UnicodeCollate.expansions: (code po
 konst('COLL_MARKS', ints(coll.markRanks), 'UnicodeCollate.markRanks: (mark, secondary rank) pairs, sorted');
 konst('COLL_BASES', ints(coll.baseLetters), 'UnicodeCollate.baseLetters: (code point, secondary, count, points…)');
 
-const tailor = tables('UnicodeTailor.rgr');
+// The tailorings, less the entries this host's collator does not confirm.
+// ComponentEngine's table files, for instance, "ss" and "ß" as letters after
+// s in Swedish and æ as a letter after a in Polish, where ICU keeps the
+// root order (ss before st, æ with ae). An element tailored after its
+// anchor letter must sort after the anchor followed by anything, so each
+// entry is kept only when the anchor followed by ezh (U+0292, a letter after z
+// that starts no contraction) sorts before it in its locale.
+function filterTailorings(t) {
+  const locOut = [];
+  const entOut = [];
+  let dropped = 0;
+  for (let i = 0; i < t.locales.length; ) {
+    const n = t.locales[i];
+    const tag = String.fromCodePoint(...t.locales.slice(i + 1, i + 1 + n));
+    const off = t.locales[i + 1 + n];
+    const cnt = t.locales[i + 2 + n];
+    const coll = new Intl.Collator(tag);
+    const start = entOut.length;
+    let kept = 0;
+    let p = off;
+    for (let k = 0; k < cnt; k++) {
+      const anchor = t.entries[p];
+      const len = t.entries[p + 2];
+      const elem = t.entries.slice(p + 3, p + 3 + len);
+      const text = String.fromCodePoint(...elem).normalize('NFC');
+      if (coll.compare(String.fromCodePoint(anchor) + '\u0292\u0292\u0292', text) < 0) {
+        for (let q = 0; q < 3 + len; q++) entOut.push(t.entries[p + q]);
+        kept++;
+      } else {
+        dropped++;
+      }
+      p += 3 + len;
+    }
+    locOut.push(n, ...t.locales.slice(i + 1, i + 1 + n), start, kept);
+    i += 3 + n;
+  }
+  console.log('tailorings: dropped ' + dropped + ' entries the host collator does not confirm');
+  return { locales: locOut, entries: entOut };
+}
+const tailor = filterTailorings(tables('UnicodeTailor.rgr'));
 konst('TAILOR_LOCALES', ints(tailor.locales), 'UnicodeTailor.locales: (tag length, tag points…, entry offset, entry count)');
-konst('TAILOR_ENTRIES', ints(tailor.entries), 'UnicodeTailor.entries: (anchor, offset, element length, element points…)');
+konst('TAILOR_ENTRIES', ints(tailor.entries), 'UnicodeTailor.entries: (anchor, offset, element length, element points…), less the entries the generating host\'s collator does not confirm (see tools/gen-unidata.cjs)');
 
 const loc = tables('LocaleData.rgr');
 konst('LOC_TAGS', strs(loc.tags), 'LocaleData.tags (strings)');
