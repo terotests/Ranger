@@ -19024,7 +19024,15 @@ class RangerFlowParser  {
     if ( fc.ns.length > 1 && node.children.length > 1 ) {
       const possible_cmd = fc.ns[(fc.ns.length - 1)];
       const op_list_2 = ctx.getOperators(possible_cmd);
-      if ( op_list_2.length > 0 ) {
+      let isStaticCall = false;
+      if ( fc.ns.length == 2 ) {
+        const staticOwner = fc.ns[0];
+        if ( false == ctx.isVarDefined(staticOwner) && ctx.isDefinedClass(staticOwner) ) {
+          const ownerCl = ctx.findClass(staticOwner);
+          isStaticCall = ownerCl.hasStaticMethod(possible_cmd);
+        }
+      }
+      if ( op_list_2.length > 0 && isStaticCall == false ) {
         const args = node.getSecond();
         const nn = fc.copy();
         nn.ns.pop();

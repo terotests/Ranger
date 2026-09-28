@@ -10032,6 +10032,64 @@ static class RgSort {
             }            
         }
 
+        ; `sort` of numbers without a comparison: a new array, ascending, the
+        ; argument left alone like the `sort` above
+        sort _:[double] ( array:[double] ) {
+            templates {
+                ranger ( "(sort " (e 1) ")" )
+                es6 ( (e 1) ".slice().sort((__a, __b) => __a - __b)" )
+                python ( "sorted(" (e 1) ")" )
+                php ( "(function($__arr) { sort($__arr); return $__arr; })(" (e 1) ")" )
+                rust ( "{ let mut __v = " (e 1) ".clone(); __v.sort_by(|__a, __b| __a.partial_cmp(__b).unwrap()); __v }" )
+                cpp ( "[&]() { auto __v = " (e 1) "; std::stable_sort(__v.begin(), __v.end()); return __v; }()" (imp "<algorithm>") )
+                kotlin ( (e 1) ".sorted().toMutableList()" )
+                java7 ( "r_sort_natural(" (e 1) ")" (imp "java.util.*")
+(create_polyfill "
+static <T extends Comparable<T>> ArrayList<T> r_sort_natural(ArrayList<T> list) {
+  ArrayList<T> copy = new ArrayList<T>(list);
+  java.util.Collections.sort(copy);
+  return copy;
+}
+")
+                )
+                dart ( "(" (typeof 1) ".from(" (e 1) ")..sort())" )
+                scala ( (e 1) ".sorted" )
+                swift3 ( (e 1) ".sorted()" )
+                swift6 ( (e 1) ".sorted()" )
+                go ( "func(src " (typeof 1) ") " (typeof 1) " { out := append(" (typeof 1) "{}, src...); sort.SliceStable(out, func(i, j int) bool { return out[i] < out[j] }); return out }(" (e 1) ")" (imp "sort") )
+                csharp ( "System.Linq.Enumerable.ToList(System.Linq.Enumerable.OrderBy(" (e 1) ", __x => __x))" (imp "System.Linq") )
+            }
+        }
+
+        ; `sort` of numbers without a comparison: a new array, ascending, the
+        ; argument left alone like the `sort` above
+        sort _:[int] ( array:[int] ) {
+            templates {
+                ranger ( "(sort " (e 1) ")" )
+                es6 ( (e 1) ".slice().sort((__a, __b) => __a - __b)" )
+                python ( "sorted(" (e 1) ")" )
+                php ( "(function($__arr) { sort($__arr); return $__arr; })(" (e 1) ")" )
+                rust ( "{ let mut __v = " (e 1) ".clone(); __v.sort_by(|__a, __b| __a.partial_cmp(__b).unwrap()); __v }" )
+                cpp ( "[&]() { auto __v = " (e 1) "; std::stable_sort(__v.begin(), __v.end()); return __v; }()" (imp "<algorithm>") )
+                kotlin ( (e 1) ".sorted().toMutableList()" )
+                java7 ( "r_sort_natural(" (e 1) ")" (imp "java.util.*")
+(create_polyfill "
+static <T extends Comparable<T>> ArrayList<T> r_sort_natural(ArrayList<T> list) {
+  ArrayList<T> copy = new ArrayList<T>(list);
+  java.util.Collections.sort(copy);
+  return copy;
+}
+")
+                )
+                dart ( "(" (typeof 1) ".from(" (e 1) ")..sort())" )
+                scala ( (e 1) ".sorted" )
+                swift3 ( (e 1) ".sorted()" )
+                swift6 ( (e 1) ".sorted()" )
+                go ( "func(src " (typeof 1) ") " (typeof 1) " { out := append(" (typeof 1) "{}, src...); sort.SliceStable(out, func(i, j int) bool { return out[i] < out[j] }); return out }(" (e 1) ")" (imp "sort") )
+                csharp ( "System.Linq.Enumerable.ToList(System.Linq.Enumerable.OrderBy(" (e 1) ", __x => __x))" (imp "System.Linq") )
+            }
+        }
+
         ; `reverse` gives a new array and leaves the argument alone -- the es6
         ; template has always been `.slice().reverse()`. Only es6 had one, so
         ; the operator did not compile anywhere else.

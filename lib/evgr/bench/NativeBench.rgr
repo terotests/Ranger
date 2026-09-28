@@ -69,7 +69,7 @@ class NativeBench {
         return (itemAt words (i % 5))
     }
 
-    sfn countOf:int (n:int per:int) {
+    sfn count:int (n:int per:int) {
         def c:int (to_int ((to_double n) / (to_double per) + 0.5))
         if (c < 1) {
             return 1
@@ -82,7 +82,7 @@ class NativeBench {
     sfn evgTree:EVGElement (fixture:string n:int) {
         if (fixture == "grid") {
             def g:EVGElement (NativeBench.node((NativeBench.css("gridc"))))
-            def cells:int (NativeBench.countOf(n 5))
+            def cells:int (NativeBench.count(n 5))
             def i:int 0
             while (i < cells) {
                 def cell:EVGElement (NativeBench.node((NativeBench.css("cell"))))
@@ -97,7 +97,7 @@ class NativeBench {
             return g
         }
         def page:EVGElement (NativeBench.node((NativeBench.css("page"))))
-        def cards:int (NativeBench.countOf(n 7))
+        def cards:int (NativeBench.count(n 7))
         def k:int 0
         while (k < cards) {
             def card:EVGElement (NativeBench.node((NativeBench.css("card"))))
@@ -144,7 +144,7 @@ class NativeBench {
         def t:EvgrTree (EvgrTree.new_())
         if (fixture == "grid") {
             def g:int (t.add(-1 (NativeBench.css("gridc"))))
-            def cells:int (NativeBench.countOf(n 5))
+            def cells:int (NativeBench.count(n 5))
             def i:int 0
             while (i < cells) {
                 def cell:int (t.add(g (NativeBench.css("cell"))))
@@ -158,7 +158,7 @@ class NativeBench {
             return t
         }
         def page:int (t.add(-1 (NativeBench.css("page"))))
-        def cards:int (NativeBench.countOf(n 7))
+        def cards:int (NativeBench.count(n 7))
         def k:int 0
         while (k < cards) {
             def card:int (t.add(page (NativeBench.css("card"))))
@@ -190,23 +190,8 @@ class NativeBench {
     }
 
     sfn median:double (xs:[double]) {
-        def s:[double]
-        for xs v:double i {
-            push s v
-        }
-        def a:int 1
-        def n:int (array_length s)
-        while (a < n) {
-            def b:int a
-            while ((b > 0) && ((itemAt s (b - 1)) > (itemAt s b))) {
-                def tmp:double (itemAt s b)
-                set_at s b (itemAt s (b - 1))
-                set_at s (b - 1) tmp
-                b = b - 1
-            }
-            a = a + 1
-        }
-        return (itemAt s (idiv n 2))
+        def s:[double] (sort xs)
+        return (itemAt s (idiv (array_length s) 2))
     }
 
     sfn fmt:string (v:double) {

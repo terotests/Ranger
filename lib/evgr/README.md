@@ -130,6 +130,11 @@ compiler or the runtime:
 - `f64::floor` / `ceil` lowered to Ranger's `floor` / `ceil`, which answer an
   int: Go rejected it. They have their own templates now.
 
-Two Ranger limits met in `NativeBench.rgr`, not fixed: a static method named
-`count` (or `make`) is not found at its call sites, and there is no `sort`
-for a `[double]`.
+Two limits of Ranger itself, met in `NativeBench.rgr`, are fixed too:
+
+- A static method named like an operator (`count`, `make`, `size`, `sort`,
+  …) was rewritten into the operator-method form and then looked up as an
+  instance method: `Util.count(3)` failed with "Class Util does not have
+  method count".
+- `sort` took only a comparison callback. `(sort xs)` of a `[double]` or
+  `[int]` now gives a new array in ascending order on every target.
