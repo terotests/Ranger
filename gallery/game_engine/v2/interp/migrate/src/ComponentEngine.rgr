@@ -8910,7 +8910,7 @@ class ComponentEngine {
         if hasBase {
             obj = baseIn
         }
-        if ((false == hasBase) && leftNode.left) {
+        if ((false == hasBase) && (!null? leftNode.left)) {
             def objNode:TSNode (unwrap leftNode.left)
             ; D-SUPER: `super.x = v` writes to the RECEIVER, not to the home
             ; object's prototype -- the prototype only decides whether a setter
@@ -42949,7 +42949,11 @@ class ComponentEngine {
         def going:boolean true
         def guard:int 0
         while going {
-            if (null? cur) {
+            ; tested through a boolean, not `null?`: the C++ writer takes a
+            ; narrowed optional for a plain value, and `cur = c.parent` below
+            ; then assigned into it rather than replacing it
+            def atEnd:boolean (null? cur)
+            if atEnd {
                 going = false
             } {
                 def c:EvalContext (unwrap cur)
