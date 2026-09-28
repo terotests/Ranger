@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+#
+# EVGr: EVG's layout as a strict Rust module (see src/lib.rs). The same
+# source builds here with cargo and with `rgrc` for the other targets.
+
+[package]
+name = "evgr"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+ranger = { path = "../../runtime/rust/ranger" }
+
+[profile.release]
+overflow-checks = false
+
+[workspace]

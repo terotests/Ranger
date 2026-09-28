@@ -85485,6 +85485,7 @@ class RsFn  {
     this.modKey = "";
     this.modCls = "";
     this.rgrCtor = false;
+    this.statName = "";
   }
 }
 class RsVariant  {
@@ -87348,6 +87349,9 @@ class RustLower  {
         var sm = st0.methods[smi];
         if ( (typeof(st0.field(sm.name)) !== "undefined" && st0.field(sm.name) != null )  ) {
           sm.rname = sm.name + "_m";
+          if ( false == sm.hasSelf ) {
+            sm.statName = this.staticName(sm.name) + "_m";
+          }
         }
       }
     }
@@ -89666,6 +89670,9 @@ class RustLower  {
     let name = f.rname;
     if ( (owner == "" || false == f.hasSelf) || enumOwner ) {
       name = this.staticName(f.name);
+      if ( f.statName != "" ) {
+        name = f.statName;
+      }
     }
     if ( this.fnNameOverride != "" ) {
       name = this.fnNameOverride;
@@ -92425,7 +92432,11 @@ class RustLower  {
         if ( s.rgr ) {
           return RsExpr.of((((((("(" + head) + ".") + mf.rname) + "(") + codes.join(" ")) + "))"), mf.ret);
         }
-        return RsExpr.of((((((("(" + this.className(head)) + ".") + this.staticName(name)) + "(") + codes.join(" ")) + "))"), mf.ret);
+        let sname = this.staticName(name);
+        if ( mf.statName != "" ) {
+          sname = mf.statName;
+        }
+        return RsExpr.of((((((("(" + this.className(head)) + ".") + sname) + "(") + codes.join(" ")) + "))"), mf.ret);
       }
       this.err(at, ((("no associated function `" + name) + "` on `") + head) + "`");
       return this.unit();
@@ -93160,6 +93171,25 @@ class RustLower  {
       const r = RsExpr.of(nm, ot);
       r.simple = true;
       return r;
+    }
+    if ( name == "strip_prefix" || name == "strip_suffix" ) {
+      const sp = this.arg0(args, st);
+      const sc = this.bindTemp(rv, st, "s");
+      const pc = this.bindTemp(sp, st, "p");
+      const ot2 = RsType.of1("opt", st);
+      const sn = this.tmp("st");
+      this.out.line("def " + this.declText(sn, ot2));
+      if ( name == "strip_prefix" ) {
+        this.out.line(((("if (startsWith " + sc) + " ") + pc) + ") {");
+        this.out.line(((((("  " + sn) + " = (substring ") + sc) + " (strlen ") + pc) + (") (strlen " + (sc + "))")));
+      } else {
+        this.out.line(((("if (endsWith " + sc) + " ") + pc) + ") {");
+        this.out.line(((((("  " + sn) + " = (substring ") + sc) + " 0 ((strlen ") + sc) + (") - (strlen " + (pc + ")))")));
+      }
+      this.out.line("}");
+      const sr = RsExpr.of(sn, ot2);
+      sr.simple = true;
+      return sr;
     }
     if ( name == "repeat" ) {
       const nv = this.arg0(args, it);

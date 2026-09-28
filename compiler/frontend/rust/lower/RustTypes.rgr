@@ -208,6 +208,9 @@ class RsFn {
   def modCls:string ""
   ; the constructor of a `.rgr` class: `Counter::new(…)` is `new Counter(…)`
   def rgrCtor:boolean false
+  ; an associated function named like a field of its struct (`Len::px`
+  ; beside `Len.px`) is written under this name; C++ and Ranger allow one
+  def statName:string ""
 }
 
 class RsVariant {

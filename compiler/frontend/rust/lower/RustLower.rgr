@@ -836,6 +836,9 @@ class RustLower {
       for st0.methods sm:RsFn smi {
         if (!null? (st0.field(sm.name))) {
           sm.rname = (sm.name + "_m")
+          if (false == sm.hasSelf) {
+            sm.statName = ((this.staticName(sm.name)) + "_m")
+          }
         }
       }
     }
@@ -3204,6 +3207,9 @@ class RustLower {
     def name:string f.rname
     if ((owner == "") || (false == f.hasSelf) || enumOwner) {
       name = (this.staticName(f.name))
+      if (f.statName != "") {
+        name = f.statName
+      }
     }
     if (fnNameOverride != "") {
       name = fnNameOverride
@@ -6143,7 +6149,11 @@ class RustLower {
         if s.rgr {
           return (RsExpr.of((((((("(" + head) + ".") + mf.rname) + "(") + (join codes " ")) + "))") mf.ret))
         }
-        return (RsExpr.of((((((("(" + (this.className(head))) + ".") + (this.staticName(name))) + "(") + (join codes " ")) + "))") mf.ret))
+        def sname:string (this.staticName(name))
+        if (mf.statName != "") {
+          sname = mf.statName
+        }
+        return (RsExpr.of((((((("(" + (this.className(head))) + ".") + sname) + "(") + (join codes " ")) + "))") mf.ret))
       }
       this.err(at (((("no associated function `" + name) + "` on `") + head) + "`"))
       return (this.unit())
@@ -6883,6 +6893,26 @@ class RustLower {
       def r:RsExpr (RsExpr.of(nm ot))
       r.simple = true
       return r
+    }
+    ; `s.strip_prefix(p)` / `s.strip_suffix(p)`: the rest, if s has it
+    if ((name == "strip_prefix") || (name == "strip_suffix")) {
+      def sp:RsExpr (this.arg0(args st))
+      def sc:string (this.bindTemp(rv st "s"))
+      def pc:string (this.bindTemp(sp st "p"))
+      def ot2:RsType (RsType.of1("opt" st))
+      def sn:string (this.tmp("st"))
+      out.line(("def " + (this.declText(sn ot2))))
+      if (name == "strip_prefix") {
+        out.line((((("if (startsWith " + sc) + " ") + pc) + ") {"))
+        out.line((((((("  " + sn) + " = (substring ") + sc) + " (strlen ") + pc) + (") (strlen " + (sc + "))"))))
+      } {
+        out.line((((("if (endsWith " + sc) + " ") + pc) + ") {"))
+        out.line((((((("  " + sn) + " = (substring ") + sc) + " 0 ((strlen ") + sc) + (") - (strlen " + (pc + ")))"))))
+      }
+      out.line("}")
+      def sr:RsExpr (RsExpr.of(sn ot2))
+      sr.simple = true
+      return sr
     }
     if (name == "repeat") {
       def nv:RsExpr (this.arg0(args it))
