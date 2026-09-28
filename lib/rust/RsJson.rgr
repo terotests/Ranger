@@ -1,0 +1,468 @@
+; SPDX-License-Identifier: MIT
+
+; JSON for `#[ranger::serialize]` structs of Rust-syntax modules
+; (PLAN_RUST_SYNTAX.md, stage R7).
+;
+; The lowering writes `to_json` and `from_json` for such a struct with these
+; classes; rustc builds the same two methods from the prelude crate's
+; `ranger::json` (runtime/rust/ranger/src/json.rs). The two are kept line for
+; line alike, so every target writes the same text and reports the same
+; error, with positions counted in characters. Imported by a lowered module
+; after rust/RsPrelude.rgr, whose operators it uses.
+
+class RsJsonValue {
+  ; null bool num str arr obj
+  def kind:string "null"
+  def b:boolean false
+  ; a number's text, or a string's value
+  def text:string ""
+  def items:[RsJsonValue]
+  def keys:[string]
+  def vals:[RsJsonValue]
+
+  ; The first member named `key` of an object.
+  fn field@(optional):RsJsonValue (key:string) {
+    def none@(optional):RsJsonValue
+    def i:int 0
+    while (i < (array_length keys)) {
+      if ((itemAt keys i) == key) {
+        def hit@(optional):RsJsonValue
+        hit = (itemAt vals i)
+        return hit
+      }
+      i = i + 1
+    }
+    return none
+  }
+}
+
+class RsJson {
+  ; A JSON string literal for `s`.
+  sfn quote:string (s:string) {
+    def o:string "\""
+    def cs:[int] (to_chars s)
+    ; if / else rather than `continue`: the Scala writer has no `continue`
+    ; in a for loop
+    for cs c:int i {
+      def piece:string ""
+      if (c == 34) {
+        piece = "\\\""
+      } {
+        if (c == 92) {
+          piece = "\\\\"
+        } {
+          if (c == 10) {
+            piece = "\\n"
+          } {
+            if (c == 13) {
+              piece = "\\r"
+            } {
+              if (c == 9) {
+                piece = "\\t"
+              } {
+                if (c < 32) {
+                  piece = ("\\u00" + (RsJson.hex2(c)))
+                } {
+                  piece = (rs_char_from c)
+                }
+              }
+            }
+          }
+        }
+      }
+      o = o + piece
+    }
+    return (o + "\"")
+  }
+
+  sfn hex2:string (c:int) {
+    def digits:string "0123456789abcdef"
+    def hi:int (idiv c 16)
+    def lo:int (c - (hi * 16))
+    return ((substring digits hi (hi + 1)) + (substring digits lo (lo + 1)))
+  }
+
+  ; A float as Rust's `{}` writes it; `null` when it is not finite.
+  sfn num:string (x:double) {
+    if ((x - x) != 0.0) {
+      return "null"
+    }
+    return (rs_fmt x)
+  }
+
+  ; Is the number text not an integer (a fraction or an exponent)?
+  sfn hasFrac:boolean (t:string) {
+    return (((indexOf t ".") >= 0) || ((indexOf t "e") >= 0) || ((indexOf t "E") >= 0))
+  }
+
+  sfn toInt:int (t:string) {
+    def v@(optional):int (RsStr.parseI64(t))
+    if (null? v) {
+      return 0
+    }
+    return (unwrap v)
+  }
+
+  sfn intOk:boolean (t:string) {
+    def v@(optional):int (RsStr.parseI64(t))
+    return (!null? v)
+  }
+
+  sfn toDouble:double (t:string) {
+    def v@(optional):double (RsStr.parseF64(t))
+    if (null? v) {
+      return 0.0
+    }
+    return (unwrap v)
+  }
+}
+
+; The parser: `failed` and `err` tell whether parse() found a value.
+class RsJsonParser {
+  def s:[int]
+  def pos:int 0
+  def failed:boolean false
+  def err:string ""
+
+  Constructor (text:string) {
+    s = (to_chars text)
+  }
+
+  fn fail:RsJsonValue () {
+    if (failed == false) {
+      failed = true
+      err = ("invalid JSON at " + (to_string pos))
+    }
+    return (new RsJsonValue())
+  }
+
+  fn peek:int () {
+    if (pos < (array_length s)) {
+      return (itemAt s pos)
+    }
+    return 0
+  }
+
+  fn ws:void () {
+    def going:boolean true
+    while going {
+      def c:int (this.peek())
+      if ((pos < (array_length s)) && ((c == 32) || (c == 9) || (c == 10) || (c == 13))) {
+        pos = pos + 1
+      } {
+        going = false
+      }
+    }
+  }
+
+  fn word:boolean (w:string) {
+    def cs:[int] (to_chars w)
+    def n:int (array_length cs)
+    if ((pos + n) > (array_length s)) {
+      return false
+    }
+    def i:int 0
+    while (i < n) {
+      if ((itemAt s (pos + i)) != (itemAt cs i)) {
+        return false
+      }
+      i = i + 1
+    }
+    pos = pos + n
+    return true
+  }
+
+  fn parse:RsJsonValue () {
+    this.ws()
+    def v:RsJsonValue (this.value())
+    if failed {
+      return v
+    }
+    this.ws()
+    if (pos < (array_length s)) {
+      return (this.fail())
+    }
+    return v
+  }
+
+  fn value:RsJsonValue () {
+    def c:int (this.peek())
+    if (c == 123) {
+      return (this.parseObject())
+    }
+    if (c == 91) {
+      return (this.parseArray())
+    }
+    if (c == 34) {
+      def sv:RsJsonValue (new RsJsonValue())
+      sv.kind = "str"
+      sv.text = (this.str())
+      return sv
+    }
+    if (this.word("true")) {
+      def tv:RsJsonValue (new RsJsonValue())
+      tv.kind = "bool"
+      tv.b = true
+      return tv
+    }
+    if (this.word("false")) {
+      def fv:RsJsonValue (new RsJsonValue())
+      fv.kind = "bool"
+      return fv
+    }
+    if (this.word("null")) {
+      return (new RsJsonValue())
+    }
+    if ((c == 45) || ((c >= 48) && (c <= 57))) {
+      return (this.number())
+    }
+    return (this.fail())
+  }
+
+  fn digits:boolean () {
+    def start:int pos
+    def going:boolean true
+    while going {
+      def c:int (this.peek())
+      if ((pos < (array_length s)) && (c >= 48) && (c <= 57)) {
+        pos = pos + 1
+      } {
+        going = false
+      }
+    }
+    return (pos > start)
+  }
+
+  fn number:RsJsonValue () {
+    def start:int pos
+    if ((this.peek()) == 45) {
+      pos = pos + 1
+    }
+    if (false == (this.digits())) {
+      return (this.fail())
+    }
+    if ((this.peek()) == 46) {
+      pos = pos + 1
+      if (false == (this.digits())) {
+        return (this.fail())
+      }
+    }
+    def e:int (this.peek())
+    if ((e == 101) || (e == 69)) {
+      pos = pos + 1
+      def sg:int (this.peek())
+      if ((sg == 43) || (sg == 45)) {
+        pos = pos + 1
+      }
+      if (false == (this.digits())) {
+        return (this.fail())
+      }
+    }
+    def t:string ""
+    def i:int start
+    while (i < pos) {
+      t = t + (rs_char_from (itemAt s i))
+      i = i + 1
+    }
+    def v:RsJsonValue (new RsJsonValue())
+    v.kind = "num"
+    v.text = t
+    return v
+  }
+
+  ; Four hex digits; -1 (and the parser failed) when they are not.
+  fn hex4:int () {
+    def v:int 0
+    def k:int 0
+    while (k < 4) {
+      def c:int (this.peek())
+      def d:int -1
+      if ((c >= 48) && (c <= 57)) {
+        d = c - 48
+      }
+      if ((c >= 97) && (c <= 102)) {
+        d = (c - 97) + 10
+      }
+      if ((c >= 65) && (c <= 70)) {
+        d = (c - 65) + 10
+      }
+      if ((d < 0) || (pos >= (array_length s))) {
+        this.fail()
+        return -1
+      }
+      v = (v * 16) + d
+      pos = pos + 1
+      k = k + 1
+    }
+    return v
+  }
+
+  fn str:string () {
+    pos = pos + 1
+    def o:string ""
+    ; not `while true`: Java rejects the return after an endless loop
+    def reading:boolean true
+    while reading {
+      if (pos >= (array_length s)) {
+        this.fail()
+        return ""
+      }
+      def c:int (itemAt s pos)
+      if (c == 34) {
+        pos = pos + 1
+        return o
+      }
+      if (c < 32) {
+        this.fail()
+        return ""
+      }
+      if (c != 92) {
+        o = o + (rs_char_from c)
+        pos = pos + 1
+        continue
+      }
+      pos = pos + 1
+      def e:int (this.peek())
+      pos = pos + 1
+      if (e == 34) {
+        o = o + "\""
+        continue
+      }
+      if (e == 92) {
+        o = o + "\\"
+        continue
+      }
+      if (e == 47) {
+        o = o + "/"
+        continue
+      }
+      if (e == 98) {
+        o = o + (rs_char_from 8)
+        continue
+      }
+      if (e == 102) {
+        o = o + (rs_char_from 12)
+        continue
+      }
+      if (e == 110) {
+        o = o + "\n"
+        continue
+      }
+      if (e == 114) {
+        o = o + "\r"
+        continue
+      }
+      if (e == 116) {
+        o = o + "\t"
+        continue
+      }
+      if (e == 117) {
+        def code:int (this.hex4())
+        if failed {
+          return ""
+        }
+        if ((code >= 55296) && (code < 56320) && (this.word("\\u"))) {
+          def low:int (this.hex4())
+          if failed {
+            return ""
+          }
+          if ((low < 56320) || (low >= 57344)) {
+            this.fail()
+            return ""
+          }
+          code = ((65536 + ((code - 55296) * 1024)) + (low - 56320))
+        }
+        if ((code >= 55296) && (code < 57344)) {
+          this.fail()
+          return ""
+        }
+        o = o + (rs_char_from code)
+        continue
+      }
+      pos = pos - 1
+      this.fail()
+      return ""
+    }
+    return o
+  }
+
+  fn parseArray:RsJsonValue () {
+    pos = pos + 1
+    def v:RsJsonValue (new RsJsonValue())
+    v.kind = "arr"
+    this.ws()
+    if ((this.peek()) == 93) {
+      pos = pos + 1
+      return v
+    }
+    ; not `while true`: Java rejects the return after an endless loop
+    def reading:boolean true
+    while reading {
+      this.ws()
+      def it:RsJsonValue (this.value())
+      if failed {
+        return it
+      }
+      push v.items it
+      this.ws()
+      def c:int (this.peek())
+      if (c == 44) {
+        pos = pos + 1
+        continue
+      }
+      if (c == 93) {
+        pos = pos + 1
+        return v
+      }
+      return (this.fail())
+    }
+    return v
+  }
+
+  fn parseObject:RsJsonValue () {
+    pos = pos + 1
+    def v:RsJsonValue (new RsJsonValue())
+    v.kind = "obj"
+    this.ws()
+    if ((this.peek()) == 125) {
+      pos = pos + 1
+      return v
+    }
+    ; not `while true`: Java rejects the return after an endless loop
+    def reading:boolean true
+    while reading {
+      this.ws()
+      if ((this.peek()) != 34) {
+        return (this.fail())
+      }
+      def k:string (this.str())
+      if failed {
+        return v
+      }
+      this.ws()
+      if ((this.peek()) != 58) {
+        return (this.fail())
+      }
+      pos = pos + 1
+      this.ws()
+      def mv:RsJsonValue (this.value())
+      if failed {
+        return mv
+      }
+      push v.keys k
+      push v.vals mv
+      this.ws()
+      def c:int (this.peek())
+      if (c == 44) {
+        pos = pos + 1
+        continue
+      }
+      if (c == 125) {
+        pos = pos + 1
+        return v
+      }
+      return (this.fail())
+    }
+    return v
+  }
+}

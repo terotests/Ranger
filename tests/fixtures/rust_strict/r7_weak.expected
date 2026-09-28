@@ -1,0 +1,5 @@
+root/docs/readme
+children of root: 1
+first child docs of root/docs
+owner files size 3
+root has parent: false

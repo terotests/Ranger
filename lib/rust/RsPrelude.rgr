@@ -114,14 +114,42 @@ def rs_irem(a, b):
       * @macro(true) ( "(sqrt " "(" (e 1) ")" ")" )
     }
   }
+  ; `f64::floor` / `ceil` answer a double (Ranger's `floor` / `ceil` an
+  ; int)
   rs_floor _:double (a:double) {
     templates {
-      * @macro(true) ( "(floor " "(" (e 1) ")" ")" )
+      ranger ( "(rs_floor " (e 1) ")" )
+      es6 ( "Math.floor(" (e 1) ")" )
+      python ( "float(math.floor(" (e 1) "))" (imp "math") )
+      go ( "math.Floor(" (e 1) ")" (imp "math") )
+      cpp ( "std::floor(" (e 1) ")" (imp "<cmath>") )
+      rust ( "(" (e 1) ").floor()" )
+      java7 ( "Math.floor(" (e 1) ")" )
+      kotlin ( "Math.floor(" (e 1) ")" )
+      csharp ( "System.Math.Floor(" (e 1) ")" )
+      dart ( "(" (e 1) ").floorToDouble()" )
+      scala ( "math.floor(" (e 1) ")" )
+      php ( "floor(" (e 1) ")" )
+      swift6 ( "(" (e 1) ").rounded(.down)" )
+      * ( "Math.floor(" (e 1) ")" )
     }
   }
   rs_ceil _:double (a:double) {
     templates {
-      * @macro(true) ( "(ceil " "(" (e 1) ")" ")" )
+      ranger ( "(rs_ceil " (e 1) ")" )
+      es6 ( "Math.ceil(" (e 1) ")" )
+      python ( "float(math.ceil(" (e 1) "))" (imp "math") )
+      go ( "math.Ceil(" (e 1) ")" (imp "math") )
+      cpp ( "std::ceil(" (e 1) ")" (imp "<cmath>") )
+      rust ( "(" (e 1) ").ceil()" )
+      java7 ( "Math.ceil(" (e 1) ")" )
+      kotlin ( "Math.ceil(" (e 1) ")" )
+      csharp ( "System.Math.Ceiling(" (e 1) ")" )
+      dart ( "(" (e 1) ").ceilToDouble()" )
+      scala ( "math.ceil(" (e 1) ")" )
+      php ( "ceil(" (e 1) ")" )
+      swift6 ( "(" (e 1) ").rounded(.up)" )
+      * ( "Math.ceil(" (e 1) ")" )
     }
   }
   rs_powi _:double (a:double n:int) {

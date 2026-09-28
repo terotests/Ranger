@@ -27,6 +27,8 @@ class RsType {
   def shared:boolean false
   ; a `dyn Trait` / `impl Trait` / generic bounded by a trait
   def isDyn:boolean false
+  ; an Option field marked `#[ranger::late]`: `@(late)` (R7)
+  def late:boolean false
 
   Constructor (k:string) {
     kind = k
@@ -86,6 +88,7 @@ class RsType {
     t.weak = weak
     t.shared = shared
     t.isDyn = isDyn
+    t.late = late
     return t
   }
 
@@ -199,6 +202,15 @@ class RsFn {
   ; generics of the impl block the method is in
   def ownerGenerics:[string]
   def node@(optional):RustNode
+  ; the module the function is declared in ("" for the crate root,
+  ; `geometry`, `shapes::round`) and the class its free functions go to
+  def modKey:string ""
+  def modCls:string ""
+  ; the constructor of a `.rgr` class: `Counter::new(…)` is `new Counter(…)`
+  def rgrCtor:boolean false
+  ; an associated function named like a field of its struct (`Len::px`
+  ; beside `Len.px`) is written under this name; C++ and Ranger allow one
+  def statName:string ""
 }
 
 class RsVariant {
@@ -218,6 +230,11 @@ class RsStruct {
   def methods:[RsFn]
   def traits:[string]
   def node@(optional):RustNode
+  ; a class of a `.rgr` file included with `ranger::import_rgr!` (R6): known
+  ; to the lowering, written by the `.rgr` import
+  def rgr:boolean false
+  ; `#[ranger::serialize]`: to_json / from_json are written for it (R7)
+  def serialize:boolean false
 
   fn derivesTrait:boolean (t:string) {
     for derives d:string i {
@@ -312,6 +329,8 @@ class RsConst {
   def name:string ""
   def ty:RsType (new RsType("unknown"))
   def node@(optional):RustNode
+  def modKey:string ""
+  def modCls:string ""
 }
 
 ; A local variable in scope during the lowering of one function.
