@@ -64,6 +64,7 @@ class PptxWriterTest {
         this.testSheetEditRoundTrip()
         this.testFooterRoundTrip()
         this.testShowRoundTrip()
+        this.testBuildForKeynote()
         this.testUnmodelledContentSurvives()
         this.testEditKeepsInheritance()
         this.testPlaceholdersSurviveAnEdit()
@@ -1413,6 +1414,42 @@ class PptxWriterTest {
             this.check("and still names a shape on the slide" (!null? found))
         }
         p2.close()
+    }
+
+    ; What Keynote needs before it will import a build: a preset that says
+    ; what the behaviours do, a group id on the effect, a build list naming
+    ; the text built paragraph by paragraph, and only filters in the list.
+    fn testBuildForKeynote:void () {
+        print "-- a build Keynote imports --"
+        def slide (new PptxSlide())
+        def k:int 0
+        while (k < 2) {
+            def st (new PptxBuildStep())
+            st.shapeId = 3
+            st.paragraph = k
+            st.kind = "fade"
+            push slide.build st
+            k = (k + 1)
+        }
+        def fly (new PptxBuildStep())
+        fly.shapeId = 4
+        fly.paragraph = 0
+        fly.kind = "fly"
+        fly.dir = "l"
+        push slide.build fly
+        def odd (new PptxBuildStep())
+        odd.shapeId = 5
+        odd.kind = "rise"
+        push slide.build odd
+        def xml:string (PptxWriter.timingXml(slide))
+        this.check("a fade is preset 10" ((indexOf xml "presetID=\"10\"") >= 0))
+        this.check("a fly is preset 2 from the left" ((indexOf xml "presetID=\"2\" presetClass=\"entr\" presetSubtype=\"8\"") >= 0))
+        this.check("a fly moves, it is not a filter" (((indexOf xml "ppt_x") >= 0) && ((indexOf xml "filter=\"fly\"") < 0)))
+        this.check("an unknown effect is not written as a filter" ((indexOf xml "filter=\"rise\"") < 0))
+        this.check("every effect has its group" ((indexOf xml "grpId=\"0\" nodeType=\"clickEffect\"") >= 0))
+        this.check("the build list names the text built by paragraph" (((indexOf xml "<p:bldP spid=\"3\" grpId=\"0\" build=\"p\"/>") >= 0) && ((indexOf xml "<p:bldP spid=\"4\" grpId=\"0\" build=\"p\"/>") >= 0)))
+        this.check("once per shape" ((indexOf xml "spid=\"3\" grpId") == (lastIndexOf xml "spid=\"3\" grpId")))
+        this.check("and after the time list" ((indexOf xml "</p:tnLst><p:bldLst>") >= 0))
     }
 
     sfn sameBytes:boolean (a:buffer b:buffer) {
