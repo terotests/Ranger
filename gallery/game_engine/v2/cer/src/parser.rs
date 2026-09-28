@@ -1567,12 +1567,19 @@ impl Parser {
         let n = self.node(N_TEMPLATE);
         let parts = self.toks[self.pos as usize].parts.clone();
         let exprs = self.toks[self.pos as usize].exprs.clone();
+        let raws = self.toks[self.pos as usize].raws.clone();
         let line = self.line();
         self.next();
         let mut strs: Vec<int> = Vec::new();
+        let mut ri: usize = 0;
         for p in parts {
             let s = self.ast.add(N_STR, line);
             self.ast.nodes[s as usize].s = p;
+            // the raw string rides in `op` (a tagged template's .raw)
+            if ri < raws.len() {
+                self.ast.nodes[s as usize].op = raws[ri].clone();
+            }
+            ri += 1;
             strs.push(s);
         }
         let mut es: Vec<int> = Vec::new();

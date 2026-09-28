@@ -25,6 +25,8 @@ pub struct Tok {
     pub parts: Vec<String>,
     /// a template: the source text of each `${…}`
     pub exprs: Vec<String>,
+    /// a template: the raw strings (escapes as written)
+    pub raws: Vec<String>,
     /// a regular expression: its flags
     pub flags: String,
     /// an identifier written with an escape, or a string with an octal
@@ -45,6 +47,7 @@ impl Tok {
             line: line,
             parts: Vec::new(),
             exprs: Vec::new(),
+            raws: Vec::new(),
             flags: String::new(),
             escaped: false,
             start: -1,
@@ -574,11 +577,32 @@ impl Lexer {
         s
     }
 
+    /// The source between `a` and `b`, line terminators as \n: a template's
+    /// raw string.
+    fn raw_text(&self, a: int, b: int) -> String {
+        let mut out = String::new();
+        let mut i = a;
+        while i < b {
+            let c = self.src[i as usize];
+            if c == '\r' {
+                out.push('\n');
+                if i + 1 < b && self.src[(i + 1) as usize] == '\n' {
+                    i += 1;
+                }
+            } else {
+                out.push(c);
+            }
+            i += 1;
+        }
+        out
+    }
+
     fn read_template(&mut self, t: &mut Tok) {
         self.pos += 1;
         let n = self.src.len() as int;
         let mut cur = String::new();
         let mut octal = false;
+        let mut part_start = self.pos;
         loop {
             if self.pos >= n {
                 self.fail("unterminated template");
@@ -586,6 +610,8 @@ impl Lexer {
             }
             let c = self.cur();
             if c == '`' {
+                let r = self.raw_text(part_start, self.pos);
+                t.raws.push(r);
                 self.pos += 1;
                 break;
             }
@@ -595,6 +621,8 @@ impl Lexer {
                 continue;
             }
             if c == '$' && self.at(self.pos + 1) == '{' {
+                let r = self.raw_text(part_start, self.pos);
+                t.raws.push(r);
                 self.pos += 2;
                 t.parts.push(cur.clone());
                 cur = String::new();
@@ -641,6 +669,7 @@ impl Lexer {
                     self.pos += 1;
                 }
                 t.exprs.push(e);
+                part_start = self.pos;
                 continue;
             }
             if c == '\r' {

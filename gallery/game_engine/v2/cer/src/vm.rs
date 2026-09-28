@@ -105,6 +105,8 @@ pub struct Vm {
     /// %GeneratorPrototype%, %GeneratorFunction.prototype%,
     /// %AsyncFunction.prototype%
     pub generator_proto: int,
+    /// each tagged template call site's strings object
+    pub template_cache: HashMap<String, int>,
     /// ArrayBuffer.prototype
     pub array_buffer_proto: int,
     pub gen_fn_proto: int,
@@ -225,6 +227,7 @@ impl Vm {
             object_proto: -1,
             function_proto: -1,
             generator_proto: -1,
+            template_cache: HashMap::new(),
             array_buffer_proto: -1,
             gen_fn_proto: -1,
             async_fn_proto: -1,
@@ -3305,17 +3308,38 @@ impl Vm {
                 }
             }
             OP_TEMPLATE_OBJ => {
+                // [cooked…, raw…] → the call site's strings object, made
+                // once and frozen
                 let n = self.stack.len() as int;
-                let mut items: Vec<Val> = Vec::new();
-                let mut i = n - op.a;
-                while i < n {
-                    items.push(self.stack[i as usize].clone());
+                let cnt = op.a;
+                let key = format!("{}:{}", pi, *pc);
+                let cached = match self.template_cache.get(&key) {
+                    Some(t) => *t,
+                    None => -1,
+                };
+                if cached >= 0 {
+                    self.stack.truncate((n - 2 * cnt) as usize);
+                    self.stack.push(Val::Obj(cached));
+                    return false;
+                }
+                let mut cooked: Vec<Val> = Vec::new();
+                let mut raws: Vec<Val> = Vec::new();
+                let mut i = n - 2 * cnt;
+                while i < n - cnt {
+                    cooked.push(self.stack[i as usize].clone());
+                    raws.push(self.stack[(i + cnt) as usize].clone());
                     i += 1;
                 }
-                self.stack.truncate((n - op.a) as usize);
-                let raw = self.new_array(items.clone());
-                let a = self.new_array(items);
-                self.define(a, A_RAW, Val::Obj(raw), P_HIDDEN);
+                self.stack.truncate((n - 2 * cnt) as usize);
+                let raw = self.new_array(raws);
+                let a = self.new_array(cooked);
+                self.define(a, A_RAW, Val::Obj(raw), P_HIDDEN | P_READONLY | P_FIXED);
+                for o in vec![raw, a] {
+                    self.objs[o as usize].extensible = false;
+                    self.objs[o as usize].pos = 2;
+                }
+                self.roots.push(a);
+                self.template_cache.insert(key, a);
                 self.stack.push(Val::Obj(a));
             }
             OP_THROW => {

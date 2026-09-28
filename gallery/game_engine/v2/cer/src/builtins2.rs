@@ -63,6 +63,52 @@ impl Vm {
         self.objs[o as usize].class == C_ARRAY
     }
 
+    fn array_ctor(&mut self) -> Val {
+        let ap = self.array_proto;
+        self.get_obj(ap, A_CONSTRUCTOR, &Val::Obj(ap))
+    }
+
+    /// A new array of `items` made by `c` (a subclass of Array, from
+    /// Array.from / Array.of or a species): `new c()` filled in.
+    fn array_by(&mut self, c: &Val, items: Vec<Val>) -> Val {
+        let r = self.construct(c.clone(), vec![Val::Num(0.0)], c.clone());
+        if self.throwing {
+            return Val::Undef;
+        }
+        let ro = obj_of(&r);
+        if ro >= 0 && self.objs[ro as usize].class == C_ARRAY {
+            self.objs[ro as usize].elems = items;
+            self.objs[ro as usize].saved = Vec::new();
+            return r;
+        }
+        let n = items.len();
+        let mut i: int = 0;
+        for it in items {
+            self.set_index(ro, i, it);
+            i += 1;
+        }
+        self.set(&r, A_LENGTH, Val::Num(n as double));
+        r
+    }
+
+    /// ArraySpeciesCreate: an array for the result of a method on `o`,
+    /// of `o`'s species when it is an Array subclass.
+    fn species_array(&mut self, o: int, items: Vec<Val>) -> Val {
+        if o >= 0 && self.objs[o as usize].class == C_ARRAY && self.objs[o as usize].proto != self.array_proto {
+            let c = self.get(&Val::Obj(o), A_CONSTRUCTOR);
+            let ac = self.array_ctor();
+            if is_obj(&c) && !self.strict_equals(&c, &ac) {
+                let a_sp = self.intern("@@species");
+                let sp = self.get(&c, a_sp);
+                if self.is_callable(&sp) && !self.strict_equals(&sp, &ac) {
+                    return self.array_by(&sp, items);
+                }
+            }
+        }
+        let a = self.new_array(items);
+        Val::Obj(a)
+    }
+
     fn callback(&mut self, f: &Val, name: &str) -> bool {
         if !self.is_callable(f) {
             self.throw_type(format!("{} is not a function", name).as_str());
@@ -132,6 +178,10 @@ impl Vm {
             // ---- Array
             NF_A_ISARRAY => Val::Bool(self.class_of(&a0) == C_ARRAY),
             NF_A_OF => {
+                let ac = self.array_ctor();
+                if self.is_callable(&this) && !self.strict_equals(&this, &ac) {
+                    return self.array_by(&this, args);
+                }
                 let a = self.new_array(args);
                 Val::Obj(a)
             }
@@ -148,8 +198,8 @@ impl Vm {
                 if self.throwing {
                     return Val::Undef;
                 }
+                let mut out: Vec<Val> = Vec::new();
                 if self.is_callable(&a1) {
-                    let mut out: Vec<Val> = Vec::new();
                     let mut i: int = 0;
                     for it in items {
                         let r = self.call_value(a1.clone(), arg(&args, 2), vec![it, Val::Num(i as double)]);
@@ -159,10 +209,15 @@ impl Vm {
                         out.push(r);
                         i += 1;
                     }
-                    let a = self.new_array(out);
-                    return Val::Obj(a);
+                } else {
+                    out = items;
                 }
-                let a = self.new_array(items);
+                // Array.from on a subclass makes an instance of it
+                let ac = self.array_ctor();
+                if self.is_callable(&this) && !self.strict_equals(&this, &ac) {
+                    return self.array_by(&this, out);
+                }
+                let a = self.new_array(out);
                 Val::Obj(a)
             }
             NF_AP_PUSH => {
@@ -237,8 +292,7 @@ impl Vm {
                     out.push(items[i as usize].clone());
                     i += 1;
                 }
-                let a = self.new_array(out);
-                Val::Obj(a)
+                self.species_array(o, out)
             }
             NF_AP_SPLICE => {
                 let o = self.this_array(&this);
@@ -271,8 +325,7 @@ impl Vm {
                     at += 1;
                     i += 1;
                 }
-                let a = self.new_array(removed);
-                Val::Obj(a)
+                self.species_array(o, removed)
             }
             NF_AP_CONCAT => {
                 let o = self.this_array(&this);
@@ -289,8 +342,7 @@ impl Vm {
                     }
                     out.push(a);
                 }
-                let r = self.new_array(out);
-                Val::Obj(r)
+                self.species_array(o, out)
             }
             NF_AP_JOIN => {
                 let o = self.this_array(&this);
@@ -448,11 +500,14 @@ impl Vm {
                 }
                 match id {
                     NF_AP_MAP | NF_AP_FILTER | NF_AP_FLATMAP => {
-                        let a = self.new_array(out);
-                        for h in map_holes {
-                            self.set_hole(a, h, true);
+                        let r = self.species_array(o, out);
+                        let a = obj_of(&r);
+                        if a >= 0 && self.objs[a as usize].class == C_ARRAY {
+                            for h in map_holes {
+                                self.set_hole(a, h, true);
+                            }
                         }
-                        Val::Obj(a)
+                        r
                     }
                     NF_AP_SOME => Val::Bool(false),
                     NF_AP_EVERY => Val::Bool(true),
@@ -1369,6 +1424,9 @@ impl Vm {
                     return Val::Undef;
                 }
                 let p = self.new_promise();
+                let pp = self.promise_proto;
+                let proto = self.proto_from(&new_target, pp);
+                self.objs[p as usize].proto = proto;
                 let (res, rej) = self.resolving_functions(p);
                 self.temp_roots.push(Val::Obj(p));
                 self.call_value(a0, Val::Undef, vec![Val::Obj(res), Val::Obj(rej)]);
@@ -1394,10 +1452,20 @@ impl Vm {
                 Val::Undef
             }
             NF_PR_RESOLVE | NF_PR_REJECT => {
-                if id == NF_PR_RESOLVE && self.class_of(&a0) == C_PROMISE {
+                // on a subclass: a promise of that subclass
+                let pp = self.promise_proto;
+                let mut proto = pp;
+                if is_obj(&this) && self.is_callable(&this) {
+                    let tp = self.get(&this, A_PROTOTYPE);
+                    if let Val::Obj(x) = tp {
+                        proto = x;
+                    }
+                }
+                if id == NF_PR_RESOLVE && self.class_of(&a0) == C_PROMISE && self.objs[obj_of(&a0) as usize].proto == proto {
                     return a0;
                 }
                 let p = self.new_promise();
+                self.objs[p as usize].proto = proto;
                 self.settle(p, if id == NF_PR_RESOLVE { 1 } else { 2 }, a0);
                 Val::Obj(p)
             }

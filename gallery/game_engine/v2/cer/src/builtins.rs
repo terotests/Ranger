@@ -232,6 +232,7 @@ pub const NF_GEN_RETURN: int = 382;
 pub const NF_PROXY: int = 383;
 pub const NF_PROXY_REVOCABLE: int = 384;
 pub const NF_PROXY_REVOKE: int = 385;
+pub const NF_SPECIES: int = 386;
 
 fn math_names() -> Vec<String> {
     let v = vec![
@@ -828,6 +829,16 @@ impl Vm {
         self.method(ta, "slice", crate::typed::NF_TA_SLICE, 4);
         self.method(ta, "dvGet", crate::typed::NF_TA_DVGET, 4);
         self.method(ta, "dvSet", crate::typed::NF_TA_DVSET, 5);
+
+        // Array[Symbol.species] and the rest: the constructor itself
+        for cname in vec!["Array", "Promise", "Map", "Set", "RegExp"] {
+            let gl3 = self.global;
+            let ca = self.intern(cname);
+            let cv = self.get_obj(gl3, ca, &Val::Obj(gl3));
+            if let Val::Obj(c) = cv {
+                self.getter(c, "@@species", NF_SPECIES);
+            }
+        }
 
         // Proxy: a constructor without a prototype
         let pxc = self.native_fn("Proxy", NF_PROXY, 2);
@@ -2940,6 +2951,7 @@ impl Vm {
                 self.jobs.push(Val::Undef);
                 Val::Undef
             }
+            NF_SPECIES => this,
             NF_PROXY => {
                 if !construct {
                     self.throw_type("Constructor Proxy requires 'new'");

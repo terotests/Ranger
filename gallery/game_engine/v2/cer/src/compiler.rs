@@ -2346,6 +2346,10 @@ impl Compiler {
             let v = self.ast.nodes[*s as usize].s.clone();
             self.push_str(v.as_str());
         }
+        for s in strs.iter() {
+            let v = self.ast.nodes[*s as usize].op.clone();
+            self.push_str(v.as_str());
+        }
         let cnt = strs.len() as int;
         self.emit(OP_TEMPLATE_OBJ, cnt, 0);
         let argc = (exprs.len() as int) + 1;
