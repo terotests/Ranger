@@ -4089,7 +4089,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
   methodParamSignature (fnDesc) {
     let sig = "";
     const pc = fnDesc.params.length;
-    sig = (pc.toString());
+    sig = ((pc).toString());
     // Loop start
     for ( const p of fnDesc.params) {
       const pn = p.nameNode;
@@ -4506,7 +4506,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
       const new_v2 = defVs;
       const variantIdx = new_v2.variants.length;
       if ( variantIdx > 0 ) {
-        desc.compiledName = (desc.name + "_") + (variantIdx.toString());
+        desc.compiledName = (desc.name + "_") + ((variantIdx).toString());
       }
       new_v2.variants.push(desc);
     }
@@ -5269,7 +5269,7 @@ class CodeNode  {
     if ( sci ) {
       const n = Math.floor( v);
       if ( n == v ) {
-        return (n.toString()) + ".0";
+        return ((n).toString()) + ".0";
       }
       return s;
     }
@@ -11393,7 +11393,7 @@ class RangerLispParser  {
                   const blk65 = current_3;
                   const recv65 = blk65.children.splice(blk65.children.length - 1, 1).pop();
                   this.recv_tmp_count = this.recv_tmp_count + 1;
-                  const tmp65 = "__rgr_recv_" + (this.recv_tmp_count.toString());
+                  const tmp65 = "__rgr_recv_" + ((this.recv_tmp_count).toString());
                   const defNode65 = new CodeNode(this.code, fp_sp, fp_ep);
                   defNode65.expression = true;
                   defNode65.parent = blk65;
@@ -11720,7 +11720,7 @@ class RangerLispParser  {
                   }
                   if ( stmtIdx76 >= 0 ) {
                     this.recv_tmp_count = this.recv_tmp_count + 1;
-                    const tmp76 = "__rgr_recv_" + (this.recv_tmp_count.toString());
+                    const tmp76 = "__rgr_recv_" + ((this.recv_tmp_count).toString());
                     const defNode76 = new CodeNode(this.code, sp, ep);
                     defNode76.expression = true;
                     defNode76.parent = blk76;
@@ -20012,7 +20012,7 @@ class RangerFlowParser  {
           }
           if ( is_macro ) {
             const macroRoot = ctx.getRoot();
-            const macroKey = (((fc.vref + "@") + callArgs.getFilename()) + ":") + (callArgs.sp.toString());
+            const macroKey = (((fc.vref + "@") + callArgs.getFilename()) + ":") + ((callArgs.sp).toString());
             let macroActive = false;
             if ( ( typeof(macroRoot.active_macros[macroKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(macroRoot.active_macros, macroKey) ) ) {
               macroActive = ( Object.prototype.hasOwnProperty.call(macroRoot.active_macros, macroKey) ? macroRoot.active_macros[macroKey] : undefined );
@@ -24357,7 +24357,7 @@ class RangerFlowParser  {
     }
     const clsName = ( Object.prototype.hasOwnProperty.call(this.treeTags, key) ? this.treeTags[key] : undefined );
     this.treeTmpCount = this.treeTmpCount + 1;
-    const reg = "_tree" + (this.treeTmpCount.toString());
+    const reg = "_tree" + ((this.treeTmpCount).toString());
     const defNode = el.newExpressionNode();
     defNode.add(el.newVRefNode("def"));
     defNode.add(el.newVRefNode(reg));
@@ -25593,7 +25593,7 @@ class RangerGenericClassWriter  {
       const o1 = ((cc / 64) | 0);
       const o2 = ((cc / 8) | 0) % 8;
       const o3 = cc % 8;
-      return ((bs + (o1.toString())) + (o2.toString())) + (o3.toString());
+      return ((bs + ((o1).toString())) + ((o2).toString())) + ((o3).toString());
     }
     if ( ((((lang == "go" || lang == "es6") || lang == "es5") || lang == "ts") || lang == "rust") || lang == "python" ) {
       return (bs + "x") + h2;
@@ -27936,7 +27936,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
         for ( let smi = 0; smi < Object.keys(seDef.values).length; smi++) {
           var smn = Object.keys(seDef.values)[smi];
           const smv = ( Object.prototype.hasOwnProperty.call(seDef.values, smn) ? seDef.values[smn] : undefined );
-          wr.out((("case " + ctx.transformWord(smn)) + " = ") + (smv.toString()), true);
+          wr.out((("case " + ctx.transformWord(smn)) + " = ") + ((smv).toString()), true);
         }
         wr.indent(-1);
         wr.out("}", true);
@@ -29083,7 +29083,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         for ( let smi = 0; smi < Object.keys(seDef.values).length; smi++) {
           var smn = Object.keys(seDef.values)[smi];
           const smv = ( Object.prototype.hasOwnProperty.call(seDef.values, smn) ? seDef.values[smn] : undefined );
-          wr.out((("case " + ctx.transformWord(smn)) + " = ") + (smv.toString()), true);
+          wr.out((("case " + ctx.transformWord(smn)) + " = ") + ((smv).toString()), true);
         }
         wr.indent(-1);
         wr.out("}", true);
@@ -31145,7 +31145,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         if ( node.string_value.indexOf(String.fromCharCode(0)) >= 0 ) {
           const nbuf = r_cb_enc.encode(node.string_value);
           const nbytes = nbuf.length;
-          wr.out(((("std::string(" + (("\"" + s) + "\"")) + ", ") + (nbytes.toString())) + ")", false);
+          wr.out(((("std::string(" + (("\"" + s) + "\"")) + ", ") + ((nbytes).toString())) + ")", false);
         } else {
           wr.out(("std::string(" + (("\"" + s) + "\"")) + ")", false);
         }
@@ -33705,7 +33705,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           for ( let cmi = 0; cmi < Object.keys(ceDef.values).length; cmi++) {
             var cmn = Object.keys(ceDef.values)[cmi];
             const cmv = ( Object.prototype.hasOwnProperty.call(ceDef.values, cmn) ? ceDef.values[cmn] : undefined );
-            const ceLine = (cmn + " = ") + (cmv.toString());
+            const ceLine = (cmn + " = ") + ((cmv).toString());
             wr.out(ceLine + ",", true);
             wroteAnyEnum = true;
           }
@@ -38529,7 +38529,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             argNeedsTmp = false;
           }
           if ( argNeedsTmp ) {
-            const tmpVarName = "__arg_" + (tmpVarIdx.toString());
+            const tmpVarName = "__arg_" + ((tmpVarIdx).toString());
             tmpVarIdx = tmpVarIdx + 1;
             wr.out(("let " + tmpVarName) + " = ", false);
             ctx.setInExpr();
@@ -39030,7 +39030,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         if ( this.rustArgIsOutParam(node, i_1) ) {
           continue;
         }
-        const tmpVarName = "__arg_" + (tmpVarIdx.toString());
+        const tmpVarName = "__arg_" + ((tmpVarIdx).toString());
         tmpVarIdx = tmpVarIdx + 1;
         wr.out(("let " + tmpVarName) + " = ", false);
         ctx.setInExpr();
@@ -39199,7 +39199,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             argHasSelfRef = false;
           }
           if ( argHasSelfRef ) {
-            const tmpName = "__arg_" + (tmpIdx.toString());
+            const tmpName = "__arg_" + ((tmpIdx).toString());
             tmpIdx = tmpIdx + 1;
             tempVars.push(tmpName);
             let needsMutDecl = false;
@@ -44667,7 +44667,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           for ( let hmi = 0; hmi < Object.keys(heDef.values).length; hmi++) {
             var hmn = Object.keys(heDef.values)[hmi];
             const hmv = ( Object.prototype.hasOwnProperty.call(heDef.values, hmn) ? heDef.values[hmn] : undefined );
-            const heLine = (("    " + hmn) + " = ") + (hmv.toString());
+            const heLine = (("    " + hmn) + " = ") + ((hmv).toString());
             header.out(heLine + ",", true);
           }
           header.out("}", true);
@@ -48438,7 +48438,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
         for ( let cmi = 0; cmi < Object.keys(ceDef.values).length; cmi++) {
           var cmn = Object.keys(ceDef.values)[cmi];
           const cmv = ( Object.prototype.hasOwnProperty.call(ceDef.values, cmn) ? ceDef.values[cmn] : undefined );
-          wr.out(((ctx.transformWord(cmn) + " = ") + (cmv.toString())) + ",", true);
+          wr.out(((ctx.transformWord(cmn) + " = ") + ((cmv).toString())) + ",", true);
         }
         wr.indent(-1);
         wr.out("}", true);
@@ -50118,7 +50118,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
         for ( let smi = 0; smi < Object.keys(seDef.values).length; smi++) {
           var smn = Object.keys(seDef.values)[smi];
           const smv = ( Object.prototype.hasOwnProperty.call(seDef.values, smn) ? seDef.values[smn] : undefined );
-          wr.out(((((("case object " + ctx.transformWord(smn)) + " extends ") + sen) + "(") + (smv.toString())) + ")", true);
+          wr.out(((((("case object " + ctx.transformWord(smn)) + " extends ") + sen) + "(") + ((smv).toString())) + ")", true);
         }
         wr.indent(-1);
         wr.out("}", true);
@@ -50447,7 +50447,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             gen,
             gmn,
             ctx
-          ) + " ") + gen) + " = ") + (gmv.toString()), true);
+          ) + " ") + gen) + " = ") + ((gmv).toString()), true);
         }
         wr.indent(-1);
         wr.out(")", true);
@@ -53053,7 +53053,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
         for ( let pmi = 0; pmi < Object.keys(peDef.values).length; pmi++) {
           var pmn = Object.keys(peDef.values)[pmi];
           const pmv = ( Object.prototype.hasOwnProperty.call(peDef.values, pmn) ? peDef.values[pmn] : undefined );
-          wr.out(((("case " + ctx.transformWord(pmn)) + " = ") + (pmv.toString())) + ";", true);
+          wr.out(((("case " + ctx.transformWord(pmn)) + " = ") + ((pmv).toString())) + ";", true);
         }
         wr.indent(-1);
         wr.out("}", true);
@@ -53974,7 +53974,7 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
         for ( let pmi = 0; pmi < Object.keys(peDef.values).length; pmi++) {
           var pmn = Object.keys(peDef.values)[pmi];
           const pmv = ( Object.prototype.hasOwnProperty.call(peDef.values, pmn) ? peDef.values[pmn] : undefined );
-          wr.out((ctx.transformWord(pmn) + " = ") + (pmv.toString()), true);
+          wr.out((ctx.transformWord(pmn) + " = ") + ((pmv).toString()), true);
         }
         wr.indent(-1);
         wr.out("", true);
@@ -55950,7 +55950,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         for ( let tmi = 0; tmi < Object.keys(teDef.values).length; tmi++) {
           var tmn = Object.keys(teDef.values)[tmi];
           const tmv = ( Object.prototype.hasOwnProperty.call(teDef.values, tmn) ? teDef.values[tmn] : undefined );
-          wr.out(((ctx.transformWord(tmn) + " = ") + (tmv.toString())) + ",", true);
+          wr.out(((ctx.transformWord(tmn) + " = ") + ((tmv).toString())) + ",", true);
         }
         wr.indent(-1);
         wr.out("}", true);
@@ -65177,7 +65177,7 @@ class LowIRBuilderPass  {
         this.ensureIMapExterns();
         let ikArgs = [];
         let ikTypes = [];
-        ikArgs.push(lctx.builder.emitConst("i32", (this.imapValueOwnKind(nameNode.array_type).toString())));
+        ikArgs.push(lctx.builder.emitConst("i32", ((this.imapValueOwnKind(nameNode.array_type)).toString())));
         ikTypes.push("i32");
         const newIMap = lctx.builder.emitCall(
           "RtIMap_new_kind",
@@ -66165,7 +66165,7 @@ class LowIRBuilderPass  {
           const imVal = this.fieldArrayElemType(className, f.name, lctx);
           let imArgs = [];
           let imTypes = [];
-          imArgs.push(lctx.builder.emitConst("i32", (this.imapValueOwnKind(imVal).toString())));
+          imArgs.push(lctx.builder.emitConst("i32", ((this.imapValueOwnKind(imVal)).toString())));
           imTypes.push("i32");
           const im = lctx.builder.emitCall(
             "RtIMap_new_kind",
@@ -67716,7 +67716,7 @@ class LowIRBuilderPass  {
       kps,
       lctx
     );
-    const want = builder.emitConst("i32", (wantKind.toString()));
+    const want = builder.emitConst("i32", ((wantKind).toString()));
     const hit = builder.emitIcmp("eq", kind, want);
     const bodyL = builder.freshLabel("json_case_body");
     const doneL = builder.freshLabel("json_case_done");
@@ -73920,19 +73920,19 @@ class CLIConsole  {
   step (stepNum, stepName) {
     this.currentStep = stepNum;
     this.stepStartTime = Date.now();
-    const stepLabel = ((("[" + (stepNum.toString())) + "/") + (this.totalSteps.toString())) + "]";
+    const stepLabel = ((("[" + ((stepNum).toString())) + "/") + ((this.totalSteps).toString())) + "]";
     console.log(((this.cyan(stepLabel) + " ") + stepName) + "...");
   };
   stepWithDetail (stepNum, stepName, detail) {
     this.currentStep = stepNum;
     this.stepStartTime = Date.now();
-    const stepLabel = ((("[" + (stepNum.toString())) + "/") + (this.totalSteps.toString())) + "]";
+    const stepLabel = ((("[" + ((stepNum).toString())) + "/") + ((this.totalSteps).toString())) + "]";
     console.log((((this.cyan(stepLabel) + " ") + stepName) + " ") + this.gray(detail));
   };
   printSuccess (outputPath) {
     const endTime = Date.now();
     const duration = endTime - this.startTime;
-    const durationStr = (Math.floor( duration).toString());
+    const durationStr = ((Math.floor( duration)).toString());
     console.log("");
     console.log(this.divider());
     console.log("");
@@ -73950,12 +73950,12 @@ class CLIConsole  {
     if ( errorCount > 1 ) {
       errorWord = "errors";
     }
-    console.log((this.error("Compilation FAILED") + " ") + this.gray((((("(" + (errorCount.toString())) + " ") + errorWord) + ")")));
+    console.log((this.error("Compilation FAILED") + " ") + this.gray((((("(" + ((errorCount).toString())) + " ") + errorWord) + ")")));
     console.log("");
   };
   printCompilerError (filename, lineNum, colNum, description, lineContent, prevLine, nextLine) {
     console.log("");
-    console.log((((this.bold(filename) + ":") + this.yellow((lineNum.toString()))) + ":") + (colNum.toString()));
+    console.log((((this.bold(filename) + ":") + this.yellow(((lineNum).toString()))) + ":") + ((colNum).toString()));
     console.log("");
     console.log("  " + this.error(description));
     console.log("");
@@ -73963,10 +73963,10 @@ class CLIConsole  {
     const prevLineNum = lineNum - 1;
     const nextLineNum = lineNum + 1;
     if ( prevLine.length > 0 ) {
-      const prevNumStr = this.padLeft((prevLineNum.toString()), lineNumWidth);
+      const prevNumStr = this.padLeft(((prevLineNum).toString()), lineNumWidth);
       console.log(("  " + this.gray((prevNumStr + " │ "))) + this.dim(prevLine));
     }
-    const lineNumStr = this.padLeft((lineNum.toString()), lineNumWidth);
+    const lineNumStr = this.padLeft(((lineNum).toString()), lineNumWidth);
     console.log(("  " + this.red((lineNumStr + " │ "))) + lineContent);
     let pointerPad = "";
     let pi = 0;
@@ -73976,14 +73976,14 @@ class CLIConsole  {
     };
     console.log(("  " + pointerPad) + this.red("^── here"));
     if ( nextLine.length > 0 ) {
-      const nextNumStr = this.padLeft((nextLineNum.toString()), lineNumWidth);
+      const nextNumStr = this.padLeft(((nextLineNum).toString()), lineNumWidth);
       console.log(("  " + this.gray((nextNumStr + " │ "))) + this.dim(nextLine));
     }
     console.log("");
   };
   printSimpleError (filename, lineNum, description, lineContent) {
     console.log("");
-    console.log((this.bold(filename) + ":") + this.yellow((lineNum.toString())));
+    console.log((this.bold(filename) + ":") + this.yellow(((lineNum).toString())));
     console.log("");
     console.log("  " + this.error(description));
     console.log("");
@@ -74231,7 +74231,7 @@ GitSha1.hashHex = function(data) {
   return GitSha1.toHex(GitSha1.hash(data));
 };
 GitSha1.objectId = function(kind, payload) {
-  const sizeText = (payload.byteLength.toString());
+  const sizeText = ((payload.byteLength).toString());
   const prefix = (kind + " ") + sizeText;
   const pLen = prefix.length;
   const n = payload.byteLength;
@@ -74616,7 +74616,7 @@ GitPktIO.buildWantFetch = function(sha, deepen, filter, extras) {
     i = i + 1;
   };
   if ( deepen > 0 ) {
-    parts.push(GitPktIO.encodeLine(("deepen " + (deepen.toString())) + "\n"));
+    parts.push(GitPktIO.encodeLine(("deepen " + ((deepen).toString())) + "\n"));
   }
   if ( filter.length > 0 ) {
     parts.push(GitPktIO.encodeLine(("filter " + filter) + "\n"));
@@ -74658,7 +74658,7 @@ GitPktIO.buildFetchV2 = function(sha, deepen, filter) {
   parts.push(GitPktIO.encodeDelim());
   parts.push(GitPktIO.encodeLine("want " + sha));
   if ( deepen > 0 ) {
-    parts.push(GitPktIO.encodeLine("deepen " + (deepen.toString())));
+    parts.push(GitPktIO.encodeLine("deepen " + ((deepen).toString())));
   }
   if ( filter.length > 0 ) {
     parts.push(GitPktIO.encodeLine("filter " + filter));
@@ -75839,7 +75839,7 @@ GitPackIO.parse = function(data) {
   pack.count = GitSha1.u32be(data, 8);
   if ( pack.version != 2 ) {
     pack.ok = false;
-    pack.err = "unsupported pack version " + (pack.version.toString());
+    pack.err = "unsupported pack version " + ((pack.version).toString());
     return pack;
   }
   const z = new GitZlib();
@@ -75848,7 +75848,7 @@ GitPackIO.parse = function(data) {
   while (i < pack.count) {
     if ( at >= n - 20 ) {
       pack.ok = false;
-      pack.err = "truncated pack at object " + (i.toString());
+      pack.err = "truncated pack at object " + ((i).toString());
       return pack;
     }
     const obj = new GitObj();
@@ -75890,7 +75890,7 @@ GitPackIO.parse = function(data) {
     const inflated = z.inflateAt(data, at);
     if ( z.ok == false ) {
       pack.ok = false;
-      pack.err = (("inflate object " + (i.toString())) + ": ") + z.err;
+      pack.err = (("inflate object " + ((i).toString())) + ": ") + z.err;
       return pack;
     }
     at = z.nextPos;
@@ -76568,7 +76568,7 @@ PkgJson.strOf = function(obj, key) {
     return v.str;
   }
   if ( v.kind == "int" ) {
-    return (v.num.toString());
+    return ((v.num).toString());
   }
   return "";
 };
@@ -76714,7 +76714,7 @@ PkgManifestIO.escape = function(s) {
   return out;
 };
 PkgManifestIO.dumpLock = function(lock) {
-  let s = ("{\n  \"lockVersion\": " + (lock.lockVersion.toString())) + ",\n  \"packages\": {\n";
+  let s = ("{\n  \"lockVersion\": " + ((lock.lockVersion).toString())) + ",\n  \"packages\": {\n";
   let i = 0;
   const n = lock.packages.length;
   while (i < n) {
@@ -78111,7 +78111,7 @@ class StaticAnalyzer  {
         const fnDesc = node.fnDesc;
         const childCnt = node.children.length;
         if ( this.debug ) {
-          console.log((("StaticAnalysis: transitive check call to " + fnDesc.name) + " childCnt=") + (childCnt.toString()));
+          console.log((("StaticAnalysis: transitive check call to " + fnDesc.name) + " childCnt=") + ((childCnt).toString()));
         }
         if ( node.hasFnCall ) {
           if ( childCnt >= 2 ) {
@@ -78119,14 +78119,14 @@ class StaticAnalyzer  {
             const argCnt = callParams.children.length;
             const paramCnt = fnDesc.params.length;
             if ( this.debug ) {
-              console.log("StaticAnalysis:   hasFnCall style, argCnt=" + (argCnt.toString()));
+              console.log("StaticAnalysis:   hasFnCall style, argCnt=" + ((argCnt).toString()));
             }
             // Loop start
             for ( let i = 0; i < callParams.children.length; i++) {
               var arg = callParams.children[i];
               const argVref = arg.vref;
               if ( this.debug ) {
-                console.log((((("StaticAnalysis:   arg[" + (i.toString())) + "]=") + argVref) + " hasParamDesc=") + (arg.hasParamDesc.toString()));
+                console.log((((("StaticAnalysis:   arg[" + ((i).toString())) + "]=") + argVref) + " hasParamDesc=") + (arg.hasParamDesc.toString()));
               }
               if ( argVref.length > 0 ) {
                 if ( arg.hasParamDesc ) {
@@ -80911,7 +80911,7 @@ class StaticAnalyzer  {
             if ( ssGuard ) {
               ssTag = "strict-strings note ";
             }
-            const ssMsg = (((((((((ssTag + ssFile) + ":") + (ssLine.toString())) + " ") + ssKind) + "(") + ssShow) + ") in ") + fnName) + " -- ";
+            const ssMsg = (((((((((ssTag + ssFile) + ":") + ((ssLine).toString())) + " ") + ssKind) + "(") + ssShow) + ") in ") + fnName) + " -- ";
             if ( ssGuard ) {
               this.strictStringsGuards = this.strictStringsGuards + 1;
               this.strictStringsNotes.push(ssMsg + ssReason);
@@ -81009,11 +81009,11 @@ class StaticAnalyzer  {
       }
     };
     console.log("");
-    console.log(((((("strict-strings: " + (this.strictStringsRisky.toString())) + " of ") + (this.strictStringsTotal.toString())) + " string index sites read a unit the program can observe, in ") + (this.strictStringsFileOrder.length.toString())) + " files");
+    console.log(((((("strict-strings: " + ((this.strictStringsRisky).toString())) + " of ") + ((this.strictStringsTotal).toString())) + " string index sites read a unit the program can observe, in ") + ((this.strictStringsFileOrder.length).toString())) + " files");
     // Loop start
     for ( const ssF of this.strictStringsFileOrder) {
       const ssCnt = ( Object.prototype.hasOwnProperty.call(this.strictStringsFiles, ssF) ? this.strictStringsFiles[ssF] : undefined );
-      console.log((("  " + (ssCnt.toString())) + "  ") + ssF);
+      console.log((("  " + ((ssCnt).toString())) + "  ") + ssF);
     }
     if ( this.strictStringsNotes.length > 0 ) {
       console.log("");
@@ -81023,11 +81023,11 @@ class StaticAnalyzer  {
       }
     }
     console.log("");
-    console.log(("  " + (this.strictStringsGuards.toString())) + " more are a length against a constant or against another length:");
+    console.log(("  " + ((this.strictStringsGuards).toString())) + " more are a length against a constant or against another length:");
     console.log("  a guard on structure rather than a count of text. Listed as notes");
     console.log("  above, because the number still differs per target.");
     console.log("");
-    console.log(("  " + (this.strictStringsSafe.toString())) + " sites are self-consistent and not listed: an ASCII literal, an");
+    console.log(("  " + ((this.strictStringsSafe).toString())) + " sites are self-consistent and not listed: an ASCII literal, an");
     console.log("  emptiness test, a length that indexes some string, an index that");
     console.log("  bounds a scan, or a site marked @(units) by hand.");
     console.log("");
@@ -81858,7 +81858,7 @@ class StaticAnalyzer  {
       if ( changedParams.length > 0 ) {
         changed = true;
         if ( this.debug ) {
-          console.log(((("StaticAnalysis: transitive &mut pass " + (iteration.toString())) + " - upgraded ") + (changedParams.length.toString())) + " params");
+          console.log(((("StaticAnalysis: transitive &mut pass " + ((iteration).toString())) + " - upgraded ") + ((changedParams.length).toString())) + " params");
         }
       }
       iteration = iteration + 1;
@@ -81989,7 +81989,7 @@ class RustLexer  {
     this.__len = this.buf.length;
   }
   error (msg) {
-    this.errors.push(((("line " + (this.line.toString())) + ":") + (((this.i - this.line_start) + 1).toString())) + (": " + msg));
+    this.errors.push(((("line " + ((this.line).toString())) + ":") + (((this.i - this.line_start) + 1).toString())) + (": " + msg));
   };
   at (p) {
     if ( p < this.__len ) {
@@ -82739,7 +82739,7 @@ class RustParser  {
     if ( t.kind == "eof" ) {
       got = "end of input";
     }
-    this.errors.push(((((("line " + (t.line.toString())) + ":") + (t.col.toString())) + ": ") + msg) + ((", found '" + got) + "'"));
+    this.errors.push(((((("line " + ((t.line).toString())) + ":") + ((t.col).toString())) + ": ") + msg) + ((", found '" + got) + "'"));
   };
   expectP (s) {
     if ( false == this.eatP(s) ) {
@@ -83415,7 +83415,7 @@ class RustParser  {
       if ( vis != "" ) {
         f.addMod(vis);
       }
-      f.name = (idx.toString());
+      f.name = ((idx).toString());
       f.add(this.parseType());
       // Loop start
       for ( const a of attrs) {
@@ -86924,7 +86924,7 @@ class RustLower  {
     }
   }
   err (n, msg) {
-    this.errors.push((((((this.fileName + ":") + (n.line.toString())) + ":") + (n.col.toString())) + ": ") + msg);
+    this.errors.push((((((this.fileName + ":") + ((n.line).toString())) + ":") + ((n.col).toString())) + ": ") + msg);
   };
   unsupported (n, what) {
     this.err(n, what + " is not in the Ranger subset of Rust");
@@ -86955,7 +86955,7 @@ class RustLower  {
   };
   tmp (base) {
     this.tmpN = this.tmpN + 1;
-    return ("rs__" + base) + (this.tmpN.toString());
+    return ("rs__" + base) + ((this.tmpN).toString());
   };
   allocLocal (n) {
     let base = n;
@@ -86969,7 +86969,7 @@ class RustLower  {
     let k = 2;
     const searching = true;
     while (searching) {
-      const cand = (base + "_") + (k.toString());
+      const cand = (base + "_") + ((k).toString());
       if ( false == ( typeof(this.used[cand] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.used, cand) ) ) {
         this.used[cand] = true;
         return cand;
@@ -88175,7 +88175,7 @@ class RustLower  {
       let ps = [];
       let i = 0;
       while (i < n - 1) {
-        ps.push((("p" + (i.toString())) + ":") + this.rtype(t.arg(i)));
+        ps.push((("p" + ((i).toString())) + ":") + this.rtype(t.arg(i)));
         i = i + 1;
       };
       return ((("(fn:" + this.rtype(t.arg((n - 1)))) + " (") + ps.join(" ")) + "))";
@@ -88243,15 +88243,15 @@ class RustLower  {
       let cps = [];
       // Loop start
       for ( const a2 of t.args) {
-        lines.push("  def " + this.fieldDecl(("f" + (ci.toString())), a2));
-        cps.push(this.declText("a" + (ci.toString()), a2));
+        lines.push("  def " + this.fieldDecl(("f" + ((ci).toString())), a2));
+        cps.push(this.declText("a" + ((ci).toString()), a2));
         ci = ci + 1;
       }
       lines.push(("  Constructor (" + cps.join(" ")) + ") {");
       let ck = 0;
       // Loop start
       for ( const a4 of t.args) {
-        lines.push((("    this.f" + (ck.toString())) + " = a") + (ck.toString()));
+        lines.push((("    this.f" + ((ck).toString())) + " = a") + ((ck).toString()));
         ck = ck + 1;
       }
       lines.push("  }");
@@ -88260,7 +88260,7 @@ class RustLower  {
       let cj = 0;
       // Loop start
       for ( const a3 of t.args) {
-        cargs.push(this.cloneCode("this.f" + (cj.toString()), a3));
+        cargs.push(this.cloneCode("this.f" + ((cj).toString()), a3));
         cj = cj + 1;
       }
       lines.push(((("    return (new " + name) + "(") + cargs.join(" ")) + "))");
@@ -88719,7 +88719,7 @@ class RustLower  {
       let pi = 0;
       // Loop start
       for ( const p of m.params) {
-        const pn = "a" + (pi.toString());
+        const pn = "a" + ((pi).toString());
         ps.push(this.declText(pn, p.ty));
         as.push(pn);
         pi = pi + 1;
@@ -88751,7 +88751,7 @@ class RustLower  {
           const smf = sm;
           mname = smf.rname;
         }
-        const v = "c" + (ci.toString());
+        const v = "c" + ((ci).toString());
         ci = ci + 1;
         lines.push(((("    case x " + v) + ":") + mem) + " {");
         const call = ((((v + ".") + mname) + "(") + as.join(" ")) + ")";
@@ -89401,7 +89401,7 @@ class RustLower  {
       let i = 0;
       // Loop start
       for ( const a of t.args) {
-        parts.push(this.dbgCode((code + ".f") + (i.toString()), a));
+        parts.push(this.dbgCode((code + ".f") + ((i).toString()), a));
         i = i + 1;
       }
       return this.concat("(", parts, ", ", ")");
@@ -89532,7 +89532,7 @@ class RustLower  {
     return lines.join("\n");
   };
   docKey (n) {
-    return ((n.line.toString()) + ":") + (n.col.toString());
+    return (((n.line).toString()) + ":") + ((n.col).toString());
   };
   helperDoc (text) {
     const info = new RustDocInfo();
@@ -90841,7 +90841,7 @@ class RustLower  {
       mapName = seq.substring(bar + 1, seq.length );
     }
     if ( mode == "bytes" ) {
-      this.out.line(((("def " + n) + ":int (length ") + seqName) + ")");
+      this.out.line(((("def " + n) + ":int (rs_byte_len ") + sv.code) + ")");
     } else {
       this.out.line(((("def " + n) + ":int (array_length ") + seqName) + ")");
     }
@@ -91206,7 +91206,7 @@ class RustLower  {
         }
         const c = this.patCond(
           sp,
-          ((subj + ".f") + (ti.toString())),
+          ((subj + ".f") + ((ti).toString())),
           t.arg(ti)
         );
         if ( c != "true" ) {
@@ -91438,7 +91438,7 @@ class RustLower  {
       for ( const sp of pat.kids) {
         this.walkBindings(
           sp,
-          (subj + ".f") + (ti.toString()),
+          (subj + ".f") + ((ti).toString()),
           t.arg(ti),
           aliasOnly
         );
@@ -91757,21 +91757,21 @@ class RustLower  {
       if ( cs.length > 0 ) {
         code = cs[0];
       }
-      const rb = RsExpr.of((code.toString()), RsType.mk("int"));
+      const rb = RsExpr.of(((code).toString()), RsType.mk("int"));
       rb.simple = true;
       return rb;
     }
     if ( ((n.hasMod("float") || n.hasMod("f64")) || n.hasMod("f32")) || expect.kind == "double" ) {
       let txt = n.value;
       if ( n.hasMod("int") ) {
-        txt = (this.intValue(n).toString());
+        txt = ((this.intValue(n)).toString());
       }
       const rf = RsExpr.of(this.floatText(txt), RsType.mk("double"));
       rf.simple = true;
       return rf;
     }
     if ( n.hasMod("int") ) {
-      const ri = RsExpr.of((this.intValue(n).toString()), RsType.mk("int"));
+      const ri = RsExpr.of(((this.intValue(n)).toString()), RsType.mk("int"));
       ri.simple = true;
       return ri;
     }
@@ -91921,7 +91921,7 @@ class RustLower  {
       if ( (typeof(l) !== "undefined" && l != null )  ) {
         const lv = l;
         if ( lv.moved && false == this.noMoveCheck ) {
-          this.err(n, ((("use of moved value: `" + name) + "` (moved at line ") + (lv.movedLine.toString())) + ")");
+          this.err(n, ((("use of moved value: `" + name) + "` (moved at line ") + ((lv.movedLine).toString())) + ")");
           lv.moved = false;
         }
         const r = RsExpr.of(lv.rname, lv.ty);
@@ -92107,7 +92107,7 @@ class RustLower  {
     const ft = RsType.mk("fn");
     // Loop start
     for ( const p of f.params) {
-      const pn = "p" + (i.toString());
+      const pn = "p" + ((i).toString());
       ps.push(this.declText(pn, p.ty));
       as.push(pn);
       ft.args.push(p.ty);
@@ -92423,7 +92423,7 @@ class RustLower  {
     let i = e.variants.length - 1;
     while (i >= 0) {
       const v = e.variants[i];
-      acc = ((((((("(? (" + code) + " == ") + this.className(en)) + ".") + v.name) + ") ") + (v.disc.toString())) + ((" " + acc) + ")");
+      acc = ((((((("(? (" + code) + " == ") + this.className(en)) + ".") + v.name) + ") ") + ((v.disc).toString())) + ((" " + acc) + ")");
       i = i - 1;
     };
     return acc;
@@ -94809,7 +94809,7 @@ class RustLower  {
     }
     this.loopInd = this.out.ind;
     if ( mode == "bytes" ) {
-      this.out.line(((("def " + n) + ":int (length ") + seq) + ")");
+      this.out.line(((("def " + n) + ":int (rs_byte_len ") + bv.code) + ")");
     } else {
       this.out.line(((("def " + n) + ":int (array_length ") + seq) + ")");
     }
@@ -95255,7 +95255,7 @@ class RustLower  {
       argTypes.push(lv.ty);
     }
     this.nativeN = this.nativeN + 1;
-    const op = "rs_native_" + (this.nativeN.toString());
+    const op = "rs_native_" + ((this.nativeN).toString());
     let rt = expect;
     if ( rt.isUnknown() ) {
       rt = RsType.mk("unit");
@@ -95268,7 +95268,7 @@ class RustLower  {
     let k = 0;
     // Loop start
     for ( const at of argTypes) {
-      params.push(this.declText("a" + (k.toString()), at));
+      params.push(this.declText("a" + ((k).toString()), at));
       k = k + 1;
     }
     let tpl = [];
@@ -95323,7 +95323,7 @@ class RustLower  {
   };
   jsonTmp (base) {
     this.jsonN = this.jsonN + 1;
-    return ("rs__j" + base) + (this.jsonN.toString());
+    return ("rs__j" + base) + ((this.jsonN).toString());
   };
   emitJson (s, cname) {
     const st = RsType.named(s.name);
@@ -95856,7 +95856,7 @@ class RustLower  {
       code = this.dbgCode(tv, v.ty);
     } else {
       if ( prec >= 0 && v.ty.kind == "double" ) {
-        code = ((("(rs_fmt_prec " + v.code) + " ") + (prec.toString())) + ")";
+        code = ((("(rs_fmt_prec " + v.code) + " ") + ((prec).toString())) + ")";
       } else {
         code = this.fmtDisplay(v, "");
       }
@@ -95871,9 +95871,9 @@ class RustLower  {
         }
       }
       if ( zero ) {
-        return ((("(RsFmt.padZero(" + code) + " ") + (width.toString())) + "))";
+        return ((("(RsFmt.padZero(" + code) + " ") + ((width).toString())) + "))";
       }
-      return ((((((("(RsFmt.pad(" + code) + " ") + (width.toString())) + " ") + this.strLit(align)) + " ") + this.strLit(fill)) + "))";
+      return ((((((("(RsFmt.pad(" + code) + " ") + ((width).toString())) + " ") + this.strLit(align)) + " ") + this.strLit(fill)) + "))";
     }
     return code;
   };
@@ -95957,7 +95957,7 @@ class RustLower  {
     let i = 0;
     // Loop start
     for ( const f of v.fields) {
-      const pn = "p" + (i.toString());
+      const pn = "p" + ((i).toString());
       ps.push(this.declText(pn, f.ty));
       as.push(pn);
       ft.args.push(f.ty);
@@ -96071,7 +96071,7 @@ class RustLower  {
       for ( const sp of pat.kids) {
         opened = opened + this.patOpen(
           sp,
-          ((subj + ".f") + (ti.toString())),
+          ((subj + ".f") + ((ti).toString())),
           t.arg(ti)
         );
         ti = ti + 1;
@@ -96367,7 +96367,7 @@ class RustLower  {
       const l = this.fnLocals[k];
       k = k + 1;
       if ( (l.moved && l.order < firstInside) && before.indexOf(l) < 0 ) {
-        this.err(body, ((("value `" + l.name) + "` moved in a previous iteration of the loop (moved at line ") + (l.movedLine.toString())) + ")");
+        this.err(body, ((("value `" + l.name) + "` moved in a previous iteration of the loop (moved at line ") + ((l.movedLine).toString())) + ")");
         l.moved = false;
       }
     };

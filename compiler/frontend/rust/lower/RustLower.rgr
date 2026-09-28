@@ -4390,7 +4390,9 @@ class RustLower {
       mapName = (substring seq (bar + 1) (strlen seq))
     }
     if (mode == "bytes") {
-      out.line((((("def " + n) + ":int (length ") + seqName) + ")"))
+      ; the string's byte count, not the charbuffer's: a C++ charbuffer is a
+      ; bare `const char*`, whose length stops at the first NUL
+      out.line((((("def " + n) + ":int (rs_byte_len ") + sv.code) + ")"))
     } {
       out.line((((("def " + n) + ":int (array_length ") + seqName) + ")"))
     }
@@ -8514,7 +8516,7 @@ class RustLower {
     }
     loopInd = out.ind
     if (mode == "bytes") {
-      out.line((((("def " + n) + ":int (length ") + seq) + ")"))
+      out.line((((("def " + n) + ":int (rs_byte_len ") + bv.code) + ")"))
     } {
       out.line((((("def " + n) + ":int (array_length ") + seq) + ")"))
     }

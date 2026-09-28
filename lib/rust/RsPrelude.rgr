@@ -970,6 +970,9 @@ inline void rs_map_erase(M& m, const K& k) {
   }
   rs_byte_len _:int (s:string) {
     templates {
+      ranger ( "(rs_byte_len " (e 1) ")" )
+      ; std::string::size counts a NUL; the charbuffer's strlen does not
+      cpp ( "((int)(" (e 1) ").size())" )
       * @macro(true) ( "(length (to_charbuffer " "(" (e 1) ")" "))" )
     }
   }

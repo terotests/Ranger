@@ -8449,7 +8449,8 @@ std::string r_str_from_code(int cp) {
                 csharp ( (e 1) ".ToString()" )
                 python ( "str(" (e 1) ")" )
                 rust ( (e 1) ".to_string()" )
-                * ( "(" (e 1) ".toString())")
+                ; the value in parentheses: `10.toString()` does not parse
+                * ( "((" (e 1) ").toString())")
             }
         }          
 
