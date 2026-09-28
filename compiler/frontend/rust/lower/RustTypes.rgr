@@ -281,6 +281,15 @@ class RsEnum {
   def traits:[string]
   def node@(optional):RustNode
 
+  fn derivesTrait:boolean (t:string) {
+    for derives d:string i {
+      if (d == t) {
+        return true
+      }
+    }
+    return false
+  }
+
   fn variant@(optional):RsVariant (n:string) {
     def none@(optional):RsVariant
     for variants v:RsVariant i {

@@ -2363,10 +2363,13 @@ class RustLower {
     if (false == e.plain) {
       push impl (this.emitEnumZero(e cname))
     }
-    if (false == (this.hasFmt((RsType.named(e.name)) "Debug"))) {
+    if ((e.derivesTrait("Debug")) && (false == (this.hasFmt((RsType.named(e.name)) "Debug")))) {
       push impl (this.emitEnumDebug(e cname))
-      if (false == e.plain) {
-        push impl (this.emitEnumClone(e cname))
+    }
+    if (false == e.plain) {
+      push impl (this.emitEnumClone(e cname))
+      ; eqOf only for derived equality: a variant may hold a collection
+      if (e.derivesTrait("PartialEq")) {
         push impl (this.emitEnumEq(e cname))
       }
     }
@@ -2699,7 +2702,71 @@ class RustLower {
     if (t.kind == "tuple") {
       this.unsupported((new RustNode("none")) "comparing tuples with ==")
     }
+    if (this.needsDeepEq(t)) {
+      return (((((("(" + (this.collectionEq(t))) + "(") + a) + " ") + b) + "))")
+    }
     return (((("(" + a) + " == ") + b) + ")")
+  }
+
+  ; true when `==` of the target cannot compare values of `t` (Go refuses
+  ; `==` on slices and maps; es6 compares references)
+  fn needsDeepEq:boolean (t:RsType) {
+    return ((t.kind == "vec") || (t.kind == "map") || (t.kind == "set"))
+  }
+
+  ; A static helper that compares two collections element by element, as
+  ; Rust's PartialEq does (maps and sets ignore the order of their keys).
+  fn collectionEq:string (t:RsType) {
+    def key:string ("e_" + (this.mangleKey(t)))
+    def name:string ("RsClone." + key)
+    if (has genNames key) {
+      return name
+    }
+    set genNames key true
+    def lines:[string]
+    def rt:string (this.rtype(t))
+    push lines (((("  sfn " + key) + ":boolean (a:") + rt) + ((" b:" + rt) + ") {"))
+    if (t.kind == "vec") {
+      push lines "    def n:int (array_length a)"
+      push lines "    if (n != (array_length b)) {\n      return false\n    }"
+      push lines "    def i:int 0"
+      push lines "    while (i < n) {"
+      push lines (("      def x:" + (this.rtype((t.arg(0))))) + " (itemAt a i)")
+      push lines (("      def y:" + (this.rtype((t.arg(0))))) + " (itemAt b i)")
+      push lines (("      if (! " + (this.eqCode("x" "y" (t.arg(0))))) + ") {\n        return false\n      }")
+      push lines "      i = i + 1"
+      push lines "    }"
+      push lines "    return true"
+    }
+    if ((t.kind == "map") || (t.kind == "set")) {
+      def kt:string (this.rtype((t.arg(0))))
+      def kmap:RsType (RsType.of2("map" (t.arg(0)) (t.arg(0))))
+      if (t.kind == "map") {
+        kmap = t
+      }
+      def ma:string (this.mapR("a" t))
+      def mb:string (this.mapR("b" t))
+      push lines ((("    def ka:[" + kt) + "] ") + (this.mapKeysCode("a" kmap)))
+      push lines ((("    def kb:[" + kt) + "] ") + (this.mapKeysCode("b" kmap)))
+      push lines "    def n:int (array_length ka)"
+      push lines "    if (n != (array_length kb)) {\n      return false\n    }"
+      push lines "    def i:int 0"
+      push lines "    while (i < n) {"
+      push lines (("      def k:" + kt) + " (itemAt ka i)")
+      push lines (("      if (false == (has " + mb) + " k)) {\n        return false\n      }")
+      if (t.kind == "map") {
+        def vt:string (this.rtype((t.arg(1))))
+        push lines (((("      def x:" + vt) + " (unwrap (get ") + ma) + " k))")
+        push lines (((("      def y:" + vt) + " (unwrap (get ") + mb) + " k))")
+        push lines (("      if (! " + (this.eqCode("x" "y" (t.arg(1))))) + ") {\n        return false\n      }")
+      }
+      push lines "      i = i + 1"
+      push lines "    }"
+      push lines "    return true"
+    }
+    push lines "  }"
+    push clonerOut (join lines "\n")
+    return name
   }
 
   fn emitDebugStruct:string (s:RsStruct cname:string) {
@@ -5788,6 +5855,13 @@ class RustLower {
         return "false"
       }
       return (((("(" + sc) + " ") + op) + " 0)")
+    }
+    if (((op == "==") || (op == "!=")) && (this.needsDeepEq(t))) {
+      def deq:string (this.eqCode(l.code r.code t))
+      if (op == "==") {
+        return deq
+      }
+      return (("(! " + deq) + ")")
     }
     if (t.kind == "opt") {
       if ((op == "==") || (op == "!=")) {

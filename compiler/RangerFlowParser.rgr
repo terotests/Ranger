@@ -4016,6 +4016,30 @@ class RangerFlowParser {
     ; ([] _:int (2 3 4 5))
     if( (size node.children ) == 3 ) {
       def sc (node.getSecond())
+      def items0 (node.getThird())
+      ; ([] _:[string] ( a b )) -- the marker names a collection, which the
+      ; parser keeps as an array (or hash) node, not a type name
+      if( (sc.vref == "_") && ((strlen sc.type_name) == 0) && ((strlen sc.array_type) > 0) && items0.expression && ((sc.value_type == RangerNodeType.Array) || (sc.value_type == RangerNodeType.Hash)) ) {
+        def collType:string ("[" + sc.array_type + "]")
+        if (sc.value_type == RangerNodeType.Hash) {
+          collType = ("[" + sc.key_type + ":" + sc.array_type + "]")
+        }
+        node.eval_array_type = collType
+        node.eval_type = RangerNodeType.Array
+        def collItems (node.newExpressionNode())
+        for items0.children cit:CodeNode ci {
+          def citCopy (cit.copy())
+          this.WalkNode( citCopy ctx wr )
+          if( (citCopy.eval_type != sc.value_type) || (citCopy.eval_array_type != sc.array_type) ) {
+            ctx.addError( cit ( 'The array type should be ' + collType ) )
+            break
+          }
+          push collItems.children citCopy
+        }
+        node.getChildrenFrom( collItems )
+        node.is_array_literal = true
+        return
+      }
       if(  ( (strlen sc.vref) > 0 )  && ( (strlen sc.type_name ) > 0 ) ) {
         node.eval_array_type = sc.type_name
         node.eval_type = RangerNodeType.Array

@@ -5737,6 +5737,58 @@ class CodeNode  {
         }
       }
     }
+    if ( ((this.is_array_literal && this.eval_array_type.length > 0) && this.eval_array_type != "Any") && this.eval_array_type.indexOf("<") < 0 ) {
+      newNode.expression = true;
+      const opRef = this.newVRefNode("[]");
+      opRef.parent = newNode;
+      newNode.children.push(opRef);
+      const marker = this.newVRefNode("_");
+      const elemT = match.getTypeName(this.eval_array_type);
+      const elemLen = elemT.length;
+      if ( elemLen > 2 && elemT.charCodeAt(0 ) == 91 ) {
+        const inner = elemT.substring(1, elemLen - 1 );
+        let depth = 0;
+        let sep = -1;
+        let ci = 0;
+        while (ci < inner.length) {
+          const c = inner.charCodeAt(ci );
+          if ( c == 91 ) {
+            depth = depth + 1;
+          }
+          if ( c == 93 ) {
+            depth = depth - 1;
+          }
+          if ( (c == 58 && depth == 0) && sep < 0 ) {
+            sep = ci;
+          }
+          ci = ci + 1;
+        };
+        if ( sep < 0 ) {
+          marker.value_type = 6;
+          marker.parsed_type = 6;
+          marker.array_type = inner;
+        } else {
+          marker.value_type = 7;
+          marker.parsed_type = 7;
+          marker.key_type = inner.substring(0, sep );
+          marker.array_type = inner.substring(sep + 1, inner.length );
+        }
+      } else {
+        marker.type_name = elemT;
+      }
+      marker.parent = newNode;
+      newNode.children.push(marker);
+      const items = this.newExpressionNode();
+      items.parent = newNode;
+      // Loop start
+      for ( const it of this.children) {
+        const itCopy = it.rebuildWithType(match, changeVref);
+        itCopy.parent = items;
+        items.children.push(itCopy);
+      }
+      newNode.children.push(items);
+      return newNode;
+    }
     newNode.has_operator = this.has_operator;
     newNode.op_index = this.op_index;
     newNode.mutable_def = this.mutable_def;
@@ -18334,6 +18386,29 @@ class RangerFlowParser  {
   cmdArray (node, ctx, wr) {
     if ( node.children.length == 3 ) {
       const sc = node.getSecond();
+      const items0 = node.getThird();
+      if ( (((sc.vref == "_" && sc.type_name.length == 0) && sc.array_type.length > 0) && items0.expression) && (sc.value_type == 6 || sc.value_type == 7) ) {
+        let collType = ("[" + sc.array_type) + "]";
+        if ( sc.value_type == 7 ) {
+          collType = ((("[" + sc.key_type) + ":") + sc.array_type) + "]";
+        }
+        node.eval_array_type = collType;
+        node.eval_type = 6;
+        const collItems = node.newExpressionNode();
+        // Loop start
+        for ( const cit of items0.children) {
+          const citCopy = cit.copy();
+          this.WalkNode(citCopy, ctx, wr);
+          if ( citCopy.eval_type != sc.value_type || citCopy.eval_array_type != sc.array_type ) {
+            ctx.addError(cit, "The array type should be " + collType);
+            break;
+          }
+          collItems.children.push(citCopy);
+        }
+        node.getChildrenFrom(collItems);
+        node.is_array_literal = true;
+        return;
+      }
       if ( sc.vref.length > 0 && sc.type_name.length > 0 ) {
         node.eval_array_type = sc.type_name;
         node.eval_type = 6;
@@ -27562,18 +27637,28 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
   };
   writeArrayLiteral (node, ctx, wr) {
     wr.addImport("java.util.*");
+    const elemT = this.getObjectTypeString2(node.eval_array_type, ctx, wr);
+    const generic = node.eval_array_type.length > 0 && node.eval_array_type.charCodeAt(0 ) == 91;
     wr.out("new ArrayList<", false);
-    wr.out(this.getObjectTypeString2(node.eval_array_type, ctx, wr), false);
-    wr.out(">(Arrays.asList( new ", false);
-    wr.out(this.getObjectTypeString2(node.eval_array_type, ctx, wr), false);
-    wr.out("[] {", false);
+    wr.out(elemT, false);
+    if ( generic ) {
+      wr.out((">(Arrays.<" + elemT) + ">asList(", false);
+    } else {
+      wr.out(">(Arrays.asList( new ", false);
+      wr.out(elemT, false);
+      wr.out("[] {", false);
+    }
     operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
       this.WalkNode(item, ctx, wr);
     }));
-    wr.out("}))", false);
+    if ( generic ) {
+      wr.out("))", false);
+    } else {
+      wr.out("}))", false);
+    }
   };
   CreateLambda (node, ctx, wr) {
     const lambdaCtx = node.lambda_ctx;
@@ -56724,13 +56809,21 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
     return type_string;
   };
   writeArrayLiteral (node, ctx, wr) {
-    wr.out("([] ", false);
+    const typed = node.eval_array_type.length > 0 && node.eval_array_type != "Any";
+    if ( typed ) {
+      wr.out(("([] _:" + node.eval_array_type) + " (", false);
+    } else {
+      wr.out("([] ", false);
+    }
     operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(" ", false);
       }
       this.WalkNode(item, ctx, wr);
     }));
+    if ( typed ) {
+      wr.out(")", false);
+    }
     wr.out(")", false);
   };
   writeTypeDef (node, ctx, wr) {
@@ -85586,6 +85679,15 @@ class RsEnum  {
     this.traits = [];
     this.node = undefined;
   }
+  derivesTrait (t) {
+    // Loop start
+    for ( const d of this.derives) {
+      if ( d == t ) {
+        return true;
+      }
+    }
+    return false;
+  };
   variant (n) {
     let none;
     // Loop start
@@ -88859,10 +88961,12 @@ class RustLower  {
     if ( false == e.plain ) {
       impl.push(this.emitEnumZero(e, cname));
     }
-    if ( false == this.hasFmt(RsType.named(e.name), "Debug") ) {
+    if ( e.derivesTrait("Debug") && false == this.hasFmt(RsType.named(e.name), "Debug") ) {
       impl.push(this.emitEnumDebug(e, cname));
-      if ( false == e.plain ) {
-        impl.push(this.emitEnumClone(e, cname));
+    }
+    if ( false == e.plain ) {
+      impl.push(this.emitEnumClone(e, cname));
+      if ( e.derivesTrait("PartialEq") ) {
         impl.push(this.emitEnumEq(e, cname));
       }
     }
@@ -89210,7 +89314,73 @@ class RustLower  {
     if ( t.kind == "tuple" ) {
       this.unsupported(new RustNode("none"), "comparing tuples with ==");
     }
+    if ( this.needsDeepEq(t) ) {
+      return ((((("(" + this.collectionEq(t)) + "(") + a) + " ") + b) + "))";
+    }
     return ((("(" + a) + " == ") + b) + ")";
+  };
+  needsDeepEq (t) {
+    return (t.kind == "vec" || t.kind == "map") || t.kind == "set";
+  };
+  collectionEq (t) {
+    const key = "e_" + this.mangleKey(t);
+    const name = "RsClone." + key;
+    if ( ( typeof(this.genNames[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, key) ) ) {
+      return name;
+    }
+    this.genNames[key] = true;
+    let lines = [];
+    const rt = this.rtype(t);
+    lines.push(((("  sfn " + key) + ":boolean (a:") + rt) + ((" b:" + rt) + ") {"));
+    if ( t.kind == "vec" ) {
+      lines.push("    def n:int (array_length a)");
+      lines.push("    if (n != (array_length b)) {\n      return false\n    }");
+      lines.push("    def i:int 0");
+      lines.push("    while (i < n) {");
+      lines.push(("      def x:" + this.rtype(t.arg(0))) + " (itemAt a i)");
+      lines.push(("      def y:" + this.rtype(t.arg(0))) + " (itemAt b i)");
+      lines.push(("      if (! " + this.eqCode(
+        "x",
+        "y",
+        t.arg(0)
+      )) + ") {\n        return false\n      }");
+      lines.push("      i = i + 1");
+      lines.push("    }");
+      lines.push("    return true");
+    }
+    if ( t.kind == "map" || t.kind == "set" ) {
+      const kt = this.rtype(t.arg(0));
+      let kmap = RsType.of2("map", t.arg(0), t.arg(0));
+      if ( t.kind == "map" ) {
+        kmap = t;
+      }
+      const ma = this.mapR("a", t);
+      const mb = this.mapR("b", t);
+      lines.push((("    def ka:[" + kt) + "] ") + this.mapKeysCode("a", kmap));
+      lines.push((("    def kb:[" + kt) + "] ") + this.mapKeysCode("b", kmap));
+      lines.push("    def n:int (array_length ka)");
+      lines.push("    if (n != (array_length kb)) {\n      return false\n    }");
+      lines.push("    def i:int 0");
+      lines.push("    while (i < n) {");
+      lines.push(("      def k:" + kt) + " (itemAt ka i)");
+      lines.push(("      if (false == (has " + mb) + " k)) {\n        return false\n      }");
+      if ( t.kind == "map" ) {
+        const vt = this.rtype(t.arg(1));
+        lines.push(((("      def x:" + vt) + " (unwrap (get ") + ma) + " k))");
+        lines.push(((("      def y:" + vt) + " (unwrap (get ") + mb) + " k))");
+        lines.push(("      if (! " + this.eqCode(
+          "x",
+          "y",
+          t.arg(1)
+        )) + ") {\n        return false\n      }");
+      }
+      lines.push("      i = i + 1");
+      lines.push("    }");
+      lines.push("    return true");
+    }
+    lines.push("  }");
+    this.clonerOut.push(lines.join("\n"));
+    return name;
   };
   emitDebugStruct (s, cname) {
     let lines = [];
@@ -92118,6 +92288,13 @@ class RustLower  {
         return "false";
       }
       return ((("(" + sc) + " ") + op) + " 0)";
+    }
+    if ( (op == "==" || op == "!=") && this.needsDeepEq(t) ) {
+      const deq = this.eqCode(l.code, r.code, t);
+      if ( op == "==" ) {
+        return deq;
+      }
+      return ("(! " + deq) + ")";
     }
     if ( t.kind == "opt" ) {
       if ( op == "==" || op == "!=" ) {

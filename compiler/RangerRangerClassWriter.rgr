@@ -21,14 +21,24 @@ class RangerRangerClassWriter {
       return type_string
   }
 
+  ; `([] _:T ( a b ))` when the element type is known: an operator expanded
+  ; from this text walks the literal again, and `([] ([] 1))` has lost it
   fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    wr.out("([] " false)
+    def typed:boolean (((strlen node.eval_array_type) > 0) && (node.eval_array_type != "Any"))
+    if typed {
+      wr.out((("([] _:" + node.eval_array_type) + " (") false)
+    } {
+      wr.out("([] " false)
+    }
     node.children.forEach({
       if( index > 0 ) {
         wr.out(" " false)
       }
       this.WalkNode( item ctx wr )
     })
+    if typed {
+      wr.out(")" false)
+    }
     wr.out(")" false)
   }
   

@@ -668,6 +668,63 @@ extension CodeNode {
         }
       }
     }
+    ; A walked array literal holds only its elements, marked
+    ; `is_array_literal`. The copy is written back as the literal it was,
+    ; `([] _:T ( a b ))`, so a walk of the copy analyses it again. ISSUES.md
+    ; #85 was this loss in the `recv.method()` rewrite; the shape union
+    ; conversion of `(new V.L(([] _:int (1 2))))` copies after the walk too.
+    if (is_array_literal && ((strlen eval_array_type) > 0) && (eval_array_type != "Any") && ((indexOf eval_array_type "<") < 0)) {
+      newNode.expression = true
+      def opRef:CodeNode (this.newVRefNode("[]"))
+      opRef.parent = newNode
+      push newNode.children opRef
+      def marker:CodeNode (this.newVRefNode("_"))
+      def elemT:string (match.getTypeName(eval_array_type))
+      def elemLen:int (strlen elemT)
+      if ((elemLen > 2) && ((charAt elemT 0) == 91)) {
+        ; `[T]` / `[K:V]`: a collection marker, as the parser writes `_:[T]`
+        def inner:string (substring elemT 1 (elemLen - 1))
+        def depth:int 0
+        def sep:int -1
+        def ci:int 0
+        while (ci < (strlen inner)) {
+          def c:int (charAt inner ci)
+          if (c == 91) {
+            depth = depth + 1
+          }
+          if (c == 93) {
+            depth = depth - 1
+          }
+          if ((c == 58) && (depth == 0) && (sep < 0)) {
+            sep = ci
+          }
+          ci = ci + 1
+        }
+        if (sep < 0) {
+          marker.value_type = RangerNodeType.Array
+          marker.parsed_type = RangerNodeType.Array
+          marker.array_type = inner
+        } {
+          marker.value_type = RangerNodeType.Hash
+          marker.parsed_type = RangerNodeType.Hash
+          marker.key_type = (substring inner 0 sep)
+          marker.array_type = (substring inner (sep + 1) (strlen inner))
+        }
+      } {
+        marker.type_name = elemT
+      }
+      marker.parent = newNode
+      push newNode.children marker
+      def items:CodeNode (this.newExpressionNode())
+      items.parent = newNode
+      for children it:CodeNode ii {
+        def itCopy:CodeNode (it.rebuildWithType(match changeVref))
+        itCopy.parent = items
+        push items.children itCopy
+      }
+      push newNode.children items
+      return newNode
+    }
     newNode.has_operator = has_operator
     newNode.op_index = op_index
     newNode.mutable_def = mutable_def

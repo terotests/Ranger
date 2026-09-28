@@ -1309,18 +1309,30 @@ public class RgJson {
 
   fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     wr.addImport("java.util.*")
+    def elemT:string (this.getObjectTypeString2( node.eval_array_type ctx wr))
+    ; `new ArrayList<Integer>[] {…}` is a generic array creation, which Java
+    ; refuses: a collection element goes through asList's varargs instead
+    def generic:boolean (((strlen node.eval_array_type) > 0) && ((charAt node.eval_array_type 0) == 91))
     wr.out("new ArrayList<" false)
-    wr.out( (this.getObjectTypeString2( node.eval_array_type ctx wr)) false )
-    wr.out(">(Arrays.asList( new " false)
-    wr.out( (this.getObjectTypeString2( node.eval_array_type ctx wr)) false )
-    wr.out("[] {" false)
+    wr.out( elemT false )
+    if generic {
+      wr.out(((">(Arrays.<" + elemT) + ">asList(") false)
+    } {
+      wr.out(">(Arrays.asList( new " false)
+      wr.out( elemT false )
+      wr.out("[] {" false)
+    }
     node.children.forEach({
       if( index > 0 ) {
         wr.out(", " false)
       }
       this.WalkNode( item ctx wr )
     })
-    wr.out("}))" false)
+    if generic {
+      wr.out("))" false)
+    } {
+      wr.out("}))" false)
+    }
   }
   
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {

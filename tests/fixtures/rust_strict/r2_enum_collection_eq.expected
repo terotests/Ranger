@@ -1,0 +1,21 @@
+V len 3
+V num 2.5
+list eq: true
+list shorter: false
+list differs: false
+list ne: true
+nested eq: true
+nested differs: false
+map eq: true
+map value differs: false
+map extra key: false
+set eq: true
+set differs: false
+items eq: true
+items differs: false
+kinds differ: false
+nothing eq: true
+bag eq: true
+bag differs: false
+vec eq: true
+vec ne: true
