@@ -240,3 +240,11 @@ pub const OP_TO_OBJECT: int = 138;
 pub const OP_GET_ARG: int = 139;
 /// [v] → [v]: writes parameter `a` (and its mapped element)
 pub const OP_SET_ARG: int = 140;
+/// [v] → [an async iterator of v] (for await: Symbol.asyncIterator, or
+/// the sync iterator with its values awaited)
+pub const OP_ASYNC_ITER: int = 141;
+/// calls the `return` method of the iterator `a` items below the top
+/// (leaving a for-of loop early); b=1 (for await) pushes its result
+pub const OP_ITER_CLOSE: int = 142;
+/// [e] → [e]: jumps to `a` when e is a generator's return() signal
+pub const OP_JRETSIG: int = 143;

@@ -57,6 +57,9 @@ pub const C_ARRAYBUFFER: int = 20;
 pub const C_TYPED: int = 21;
 /// a Proxy (proxy.rs)
 pub const C_PROXY: int = 22;
+/// a generator's return(): raised at the yield so that only `finally`
+/// blocks run; the value is in `prim`
+pub const C_RETURN_SIGNAL: int = 23;
 
 // property attributes
 pub const P_HIDDEN: int = 1;
@@ -299,4 +302,6 @@ pub struct Handler {
     pub catch_pc: int,
     pub sp: int,
     pub env: int,
+    /// a `finally` block's handler (it rethrows), not a `catch`
+    pub finally_only: bool,
 }

@@ -28,9 +28,11 @@ npx vitest run --config tests/vitest.config.ts cer.test.ts
 - `lexer.rs`, `parser.rs`: tokens, then a tree in an arena (a node is an
   index). ES5 and the common later forms: `let` / `const`, arrow functions,
   classes (fields, accessors, `static`, `extends`, `super`), template
-  literals, spread and rest, destructuring with defaults, `for … of`,
-  optional chaining, `??`, `**`, shorthand members. Class fields and static
-  blocks become two synthetic methods in the parser.
+  literals, spread and rest, destructuring with defaults, `for … of` and
+  `for await … of`, generators, `async` functions and async generators,
+  `with`, BigInt literals, optional chaining, `??`, `**`, shorthand
+  members. Class fields and static blocks become two synthetic methods in
+  the parser.
 - `compiler.rs`: two passes. The first builds the scopes, hoists `var` and
   function declarations and resolves every name, marking a binding captured
   when a nested function reaches it. The second places each binding — a
@@ -48,6 +50,19 @@ npx vitest run --config tests/vitest.config.ts cer.test.ts
   Boolean, Symbol, the Error family, Math, JSON, Reflect, RegExp, Date
   (UTC), Map / Set / WeakMap / WeakSet, a small Promise with a job queue,
   URI functions.
+- `prelude.rs`: built-ins written in JavaScript and run once per engine
+  (Set methods, iterator helpers, `groupBy`, `Promise.allSettled` / `any`,
+  the typed-array constructors, the async function and async generator
+  drivers, …). They print as `[native code]`.
+- A generator's frame is saved into its object at each `yield` and put
+  back by `next`; `async` functions and async generators run as
+  generators under a driver in the prelude. `return()` runs the `finally`
+  blocks around the `yield`, and leaving a `for … of` early calls the
+  iterator's `return()`.
+- `evaluate.rs`: `eval` (direct eval sees the caller's bindings) and the
+  `Function` constructors. `proxy.rs`: Proxy and its invariants.
+  `typed.rs`: ArrayBuffer, the typed arrays and DataView. `bigint.rs`:
+  BigInt arithmetic on 15-bit limbs.
 - `regex.rs`: a backtracking matcher over UTF-16 units: groups (named too),
   back references, lookahead and lookbehind, lazy quantifiers, classes,
   Unicode property escapes `\p{…}`, the flags `gimsuy` and `v` (class set
@@ -64,8 +79,10 @@ npx vitest run --config tests/vitest.config.ts cer.test.ts
   D-INTL written in JavaScript over a few natives. It is compiled the first
   time a program reaches for it, so an engine that does not pays nothing.
 
-Not there: BigInt (literals read as numbers), `with`, modules, the NFKC /
-NFKD normalization forms (answered unchanged, as ComponentEngine does).
+Not there: modules; arrays longer than 10^8 elements (`new Array(2**32 - 1)`
+gets 10^8); a `var` that a direct `eval` declares inside a function goes to
+the global object instead of the function's scope; the NFKC / NFKD
+normalization forms (answered unchanged, as ComponentEngine does).
 
 ## Conformance
 
@@ -76,14 +93,11 @@ Node gives — through CEr, one engine per probe.
 | | agrees with Node |
 | --- | ---: |
 | ComponentEngine | 2,143 (its KNOWN_GAPS list is empty) |
-| CEr, native | 1,995 |
+| CEr, native | 2,140 |
 
-Every probe CEr gets right ComponentEngine gets right too. Where CEr falls
-short, by the probe groups: es2020 (53 of 86), class (49 of 58), async (33
-of 41), holes (6 of 24: a hole is stored as `undefined`), BigInt (6 of 15),
-`with` (2 of 12), and a few probes in about twenty other groups. The
-unicode (191), es2018, es2024, proxy, typed array, number, regex, coercion,
-registry, object and string groups all agree.
+Every probe CEr gets right ComponentEngine gets right too. The three CEr
+misses are the two limits above: `new Array(4294967295).length`, and two
+probes where `eval('var x')` inside a function should shadow an outer `x`.
 
 ## Speed
 

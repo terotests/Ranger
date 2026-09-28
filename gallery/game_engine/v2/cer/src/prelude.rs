@@ -522,6 +522,72 @@ hide(Date.prototype, 'toLocaleTimeString', function toLocaleTimeString() { retur
 
 // ---- the async function driver: runs the function's generator, one
 // step per settled await (the VM takes it out of the global object)
+// ---- async generators: the VM runs the body as a generator whose
+// results say when it stopped at an await; this queues next / throw /
+// return and settles their promises in order
+var AsyncGenFnProto = getPrototypeOf(async function* () {});
+var AsyncGenProto = AsyncGenFnProto.prototype;
+var AsyncIterProto = getPrototypeOf(AsyncGenProto);
+hide(AsyncIterProto, Symbol.asyncIterator, function () { return this; });
+var agState = new WeakMap();
+function agRun(st) {
+  if (st.running || st.queue.length === 0) return;
+  st.running = true;
+  var req = st.queue[0];
+  agStep(st, req.method, req.arg);
+}
+function agFinish(st, ok, v, done) {
+  var req = st.queue.shift();
+  st.running = false;
+  if (ok) req.resolve({ value: v, done: done }); else req.reject(v);
+  agRun(st);
+}
+function agStep(st, method, arg) {
+  var r;
+  try { r = st.gen[method](arg); } catch (e) { agFinish(st, false, e); return; }
+  if (r.await) {
+    Promise.resolve(r.value).then(function (v) { agStep(st, 'next', v); }, function (e) { agStep(st, 'throw', e); });
+  } else if (r.done) {
+    Promise.resolve(r.value).then(function (v) { agFinish(st, true, v, true); }, function (e) { agFinish(st, false, e); });
+  } else {
+    Promise.resolve(r.value).then(function (v) { agFinish(st, true, v, false); }, function (e) { agStep(st, 'throw', e); });
+  }
+}
+function agEnqueue(self, method, arg) {
+  var st = agState.get(self);
+  return new Promise(function (resolve, reject) {
+    if (!st) { reject(new TypeError(method + ' method called on incompatible receiver')); return; }
+    st.queue.push({ method: method, arg: arg, resolve: resolve, reject: reject });
+    agRun(st);
+  });
+}
+hide(AsyncGenProto, 'next', function next(v) { return agEnqueue(this, 'next', v); });
+hide(AsyncGenProto, 'return', function (v) { return agEnqueue(this, 'return', v); });
+hide(AsyncGenProto, 'throw', function (v) { return agEnqueue(this, 'throw', v); });
+hide(globalThis, '__cerAsyncIter', function (o) {
+  if (o === null || o === undefined) throw new TypeError(String(o) + ' is not async iterable');
+  var m = o[Symbol.asyncIterator];
+  if (m !== undefined && m !== null) {
+    var ai = m.call(o);
+    if (!isObject(ai)) throw new TypeError('Result of the Symbol.asyncIterator method is not an object');
+    return ai;
+  }
+  var sm = o[Symbol.iterator];
+  if (!isCallable(sm)) throw new TypeError(typeof o + ' is not async iterable');
+  var it = sm.call(o);
+  return {
+    next: function (v) {
+      var r = it.next(v);
+      var done = !!r.done;
+      return Promise.resolve(r.value).then(function (x) { return { value: x, done: done }; });
+    }
+  };
+});
+hide(globalThis, '__cerAsyncGen', function (gen, proto) {
+  var it = create(proto);
+  agState.set(it, { gen: gen, queue: [], running: false });
+  return it;
+});
 hide(globalThis, '__cerAsync', function (gen) {
   return new Promise(function (resolve, reject) {
     function step(method, arg) {

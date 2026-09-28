@@ -60,6 +60,10 @@ const CT_BLOCK: int = 2;
 const CT_TRY: int = 3;
 const CT_ENV: int = 4;
 const CT_ITEM: int = 5;
+/// a `for await` loop's iterator on the stack
+const CT_AITEM: int = 6;
+/// a `for of` loop's iterator on the stack
+const CT_ITER: int = 7;
 
 struct Ctl {
     kind: int,
@@ -1541,6 +1545,30 @@ impl Compiler {
                 self.op(OP_POP_ENV);
             } else if kind == CT_ITEM && !ret {
                 self.op(OP_POP);
+            } else if kind == CT_ITER || kind == CT_AITEM {
+                // leaving a for-of loop early closes its iterator
+                let is_async = kind == CT_AITEM;
+                let mut depth: int = 0;
+                if ret {
+                    // under the return value and the inner loops' iterators
+                    depth = 1;
+                    let mut j = i + 1;
+                    while j <= top {
+                        let kj = self.f().ctl[j as usize].kind;
+                        if kj == CT_ITEM || kj == CT_ITER || kj == CT_AITEM {
+                            depth += 1;
+                        }
+                        j += 1;
+                    }
+                }
+                self.emit(OP_ITER_CLOSE, depth, if is_async { 1 } else { 0 });
+                if is_async {
+                    self.op(OP_AWAIT);
+                    self.op(OP_POP);
+                }
+                if !ret {
+                    self.op(OP_POP);
+                }
             }
             i -= 1;
         }
@@ -1720,16 +1748,36 @@ impl Compiler {
     fn forin_statement(&mut self, n: int) {
         let (a, b, c) = (self.ast.nodes[n as usize].a, self.ast.nodes[n as usize].b, self.ast.nodes[n as usize].c);
         let of = self.ast.nodes[n as usize].op.as_str() == "of";
+        let is_await = self.ast.nodes[n as usize].d == 1;
         let labels = self.take_labels();
         self.expr(b);
-        if of {
+        if is_await {
+            self.op(OP_ASYNC_ITER);
+        } else if of {
             self.op(OP_ITER_VALUES);
         } else {
             self.op(OP_ITER_KEYS);
         }
-        self.f().ctl.push(Ctl { kind: CT_ITEM, labels: Vec::new(), breaks: Vec::new(), conts: Vec::new(), finally_node: -1, installed: false });
+        let item_kind = if is_await { CT_AITEM } else if of { CT_ITER } else { CT_ITEM };
+        self.f().ctl.push(Ctl { kind: item_kind, labels: Vec::new(), breaks: Vec::new(), conts: Vec::new(), finally_node: -1, installed: false });
         let top = self.pc();
-        let next = self.emit(OP_ITER_NEXT, 0, 0);
+        let next = if is_await {
+            // [it] → [it result] → done? → [it value]
+            self.op(OP_DUP);
+            let a_next = self.atom("next");
+            self.emit(OP_GET_METHOD, a_next, 0);
+            self.emit(OP_CALL, 0, 0);
+            self.op(OP_AWAIT);
+            self.op(OP_DUP);
+            let a_done = self.atom("done");
+            self.emit(OP_GET_PROP, a_done, 0);
+            let j = self.emit(OP_JT, 0, 0);
+            let a_value = self.atom("value");
+            self.emit(OP_GET_PROP, a_value, 0);
+            j
+        } else {
+            self.emit(OP_ITER_NEXT, 0, 0)
+        };
         self.push_loop(labels);
         let scope = match self.node_scope.get(&n) {
             Some(s) => *s,
@@ -1759,8 +1807,26 @@ impl Compiler {
         }
         self.emit(OP_JUMP, top, 0);
         self.patch(next);
-        for x in ctl.breaks.iter() {
-            self.patch(*x);
+        if is_await {
+            // the last result
+            self.op(OP_POP);
+        }
+        if of && !ctl.breaks.is_empty() {
+            // a break closes the iterator
+            let j_skip = self.emit(OP_JUMP, 0, 0);
+            for x in ctl.breaks.iter() {
+                self.patch(*x);
+            }
+            self.emit(OP_ITER_CLOSE, 0, if is_await { 1 } else { 0 });
+            if is_await {
+                self.op(OP_AWAIT);
+                self.op(OP_POP);
+            }
+            self.patch(j_skip);
+        } else {
+            for x in ctl.breaks.iter() {
+                self.patch(*x);
+            }
         }
         self.f().ctl.pop();
         self.op(OP_POP);
@@ -1768,7 +1834,10 @@ impl Compiler {
 
     fn try_statement(&mut self, n: int) {
         let (a, b, c, d) = (self.ast.nodes[n as usize].a, self.ast.nodes[n as usize].b, self.ast.nodes[n as usize].c, self.ast.nodes[n as usize].d);
-        let t = self.emit(OP_TRY, 0, 0);
+        // b=1: the handler of a finally block, which a generator's return()
+        // runs (it skips catch blocks)
+        // (2: a catch that has a finally, which sends return() on to it)
+        let t = self.emit(OP_TRY, 0, if c < 0 { 1 } else if d >= 0 { 2 } else { 0 });
         self.f().ctl.push(Ctl { kind: CT_TRY, labels: Vec::new(), breaks: Vec::new(), conts: Vec::new(), finally_node: d, installed: true });
         self.block(a);
         self.f().ctl.pop();
@@ -1781,8 +1850,10 @@ impl Compiler {
         // [exception]
         if c >= 0 {
             let mut t2: int = -1;
+            let mut jr: int = -1;
             if d >= 0 {
-                t2 = self.emit(OP_TRY, 0, 0);
+                jr = self.emit(OP_JRETSIG, 0, 0);
+                t2 = self.emit(OP_TRY, 0, 1);
                 self.f().ctl.push(Ctl { kind: CT_TRY, labels: Vec::new(), breaks: Vec::new(), conts: Vec::new(), finally_node: d, installed: true });
             }
             let scope = match self.node_scope.get(&c) {
@@ -1810,6 +1881,7 @@ impl Compiler {
                 self.block(d);
                 let j2 = self.emit(OP_JUMP, 0, 0);
                 self.patch(t2);
+                self.patch(jr);
                 self.block(d);
                 self.op(OP_THROW);
                 self.patch(j2);

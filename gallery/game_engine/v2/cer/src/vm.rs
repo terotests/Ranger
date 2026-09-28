@@ -122,6 +122,15 @@ pub struct Vm {
     pub array_buffer_proto: int,
     pub gen_fn_proto: int,
     pub async_fn_proto: int,
+    /// %AsyncGeneratorFunction.prototype%, %AsyncGeneratorPrototype%
+    pub async_gen_fn_proto: int,
+    pub async_generator_proto: int,
+    /// the prelude's async generator driver
+    pub async_gen_driver: Val,
+    /// the prelude's `for await` iterator maker
+    pub async_iter_fn: Val,
+    /// the last suspension of a generator frame was an `await`
+    pub gen_awaited: bool,
     /// the prelude's async function driver
     pub async_driver: Val,
     /// set by a yield, read by the resume that ran it
@@ -321,6 +330,11 @@ impl Vm {
             array_buffer_proto: -1,
             gen_fn_proto: -1,
             async_fn_proto: -1,
+            async_gen_fn_proto: -1,
+            async_generator_proto: -1,
+            async_gen_driver: Val::Undef,
+            async_iter_fn: Val::Undef,
+            gen_awaited: false,
             async_driver: Val::Undef,
             gen_yielded: false,
             array_proto: -1,
@@ -773,15 +787,15 @@ impl Vm {
         if self.symbol_atoms.contains_key(&a) {
             return -1;
         }
-        let bs = self.atom_names[a as usize].as_bytes();
-        let n = bs.len();
-        if n == 0 || n > 9 || (n > 1 && bs[0] == 48) {
+        let bs = &self.atom_names[a as usize];
+        let n = bs.as_bytes().len();
+        if n == 0 || n > 9 || (n > 1 && bs.as_bytes()[0] == 48) {
             return -1;
         }
         let mut v: int = 0;
         let mut k: usize = 0;
         while k < n {
-            let d = bs[k] as int;
+            let d = bs.as_bytes()[k] as int;
             if d < 48 || d > 57 {
                 return -1;
             }
@@ -796,15 +810,15 @@ impl Vm {
         if self.symbol_atoms.contains_key(&a) {
             return -1.0;
         }
-        let bs = self.atom_names[a as usize].as_bytes();
-        let n = bs.len();
-        if n == 0 || n > 10 || (n > 1 && bs[0] == 48) {
+        let bs = &self.atom_names[a as usize];
+        let n = bs.as_bytes().len();
+        if n == 0 || n > 10 || (n > 1 && bs.as_bytes()[0] == 48) {
             return -1.0;
         }
         let mut v: double = 0.0;
         let mut k: usize = 0;
         while k < n {
-            let d = bs[k] as int;
+            let d = bs.as_bytes()[k] as int;
             if d < 48 || d > 57 {
                 return -1.0;
             }
@@ -850,7 +864,7 @@ impl Vm {
             if atom == A_PROTOTYPE && !self.objs[f as usize].has_proto_obj {
                 let p = &self.protos[pi as usize];
                 if p.generator {
-                    let gp = self.generator_proto;
+                    let gp = if p.is_async { self.async_generator_proto } else { self.generator_proto };
                     let o = self.alloc(C_OBJECT, gp);
                     self.objs[f as usize].add(A_PROTOTYPE, Val::Obj(o), P_HIDDEN | P_FIXED);
                     self.objs[f as usize].has_proto_obj = true;
@@ -2061,7 +2075,16 @@ impl Vm {
                 break;
             }
             let (catch_pc, sp, env) = (self.handlers[h].catch_pc, self.handlers[h].sp, self.handlers[h].env);
+            let fin = self.handlers[h].finally_only;
             self.handlers.pop();
+            if !fin {
+                // a generator's return() passes by catch blocks
+                if let Val::Obj(eo) = &self.exc {
+                    if self.objs[*eo as usize].class == C_RETURN_SIGNAL {
+                        continue;
+                    }
+                }
+            }
             self.frames.truncate((hf + 1) as usize);
             self.stack.truncate(sp as usize);
             let fi = self.frames.len() - 1;
@@ -2083,7 +2106,9 @@ impl Vm {
     }
 
     fn closure(&mut self, pi: int) -> int {
-        let fp = if self.protos[pi as usize].generator {
+        let fp = if self.protos[pi as usize].generator && self.protos[pi as usize].is_async {
+            self.async_gen_fn_proto
+        } else if self.protos[pi as usize].generator {
             self.gen_fn_proto
         } else if self.protos[pi as usize].is_async {
             self.async_fn_proto
@@ -2150,6 +2175,24 @@ impl Vm {
             return Val::Undef;
         }
         it
+    }
+
+    /// IteratorClose: the iterator's `return()`, when it has one.
+    pub fn iter_close(&mut self, it: &Val) -> Val {
+        let o = obj_of(it);
+        if o < 0 || self.objs[o as usize].class == C_ITER {
+            return Val::Undef;
+        }
+        let a_ret = self.intern("return");
+        let f = self.get(it, a_ret);
+        if self.throwing || matches!(f, Val::Undef) || matches!(f, Val::Null) {
+            return Val::Undef;
+        }
+        if !self.is_callable(&f) {
+            self.throw_type("iterator.return is not a function");
+            return Val::Undef;
+        }
+        self.call_value(f, it.clone(), Vec::new())
     }
 
     /// The next value of an iterator made by `iter_values` / ITER_KEYS;
@@ -2726,7 +2769,7 @@ impl Vm {
         let mut k = hs.len();
         while k > 0 {
             k -= 1;
-            saved.push(hs[k].catch_pc);
+            saved.push(if hs[k].finally_only { -hs[k].catch_pc - 1 } else { hs[k].catch_pc });
             saved.push(hs[k].sp - bp);
             e2.push(if hs[k].env >= 0 { Val::Obj(hs[k].env) } else { Val::Undef });
         }
@@ -2747,7 +2790,7 @@ impl Vm {
             self.throw_type("Generator is already running");
             return Val::Undef;
         }
-        if st == GS_DONE || (st == GS_START && mode != 0) || (st == GS_YIELD && mode == 2) {
+        if st == GS_DONE || (st == GS_START && mode != 0) {
             self.objs[g as usize].pos = GS_DONE;
             self.objs[g as usize].elems = Vec::new();
             if mode == 1 {
@@ -2785,7 +2828,10 @@ impl Vm {
         let mut hi: usize = 2;
         while k + 1 < saved.len() {
             let env = obj_of(&e2[hi]);
-            self.handlers.push(Handler { frame: fi, catch_pc: saved[k], sp: bp + saved[k + 1], env: env });
+            // a finally handler's pc is saved as -(pc + 1)
+            let cp = saved[k];
+            let fin = cp < 0;
+            self.handlers.push(Handler { frame: fi, catch_pc: if fin { -cp - 1 } else { cp }, sp: bp + saved[k + 1], env: env, finally_only: fin });
             k += 2;
             hi += 1;
         }
@@ -2795,6 +2841,12 @@ impl Vm {
             if mode == 1 {
                 self.throwing = true;
                 self.exc = v;
+            } else if mode == 2 {
+                // return(v): the finally blocks around the yield run
+                let sig = self.alloc(C_RETURN_SIGNAL, -1);
+                self.objs[sig as usize].prim = v;
+                self.throwing = true;
+                self.exc = Val::Obj(sig);
             } else {
                 self.stack.push(v);
             }
@@ -2805,13 +2857,30 @@ impl Vm {
         self.native_depth -= 1;
         if self.throwing {
             self.objs[g as usize].pos = GS_DONE;
+            if let Val::Obj(eo) = &self.exc {
+                if self.objs[*eo as usize].class == C_RETURN_SIGNAL {
+                    // return() finished its finally blocks
+                    let rv = self.objs[*eo as usize].prim.clone();
+                    self.throwing = false;
+                    self.exc = Val::Undef;
+                    return self.iter_result(rv, true);
+                }
+            }
             return Val::Undef;
         }
         let r = self.stack.pop().unwrap();
         if self.gen_yielded {
             self.gen_yielded = false;
             self.objs[g as usize].pos = GS_YIELD;
-            return self.iter_result(r, false);
+            let res = self.iter_result(r, false);
+            if self.gen_awaited {
+                // an await inside an async generator: its driver waits
+                self.gen_awaited = false;
+                let a = self.intern("await");
+                let ro = obj_of(&res);
+                self.objs[ro as usize].add(a, Val::Bool(true), 0);
+            }
+            return res;
         }
         self.objs[g as usize].pos = GS_DONE;
         self.iter_result(r, true)
@@ -3195,9 +3264,18 @@ impl Vm {
                     }
                 };
                 let g = self.alloc(C_GENERATOR, gproto);
+                let is_gen = self.protos[pi].generator;
                 self.gen_save(g, fi);
                 self.objs[g as usize].pos = GS_START;
-                if is_async {
+                if is_async && is_gen {
+                    // an async generator: the driver answers the object
+                    // whose next / return / throw give promises
+                    let pv = self.get_obj(fobj, A_PROTOTYPE, &Val::Obj(fobj));
+                    let outer = if is_obj(&pv) { pv } else { Val::Obj(self.async_generator_proto) };
+                    let d = self.async_gen_driver.clone();
+                    let r = self.call_value(d, Val::Undef, vec![Val::Obj(g), outer]);
+                    self.stack.push(r);
+                } else if is_async {
                     let d = self.async_driver.clone();
                     let r = self.call_value(d, Val::Undef, vec![Val::Obj(g)]);
                     self.stack.push(r);
@@ -3216,6 +3294,7 @@ impl Vm {
                 self.gen_save(g, fi);
                 self.stack.push(v);
                 self.gen_yielded = true;
+                self.gen_awaited = op.code == OP_AWAIT;
                 return true;
             }
             OP_EVAL_CALL => {
@@ -3240,6 +3319,33 @@ impl Vm {
                 } else {
                     self.stack.push(a0);
                 }
+            }
+            OP_JRETSIG => {
+                if let Val::Obj(eo) = self.top() {
+                    if self.objs[*eo as usize].class == C_RETURN_SIGNAL {
+                        *pc = op.a;
+                    }
+                }
+            }
+            OP_ITER_CLOSE => {
+                let at = self.stack.len() - 1 - (op.a as usize);
+                let it = self.stack[at].clone();
+                let r = self.iter_close(&it);
+                if self.throwing {
+                    return false;
+                }
+                if op.b == 1 {
+                    self.stack.push(r);
+                }
+            }
+            OP_ASYNC_ITER => {
+                let v = self.pop();
+                let f = self.async_iter_fn.clone();
+                let r = self.call_value(f, Val::Undef, vec![v]);
+                if self.throwing {
+                    return false;
+                }
+                self.stack.push(r);
             }
             OP_TO_OBJECT => {
                 let v = self.pop();
@@ -3690,7 +3796,7 @@ impl Vm {
             OP_TRY => {
                 let sp = self.stack.len() as int;
                 let env = self.frames[fi].env;
-                self.handlers.push(Handler { frame: fi as int, catch_pc: op.a, sp: sp, env: env });
+                self.handlers.push(Handler { frame: fi as int, catch_pc: op.a, sp: sp, env: env, finally_only: op.b != 0 });
             }
             OP_END_TRY => {
                 self.handlers.pop();

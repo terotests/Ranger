@@ -47,6 +47,22 @@ pub struct Engine {
 }
 
 impl Engine {
+    /// A helper function the prelude left on the global object, taken off
+    /// it and kept alive by the VM.
+    fn take_hidden(vm: &mut Vm, name: &str) -> Val {
+        let g = vm.global;
+        let a = vm.intern(name);
+        let d = vm.get_obj(g, a, &Val::Obj(g));
+        if let Val::Obj(o) = &d {
+            vm.roots.push(*o);
+        }
+        let slot = vm.objs[g as usize].find(a);
+        if slot >= 0 {
+            vm.objs[g as usize].remove(slot);
+        }
+        d
+    }
+
     pub fn new() -> Engine {
         let mut vm = Vm::new();
         vm.setup();
@@ -71,6 +87,8 @@ impl Engine {
         if slot >= 0 {
             e.vm.objs[g as usize].remove(slot);
         }
+        e.vm.async_gen_driver = Engine::take_hidden(&mut e.vm, "__cerAsyncGen");
+        e.vm.async_iter_fn = Engine::take_hidden(&mut e.vm, "__cerAsyncIter");
         e.error = String::new();
         e
     }

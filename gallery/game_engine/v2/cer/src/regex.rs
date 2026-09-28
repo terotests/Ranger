@@ -43,6 +43,8 @@ const I_MATCH: int = 13;
 const I_SETPOS: int = 14;
 const I_CHKPOS: int = 15;
 const I_ANYNL: int = 16;
+/// clears capture slots a..b (each repetition of a group starts afresh)
+const I_CLEAR: int = 17;
 
 struct RNode {
     kind: int,
@@ -423,7 +425,33 @@ impl RParser {
         self.nodes[n as usize].min = min;
         self.nodes[n as usize].max = max;
         self.nodes[n as usize].greedy = greedy;
+        // a quantifier cannot follow another: x{1,2}{1}, a**
+        let c2 = self.cur();
+        if c2 == 42 || c2 == 43 || c2 == 63 || (c2 == 123 && self.brace_quantifier_at(self.pos)) {
+            self.fail("Invalid regular expression: nothing to repeat");
+        }
         n
+    }
+
+    /// `{n}`, `{n,}` or `{n,m}` starts at `at`.
+    fn brace_quantifier_at(&self, at: int) -> bool {
+        let mut k = at + 1;
+        let n = self.src.len() as int;
+        let mut digits = 0;
+        while k < n && is_digit(self.src[k as usize]) {
+            k += 1;
+            digits += 1;
+        }
+        if digits == 0 {
+            return false;
+        }
+        if k < n && self.src[k as usize] == 44 {
+            k += 1;
+            while k < n && is_digit(self.src[k as usize]) {
+                k += 1;
+            }
+        }
+        k < n && self.src[k as usize] == 125
     }
 
     fn add_class_escape(&mut self, ranges: &mut Vec<int>, c: int) -> bool {
@@ -1025,6 +1053,33 @@ struct Gen {
 }
 
 impl Gen {
+    /// The lowest and highest capture group numbers under node `n`
+    /// ([-1, -1] when none).
+    fn group_range(p: &RParser, n: int) -> Vec<int> {
+        let mut out: Vec<int> = vec![-1, -1];
+        if n < 0 {
+            return out;
+        }
+        let kind = p.nodes[n as usize].kind;
+        let cap = p.nodes[n as usize].c;
+        if kind == R_GROUP && cap >= 0 {
+            out[0] = cap;
+            out[1] = cap;
+        }
+        let kids = p.nodes[n as usize].list.clone();
+        for c in kids {
+            let r = Gen::group_range(p, c);
+            if r[0] >= 0 && (out[0] < 0 || r[0] < out[0]) {
+                out[0] = r[0];
+            }
+            if r[1] > out[1] {
+                out[1] = r[1];
+            }
+        }
+        out
+    }
+
+
     fn emit(&mut self, op: int, a: int, b: int) -> int {
         self.code.push(Inst { op: op, a: a, b: b });
         (self.code.len() as int) - 1
@@ -1103,8 +1158,15 @@ impl Gen {
         if k == R_REPEAT {
             let inner = nd.list[0];
             let (min, max, greedy) = (nd.min, nd.max, nd.greedy);
+            // the capture slots of the groups inside, reset per repetition
+            let gr = Gen::group_range(p, inner);
+            let lo = gr[0];
+            let hi = gr[1];
             let mut i = 0;
             while i < min {
+                if lo >= 0 {
+                    self.emit(I_CLEAR, lo * 2, hi * 2 + 2);
+                }
                 self.gen(p, inner, dot_all, backward);
                 i += 1;
             }
@@ -1114,6 +1176,9 @@ impl Gen {
                 let top = self.emit(I_SPLIT, 0, 0);
                 let body = self.code.len() as int;
                 self.emit(I_SETPOS, reg, 0);
+                if lo >= 0 {
+                    self.emit(I_CLEAR, lo * 2, hi * 2 + 2);
+                }
                 self.gen(p, inner, dot_all, backward);
                 self.emit(I_CHKPOS, reg, 0);
                 self.emit(I_JMP, top, 0);
@@ -1133,6 +1198,9 @@ impl Gen {
                 let s = self.emit(I_SPLIT, 0, 0);
                 splits.push(s);
                 let body = self.code.len() as int;
+                if lo >= 0 {
+                    self.emit(I_CLEAR, lo * 2, hi * 2 + 2);
+                }
                 self.gen(p, inner, dot_all, backward);
                 if greedy {
                     self.code[s as usize].a = body;
@@ -1434,6 +1502,15 @@ impl Regex {
                 I_SAVE => {
                     stack.push((1, ins.a, caps[ins.a as usize]));
                     caps[ins.a as usize] = pos;
+                    pc += 1;
+                }
+                I_CLEAR => {
+                    let mut k = ins.a;
+                    while k < ins.b {
+                        stack.push((1, k, caps[k as usize]));
+                        caps[k as usize] = -1;
+                        k += 1;
+                    }
                     pc += 1;
                 }
                 I_SETPOS => {

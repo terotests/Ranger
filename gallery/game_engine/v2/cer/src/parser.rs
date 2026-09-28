@@ -624,8 +624,13 @@ impl Parser {
     fn for_stmt(&mut self) -> int {
         let line = self.line();
         self.next();
+        let mut is_await = false;
         if self.is("await") {
-            self.fail("for await is not supported");
+            if !self.in_async {
+                self.fail("Unexpected reserved word");
+            }
+            self.next();
+            is_await = true;
         }
         self.expect("(");
         let mut init: int = -1;
@@ -650,10 +655,15 @@ impl Parser {
                     init = self.to_pattern(init);
                 }
                 let body = self.statement();
+                if is_await && op.as_str() != "of" {
+                    self.fail("Unexpected token 'in'");
+                }
                 self.ast.nodes[n as usize].op = op;
                 self.ast.nodes[n as usize].a = init;
                 self.ast.nodes[n as usize].b = obj;
                 self.ast.nodes[n as usize].c = body;
+                // for await (… of …)
+                self.ast.nodes[n as usize].d = if is_await { 1 } else { 0 };
                 return n;
             }
             if !decl {

@@ -239,6 +239,10 @@ pub const NF_BIGINT_ASUINTN: int = 389;
 pub const NF_BIGINT_TOSTRING: int = 390;
 pub const NF_BIGINT_VALUEOF: int = 391;
 pub const NF_THROWER: int = 392;
+/// AsyncFunction, GeneratorFunction, AsyncGeneratorFunction: Function's kin
+pub const NF_ASYNC_FUNCTION: int = 393;
+pub const NF_GEN_FUNCTION: int = 394;
+pub const NF_ASYNC_GEN_FUNCTION: int = 395;
 /// the getters RegExp.prototype.source, global, … unicodeSets (430..438)
 pub const NF_RP_FLAG0: int = 430;
 
@@ -811,16 +815,33 @@ impl Vm {
         self.objs[gfp as usize].add(A_PROTOTYPE, Val::Obj(gp), P_HIDDEN | P_READONLY);
         self.objs[gp as usize].add(A_CONSTRUCTOR, Val::Obj(gfp), P_HIDDEN | P_READONLY);
         self.objs[gfp as usize].add(a_tag3, str_val("GeneratorFunction"), P_HIDDEN | P_READONLY);
-        let gfc = self.native_fn("GeneratorFunction", NF_FUNCTION, 1);
+        let gfc = self.native_fn("GeneratorFunction", NF_GEN_FUNCTION, 1);
         self.objs[gfp as usize].add(A_CONSTRUCTOR, Val::Obj(gfc), P_HIDDEN | P_READONLY);
         self.objs[gfc as usize].add(A_PROTOTYPE, Val::Obj(gfp), P_HIDDEN | P_READONLY | P_FIXED);
         let afp = self.alloc(C_OBJECT, fp1);
         self.roots.push(afp);
         self.async_fn_proto = afp;
         self.objs[afp as usize].add(a_tag3, str_val("AsyncFunction"), P_HIDDEN | P_READONLY);
-        let afc = self.native_fn("AsyncFunction", NF_FUNCTION, 1);
+        let afc = self.native_fn("AsyncFunction", NF_ASYNC_FUNCTION, 1);
         self.objs[afp as usize].add(A_CONSTRUCTOR, Val::Obj(afc), P_HIDDEN | P_READONLY);
         self.objs[afc as usize].add(A_PROTOTYPE, Val::Obj(afp), P_HIDDEN | P_READONLY | P_FIXED);
+        // %AsyncIteratorPrototype%, %AsyncGeneratorPrototype% and
+        // %AsyncGeneratorFunction.prototype% (the prelude adds the methods)
+        let aip = self.alloc(C_OBJECT, op1);
+        self.roots.push(aip);
+        let agp = self.alloc(C_OBJECT, aip);
+        self.roots.push(agp);
+        self.async_generator_proto = agp;
+        self.objs[agp as usize].add(a_tag3, str_val("AsyncGenerator"), P_HIDDEN | P_READONLY);
+        let agfp = self.alloc(C_OBJECT, fp1);
+        self.roots.push(agfp);
+        self.async_gen_fn_proto = agfp;
+        self.objs[agfp as usize].add(A_PROTOTYPE, Val::Obj(agp), P_HIDDEN | P_READONLY);
+        self.objs[agp as usize].add(A_CONSTRUCTOR, Val::Obj(agfp), P_HIDDEN | P_READONLY);
+        self.objs[agfp as usize].add(a_tag3, str_val("AsyncGeneratorFunction"), P_HIDDEN | P_READONLY);
+        let agfc = self.native_fn("AsyncGeneratorFunction", NF_ASYNC_GEN_FUNCTION, 1);
+        self.objs[agfp as usize].add(A_CONSTRUCTOR, Val::Obj(agfc), P_HIDDEN | P_READONLY);
+        self.objs[agfc as usize].add(A_PROTOTYPE, Val::Obj(agfp), P_HIDDEN | P_READONLY | P_FIXED);
 
         // the natives the prelude builds ArrayBuffer, the typed arrays and
         // DataView on (it takes __cerTA out of the global object)
@@ -3247,7 +3268,7 @@ impl Vm {
                 }
                 a0
             }
-            NF_FUNCTION => {
+            NF_FUNCTION | NF_ASYNC_FUNCTION | NF_GEN_FUNCTION | NF_ASYNC_GEN_FUNCTION => {
                 // new Function(p1, …, body): the source Node builds, as
                 // global code
                 let mut params = String::new();
@@ -3268,7 +3289,13 @@ impl Vm {
                     }
                     i += 1;
                 }
-                let src = format!("(function anonymous({}\n) {{\n{}\n}})", params, body);
+                let kw = match id {
+                    NF_ASYNC_FUNCTION => "async function",
+                    NF_GEN_FUNCTION => "function*",
+                    NF_ASYNC_GEN_FUNCTION => "async function*",
+                    _ => "function",
+                };
+                let src = format!("({} anonymous({}\n) {{\n{}\n}})", kw, params, body);
                 self.eval_indirect(src.as_str())
             }
             NF_STRING => {
