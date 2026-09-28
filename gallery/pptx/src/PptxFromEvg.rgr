@@ -266,6 +266,10 @@ class PptxFromEvg {
         }
         def ends:[int] c.ringEnds
         def count:int (array_length ends)
+        if (filled && (count > 1)) {
+            this.emitIslands(group c moved ends)
+            return
+        }
         def from:int 0
         def i:int 0
         while (i < count) {
@@ -305,6 +309,112 @@ class PptxFromEvg {
             }
             only.name = ("Path " + (to_string ((array_length group.children) + 1)))
             this.attach(group only)
+        }
+    }
+
+    ; A fill of several rings, as shapes that keep their holes: each ring that
+    ; no other ring encloses is an outline, and the rings directly inside it
+    ; go into the same shape as further contours (`pathEnds`). A glyph's
+    ; counter — the inside of an o — is such a ring, and as a shape of its own
+    ; it was drawn solid over the letter. Enclosure is by bounding box, which
+    ; is what a glyph or a donut needs; a ring inside a hole is an outline
+    ; again.
+    fn emitIslands:void (group:PptxShape c:EVGDrawCmd moved:[double] ends:[int]) {
+        def count:int (array_length ends)
+        def x0:[double]
+        def y0:[double]
+        def x1:[double]
+        def y1:[double]
+        def starts:[int]
+        def from:int 0
+        def i:int 0
+        while (i < count) {
+            def upto:int (itemAt ends i)
+            push starts from
+            def ax:double 0.0
+            def ay:double 0.0
+            def bx:double 0.0
+            def by:double 0.0
+            def k:int from
+            while ((k + 1) < upto) {
+                def px:double (itemAt moved k)
+                def py:double (itemAt moved (k + 1))
+                if ((k == from) || (px < ax)) { ax = px }
+                if ((k == from) || (py < ay)) { ay = py }
+                if ((k == from) || (px > bx)) { bx = px }
+                if ((k == from) || (py > by)) { by = py }
+                k = (k + 2)
+            }
+            push x0 ax
+            push y0 ay
+            push x1 bx
+            push y1 by
+            from = upto
+            i = (i + 1)
+        }
+        ; the innermost ring around each, and how deep it sits
+        def parent:[int]
+        def depth:[int]
+        i = 0
+        while (i < count) {
+            def best:int -1
+            def bestArea:double 0.0
+            def d:int 0
+            def j:int 0
+            while (j < count) {
+                if (j != i) {
+                    def inside:boolean ((((itemAt x0 j) <= (itemAt x0 i)) && ((itemAt y0 j) <= (itemAt y0 i))) && (((itemAt x1 j) >= (itemAt x1 i)) && ((itemAt y1 j) >= (itemAt y1 i))))
+                    def same:boolean ((((itemAt x0 j) == (itemAt x0 i)) && ((itemAt y0 j) == (itemAt y0 i))) && (((itemAt x1 j) == (itemAt x1 i)) && ((itemAt y1 j) == (itemAt y1 i))))
+                    if (inside && (! same)) {
+                        d = (d + 1)
+                        def area:double (((itemAt x1 j) - (itemAt x0 j)) * ((itemAt y1 j) - (itemAt y0 j)))
+                        if ((best < 0) || (area < bestArea)) {
+                            best = j
+                            bestArea = area
+                        }
+                    }
+                }
+                j = (j + 1)
+            }
+            push parent best
+            push depth d
+            i = (i + 1)
+        }
+        i = 0
+        while (i < count) {
+            if (((itemAt depth i) % 2) == 0) {
+                def pts:[double]
+                def pe:[int]
+                this.appendRing(pts moved (itemAt starts i) (itemAt ends i))
+                push pe (array_length pts)
+                def h:int 0
+                while (h < count) {
+                    if (((itemAt parent h) == i) && (((itemAt depth h) % 2) == 1)) {
+                        this.appendRing(pts moved (itemAt starts h) (itemAt ends h))
+                        push pe (array_length pts)
+                    }
+                    h = (h + 1)
+                }
+                if ((array_length pts) >= 4) {
+                    def sh:PptxShape (PptxShapeInk.ring(pts 0 (array_length pts) true))
+                    if ((array_length pe) > 1) {
+                        sh.pathEnds = pe
+                    }
+                    sh.fill = (PptxShapeInk.rgbaOf(c.r c.g c.b c.a))
+                    sh.noLine = true
+                    sh.name = ("Path " + (to_string ((array_length group.children) + 1)))
+                    this.attach(group sh)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn appendRing:void (out:[double] pts:[double] from:int upto:int) {
+        def k:int from
+        while (k < upto) {
+            push out (itemAt pts k)
+            k = (k + 1)
         }
     }
 

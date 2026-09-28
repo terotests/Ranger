@@ -125,7 +125,11 @@ class EVGListToElements {
         def at:int 0
         def ri:int 0
         while (ri < (array_length ends)) {
-            def stop:int (itemAt ends ri)
+            ; `ringEnds` counts coordinates, two to a point
+            def stop:int (idiv (itemAt ends ri) 2)
+            if ((array_length ringEnds) == 0) {
+                stop = n
+            }
             if (stop > n) {
                 stop = n
             }
