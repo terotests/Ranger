@@ -16,10 +16,11 @@ fast is it, natively and as Ranger output, next to ComponentEngine itself?
 npm run cer:conformance      # ComponentEngine's runtime-conformance probes
 npm run cer:micro            # ComponentEngine's micro benchmark workloads
 npm run cer:octane           # the Octane suites of interp/bench/zoo_octane
+node bench/features.mjs      # one workload per kind of code, CEr vs QuickJS
 npx vitest run --config tests/vitest.config.ts cer.test.ts
 ```
 
-`bench/micro.mjs` and `bench/octane.mjs` take `--engines=` with any of
+`bench/micro.mjs`, `bench/octane.mjs` and `bench/features.mjs` take `--engines=` with any of
 `node`, `ce-js` (ComponentEngine's es6 build), `cer-rust`, `cer-js`,
 `cer-cpp`, `cer-go`, `qjs` (QuickJS); they build what they need.
 
