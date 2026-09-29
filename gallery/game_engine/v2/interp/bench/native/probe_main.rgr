@@ -5,7 +5,7 @@
 ;
 ;   probe <js-expression-body>   (the body of work(); must `return`)
 
-Import "../../migrate/src/ComponentEngine.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
 
 class ProbeMain {
     sfn m@(main):void () {

@@ -1,21 +1,24 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: MIT
 //
-// npm run deps -- put the packages the root ranger.json names at lib/<name>.
+// npm run deps -- put the packages the root ranger.json names where this
+// tree expects them.
 //
-// EVG (lib/evg) and the image codecs (lib/image) live in terotests/evg. The
-// root ranger.json pins that repository at one commit; this runs
-// `rgrc install` against it (the cache and ranger.lock, as for any project)
-// and copies every git package of the lock to lib/<name>, where the gallery,
-// the web builds and the Android hosts have always found them. Those two
-// directories are not in git: they are what node_modules is to npm.
+// EVG (lib/evg) and the image codecs (lib/image) live in terotests/evg;
+// ComponentEngine (gallery/componentengine) and CEr (gallery/cer) in
+// terotests/componentengine. The root ranger.json pins each repository at
+// one commit; this runs `rgrc install` against it (the cache and
+// ranger.lock, as for any project) and copies every git package of the lock
+// to its place in PLACES. Those directories are not in git: they are what
+// node_modules is to npm.
 //
 //   npm run deps                        # the pinned commit (npm ci runs this too)
-//   npm run deps -- --from=../evg       # an evg checkout's working tree instead
-//   npm run deps -- --check             # exit 1 unless lib/ matches ranger.lock
+//   npm run deps -- --from=../evg       # a checkout's working tree instead of its pinned commit
+//   npm run deps -- --check             # exit 1 unless every place matches ranger.lock
 //
-// Changing EVG: commit to terotests/evg, put the new commit in ranger.json
-// ("rev"), npm run deps, commit ranger.json and ranger.lock.
+// Changing EVG (or ComponentEngine): commit to its repository, put the new
+// commit in ranger.json ("rev"), npm run deps, commit ranger.json and
+// ranger.lock.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -28,8 +31,16 @@ const STAMP = ".ranger-pkg.json";
 // The directories of a fetched package that a local build writes into; a
 // copy of the same commit keeps them.
 const KEEP_ON_REFRESH = new Set(["bin"]);
-// What --from copies from an evg checkout: package name -> directory there.
-const FROM_LAYOUT = { evg: "storm", image: "image" };
+// Where each git package of ranger.lock goes. The MIT platform pieces are
+// under lib/, the AGPL ones under gallery/ (LICENSING.md).
+const PLACES = {
+  evg: "lib/evg",
+  image: "lib/image",
+  componentengine: "gallery/componentengine",
+  cer: "gallery/cer",
+};
+// What --from=<checkout> copies: the packages whose repository that
+// checkout is, found by the subdirectories the lock names.
 
 const args = process.argv.slice(2);
 const fromArg = args.find((a) => a.startsWith("--from="));
@@ -43,6 +54,12 @@ function cacheRoot() {
   if (process.env.RANGER_PKG_CACHE) return process.env.RANGER_PKG_CACHE;
   const home = process.env.HOME || os.homedir();
   return home ? path.join(home, ".cache/ranger/packages") : path.join(ROOT, ".ranger-cache/packages");
+}
+
+function git(args, cwd) {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`git ${args.join(" ")} in ${cwd}: ${(r.stderr || "").trim()}`);
+  return r.stdout.trim();
 }
 
 function readJson(file) {
@@ -72,10 +89,12 @@ function copyTree(src, dst) {
 // (but for build output of the same content); anything else is moved aside
 // to lib/<name>.previous rather than deleted, since it was not ours.
 function place(name, src, stamp) {
-  const dst = path.join(ROOT, "lib", name);
+  const rel = PLACES[name];
+  if (!rel) throw new Error(`ranger.lock has a git package ${name}, and scripts/deps.mjs has no place for it (PLACES)`);
+  const dst = path.join(ROOT, rel);
   const had = readStamp(dst);
   if (had && had.sha256 && had.sha256 === stamp.sha256 && had.from === stamp.from) {
-    log(`${name}  lib/${name} is ${stamp.rev.slice(0, 12)} already`);
+    log(`${name}  ${rel} is ${stamp.rev.slice(0, 12)} already`);
     return;
   }
   if (fs.existsSync(dst)) {
@@ -89,12 +108,12 @@ function place(name, src, stamp) {
       const aside = dst + ".previous";
       fs.rmSync(aside, { recursive: true, force: true });
       fs.renameSync(dst, aside);
-      log(`${name}  lib/${name} was not written by npm run deps; moved it to lib/${name}.previous`);
+      log(`${name}  ${rel} was not written by npm run deps; moved it to ${rel}.previous`);
     }
   }
   copyTree(src, dst);
   fs.writeFileSync(path.join(dst, STAMP), JSON.stringify(stamp, null, 2) + "\n");
-  log(`${name}  ${stamp.from === "git" ? stamp.rev.slice(0, 12) : stamp.from} -> lib/${name}`);
+  log(`${name}  ${stamp.from === "git" ? stamp.rev.slice(0, 12) : stamp.from} -> ${rel}`);
 }
 
 function install() {
@@ -119,9 +138,9 @@ function main() {
   if (checkOnly) {
     let bad = 0;
     for (const p of gitPackages()) {
-      const had = readStamp(path.join(ROOT, "lib", p.name));
+      const had = readStamp(path.join(ROOT, PLACES[p.name] || "lib/" + p.name));
       if (!had || had.sha256 !== p.sha256) {
-        log(`lib/${p.name} is not ${p.git} ${p.rev} (${p.subdir}); run npm run deps`);
+        log(`${PLACES[p.name]} is not ${p.git} ${p.rev} (${p.subdir}); run npm run deps`);
         bad++;
       }
     }
@@ -130,12 +149,17 @@ function main() {
 
   if (fromArg) {
     const from = path.resolve(fromArg.slice("--from=".length));
-    for (const [name, sub] of Object.entries(FROM_LAYOUT)) {
-      const src = path.join(from, sub);
+    const origin = git(["remote", "get-url", "origin"], from).replace(/\.git$/, "").toLowerCase();
+    let n = 0;
+    for (const p of gitPackages()) {
+      if (p.git.replace(/\.git$/, "").toLowerCase() !== origin) continue;
+      const src = path.join(from, p.subdir);
       if (!fs.existsSync(path.join(src, "ranger.json"))) throw new Error(`${src} has no ranger.json`);
-      place(name, src, { name, from, subdir: sub, rev: "working tree", sha256: "" });
+      place(p.name, src, { name: p.name, from, subdir: p.subdir, rev: "working tree", sha256: "" });
+      n++;
     }
-    log("lib/ now holds a working tree; npm run deps puts the pinned commit back");
+    if (!n) throw new Error(`no package in ranger.lock comes from ${origin}`);
+    log("those now hold a working tree; npm run deps puts the pinned commit back");
     return;
   }
 
@@ -144,10 +168,10 @@ function main() {
   if (fs.existsSync(path.join(ROOT, "ranger.lock"))) {
     const pk = gitPackages();
     const pinned = pk.filter((p) => want.includes(p.name));
-    const current = pk.every((p) => (readStamp(path.join(ROOT, "lib", p.name)) || {}).sha256 === p.sha256);
+    const current = pk.every((p) => (readStamp(path.join(ROOT, PLACES[p.name] || "lib/" + p.name)) || {}).sha256 === p.sha256);
     const lockMatches = pinned.every((p) => man.dependencies[p.name].rev === p.rev);
     if (current && lockMatches && pinned.length === want.length) {
-      log("lib/ matches ranger.lock");
+      log("every package matches ranger.lock");
       return;
     }
   }

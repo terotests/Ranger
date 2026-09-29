@@ -29,7 +29,7 @@
 ; =============================================================================
 
 Import "pkg:evg/EVGElement.rgr"
-Import "../interp/migrate/src/EvalValue.rgr"
+Import "pkg:componentengine/EvalValue.rgr"
 
 class EvElementToEVG {
     ; Tags this renderer knows, mapped to its own element names. An unknown tag

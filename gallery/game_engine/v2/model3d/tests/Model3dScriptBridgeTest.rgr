@@ -21,8 +21,8 @@
 
 Import "../Model3dScriptBridge.rgr"
 Import "GlbFixture.rgr"
-Import "../../interp/migrate/src/ComponentEngine.rgr"
-Import "../../interp/migrate/src/EvHandle.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
+Import "pkg:componentengine/EvHandle.rgr"
 
 class ScriptBridgeChecker {
     def passed:int 0

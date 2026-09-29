@@ -35,16 +35,8 @@ const ENGINE_MODULE = path.join(
   "bin",
   "engine_module.cjs"
 );
-const ENGINE_SOURCE = path.join(
-  ROOT_DIR,
-  "gallery",
-  "game_engine",
-  "v2",
-  "interp",
-  "migrate",
-  "src",
-  "ComponentEngine.rgr"
-);
+// terotests/componentengine's engine/, which npm run deps puts here.
+const ENGINE_SOURCE = path.join(ROOT_DIR, "gallery", "componentengine", "ComponentEngine.rgr");
 const BUILD_SCRIPT = path.join(ROOT_DIR, "scripts", "build-engine-module.sh");
 
 let ComponentEngine: any;
@@ -3045,15 +3037,7 @@ const MODULE_KNOWN_GAPS: Array<[fn: string, what: string]> = [
 ];
 
 function buildEngineModuleIfNeeded(): void {
-  const migrateSrc = path.join(
-    ROOT_DIR,
-    "gallery",
-    "game_engine",
-    "v2",
-    "interp",
-    "migrate",
-    "src"
-  );
+  const migrateSrc = path.dirname(ENGINE_SOURCE);
   const deps = [
     ENGINE_SOURCE,
     path.join(migrateSrc, "EvalValue.rgr"),

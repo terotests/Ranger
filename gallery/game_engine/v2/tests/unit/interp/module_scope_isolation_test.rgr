@@ -25,7 +25,7 @@
 ;   - the fixture door (loadAdditionalScript) still shares the ENTRY scope
 ; ==============================================================================
 
-Import "../../../interp/migrate/src/ComponentEngine.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
 Import "../../harness/RgTest.rgr"
 
 class ModuleScopeIsolationTest {

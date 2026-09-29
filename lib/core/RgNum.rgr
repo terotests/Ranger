@@ -26,7 +26,7 @@
 ;
 ; Two per-target hazards are handled here rather than left to callers, because
 ; both were found the hard way in the JS engine this code is lifted from
-; (gallery/game_engine/v2/interp/migrate/src/ComponentEngine.rgr):
+; (terotests/componentengine, engine/ComponentEngine.rgr):
 ;
 ;   1. `to_int` rides the target's int width, and Ranger's int is 32 BITS on the
 ;      C++ target. `to_double (to_int v)` therefore saturates to INT32_MIN for

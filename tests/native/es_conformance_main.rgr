@@ -35,7 +35,7 @@
 ; chunk by chunk so a failure names a range instead of the whole run.
 ; =============================================================================
 
-Import "../../gallery/game_engine/v2/interp/migrate/src/ComponentEngine.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
 Import "es_probes.rgr"
 Import "../../lib/core/RgNum.rgr"
 Import "../../lib/core/RgText.rgr"

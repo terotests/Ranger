@@ -22,8 +22,8 @@
 
 Import "../model3d/ModelLoader.rgr"
 Import "../model3d/demo/SoftRenderer3D.rgr"
-Import "../interp/migrate/src/ComponentEngine.rgr"
-Import "../interp/migrate/src/EvHandle.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
+Import "pkg:componentengine/EvHandle.rgr"
 
 ; One model the script declared. Each keeps its own ModelLoader so its model and
 ; entity registry stay paired for SoftRenderer3D.renderModel(model, registry).

@@ -20,7 +20,7 @@
 ; this section (registry/generated/RgDispatch.rgr) in BRIDGES.md step 5.
 ; ==============================================================================
 
-Import "../migrate/src/ComponentEngine.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
 Import "../../imaging/png/PNGDecoder.rgr"
 Import "../../registry/schema/core/core_schema.rgr"
 Import "../../registry/schema/two_d/two_d_schema.rgr"

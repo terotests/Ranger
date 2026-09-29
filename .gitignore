@@ -247,8 +247,11 @@ compiler/bin/api.ts
 # scripts) to gallery/evgui to build against this checkout.
 gallery/evgui/
 
-# Fetched by npm run deps from the commit ranger.json pins (terotests/evg):
-# they are not edited here. See scripts/deps.mjs.
+# Fetched by npm run deps from the commits ranger.json pins (terotests/evg,
+# terotests/componentengine): they are not edited here. See scripts/deps.mjs.
 /lib/evg/
 /lib/image/
 /lib/*.previous/
+/gallery/componentengine/
+/gallery/cer/
+/gallery/*.previous/

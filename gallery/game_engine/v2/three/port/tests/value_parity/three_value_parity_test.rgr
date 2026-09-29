@@ -24,8 +24,8 @@
 ; ==============================================================================
 
 Import "../../src/three_json.rgr"
-Import "../../../../interp/migrate/src/ComponentEngine.rgr"
-Import "../../../../interp/migrate/src/EvHandle.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
+Import "pkg:componentengine/EvHandle.rgr"
 
 ; ------------------------------------------------------------------ probe rig
 class ThreeValueProbe {

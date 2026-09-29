@@ -1,5 +1,5 @@
 ; E3 smoke test: primitive kinds are shape-owned (PLAN_SHAPES.md §7.5).
-Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+Import "pkg:componentengine/EvValueBridge.rgr"
 
 class Main {
     sfn main:void () {

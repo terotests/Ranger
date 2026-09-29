@@ -1,6 +1,6 @@
 ; E4c smoke: Array.items + Object EvPropertyBag are SoT (PLAN_SHAPES.md §7.5).
 ; Round-trip through fromBody keeps reference identity (===).
-Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+Import "pkg:componentengine/EvValueBridge.rgr"
 
 class Main {
     sfn main:void () {

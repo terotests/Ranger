@@ -17,7 +17,7 @@
 ; Build with: bash gallery/game_engine/v2/interp/bench/native/build.sh
 ; =============================================================================
 
-Import "../../migrate/src/ComponentEngine.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
 
 class BenchMain {
 

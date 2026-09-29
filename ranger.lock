@@ -7,8 +7,23 @@
       "subdir": "storm",
       "sha256": "6d6566d96077b0e4b69804d3b6b65379f49c88f8b6c8ffe2ecde234674973d4e"
     },
+    "componentengine": {
+      "git": "https://github.com/terotests/componentengine.git",
+      "rev": "32435100570ed4b8d08d94f8392c4c9f63bc5e45",
+      "subdir": "engine",
+      "sha256": "4b90dd8c3c8ac44c48bf1bbf00374fc2fa3725c9b562cd4275d1f2927f3a4b4d"
+    },
+    "cer": {
+      "git": "https://github.com/terotests/componentengine.git",
+      "rev": "32435100570ed4b8d08d94f8392c4c9f63bc5e45",
+      "subdir": "cer",
+      "sha256": "87c8253fe59723e6df52e56490306c0624e6960d37d28e3edaa859298793f5e3"
+    },
     "zip": {
       "path": "lib/zip"
+    },
+    "ts_parser": {
+      "path": "gallery/ts_parser"
     },
     "image": {
       "git": "https://github.com/terotests/evg.git",

@@ -17,7 +17,7 @@
 ; ==============================================================================
 
 Import "ranger-dir.rgr"
-Import "../interp/migrate/src/EvHandle.rgr"
+Import "pkg:componentengine/EvHandle.rgr"
 
 class GameCatalogEntry {
     def id:string ""

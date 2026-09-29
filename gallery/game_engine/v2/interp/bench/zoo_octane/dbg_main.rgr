@@ -11,7 +11,7 @@
 ; Build: bash gallery/game_engine/v2/interp/bench/zoo_octane/build-native.sh
 ; =============================================================================
 
-Import "../../migrate/src/ComponentEngine.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
 
 class OctaneMain {
     sfn m@(main):void () {

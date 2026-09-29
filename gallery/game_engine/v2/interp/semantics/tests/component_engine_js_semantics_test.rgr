@@ -20,7 +20,7 @@
 ; and callFunction() each, asserting the returned EvHandle.
 ; ==============================================================================
 
-Import "../../migrate/src/ComponentEngine.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
 Import "../../../tests/harness/RgTest.rgr"
 
 class ComponentEngineJsSemanticsTest {

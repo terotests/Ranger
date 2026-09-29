@@ -14,7 +14,7 @@
 ; ==============================================================================
 
 Import "../web_tsx3d_host.rgr"
-Import "../../interp/migrate/src/EvHandle.rgr"
+Import "pkg:componentengine/EvHandle.rgr"
 Import "../../tests/harness/RgTest.rgr"
 
 class WebSmokeTest {

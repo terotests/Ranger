@@ -1,29 +1,19 @@
-# interp/migrate — port notes from pdf_writer
+# interp/migrate — moved
 
-**Staged sources:** [`src/`](./src/) — `EvHandle.rgr` (thin class),
-`EvalValue.rgr` (shape), `ComponentEngine.rgr`, `JSXToEVG.rgr` (from
-`gallery/pdf_writer/src/jsx/`).
+ComponentEngine's sources (`src/`), the generators of its Unicode and
+locale tables (`tools/`) and the bytecode tier's design notes
+(`BYTECODE.md`) moved to
+[terotests/componentengine](https://github.com/terotests/componentengine)
+(`engine/`, `tools/`, `engine/BYTECODE.md`) in September 2026, and CEr
+(`../../cer`) with them (`cer/`).
 
-**Plan phase:** 1 — see [`CODE_CLEANUP_PLAN.md`](../../../CODE_CLEANUP_PLAN.md).
+This tree takes them back as packages: the root `ranger.json` pins that
+repository, `npm run deps` puts `engine/` at `gallery/componentengine` and
+`cer/` at `gallery/cer`, and code here imports
 
-## To implement
+```ranger
+Import "pkg:componentengine/ComponentEngine.rgr"
+```
 
-- Split staged files into `interp/values/`, `interp/engine/`, `interp/semantics/`
-- Keep `gallery/ts_parser/` shared until a later extract
-- [x] Land `component_engine_js_semantics_test` under `semantics/tests/` —
-  done; `EvalValue` now carries an immutable `identityId` and `equals()`
-  compares it for references (D-IDENTITY on the real engine)
-
-## Notes
-
-- v1 originals remain; edit the v2 copies (or their split descendants) for v2 work
-- JSX→EVG pairs with `v2/evg/` for UI paths
-
-## Unit / contract tests that gate this folder
-
-- D-IDENTITY suite (`tests/contract/d_identity`)
-- Adapter construct path once Phase 4 opens
-
----
-
-*Staged copy present; live wiring is Phase 1+.*
+with `"componentengine": { "path": "../componentengine" }` (and
+`"ts_parser": { "path": "../ts_parser" }`) in its package's `ranger.json`.

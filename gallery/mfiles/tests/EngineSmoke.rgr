@@ -11,8 +11,8 @@
 ; resolve the callee as a scope binding and throw "is not defined" instead of
 ; asking the bridge.
 
-Import "../../game_engine/v2/interp/migrate/src/ComponentEngine.rgr"
-Import "../../game_engine/v2/interp/migrate/src/EvHandle.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
+Import "pkg:componentengine/EvHandle.rgr"
 
 class SmokeBridge extends EvalNativeBridge {
     def calls:int 0

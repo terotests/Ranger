@@ -398,10 +398,10 @@
     "evg:layout:bench": "npm run evg:layout:bench:build --silent && node --expose-gc lib/evg/bench/layout-bench.mjs",
     "evg:layout:bench:build": "node dist/rgrc.js -es6 -nodemodule ./lib/evg/bench/EvgLayoutBench.rgr -d=./lib/evg/bin -o=EvgLayoutBench.cjs",
     "evg:layout:conformance": "npm run evg:layout:bench:build --silent && node lib/evg/bench/layout-conformance.mjs",
-    "cer:build": "node dist/rgrc.js -es6 -nodemodule ./gallery/game_engine/v2/cer/src/lib.rs -d=./gallery/game_engine/v2/cer/bin -o=Cer.cjs",
-    "cer:micro": "node gallery/game_engine/v2/cer/bench/micro.mjs",
-    "cer:octane": "node gallery/game_engine/v2/cer/bench/octane.mjs",
-    "cer:conformance": "node gallery/game_engine/v2/cer/bench/conformance.mjs",
+    "cer:build": "node dist/rgrc.js -es6 -nodemodule ./gallery/cer/src/lib.rs -d=./gallery/cer/bin -o=Cer.cjs",
+    "cer:micro": "node gallery/cer/bench/micro.mjs",
+    "cer:octane": "node gallery/cer/bench/octane.mjs",
+    "cer:conformance": "node gallery/cer/bench/conformance.mjs",
     "evgr:build": "node dist/rgrc.js -es6 -nodemodule ./lib/evgr/src/lib.rs -d=./lib/evgr/bin -o=Evgr.cjs",
     "evgr:speed": "npm run evg:layout:bench:build --silent && npm run evgr:build --silent && node lib/evgr/bench/speed.mjs",
     "evgr:compare": "npm run evg:layout:bench:build --silent && npm run evgr:build --silent && node lib/evgr/bench/compare.mjs",
@@ -1094,5 +1094,5 @@
     "zstd:tool": "bash scripts/rgr-suite.sh ./gallery/zstd/src/zstd_tool.rgr ./gallery/zstd/bin zstd_tool.js"
   },
   "types": "dist/api.d.ts",
-  "version": "3.5.2"
+  "version": "4.0.1"
 }

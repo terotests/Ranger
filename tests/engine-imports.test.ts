@@ -19,15 +19,8 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(HERE, "..");
-const SRC_DIR = path.join(
-  ROOT_DIR,
-  "gallery",
-  "game_engine",
-  "v2",
-  "interp",
-  "migrate",
-  "src"
-);
+// terotests/componentengine's engine/, which npm run deps puts here.
+const SRC_DIR = path.join(ROOT_DIR, "gallery", "componentengine");
 
 /** The interpreter proper — the files a standalone engine package would ship. */
 const ENGINE_FILES = [
@@ -102,7 +95,7 @@ describe("engine dependency surface", () => {
     for (const file of ENGINE_FILES) {
       for (const imp of importsOf(file)) {
         if (!imp.includes("../")) continue;
-        // Inside interp/migrate/src, or a sibling under interp/, is fine.
+        // Inside the package is fine.
         const resolved = path.resolve(SRC_DIR, imp);
         if (resolved.startsWith(path.join(SRC_DIR, ""))) continue;
         if (ALLOWED_OUTSIDE.some((a) => imp.includes(a))) continue;

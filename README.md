@@ -1,6 +1,6 @@
 # Ranger cross language compiler
 
-**Version 3.5.1** | Status: `experimental`
+**Version 4.0.1** | Status: `experimental`
 
 **Licensing:** Ranger-authored compiler and language sources are MIT licensed,
 unless a file says otherwise. Ranger-authored applications and technology
@@ -391,8 +391,12 @@ what does not work at all is in
 
 ## The JavaScript engine, built and measured
 
-`gallery/game_engine/v2/interp` is a JavaScript interpreter written in Ranger —
-so it compiles to every target the compiler has. Four commands build it and
+ComponentEngine is a JavaScript interpreter written in Ranger — so it
+compiles to every target the compiler has. Its sources are in
+[terotests/componentengine](https://github.com/terotests/componentengine)
+(`npm run deps` puts them at `gallery/componentengine`); the builds,
+benchmarks and conformance suites below live in
+`gallery/game_engine/v2/interp`. Four commands build it and
 measure it, and each skips any target whose toolchain is not installed.
 
 ```bash
@@ -596,6 +600,120 @@ npx vitest run tests/compiler-sourcemap.test.ts
 - `compiler/SourceMap.rgr` — `SourceMapBuilder`, VLQ encoder, `addMappingFromNode()` uses `node.getLine()` + `node.code.getColumn(sp)` (not stale `node.row`).
 - `compiler/CodeWriter.rgr` — `lineNumber` / `columnNumber` on emit, `walkNodeStack`, `outMapped()`, `.map` write in `CodeFileSystem.saveTo`.
 - Flag: `compiler/Compiler.rgr` → `flag sourcemap`; enabled in `VirtualCompiler.rgr` via `fileSystem.enableSourceMaps()`.
+
+## Packages: `ranger.json` and `rgrc install`
+
+A Ranger project names the packages it needs in a `ranger.json` next to its
+sources. `rgrc install` fetches them, records exactly what it fetched in
+`ranger.lock`, and the compiler resolves `Import "pkg:…"` against both. There
+is no registry: a package is a directory with a `ranger.json`, taken from a
+path on disk or from a public Git repository over HTTPS.
+
+```json
+{
+  "name": "myapp",
+  "version": "0.1.0",
+  "entry": "src/Main.rgr",
+  "license": "MIT",
+  "dependencies": {
+    "evg": {
+      "git": "https://github.com/terotests/evg.git",
+      "rev": "f3d682ad11d1944251b683e5013ee624be421259",
+      "subdir": "storm"
+    },
+    "componentengine": {
+      "git": "https://github.com/terotests/componentengine.git",
+      "rev": "32435100570ed4b8d08d94f8392c4c9f63bc5e45",
+      "subdir": "engine"
+    },
+    "util": { "path": "../util" }
+  }
+}
+```
+
+| Field | |
+| --- | --- |
+| `name` | the package's name; `pkg:<name>` inside the package itself means the package |
+| `entry` | the file `Import "pkg:<name>"` (no path) resolves to |
+| `version`, `license`, `description` | recorded, not interpreted (no semver solving) |
+| `dependencies` | name → where it comes from, one of the forms below |
+
+| Dependency | |
+| --- | --- |
+| `{ "path": "../util" }` | a directory on disk, relative to this `ranger.json` |
+| `{ "git": "<https url>", "rev": "<commit or branch>" }` | a public Git repository at a revision; a branch is pinned in the lock to the commit it pointed at |
+| `{ "git": "<https url>", "tag": "<tag>" }` | the same, by tag |
+| `"subdir": "<dir>"` | with `git`: the package is that directory of the repository, and only it is fetched |
+
+```bash
+rgrc install                 # the nearest ranger.json, from the working directory up
+rgrc install -frozen         # CI: fail rather than fetch what ranger.lock does not cover
+rgrc install -force          # fetch again even when the locked commit is in the cache
+rgrc install -vendor         # also write vendor/ranger/<name>, so no cache is needed
+rgrc install -cache=<dir>    # instead of RANGER_PKG_CACHE, else ~/.cache/ranger/packages
+```
+
+Then, in the sources:
+
+```ranger
+Import "pkg:evg/EVGElement.rgr"        ; a file of the package
+Import "pkg:componentengine"           ; the package's entry
+Import "./Local.rgr"                   ; this package
+```
+
+**What install does.** A `git` dependency is not a clone: one smart-HTTP
+round fetches the commit and its trees, a second only the files under
+`subdir`. The checkout goes into the cache under the SHA-256 of its content,
+and `ranger.lock` records the commit and that hash. Commit `ranger.lock`; a
+clean checkout then compiles the same sources, and `-frozen` makes CI prove
+it. A dependency the lock pins and the cache holds is not fetched again;
+changing `git` or `rev` in `ranger.json` overrides the lock.
+
+**Dependencies of dependencies.** Install reads each fetched package's own
+`ranger.json` and fetches what it names, breadth first. A `path` dependency
+inside a fetched package means a sibling in the same repository at the same
+commit (`evg`'s `"image": { "path": "../image" }` fetches `image/` from
+`terotests/evg`). **The first entry for a name wins**, and the project's
+own `ranger.json` is read first — so a project that names a package itself
+decides which copy every package in the build gets. That is how one build
+avoids two copies of the same classes: if the project uses `evg` and a
+dependency asks for `evg` at another commit, the project's entry is the one.
+
+**How `pkg:` resolves.** From the file that has the `Import`, the compiler
+walks up to the nearest `ranger.json`; if that manifest cannot place the
+package, the manifests of the files that imported this one are tried, ending
+at the project the compile started from. In each: a `path` dependency that
+is on disk, else `vendor/ranger/<name>`, else the cache entry `ranger.lock`
+names. `../x/A.rgr` and `pkg:x/A.rgr` that land on the same file are one
+import.
+
+Protocol details, the cache layout and the tests are in
+[`pkg/README.md`](pkg/README.md).
+
+### Packages this repository takes from elsewhere
+
+EVG and ComponentEngine have repositories of their own; this tree names them
+in the root [`ranger.json`](ranger.json) and does not track their files:
+
+| Package | Repository | Placed at |
+| --- | --- | --- |
+| `evg` (EVG layout engine), `image` (codecs) | [terotests/evg](https://github.com/terotests/evg) `storm/`, `image/` | `lib/evg`, `lib/image` |
+| `componentengine` (the JavaScript/TSX evaluator) | [terotests/componentengine](https://github.com/terotests/componentengine) `engine/` | `gallery/componentengine` |
+| `cer` (the evaluator as a strict Rust module) | terotests/componentengine `cer/` | `gallery/cer` |
+
+`npm ci` (through `prepare`) and `npm run deps` run `rgrc install` against
+the root `ranger.json` and copy each package to its place
+([`scripts/deps.mjs`](scripts/deps.mjs)), so every path the gallery uses —
+`"evg": { "path": "../../lib/evg" }`, `"componentengine": { "path":
+"../componentengine" }`, the web builds that copy `lib/evg/gl/*.js` — finds
+them. Those directories are git-ignored; do not edit them here.
+
+To change one: commit to its repository, put the new commit in the root
+`ranger.json` (`"rev"`), run `npm run deps`, and commit `ranger.json` and
+`ranger.lock`. `npm run deps -- --from=../evg` puts a local checkout's
+working tree in place instead, to try a change against the gallery before
+committing it; `npm run deps -- --check` fails when the placed copies do not
+match the lock.
 
 ## Getting started with Hello World
 

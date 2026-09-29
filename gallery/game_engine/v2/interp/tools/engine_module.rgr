@@ -10,7 +10,7 @@
 ; Build with: bash scripts/build-engine-module.sh
 ; =============================================================================
 
-Import "../migrate/src/ComponentEngine.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
 
 class EngineModule {
     sfn m@(main):void () {
