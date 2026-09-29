@@ -56,6 +56,56 @@ The C++ / Rust / LLVM tables below were last measured before that work and are n
 
 ---
 
+## CEr, the Rust ComponentEngine (`gallery/game_engine/v2/cer`, rustc build)
+
+CEr is a separate engine written in strict Rust (bytecode compiler + stack VM),
+not this interpreter. Measured 2026-09-28 on `2be0d04e2` with
+`node gallery/game_engine/v2/cer/bench/octane.mjs --engines=qjs,cer-rust`
+(the eight suites of this directory, prepared as `run.cjs` prepares them).
+zoo.js.org cannot be reached from the measuring container, so the zoo scores
+come from its published `engines.json` (gh-pages branch of
+ivankra/javascript-zoo, amd64, default build of each engine).
+
+Node is no yardstick in this harness: its short runs leave V8's JIT cold
+(geometric mean 5,657 here against zoo's V8 47,285). QuickJS is an interpreter
+like CEr and is on the zoo table, so the same-machine QuickJS run carries CEr
+over to the zoo machine: `CEr / QuickJS here × zoo QuickJS`. The QuickJS here is
+a 2026-06-04 source build; zoo's is the 2025-12-22 revision built with clang,
+so the placement is approximate.
+
+| Suite | CEr | QuickJS (same machine) | CEr / QuickJS | zoo QuickJS | CEr scaled to zoo |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Richards | 433 | 956 | 45% | 787 | 356 |
+| DeltaBlue | 433 | 761 | 57% | 722 | 411 |
+| Crypto | 317 | 1069 | 30% | 871 | 258 |
+| RayTrace | 746 | 1627 | 46% | 1316 | 603 |
+| EarleyBoyer | 1034 | 2095 | 49% | 1688 | 833 |
+| RegExp | 173 | 434 | 40% | 326 | 130 |
+| Splay | 1240 | 3218 | 39% | 2608 | 1005 |
+| NavierStokes | 550 | 2574 | 21% | 1539 | 329 |
+| **Score (geo of 8)** | **521** | **1326** | **39%** | **1047** | **~411** |
+
+Zoo.js.org placement of the scaled score, 62 engines with an Octane Score:
+
+| # | Engine | Score |
+| ---: | --- | ---: |
+| 13 | QuickJS | 1047 |
+| 21 | Duktape | 637 |
+| 24 | MuJS | 421 |
+| **~25** | **CEr (rustc)** | **~411** |
+| 25 | XS | 375 |
+| 33 | goja | 267 |
+| 38 | Boa | 217 |
+| 40 | Jint | 178 |
+| 46 | sval | 66 |
+
+Among the engines that finish all eight suites it is 17th of 28. Unscaled
+(521) it would sit 23rd, between yantra (554) and castl (511). The weakest
+suites relative to QuickJS are NavierStokes (21%) and Crypto (30%), both
+numeric array code.
+
+---
+
 ## C++ target (`g++ -O3` native binary)
 
 Last measured before #1000; not a current ranking. Ranger compile: `-l=cpp` →
