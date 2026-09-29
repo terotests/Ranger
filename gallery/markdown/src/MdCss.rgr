@@ -145,6 +145,8 @@ class MdCss {
         this.para(style (this.forTag("p")))
         this.headings(style)
         this.code(style (this.forTag("code")))
+        this.mark(style (this.forTag("mark")))
+        this.kbd(style (this.forTag("kbd")))
         this.link(style (this.forTag("a")))
         this.rule(style (this.forTag("hr")))
         this.quote(style (this.forTag("blockquote")))
@@ -289,6 +291,18 @@ class MdCss {
         style.codeBackground = (this.color(got "background-color" style.codeBackground))
         style.codeBorder = (this.color(got "border-color" style.codeBorder))
         this.rest(got "font-family,font-size,line-height,padding,background-color,border-color")
+    }
+
+    fn mark:void (style:MdStyle got:CssComputed) {
+        style.markBackground = (this.color(got "background-color" style.markBackground))
+        style.markColor = (this.color(got "color" style.markColor))
+        this.rest(got "background-color,color")
+    }
+
+    fn kbd:void (style:MdStyle got:CssComputed) {
+        style.kbdBackground = (this.color(got "background-color" style.kbdBackground))
+        style.kbdBorder = (this.color(got "border-color" style.kbdBorder))
+        this.rest(got "background-color,border-color")
     }
 
     fn link:void (style:MdStyle got:CssComputed) {

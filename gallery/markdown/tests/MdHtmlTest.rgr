@@ -7,6 +7,7 @@
 Import "../src/MdBlock.rgr"
 Import "../src/MdLayout.rgr"
 Import "../src/MdHtml.rgr"
+Import "../src/MdCss.rgr"
 Import "../src/MdToPptx.rgr"
 
 class MdHtmlTest {
@@ -67,6 +68,8 @@ class MdHtmlTest {
     fn run:void () {
         this.testTags()
         this.testInline()
+        this.testBaseline()
+        this.testMarkCss()
         this.testAlign()
         this.testTable()
         this.testPptx()
@@ -114,6 +117,37 @@ class MdHtmlTest {
         this.check("a superscript sits higher than the line" (sq.y < m.y))
         def ctrl:MdBox (MdHtmlTest.box(l "Ctrl"))
         this.check("a key has a cap" ((MdHtmlTest.rectsUnder(l ctrl "")) >= 1))
+    }
+
+    ; Smaller text stands on the line's baseline, not at the top of its box.
+    fn testBaseline:void () {
+        def l:MdLayout (MdHtmlTest.laidOut("Use <small>small print</small> and <kbd>F5</kbd> here."))
+        def big:MdBox (MdHtmlTest.box(l "Use "))
+        def sm:MdBox (MdHtmlTest.box(l "small print"))
+        def k:MdBox (MdHtmlTest.box(l "F5"))
+        def bBig:double (big.y + (l.baselineAt(big.family big.bold big.italic big.size)))
+        def bSm:double (sm.y + (l.baselineAt(sm.family sm.bold sm.italic sm.size)))
+        def bK:double (k.y + (l.baselineAt(k.family k.bold k.italic k.size)))
+        this.check("small print is smaller" (sm.size < big.size))
+        this.check("and on the same baseline" ((fabs (bSm - bBig)) < 0.5))
+        this.check("a key's letters too" ((fabs (bK - bBig)) < 0.5))
+    }
+
+    ; mark and kbd take their colours from the sheet
+    fn testMarkCss:void () {
+        def doc:MdNode (MdBlock.parseText("A <mark>lit</mark> <kbd>K</kbd>"))
+        def l:MdLayout (new MdLayout())
+        def c:MdCss (new MdCss())
+        def css:string "mark { background-color: #3355ff; color: #ffffff } kbd { background-color: #112233; border-color: #445566 }"
+        c.addStyleSheet(css)
+        c.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.layoutContinuous(doc 600.0)
+        def m:MdBox (MdHtmlTest.box(l "lit"))
+        def k:MdBox (MdHtmlTest.box(l "K"))
+        this.check("mark's background from the sheet" ((MdHtmlTest.rectsUnder(l m "#3355FF")) == 1))
+        this.check("and its text colour" (m.color == "#FFFFFF"))
+        this.check("a key's face from the sheet" ((MdHtmlTest.rectsUnder(l k "#112233")) == 1))
     }
 
     fn testAlign:void () {

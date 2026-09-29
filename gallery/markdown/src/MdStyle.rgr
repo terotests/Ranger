@@ -46,6 +46,12 @@ class MdStyle {
     def codeLineHeight:double 1.42
     def codePadding:double 9.0
     def codeBackground:string "#f6f8fa"
+    ; <mark>: the highlight behind the text, and the text on it
+    def markBackground:string "#ffe766"
+    def markColor:string "#1f2328"
+    ; <kbd>: a key cap's face and edge; "" follows `code`
+    def kbdBackground:string ""
+    def kbdBorder:string ""
     def codeBorder:string "#e2e6ea"
     ; The five colours a listing is read with. Not a theme yet — the values a
     ; stylesheet will set, in one place.
@@ -160,6 +166,7 @@ class MdStyle {
         out = ((((out + "/") + codeKeyword) + "/") + codeString)
         out = ((((out + "/") + codeComment) + "/") + codeNumber)
         out = ((out + "/") + codePlain)
+        out = (out + " mark " + markBackground + "/" + markColor + " kbd " + kbdBackground + "/" + kbdBorder)
         if highlightCode { out = (out + "/hi") }
         out = ((((out + " ink ") + textColor) + "/") + mutedColor)
         out = ((((out + "/") + linkColor) + "/") + ruleColor)

@@ -3120,7 +3120,7 @@ class MdLayout {
         }
         if (nm == "mark") {
             r.mark = true
-            r.color = "#1f2328"
+            r.color = style.markColor
         }
         if ((nm == "code") || ((nm == "tt") || (nm == "samp"))) {
             r.family = style.monoFamily
@@ -3175,40 +3175,74 @@ class MdLayout {
     fn emitLine:void (ln:MdLine x0:double y:double) {
         def top:double (y + ln.extraTop)
         def lh:double (ln.height - ln.extraTop)
+        ; The line's baseline: the lowest one its segments would have on
+        ; their own, which is the largest face's. Every segment stands on
+        ; it — <small> print, a key cap and a code span no longer float up
+        ; to the top of the line box they are smaller than.
+        def base:double 0.0
+        def s0:int 0
+        while (s0 < (array_length ln.segs)) {
+            def g0:MdSeg (itemAt ln.segs s0)
+            if (((strlen g0.math) == 0) && (g0.shift == 0)) {
+                def b0:double (this.baselineIn(g0))
+                if (b0 > base) {
+                    base = b0
+                }
+            }
+            s0 = (s0 + 1)
+        }
         def s:int 0
         def sn:int (array_length ln.segs)
         while (s < sn) {
             def seg:MdSeg (itemAt ln.segs s)
             def sx:double (x0 + seg.x)
+            def own:double (this.baselineIn(seg))
             if ((strlen seg.math) > 0) {
-                this.emit((this.mathSegBox(seg sx top)))
+                def mt:double top
+                if (base > 0.0) {
+                    mt = (top + (base - own))
+                }
+                this.emit((this.mathSegBox(seg sx mt)))
                 s = (s + 1)
                 continue
             }
-            ; a sub- or superscript: its own smaller face, its baseline moved
-            ; off the line's
+            ; on the line's baseline, or — a sub- or superscript — moved off
+            ; it by a share of the size of the text it sits in
             def ty:double top
+            if (base > 0.0) {
+                ty = (top + (base - own))
+            }
             if (seg.shift != 0) {
-                def big:double (this.baselineAt(seg.family seg.bold seg.italic seg.shiftOf))
-                def small:double (this.baselineAt(seg.family seg.bold seg.italic seg.size))
+                def big:double base
+                if (big <= 0.0) {
+                    big = (this.baselineAt(seg.family seg.bold seg.italic seg.shiftOf))
+                }
                 def want:double (big + (seg.shiftOf * 0.2))
                 if (seg.shift > 0) {
                     want = (big - (seg.shiftOf * 0.38))
                 }
-                ty = (top + (want - small))
+                ty = (top + (want - own))
             }
             if (seg.code || seg.mark) {
                 def pad:double 2.0
                 def fill:string style.codeBackground
                 if seg.mark {
-                    fill = "#ffe766"
+                    fill = style.markBackground
                 }
                 this.emit((MdBox.rect((sx - pad) (top + 1.0) (seg.w + (pad * 2.0)) (lh - 2.0) fill)))
             }
             if seg.kbd {
                 def kp:double 3.0
-                this.emit((MdBox.rect((sx - kp) (top + 2.0) (seg.w + (kp * 2.0)) (lh - 4.0) style.codeBackground)))
-                this.emit((MdBox.outline((sx - kp) (top + 2.0) (seg.w + (kp * 2.0)) (lh - 4.0) style.codeBorder 1.0)))
+                def kFace:string style.kbdBackground
+                if ((strlen kFace) == 0) {
+                    kFace = style.codeBackground
+                }
+                def kEdge:string style.kbdBorder
+                if ((strlen kEdge) == 0) {
+                    kEdge = style.codeBorder
+                }
+                this.emit((MdBox.rect((sx - kp) (top + 2.0) (seg.w + (kp * 2.0)) (lh - 4.0) kFace)))
+                this.emit((MdBox.outline((sx - kp) (top + 2.0) (seg.w + (kp * 2.0)) (lh - 4.0) kEdge 1.0)))
             }
             def b:MdBox (MdBox.text(seg.text sx ty seg.w lh))
             b.segSrc = seg.srcStart
