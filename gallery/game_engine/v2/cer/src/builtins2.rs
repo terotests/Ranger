@@ -1414,8 +1414,9 @@ impl Vm {
                     NF_MP_CLEAR => {
                         self.objs[o as usize].elems = Vec::new();
                         self.objs[o as usize].elems2 = Vec::new();
-                        self.objs[o as usize].attrs = Vec::new();
-                        self.objs[o as usize].index = HashMap::new();
+                        self.objs[o as usize].saved = Vec::new();
+                        let t = self.map_table(o);
+                        self.mtables[t as usize].keys = HashMap::new();
                         self.objs[o as usize].pos = 0;
                         Val::Undef
                     }
@@ -1426,17 +1427,21 @@ impl Vm {
                         }
                         let is_set = self.objs[o as usize].class == C_SET;
                         let mut i: usize = 0;
+                        // entries keep their positions while this walks them
+                        self.map_walks += 1;
                         while i < self.objs[o as usize].elems.len() {
-                            if self.objs[o as usize].attrs[i] == 0 {
+                            if self.objs[o as usize].saved[i] == 0 {
                                 let k = self.objs[o as usize].elems[i].clone();
                                 let v = if is_set { k.clone() } else { self.objs[o as usize].elems2[i].clone() };
                                 self.call_value(a0.clone(), a1.clone(), vec![v, k, this.clone()]);
                                 if self.throwing {
+                                    self.map_walks -= 1;
                                     return Val::Undef;
                                 }
                             }
                             i += 1;
                         }
+                        self.map_walks -= 1;
                         Val::Undef
                     }
                     NF_MP_KEYS => self.collection_iter(o, 0),

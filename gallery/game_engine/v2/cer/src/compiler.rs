@@ -2787,10 +2787,28 @@ impl Compiler {
         // compound: a op= b
         let bop = &o[0..(o.as_bytes().len() - 1)];
         let code = binary_code(bop);
+        if tk == N_IDENT && code == OP_ADD && self.f().with_slots.is_empty() {
+            // `x += v` on a stack-slot local: one op, which can append a
+            // string in place (x cannot change while v is evaluated: nothing
+            // else reaches a slot that is not captured)
+            let b = match self.ref_bind.get(&t) {
+                Some(x) => *x,
+                None => -1,
+            };
+            if b >= 0 && !self.binds[b as usize].in_env && !self.binds[b as usize].global && self.binds[b as usize].kind != K_CONST && self.binds[b as usize].arg_index < 0 {
+                let slot = self.binds[b as usize].slot;
+                self.expr(v);
+                self.emit(OP_ADD_LOCAL, slot, 0);
+                return;
+            }
+        }
+        // b=1 on an ADD: the store right after writes the result back to
+        // where the left side was read, so the VM may append in place
+        let compound = if code == OP_ADD { 1 } else { 0 };
         if tk == N_IDENT {
             self.load_name(t);
             self.expr(v);
-            self.op(code);
+            self.emit(code, 0, compound);
             self.store_name(t, false);
             return;
         }
@@ -2802,7 +2820,7 @@ impl Compiler {
             self.op(OP_DUP);
             self.emit(OP_GET_PROP, at, 0);
             self.expr(v);
-            self.op(code);
+            self.emit(code, 0, compound);
             self.emit(OP_SET_PROP, at, 0);
             return;
         }

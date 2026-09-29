@@ -113,6 +113,13 @@ pub struct Vm {
     pub bigint_proto: int,
     /// %ThrowTypeError%'s getter/setter pair (strict `arguments.callee`)
     pub thrower_pair: int,
+    /// Map / Set forEach calls in progress (no compaction meanwhile)
+    pub map_walks: int,
+    /// each Map's / Set's entries by key (`Vm::map_key`) → position in its
+    /// `elems` (whose `saved` flag is 1 once deleted); the object's `prim`
+    /// holds the table's number. Freed tables are reused.
+    pub mtables: Vec<MapTable>,
+    pub mtable_free: Vec<int>,
     /// the method name OP_GET_METHOD found not callable, and where
     pub bad_callee: String,
     pub bad_callee_at: int,
@@ -324,6 +331,9 @@ impl Vm {
             generator_proto: -1,
             bigint_proto: -1,
             thrower_pair: -1,
+            map_walks: 0,
+            mtables: Vec::new(),
+            mtable_free: Vec::new(),
             bad_callee: String::new(),
             bad_callee_at: -1,
             template_cache: HashMap::new(),
@@ -2396,11 +2406,49 @@ impl Vm {
                         let a = self.pop();
                         if let (Val::Num(x), Val::Num(y)) = (&a, &b) {
                             self.stack.push(Val::Num(x + y));
+                        } else if op.b == 1 && matches!(a, Val::Str(_)) && matches!(b, Val::Str(_)) {
+                            // `x += "…"`: the place x was read from lets go of
+                            // the string, and the store after this writes the
+                            // longer one back
+                            let next = self.protos[pi].code[pc as usize];
+                            self.release_for_append(&next, &a);
+                            // a script statement's completion value, written
+                            // again right after the store
+                            let after = self.protos[pi].code[(pc + 1) as usize];
+                            if after.code == OP_SET_LOCAL || after.code == OP_SET_LOCAL_POP {
+                                let i = (bp + after.a) as usize;
+                                if same_str(&self.stack[i], &a) {
+                                    self.stack[i] = Val::Undef;
+                                }
+                            }
+                            let bs = if let Val::Str(t) = &b { t.clone() } else { Rc::new(String::new()) };
+                            let r = str_append(a, bs.as_str());
+                            self.stack.push(r);
                         } else {
                             self.frames[fi].pc = pc;
                             let r = self.add_vals(&a, &b);
                             self.stack.push(r);
                         }
+                    }
+                    OP_ADD_LOCAL => {
+                        let b = self.pop();
+                        let i = (bp + op.a) as usize;
+                        let r = if let (Val::Num(x), Val::Num(y)) = (&self.stack[i], &b) {
+                            Val::Num(x + y)
+                        } else if matches!(self.stack[i], Val::Str(_)) && matches!(b, Val::Str(_)) {
+                            // take the string out of the slot so that it can
+                            // be the only holder
+                            let a = self.stack[i].clone();
+                            self.stack[i] = Val::Undef;
+                            let bs = if let Val::Str(t) = &b { t.clone() } else { Rc::new(String::new()) };
+                            str_append(a, bs.as_str())
+                        } else {
+                            self.frames[fi].pc = pc;
+                            let a = self.stack[i].clone();
+                            self.add_vals(&a, &b)
+                        };
+                        self.stack[i] = r.clone();
+                        self.stack.push(r);
                     }
                     OP_DIV | OP_MOD | OP_EXP | OP_BAND | OP_BOR | OP_BXOR | OP_SHL | OP_SHR | OP_USHR => {
                         let b = self.pop();
@@ -3046,6 +3094,36 @@ impl Vm {
             }
             self.throw_not_callable(fpos);
             return false;
+        }
+    }
+
+    /// Before `x += s` appends to the string `a`: when the store `next`
+    /// writes to a plain writable slot that holds this very string, the
+    /// slot lets go of it (the store refills it), so `a` may be the only
+    /// holder and the append happens in place.
+    fn release_for_append(&mut self, next: &Op, a: &Val) {
+        if next.code == OP_SET_ENV {
+            let e = self.get_env(next.a);
+            let i = next.b as usize;
+            if i < self.objs[e as usize].elems.len() && same_str(&self.objs[e as usize].elems[i], a) {
+                self.objs[e as usize].elems[i] = Val::Undef;
+            }
+            return;
+        }
+        let mut o: int = -1;
+        if next.code == OP_SET_GLOBAL {
+            o = self.global;
+        } else if next.code == OP_SET_PROP || next.code == OP_SET_PROP_POP {
+            if let Some(Val::Obj(t)) = self.stack.last() {
+                o = *t;
+            }
+        }
+        if o < 0 || self.objs[o as usize].class == C_PROXY {
+            return;
+        }
+        let slot = self.objs[o as usize].find(next.a);
+        if slot >= 0 && (self.objs[o as usize].attrs[slot as usize] & (P_ACCESSOR | P_READONLY)) == 0 && same_str(&self.objs[o as usize].vals[slot as usize], a) {
+            self.objs[o as usize].vals[slot as usize] = Val::Undef;
         }
     }
 
@@ -4162,9 +4240,19 @@ impl Vm {
                 ob.marked = false;
                 live += 1;
             } else if !ob.free {
+                let mut table: int = -1;
+                if ob.class == C_MAP || ob.class == C_SET {
+                    if let Val::Num(t) = ob.prim {
+                        table = t as int;
+                    }
+                }
                 ob.clear();
                 ob.free = true;
                 self.free_list.push(i2 as int);
+                if table >= 0 {
+                    self.mtables[table as usize].keys = HashMap::new();
+                    self.mtable_free.push(table);
+                }
             }
             i2 += 1;
         }

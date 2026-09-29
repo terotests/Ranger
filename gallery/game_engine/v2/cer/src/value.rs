@@ -30,6 +30,65 @@ pub fn string_val(s: String) -> Val {
     Val::Str(Rc::new(s))
 }
 
+/// A Map's / Set's entries by key (a struct, so that the targets that copy
+/// a collection held in a Vec still share it).
+pub struct MapTable {
+    pub keys: HashMap<String, int>,
+}
+
+impl MapTable {
+    pub fn new() -> MapTable {
+        MapTable { keys: HashMap::new() }
+    }
+}
+
+/// `a + b` for a string `a` the caller owns: on the Rust target the text is
+/// appended in place when no other value shares it, so building a string
+/// with `+=` takes linear time instead of quadratic.
+#[ranger::target(rust)]
+pub fn str_append(a: Val, b: &str) -> Val {
+    if let Val::Str(mut rc) = a {
+        if let Some(s) = Rc::get_mut(&mut rc) {
+            s.push_str(b);
+            return Val::Str(rc);
+        }
+        let mut t = String::with_capacity(rc.len() + b.len());
+        t.push_str(rc.as_str());
+        t.push_str(b);
+        return Val::Str(Rc::new(t));
+    }
+    Val::Undef
+}
+
+/// `a` and `b` are the same string object (Rust target; the others answer
+/// false, and so never release a string to append to it in place).
+#[ranger::target(rust)]
+pub fn same_str(a: &Val, b: &Val) -> bool {
+    if let (Val::Str(x), Val::Str(y)) = (a, b) {
+        return Rc::ptr_eq(x, y);
+    }
+    false
+}
+
+#[ranger::target(es6, typescript, cpp, go, python, java, kotlin, csharp, scala, dart, php, swift, llvm)]
+pub fn same_str(a: &Val, b: &Val) -> bool {
+    let _ = a;
+    let _ = b;
+    false
+}
+
+/// The other targets copy (JavaScript's own strings append cheaply).
+#[ranger::target(es6, typescript, cpp, go, python, java, kotlin, csharp, scala, dart, php, swift, llvm)]
+pub fn str_append(a: Val, b: &str) -> Val {
+    if let Val::Str(x) = &a {
+        let mut t = String::new();
+        t.push_str(x.as_str());
+        t.push_str(b);
+        return string_val(t);
+    }
+    Val::Undef
+}
+
 // object classes
 pub const C_OBJECT: int = 0;
 pub const C_ARRAY: int = 1;

@@ -1534,8 +1534,11 @@ impl Vm {
 
     // ---- Map / Set
 
-    pub fn map_key(&mut self, k: &Val) -> int {
-        let s = match k {
+    /// A Map / Set key as text: equal under SameValueZero exactly when the
+    /// texts are equal. Kept per map (not interned, so keys do not pile up
+    /// in the atom table).
+    pub fn map_key(&self, k: &Val) -> String {
+        match k {
             Val::Undef => String::from("u"),
             Val::Null => String::from("l"),
             Val::Bool(b) => format!("b{}", b),
@@ -1543,19 +1546,36 @@ impl Vm {
             Val::Num(n) => {
                 if *n == 0.0 {
                     String::from("n0")
+                } else if *n > -1000000000.0 && *n < 1000000000.0 && ((*n as int) as double) == *n {
+                    format!("n{}", *n as int)
                 } else {
                     format!("n{}", number_to_string(*n))
                 }
             }
             Val::Str(s) => format!("s{}", s),
             Val::Obj(o) => format!("o{}", o),
+        }
+    }
+
+    /// The number of the key table of Map / Set `m`, made on first use.
+    pub fn map_table(&mut self, m: int) -> int {
+        if let Val::Num(t) = self.objs[m as usize].prim {
+            return t as int;
+        }
+        let t = if let Some(x) = self.mtable_free.pop() {
+            x
+        } else {
+            self.mtables.push(MapTable::new());
+            (self.mtables.len() as int) - 1
         };
-        self.intern(s.as_str())
+        self.objs[m as usize].prim = Val::Num(t as double);
+        t
     }
 
     pub fn map_find(&mut self, m: int, k: &Val) -> int {
         let key = self.map_key(k);
-        match self.objs[m as usize].index.get(&key) {
+        let t = self.map_table(m);
+        match self.mtables[t as usize].keys.get(&key) {
             Some(i) => *i,
             None => -1,
         }
@@ -1580,9 +1600,44 @@ impl Vm {
         };
         self.objs[m as usize].elems.push(kk);
         self.objs[m as usize].elems2.push(v);
-        self.objs[m as usize].attrs.push(0);
-        self.objs[m as usize].index.insert(key, pos);
+        self.objs[m as usize].saved.push(0);
+        let t = self.map_table(m);
+        self.mtables[t as usize].keys.insert(key, pos);
         self.objs[m as usize].pos += 1;
+    }
+
+    /// Drops the deleted entries once they outnumber the live ones (not
+    /// while a forEach walks the entries by position).
+    fn map_compact(&mut self, m: int) {
+        let n = self.objs[m as usize].elems.len() as int;
+        let live = self.objs[m as usize].pos;
+        if self.map_walks > 0 || n < 32 || (n - live) * 2 < n {
+            return;
+        }
+        let mut ks: Vec<Val> = Vec::new();
+        let mut vs: Vec<Val> = Vec::new();
+        let mut i: usize = 0;
+        while i < n as usize {
+            if self.objs[m as usize].saved[i] == 0 {
+                ks.push(self.objs[m as usize].elems[i].clone());
+                vs.push(self.objs[m as usize].elems2[i].clone());
+            }
+            i += 1;
+        }
+        let mut idx: HashMap<String, int> = HashMap::new();
+        let mut flags: Vec<int> = Vec::new();
+        let mut j: usize = 0;
+        while j < ks.len() {
+            let key = self.map_key(&ks[j]);
+            idx.insert(key, j as int);
+            flags.push(0);
+            j += 1;
+        }
+        self.objs[m as usize].elems = ks;
+        self.objs[m as usize].elems2 = vs;
+        self.objs[m as usize].saved = flags;
+        let t = self.map_table(m);
+        self.mtables[t as usize].keys = idx;
     }
 
     pub fn map_delete(&mut self, m: int, k: &Val) -> bool {
@@ -1591,11 +1646,13 @@ impl Vm {
             return false;
         }
         let key = self.map_key(k);
-        self.objs[m as usize].index.remove(&key);
-        self.objs[m as usize].attrs[i as usize] = 1;
+        let t = self.map_table(m);
+        self.mtables[t as usize].keys.remove(&key);
+        self.objs[m as usize].saved[i as usize] = 1;
         self.objs[m as usize].elems[i as usize] = Val::Undef;
         self.objs[m as usize].elems2[i as usize] = Val::Undef;
         self.objs[m as usize].pos -= 1;
+        self.map_compact(m);
         true
     }
 
@@ -1615,7 +1672,7 @@ impl Vm {
         let is_set = self.objs[m as usize].class == C_SET;
         let mut i: usize = 0;
         while i < n {
-            if self.objs[m as usize].attrs[i] == 0 {
+            if self.objs[m as usize].saved[i] == 0 {
                 let k = self.objs[m as usize].elems[i].clone();
                 let v = if is_set { k.clone() } else { self.objs[m as usize].elems2[i].clone() };
                 if kind == 0 {

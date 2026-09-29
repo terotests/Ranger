@@ -248,3 +248,6 @@ pub const OP_ASYNC_ITER: int = 141;
 pub const OP_ITER_CLOSE: int = 142;
 /// [e] → [e]: jumps to `a` when e is a generator's return() signal
 pub const OP_JRETSIG: int = 143;
+/// [v] → [local a + v]: `x += v` on a stack-slot local, which also takes
+/// the result; a string nothing else holds is appended to in place
+pub const OP_ADD_LOCAL: int = 144;
