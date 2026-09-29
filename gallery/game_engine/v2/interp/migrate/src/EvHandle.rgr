@@ -12,7 +12,7 @@
 ; (also on Reference). Number `@(value)` blocks slotOwned on
 ; the shape.
 
-Import "../../../../../ts_parser/ts_parser_simple.rgr"
+Import "pkg:ts_parser/ts_parser_simple.rgr"
 Import "EvalValue.rgr"
 
 ; Kind discriminant: `body` (shape EvalValue). Legacy int tags are gone.

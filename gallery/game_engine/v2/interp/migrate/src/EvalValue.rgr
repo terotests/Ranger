@@ -14,7 +14,7 @@
 ;   PropertyCarrier — objects that own a property bag
 ;   Callable        — values that can be invoked (required capability)
 
-Import "../../../../../ts_parser/ts_parser_simple.rgr"
+Import "pkg:ts_parser/ts_parser_simple.rgr"
 
 ; =============================================================================
 ; EvElement — the engine's own element value.
