@@ -413,10 +413,30 @@ class MdCss {
 
     fn color:string (got:CssComputed name:string fallback:string) {
         if (! (got.has(name))) { return fallback }
+        def word:string (CssSheet.lower((CssSheet.tidy((got.get(name))))))
+        if ((word == "none") || (word == "transparent")) {
+            applied = (applied + 1)
+            return "transparent"
+        }
         def c:EVGColor (CssValue.color((got.get(name))))
         if (! c.isSet) { return fallback }
         applied = (applied + 1)
-        return (c.toHexString())
+        return (MdCss.hexOf(c))
+    }
+
+    ; `#RRGGBB`, or `#RRGGBBAA` when the colour lets what is behind it show
+    ; through — `#151c4833` kept its alpha nowhere before this.
+    sfn hexOf:string (c:EVGColor) {
+        def hex:string (c.toHexString())
+        def a:double (c.alpha())
+        if (a >= 0.999) {
+            return hex
+        }
+        def digits:string "0123456789ABCDEF"
+        def v:int (to_int ((a * 255.0) + 0.5))
+        def hi:int (idiv v 16)
+        def lo:int (v % 16)
+        return (hex + (strfromcode (charAt digits hi)) + (strfromcode (charAt digits lo)))
     }
 
     ; Every property of a rule this layout did not just read. Named once each,

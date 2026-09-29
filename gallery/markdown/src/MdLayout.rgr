@@ -1300,8 +1300,64 @@ class MdLayout {
     fn block:void (node:MdNode x:double w:double) {
         def outerSrc:int currentSrc
         if (node.srcStart >= 0) { currentSrc = node.srcStart }
+        ; `{.lead}` and `{#id}`: what the sheet says about this block's size
+        ; and colour holds while it is laid out
+        def scaled:boolean false
+        def saved:[double]
+        def savedColor:string style.textColor
+        if (((strlen sheetText) > 0) && (((node.classCount()) > 0) || ((strlen node.nodeId) > 0))) {
+            def got:CssComputed (this.styleOf(node))
+            if (got.has("font-size")) {
+                def r:double (this.sizeRatio(node (got.get("font-size"))))
+                if ((r > 0.0) && ((fabs (r - 1.0)) > 0.001)) {
+                    saved = (this.styleNumbers())
+                    this.scaleStyle(saved r)
+                    scaled = true
+                }
+            }
+            if (got.has("color")) {
+                def c:EVGColor (CssValue.color((got.get("color"))))
+                if c.isSet {
+                    style.textColor = (MdCss.hexOf(c))
+                }
+            }
+        }
         this.blockInner(node x w)
+        if scaled {
+            this.restoreStyle(saved)
+        }
+        style.textColor = savedColor
         currentSrc = outerSrc
+    }
+
+    ; A block's `font-size` as a multiple of what it would have had: `1.3em`
+    ; and `130%` say so directly, `26pt` against the sheet's size for the
+    ; block's kind (the document's, or the heading level's) — a ratio, so a
+    ; slide that was shrunk to fit shrinks the block with it.
+    fn sizeRatio:double (node:MdNode value:string) {
+        def t:string (CssSheet.lower((CssSheet.tidy(value))))
+        def n:int (strlen t)
+        if ((n > 2) && ((substring t (n - 2) n) == "em")) {
+            return (?? (str2double (substring t 0 (n - 2))) 1.0)
+        }
+        if ((n > 1) && ((substring t (n - 1) n) == "%")) {
+            return ((?? (str2double (substring t 0 (n - 1))) 100.0) / 100.0)
+        }
+        def tag:string "document"
+        def fallback:double style.bodySize
+        if (node.kind == "heading") {
+            tag = ("h" + (to_string node.level))
+            fallback = (style.headingSize(node.level))
+        }
+        def base:double fallback
+        def b:CssComputed (sheet.forTag(tag))
+        if (b.has("font-size")) {
+            base = (CssValue.fontPoints((b.get("font-size")) fallback))
+        }
+        if (base <= 0.0) {
+            return 1.0
+        }
+        return ((CssValue.fontPoints(value base)) / base)
     }
 
     ; ----------------------------------------------------------------------

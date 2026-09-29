@@ -70,6 +70,7 @@ class MdHtmlTest {
         this.testInline()
         this.testBaseline()
         this.testMarkCss()
+        this.testClassCss()
         this.testAlign()
         this.testTable()
         this.testPptx()
@@ -148,6 +149,47 @@ class MdHtmlTest {
         this.check("mark's background from the sheet" ((MdHtmlTest.rectsUnder(l m "#3355FF")) == 1))
         this.check("and its text colour" (m.color == "#FFFFFF"))
         this.check("a key's face from the sheet" ((MdHtmlTest.rectsUnder(l k "#112233")) == 1))
+    }
+
+    sfn styled:MdLayout (md:string css:string) {
+        def doc:MdNode (MdBlock.parseText(md))
+        def l:MdLayout (new MdLayout())
+        def c:MdCss (new MdCss())
+        c.addStyleSheet(css)
+        c.applyTo(l.style)
+        l.setStyleSheet(css)
+        l.layoutContinuous(doc 600.0)
+        return l
+    }
+
+    sfn fills:string (l:MdLayout) {
+        def out:string " "
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def r:MdBox (itemAt l.boxes i)
+            if (r.kind == 1) {
+                out = (out + r.fill + " ")
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn testClassCss:void () {
+        def css:string "document { font-size: 20pt } .lead { font-size: 26pt; color: #ff8800 } .kicker { font-size: 0.7em }"
+        def l:MdLayout (MdHtmlTest.styled("Iso\n{.lead}\n\nPieni\n{.kicker}\n\nTavallinen" css))
+        def big:MdBox (MdHtmlTest.box(l "Iso"))
+        def small:MdBox (MdHtmlTest.box(l "Pieni"))
+        def plain:MdBox (MdHtmlTest.box(l "Tavallinen"))
+        this.check(".lead's font-size is used" ((fabs (big.size - 26.0)) < 0.01))
+        this.check("…and its colour" (big.color == "#FF8800"))
+        this.check(".kicker's size in em" ((fabs (small.size - 14.0)) < 0.01))
+        this.check("a paragraph without a class is as it was" (((fabs (plain.size - 20.0)) < 0.01) && (plain.color != "#FF8800")))
+        def code:string "```\nx = 1\n```"
+        def t:MdLayout (MdHtmlTest.styled(code "code { background-color: #151c4833 }"))
+        this.check("a code background keeps its alpha" ((indexOf (MdHtmlTest.fills(t)) " #151C4833 ") >= 0))
+        def n:MdLayout (MdHtmlTest.styled(code "code { background-color: none }"))
+        this.check("background-color: none draws nothing" ((indexOf (MdHtmlTest.fills(n)) " transparent ") >= 0))
     }
 
     fn testAlign:void () {
