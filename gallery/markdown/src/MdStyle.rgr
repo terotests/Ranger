@@ -39,6 +39,15 @@ class MdStyle {
     def h4Size:double 13.0
     def h5Size:double 11.5
     def h6Size:double 11.0
+    ; A heading's colour: per level, then `heading`, then the text's ("" =
+    ; not set, fall through).
+    def headingColor:string ""
+    def h1Color:string ""
+    def h2Color:string ""
+    def h3Color:string ""
+    def h4Color:string ""
+    def h5Color:string ""
+    def h6Color:string ""
     def headingSpaceBefore:double 16.0
     def headingSpaceAfter:double 7.0
 
@@ -160,6 +169,7 @@ class MdStyle {
         out = ((((out + "/") + (to_string h4Size)) + "/") + (to_string h5Size))
         out = ((((out + "/") + (to_string h6Size)) + "/") + (to_string headingSpaceBefore))
         out = ((out + "/") + (to_string headingSpaceAfter))
+        out = (out + " hc " + headingColor + "/" + h1Color + "/" + h2Color + "/" + h3Color + "/" + h4Color + "/" + h5Color + "/" + h6Color)
         out = ((((out + " code ") + monoFamily) + "/") + (to_string codeSize))
         out = ((((out + "/") + (to_string codeLineHeight)) + "/") + (to_string codePadding))
         out = ((((out + "/") + codeBackground) + "/") + codeBorder)
@@ -196,6 +206,18 @@ class MdStyle {
         if (kind == 3) { return codeComment }
         if (kind == 4) { return codeNumber }
         return codePlain
+    }
+
+    fn headingInk:string (level:int) {
+        def c:string h6Color
+        if (level == 1) { c = h1Color }
+        if (level == 2) { c = h2Color }
+        if (level == 3) { c = h3Color }
+        if (level == 4) { c = h4Color }
+        if (level == 5) { c = h5Color }
+        if ((strlen c) > 0) { return c }
+        if ((strlen headingColor) > 0) { return headingColor }
+        return textColor
     }
 
     fn headingSize:double (level:int) {

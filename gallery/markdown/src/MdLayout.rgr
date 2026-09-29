@@ -2070,7 +2070,7 @@ class MdLayout {
         base.family = style.headingFamily
         base.size = size
         base.bold = true
-        base.color = style.textColor
+        base.color = (style.headingInk(node.level))
         def runs:[MdRun] (this.inlineRuns(node base))
         cursorY = (cursorY + style.headingSpaceBefore)
         ; Recorded BEFORE the lines are placed, so the page is the page the

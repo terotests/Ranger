@@ -524,7 +524,7 @@ class MdToPptx {
         def r:PptxRunRef (box.runAt(0 0))
         r.font(layout.style.headingFamily size)
         r.bold(true)
-        r.color(layout.style.textColor)
+        r.color((layout.style.headingInk(node.level)))
         def m:PptxShape (box.model())
         MdDeckSync.stamp(m node)
         if (node.level <= layout.splitLevel) {

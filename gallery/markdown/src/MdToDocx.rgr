@@ -186,6 +186,7 @@ class MdToDocx {
             base.fontFamily = style.headingFamily
             base.fontSizePt = (style.headingSize(node.level))
             base.bold = true
+            base.colorHex = (MdToDocx.hexOf((style.headingInk(node.level))))
             this.inline(node p base)
             MdDocSync.stamp(p node)
             result.headings = (result.headings + 1)
