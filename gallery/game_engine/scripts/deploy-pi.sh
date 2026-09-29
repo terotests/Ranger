@@ -176,8 +176,9 @@ rsync -az --delete \
   --exclude tmp \
   --exclude dist \
   --exclude .git/objects \
-  --exclude 'gallery/game_engine/pose/native_bench/build' \
+  --exclude 'gallery/game_engine/pose/build' \
   --exclude 'gallery/game_engine/pose/mediapipe_poc/assets/models' \
+  --exclude 'gallery/game_engine/pose/native_bench/build' \
   --exclude 'gallery/game_engine/games/*/src/target' \
   --exclude 'gallery/game_engine/games/*/src/build' \
   --exclude 'gallery/game_engine/wasm/*/target' \
