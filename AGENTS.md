@@ -24,6 +24,7 @@ Source files use the **`.rgr`** extension (not `.clj`). Entry point: `sfn main:v
 - Root [`LICENSE`](LICENSE) is the mixed-license overview, not a single license text.
 - Gallery may import `lib/` and `compiler/`. **Never** import `gallery/` from `lib/` or `compiler/`. `lib/evg` imports `pkg:image`, nothing from the gallery; the pieces that need the gallery's rasteriser and fonts (`EVGWindow`, `EVGTextFit`, `EVGContextMeasurer`, the ruler and toolbar views) are the AGPL package `gallery/evg_window`.
 - Gallery code imports EVG as a package: `Import "pkg:evg/EVGElement.rgr"` with `"evg": { "path": "../../lib/evg" }` in that package's `ranger.json` (same for `pkg:image/…` and `pkg:evg_window/…`). Do not write `../../lib/evg/…`.
+- `lib/evg` and `lib/image` are **not in this repository**: they come from [terotests/evg](https://github.com/terotests/evg) (`storm/`, `image/`) at the commit the root `ranger.json` pins, and `npm run deps` (run by `npm ci`) puts them there. Do not edit them here — the next `npm run deps` overwrites the change and git never sees it. Change EVG in terotests/evg, then put the new commit in the root `ranger.json` (`"rev"`), `npm run deps`, and commit `ranger.json` and `ranger.lock`. To try an evg working tree against the gallery first: `npm run deps -- --from=../evg`.
 - Details: [`LICENSING.md`](LICENSING.md).
 
 ## Git & pull-request workflow

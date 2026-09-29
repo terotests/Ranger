@@ -1,0 +1,20 @@
+{
+  "lockVersion": 1,
+  "packages": {
+    "evg": {
+      "git": "https://github.com/terotests/evg.git",
+      "rev": "f3d682ad11d1944251b683e5013ee624be421259",
+      "subdir": "storm",
+      "sha256": "6d6566d96077b0e4b69804d3b6b65379f49c88f8b6c8ffe2ecde234674973d4e"
+    },
+    "zip": {
+      "path": "lib/zip"
+    },
+    "image": {
+      "git": "https://github.com/terotests/evg.git",
+      "rev": "f3d682ad11d1944251b683e5013ee624be421259",
+      "subdir": "image",
+      "sha256": "ab9804949d5564dc802d6f236fff9f701519213add55d2b03b217ee50d369076"
+    }
+  }
+}

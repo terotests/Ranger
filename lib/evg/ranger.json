@@ -1,9 +1,0 @@
-{
-  "name": "evg",
-  "version": "0.1.0",
-  "entry": "EVG.rgr",
-  "license": "MIT",
-  "dependencies": {
-    "image": { "path": "../image" }
-  }
-}

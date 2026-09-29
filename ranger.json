@@ -1,0 +1,14 @@
+{
+  "name": "ranger",
+  "version": "4.0.1",
+  "license": "MIT",
+  "description": "The packages this tree takes from other repositories. npm run deps fetches them (rgrc install) and puts each at lib/<name>.",
+  "dependencies": {
+    "evg": {
+      "git": "https://github.com/terotests/evg.git",
+      "rev": "f3d682ad11d1944251b683e5013ee624be421259",
+      "subdir": "storm"
+    },
+    "zip": { "path": "lib/zip" }
+  }
+}
