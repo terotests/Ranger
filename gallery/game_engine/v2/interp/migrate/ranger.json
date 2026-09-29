@@ -1,0 +1,17 @@
+{
+  "name": "componentengine",
+  "version": "0.1.0",
+  "entry": "src/ComponentEngine.rgr",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "ts_parser": {
+      "path": "../../../../ts_parser"
+    },
+    "core": {
+      "path": "../../../../../lib/core"
+    },
+    "evg": {
+      "path": "../../../../../lib/evg"
+    }
+  }
+}

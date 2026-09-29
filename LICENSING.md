@@ -212,7 +212,11 @@ examples/           MIT
         ↑
         │ imports  (Import "pkg:evg/…", Import "pkg:image/…")
         │
+lib/core/           MIT   package "core"
 gallery/evg_window/ AGPL  package "evg_window" → pkg:evg, pkg:image, game_engine, pdf_writer
+gallery/ts_parser/  AGPL  package "ts_parser"
+gallery/game_engine/v2/interp/migrate/
+                    AGPL  package "componentengine" → pkg:ts_parser, pkg:core, pkg:evg
 gallery/ui/         AGPL
 gallery/datagrid/   AGPL
 gallery/pptx/       AGPL
