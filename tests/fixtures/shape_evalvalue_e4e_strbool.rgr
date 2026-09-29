@@ -1,5 +1,5 @@
 ; E4e: string/bool SoT on body (no class stringValue/boolValue caches).
-Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+Import "pkg:componentengine/EvValueBridge.rgr"
 
 class Main {
     sfn main:void () {

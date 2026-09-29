@@ -36,8 +36,8 @@
 
 Import "../shell/MfShell.rgr"
 Import "../vault/MfSampleVault.rgr"
-Import "../../../game_engine/v2/interp/migrate/src/ComponentEngine.rgr"
-Import "../../../game_engine/v2/interp/migrate/src/EvHandle.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
+Import "pkg:componentengine/EvHandle.rgr"
 
 class MfUixApp {
     def name:string ""

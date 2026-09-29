@@ -5,6 +5,12 @@
   "dependencies": {
     "evg": {
       "path": "../../lib/evg"
+    },
+    "componentengine": {
+      "path": "../componentengine"
+    },
+    "ts_parser": {
+      "path": "../ts_parser"
     }
   }
 }

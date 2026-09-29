@@ -30,8 +30,8 @@
 
 Import "ModelLoader.rgr"
 Import "MeshBridge.rgr"
-Import "../interp/migrate/src/ComponentEngine.rgr"
-Import "../interp/migrate/src/EvHandle.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
+Import "pkg:componentengine/EvHandle.rgr"
 
 ; ------------------------------------------------------------------------------
 ; Injectable GL-upload seam. Default (this base class) is the headless "null"

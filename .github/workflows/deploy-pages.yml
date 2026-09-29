@@ -134,7 +134,9 @@ on:
       - "compiler/**"
       - "lib/**"
       - "docs/**"
-      - "lib/evg/**"
+      # lib/evg and lib/image are fetched from the commit these pin.
+      - "ranger.json"
+      - "ranger.lock"
       - "gallery/vela/**"
       # The RealTrainer page at /realtrainer/ is built from these, and from
       # the controls in gallery/ui it is drawn with.

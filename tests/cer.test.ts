@@ -1,9 +1,10 @@
 // ============================================================================
 // cer.test.ts — CEr, ComponentEngine's JavaScript evaluator written as a
-// strict Rust module (gallery/game_engine/v2/cer).
+// strict Rust module (terotests/componentengine, cer/; npm run deps puts it
+// at gallery/cer).
 // ============================================================================
 //
-// rgrc compiles gallery/game_engine/v2/cer/src/lib.rs to JavaScript; Node is
+// rgrc compiles gallery/cer/src/lib.rs to JavaScript; Node is
 // the oracle:
 //
 // - the scripts in tests/fixtures/cer print what Node prints for them;
@@ -21,7 +22,7 @@ import { execSync, spawnSync } from "child_process";
 import { createRequire } from "module";
 
 const ROOT = path.resolve(__dirname, "..");
-const CER = path.join(ROOT, "gallery/game_engine/v2/cer");
+const CER = path.join(ROOT, "gallery/cer");
 const OUT = path.join(ROOT, "tests", ".output", "cer");
 const FIX = path.join(ROOT, "tests", "fixtures", "cer");
 const req = createRequire(__filename);
@@ -77,7 +78,7 @@ const MICRO: [string, string][] = [
 describe("CEr", () => {
   beforeAll(() => {
     fs.mkdirSync(OUT, { recursive: true });
-    const r = spawnSync("node", ["dist/rgrc.js", "-es6", "-nodemodule", "gallery/game_engine/v2/cer/src/lib.rs", `-d=${path.relative(ROOT, OUT)}`, "-o=Cer.cjs"], {
+    const r = spawnSync("node", ["dist/rgrc.js", "-es6", "-nodemodule", "gallery/cer/src/lib.rs", `-d=${path.relative(ROOT, OUT)}`, "-o=Cer.cjs"], {
       cwd: ROOT,
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
@@ -86,7 +87,9 @@ describe("CEr", () => {
     if (r.status !== 0 || log.includes("[FAIL]")) throw new Error(log);
     Cer = req(path.join(OUT, "Cer.cjs"));
     if (cargo) {
-      const b = spawnSync("cargo", ["build", "--release", "--offline", "--quiet", "--manifest-path", path.join(CER, "Cargo.toml")], {
+      // The prelude crate is this checkout's, not the revision Cargo.toml names.
+      const patch = `patch."https://github.com/terotests/Ranger.git".ranger.path=${JSON.stringify(path.join(ROOT, "runtime/rust/ranger"))}`;
+      const b = spawnSync("cargo", ["build", "--config", patch, "--release", "--offline", "--quiet", "--manifest-path", path.join(CER, "Cargo.toml")], {
         encoding: "utf8",
         env: CARGO_ENV,
       });

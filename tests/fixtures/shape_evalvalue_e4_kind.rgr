@@ -1,6 +1,6 @@
 ; E4 smoke test: kind discriminant is body:EvalValue (PLAN_SHAPES.md §7.5).
 ; valueType is gone — factories stamp EvalValue cases; is* reads the shape.
-Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+Import "pkg:componentengine/EvValueBridge.rgr"
 
 class Main {
     sfn main:void () {

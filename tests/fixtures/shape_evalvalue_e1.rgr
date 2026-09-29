@@ -1,7 +1,7 @@
 ; E1 smoke test (PLAN_SHAPES.md §7.5): the EvalValue target shape compiles,
 ; group-typed Callable accepts Function without wrapping, required invokeLabel
 ; dispatches, and toBool matches exhaustively over the family.
-Import "../../gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr"
+Import "pkg:componentengine/EvalValue.rgr"
 
 class Main {
     fn callLabel:string (c:EvalValue.Callable) {

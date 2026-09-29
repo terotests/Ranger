@@ -1,7 +1,7 @@
 ; E3 smoke test: Element + carriers + Function kinds (PLAN_SHAPES.md §7.5).
 ; Note: bridge Array check is isArrayValue — a global `isArray` operator blocks
 ; Class.isArray static methods (same poison as JSON.rgr's isArray op).
-Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+Import "pkg:componentengine/EvValueBridge.rgr"
 
 class Main {
     sfn main:void () {

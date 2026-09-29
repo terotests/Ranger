@@ -1,5 +1,5 @@
 ; E4d2–4: Function core/binding on body is SoT (no EvalPayload.FnCore).
-Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+Import "pkg:componentengine/EvValueBridge.rgr"
 
 class Main {
     sfn main:void () {

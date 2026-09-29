@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **4.0.1: the compiler with the Rust-syntax fixes.** The 4.0.0 tarball on
+  npm was built from 354a4a0, before the `.rs` lowering fixes CEr needed
+  (`matches!`, a value moved in a loop's previous iteration, `ref mut`
+  match bindings written back, the one-name path before `resolveItem`,
+  `rs_byte_len`). 4.0.0 fails to compile CEr; 4.0.1 is this tree's
+  `dist/rgrc.js`.
+- **`lib/evg` and `lib/image` come from
+  [terotests/evg](https://github.com/terotests/evg).** The root
+  `ranger.json` pins its commit; `npm ci` / `npm run deps` runs
+  `rgrc install` against it and copies `storm/` and `image/` to `lib/evg`
+  and `lib/image`, which git no longer tracks. terotests/evg carries every
+  change Ranger made to them since the copy it was created from.
+- **ComponentEngine and CEr moved to
+  [terotests/componentengine](https://github.com/terotests/componentengine).**
+  `gallery/game_engine/v2/interp/migrate/src` is its `engine/` (the package
+  `componentengine`) and `gallery/game_engine/v2/cer` its `cer/`; the same
+  root `ranger.json` pins them and `npm run deps` puts them at
+  `gallery/componentengine` and `gallery/cer`. Code that used them imports
+  `pkg:componentengine/…`, with `componentengine` and `ts_parser` as path
+  dependencies in `gallery/game_engine` and `gallery/mfiles`.
+  `gallery/ts_parser` has a `ranger.json`, so componentengine can depend on it.
+
+### Added
+
+- **README: packages.** How `ranger.json`, `rgrc install`, `ranger.lock`
+  and `pkg:` imports work, and which packages this tree takes from elsewhere.
+
 ### Removed
 
 - **Erazer moved to its own repository,

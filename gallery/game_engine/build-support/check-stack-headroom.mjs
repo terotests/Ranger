@@ -33,7 +33,7 @@ const HALF = Math.floor(COMPILER_STACK_KB / 2);
 
 /** The sources the Pages build compiles that are anywhere near the limit. */
 const HEAVY = [
-  "gallery/game_engine/v2/interp/migrate/src/ComponentEngine.rgr",
+  "gallery/componentengine/ComponentEngine.rgr",
   "gallery/game_engine/v2/interp/engine/RgRegistryBridge.rgr",
   "gallery/game_engine/v2/web/web_live2d_host.rgr",
   "gallery/game_engine/v2/web/web_live3d_host.rgr",

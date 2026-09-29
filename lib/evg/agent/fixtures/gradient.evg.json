@@ -1,4 +1,0 @@
-{"evg":1,"root":{"tag":"div","props":{"width":"400px","height":"260px","background-color":"rgb(250,250,252)","padding-left":"20px","padding-top":"20px"},"children":[
-  {"tag":"div","props":{"width":"160px","height":"80px","gradient-from":"rgb(37,99,235)","gradient-to":"rgb(139,92,246)","gradient-dir":"1","border-radius":"12px"}},
-  {"tag":"div","props":{"width":"160px","height":"80px","gradient-from":"rgb(16,185,129)","gradient-to":"rgb(250,204,21)","gradient-dir":"0","margin-top":"20px"}}
-]}}

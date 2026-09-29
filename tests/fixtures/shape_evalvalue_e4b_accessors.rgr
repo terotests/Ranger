@@ -1,6 +1,6 @@
 ; E4b smoke: ComponentEngine storage fields are hidden behind EvHandle
 ; accessors (PLAN_SHAPES.md §7.5). Class remains SoT; shape body stays kind.
-Import "../../gallery/game_engine/v2/interp/migrate/src/EvValueBridge.rgr"
+Import "pkg:componentengine/EvValueBridge.rgr"
 
 class Main {
     sfn main:void () {

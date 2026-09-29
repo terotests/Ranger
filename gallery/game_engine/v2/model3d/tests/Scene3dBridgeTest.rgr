@@ -12,8 +12,8 @@
 
 Import "../Scene3dBridge.rgr"
 Import "GlbFixture.rgr"
-Import "../../interp/migrate/src/ComponentEngine.rgr"
-Import "../../interp/migrate/src/EvHandle.rgr"
+Import "pkg:componentengine/ComponentEngine.rgr"
+Import "pkg:componentengine/EvHandle.rgr"
 
 class Scene3dChecker {
     def passed:int 0

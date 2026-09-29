@@ -7,6 +7,10 @@ This repository uses two licenses.
 | Ranger-authored code outside `gallery/` — the compiler, the runtime, `lib/` including `lib/evg` and `lib/image` | MIT, unless a file or subdirectory says otherwise | `MIT` |
 | Ranger-authored code under `gallery/` | GNU Affero General Public License v3.0 or later, unless a file or subdirectory says otherwise | `AGPL-3.0-or-later` |
 
+`lib/evg` and `lib/image` are fetched from
+[terotests/evg](https://github.com/terotests/evg) (MIT) by `npm run deps`, at
+the commit the root `ranger.json` pins; they are not tracked here.
+
 The root [`LICENSE`](LICENSE) file is the overview, not a single license
 text. GitHub may not show a single license badge; that is intentional.
 

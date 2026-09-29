@@ -10,6 +10,11 @@ happened. There is a tool surface that gives you addresses, validated edits,
 an undo, and a numeric verdict on the result. Full reference:
 `lib/evg/agent/README.md`.
 
+`lib/evg` is fetched by `npm run deps` from terotests/evg and is not tracked
+in this repository. A change to a file under `lib/evg/` (a showcase page, a
+theme) is made in terotests/evg (`storm/…`) and reaches Ranger when the root
+`ranger.json` pins the new commit.
+
 ## The loop
 
 ```bash
