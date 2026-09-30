@@ -2358,7 +2358,13 @@ class VlRuntime {
                 def sc:VlScale (scope.scale(scaleName))
                 def axis (new VlAxis())
                 axis.readConfig(adef)
-                if autoLabelAngle {
+                ; Turned only on a CATEGORY axis. A continuous, binned or time
+                ; axis is thinned instead (labelOverlap), as the reference
+                ; does: turned on its side, sixty bin edges stood a few pixels
+                ; apart and none was hidden, because turned labels never
+                ; overlap by width.
+                def discrete:boolean (((sc.scaleType == "band") || (sc.scaleType == "point")) || (sc.scaleType == "ordinal"))
+                if (autoLabelAngle && discrete) {
                     if (axis.labelAngleSet == false) {
                         axis.labelAngleAuto = true
                     }

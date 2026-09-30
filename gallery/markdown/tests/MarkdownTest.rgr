@@ -117,6 +117,46 @@ class MarkdownTest {
         this.ok("…and a change in the defaults draws the charts again" ((h1 - plain) < 0.5))
     }
 
+    ; A chart's url data, from the files the host supplied.
+    fn chartFiles:void () {
+        def spec:string "{\"data\": {\"url\": \"data/t.csv\"}, \"mark\": \"bar\", \"layer\": [{\"data\": {\"url\": \"data/j.json\"}}]}"
+        def us:[string] (MdVegaRender.urlsOf(spec))
+        this.eq("the files a chart reads" ((itemAt us 0) + " " + (itemAt us 1)) "data/t.csv data/j.json")
+        def urls:[string]
+        def texts:[string]
+        push urls "data/t.csv"
+        push texts "name,value,date\n\"A, b\",3,2012-01-01\nC,4.5,2012-02-01\n"
+        push urls "data/j.json"
+        push texts "[{\"x\": 1}]"
+        def out:string (MdVegaRender.withFiles(spec urls texts))
+        this.ok("a CSV file is its rows, numbers as numbers, quotes kept whole" (((indexOf out "\"name\":\"A, b\"") >= 0) && ((indexOf out "\"value\":4.5") >= 0)))
+        this.ok("a date in a CSV file stays a date" ((indexOf out "\"date\":\"2012-01-01\"") >= 0))
+        this.ok("a layer's JSON file too" ((indexOf out "\"values\":[{\"x\":1}]") >= 0))
+        this.ok("no url is left" ((indexOf out "\"url\"") < 0))
+        def chart:string "{\"data\": {\"url\": \"data/t.csv\"}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"name\", \"type\": \"nominal\"}, \"y\": {\"field\": \"value\", \"type\": \"quantitative\"}}}"
+        def doc:MdNode (MdBlock.parseText(("```vega-lite\n" + chart + "\n```\n")))
+        def l:MdLayout (new MdLayout())
+        MdDiagram.prepare(doc l.embeds 500.0 "default")
+        def e0:MdEmbedEntry (l.embeds.entryAt(0))
+        def before:int (this.treeSize((unwrap e0.root)))
+        l.embeds.dataUrls = urls
+        l.embeds.dataTexts = texts
+        MdDiagram.prepare(doc l.embeds 500.0 "default")
+        def e1:MdEmbedEntry (l.embeds.entryAt(0))
+        def after:int (this.treeSize((unwrap e1.root)))
+        this.ok("a chart on a file draws its marks once the file is there" (after >= (before + 2)))
+    }
+
+    fn treeSize:int (el:EVGElement) {
+        def n:int 1
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            n = (n + (this.treeSize((el.getChild(i)))))
+            i = (i + 1)
+        }
+        return n
+    }
+
     fn run:void () {
         this.blocks()
         this.inlines()
@@ -127,6 +167,7 @@ class MarkdownTest {
         this.mermaid()
         this.notations()
         this.chartDefaults()
+        this.chartFiles()
         this.diagramWidth()
         this.narrowLabels()
         this.pictureProbe()

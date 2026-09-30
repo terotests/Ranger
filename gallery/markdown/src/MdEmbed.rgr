@@ -56,6 +56,12 @@ class MdEmbedCache {
     def chartScopes:[string]
     def chartScopeConfig:[string]
     def chartKeyDrawn:string ""
+    ; Files the charts read (`"data": {"url": "data/cars.json"}`): the host
+    ; fetches them and hands them over, url and text, and a chart's url data
+    ; is its rows (MdVegaRender.withFiles). A file arriving draws the charts
+    ; again.
+    def dataUrls:[string]
+    def dataTexts:[string]
     ; the anchors of the headings a walk is under, by level (1..6)
     def headingSlugs:[string]
     ; The number of the pass now running. An entry that is not wanted during a
@@ -83,6 +89,11 @@ class MdEmbedCache {
     ; the case that has to stay free.
     fn chartKey:string () {
         def k:string chartConfig
+        def f:int 0
+        while (f < (array_length dataUrls)) {
+            k = (k + "|file:" + (itemAt dataUrls f) + ":" + (to_string (strlen (itemAt dataTexts f))))
+            f = (f + 1)
+        }
         def i:int 0
         while (i < (array_length chartScopes)) {
             k = (k + "|" + (itemAt chartScopes i) + "=" + (itemAt chartScopeConfig i))

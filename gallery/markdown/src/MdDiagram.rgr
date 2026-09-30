@@ -133,6 +133,7 @@ class MdDiagram {
         ; fence's own text: that is what the layout asks the cache by)
         def text:string node.literal
         if (notation == "vega") {
+            text = (MdVegaRender.withFiles(text cache.dataUrls cache.dataTexts))
             text = (MdVegaRender.withDefaults(text (MdVegaRender.mergeDefaults((cache.scopedConfig()) cache.chartConfig))))
         }
         def sc:FlowScene (MdDiagram.sceneFor(notation text styleName width pad))

@@ -660,7 +660,14 @@ class FlowScene {
             t.textContent = s.text
             t.fontSize = (EVGUnit.px(s.fontSize))
             t.lineHeight = 1.25
-            t.color = (EVGColor.parse(s.fill))
+            ; the item's opacity is the text's alpha: a chart's axis hides a
+            ; label that would overprint by giving it none, and dropped here
+            ; every hidden label was drawn on top of its neighbours
+            def ink:EVGColor (EVGColor.parse(s.fill))
+            if (s.opacity < 1.0) {
+                ink = (EVGColor.rgba((ink.red()) (ink.green()) (ink.blue()) ((ink.alpha()) * s.opacity)))
+            }
+            t.color = ink
             t.textAlign = s.align
             if s.nowrap {
                 t.whiteSpace = "nowrap"
