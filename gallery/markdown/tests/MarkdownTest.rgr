@@ -25,6 +25,7 @@ Import "../src/MdToHtml.rgr"
 Import "../src/MdLayout.rgr"
 Import "../src/MdToEvg.rgr"
 Import "../src/MdDiagram.rgr"
+Import "../src/MdAnchor.rgr"
 Import "../src/MdCodeHighlight.rgr"
 Import "../src/MdFrontMatter.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
@@ -80,6 +81,42 @@ class MarkdownTest {
         return (MdToHtml.render(doc))
     }
 
+    ; A heading's anchor, charts laid over the host's defaults, and the
+    ; defaults of one section (`#anchor chart`) over the document's.
+    fn chartDefaults:void () {
+        this.eq("anchor of a heading" (MdAnchor.slug("Mihin raha menee?")) "mihin-raha-menee")
+        this.eq("anchor keeps letters of any script" (MdAnchor.slug("  Äiti & Isä — 2024 ")) "äiti-isä-2024")
+        def merged:string (MdVegaRender.withDefaults("{\"mark\": \"bar\", \"config\": {\"title\": {\"color\": \"red\"}}}" "{\"padding\": 12, \"config\": {\"title\": {\"fontSize\": 20, \"color\": \"blue\"}}}"))
+        this.ok("defaults fill in what the chart leaves out" ((indexOf merged "\"fontSize\":20") >= 0))
+        this.ok("…and the chart's own settings win" (((indexOf merged "red") >= 0) && ((indexOf merged "blue") < 0)))
+        this.ok("…including top-level ones" ((indexOf merged "\"padding\":12") >= 0))
+        def chart:string "{\"title\": \"T\", \"data\": {\"values\": [{\"a\": \"x\", \"b\": 1}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"nominal\"}, \"y\": {\"field\": \"b\", \"type\": \"quantitative\"}}}"
+        def src:string ("## Yksi\n\n```vega-lite\n" + chart + "\n```\n\n## Kaksi\n\n```vega-lite\n" + chart + " \n```\n")
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        def w:double 500.0
+        MdDiagram.prepare(doc l.embeds w "default")
+        def e0:MdEmbedEntry (l.embeds.entryAt(0))
+        def plain:double e0.height
+        push l.embeds.chartScopes "kaksi"
+        push l.embeds.chartScopeConfig "{\"config\": {\"title\": {\"fontSize\": 40, \"offset\": 30}}}"
+        MdDiagram.prepare(doc l.embeds w "default")
+        def h1:double -1.0
+        def h2:double -1.0
+        def i:int 0
+        while (i < (l.embeds.count())) {
+            def e:MdEmbedEntry (l.embeds.entryAt(i))
+            if ((indexOf e.source " \n") >= 0) {
+                h2 = e.height
+            } {
+                h1 = e.height
+            }
+            i = (i + 1)
+        }
+        this.ok("a section's own chart defaults reach only its charts" ((h2 > (h1 + 20.0)) && (h1 > 0.0)))
+        this.ok("…and a change in the defaults draws the charts again" ((h1 - plain) < 0.5))
+    }
+
     fn run:void () {
         this.blocks()
         this.inlines()
@@ -89,6 +126,7 @@ class MarkdownTest {
         this.evg()
         this.mermaid()
         this.notations()
+        this.chartDefaults()
         this.diagramWidth()
         this.narrowLabels()
         this.pictureProbe()

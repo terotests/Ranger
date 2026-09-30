@@ -98,6 +98,54 @@ class MdVegaRender {
         return ((substring text 0 (brace + 1)) + "\"width\": " + n + ", \"height\": " + n + ", " + (substring text (brace + 1) (strlen text)))
     }
 
+    ; `defaults` (a JSON object) laid under the chart: what the chart says
+    ; wins, member by member, and what it leaves out comes from the
+    ; defaults — `{"config": {"title": {"fontSize": 18}}}` sizes every title
+    ; that does not size its own. Text that is not an object is left alone.
+    sfn withDefaults:string (text:string defaults:string) {
+        if ((strlen (trim defaults)) == 0) {
+            return text
+        }
+        def p1 (new VlJsonParser())
+        def spec:VlJson (p1.parse(text))
+        if ((p1.ok == false) || ((spec.isObject()) == false)) {
+            return text
+        }
+        def p2 (new VlJsonParser())
+        def defs:VlJson (p2.parse(defaults))
+        if ((p2.ok == false) || ((defs.isObject()) == false)) {
+            return text
+        }
+        MdVegaRender.layUnder(spec defs)
+        def w (new VlJsonWriter())
+        return (w.write(spec))
+    }
+
+    ; Two sets of defaults as one: `over`'s members win.
+    sfn mergeDefaults:string (over:string under:string) {
+        if ((strlen (trim over)) == 0) {
+            return under
+        }
+        if ((strlen (trim under)) == 0) {
+            return over
+        }
+        return (MdVegaRender.withDefaults(over under))
+    }
+
+    sfn layUnder:void (top:VlJson defs:VlJson) {
+        for defs.keys k:string ki {
+            def d:VlJson (defs.get(k))
+            if ((top.has(k)) == false) {
+                top.setMember(k d)
+            } {
+                def t:VlJson (top.get(k))
+                if ((t.isObject()) && (d.isObject())) {
+                    MdVegaRender.layUnder(t d)
+                }
+            }
+        }
+    }
+
     sfn draw:MdVegaDrawing (text:string width:double pad:double) {
         def out (new MdVegaDrawing())
         def parser (new VlJsonParser())

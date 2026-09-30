@@ -46,6 +46,18 @@ class MdEmbedEntry {
 
 class MdEmbedCache {
     def entries:[MdEmbedEntry]
+    ; Defaults for every chart (```vega-lite), as a JSON object the chart's
+    ; own spec is laid over: {"padding": 10, "config": {"title": {…}}}.
+    ; `chartScopes[i]` is a heading's anchor (MdAnchor.slug) and
+    ; `chartScopeConfig[i]` the defaults of the charts under that heading,
+    ; over the document's. The host sets these; "" means none. A change
+    ; drops the charts already drawn (MdDiagram.prepare).
+    def chartConfig:string ""
+    def chartScopes:[string]
+    def chartScopeConfig:[string]
+    def chartKeyDrawn:string ""
+    ; the anchors of the headings a walk is under, by level (1..6)
+    def headingSlugs:[string]
     ; The number of the pass now running. An entry that is not wanted during a
     ; pass is not wanted at all — see `endPass`.
     def pass:int 0
@@ -69,6 +81,58 @@ class MdEmbedCache {
     ; during it, and what was not touched is dropped at the end. A pass in
     ; which nothing changed touches everything and drops nothing, which is
     ; the case that has to stay free.
+    fn chartKey:string () {
+        def k:string chartConfig
+        def i:int 0
+        while (i < (array_length chartScopes)) {
+            k = (k + "|" + (itemAt chartScopes i) + "=" + (itemAt chartScopeConfig i))
+            i = (i + 1)
+        }
+        return k
+    }
+
+    ; A heading of `level` read by the walk: its anchor, and the deeper
+    ; levels' cleared.
+    fn underHeading:void (level:int slug:string) {
+        while ((array_length headingSlugs) < 7) {
+            push headingSlugs ""
+        }
+        if ((level < 1) || (level > 6)) {
+            return
+        }
+        set_at headingSlugs level slug
+        def d:int (level + 1)
+        while (d <= 6) {
+            set_at headingSlugs d ""
+            d = (d + 1)
+        }
+    }
+
+    fn resetHeadings:void () {
+        def none:[string]
+        headingSlugs = none
+    }
+
+    ; The scoped defaults for where the walk is: the deepest heading that has
+    ; some; "" when none does.
+    fn scopedConfig:string () {
+        def lv:int ((array_length headingSlugs) - 1)
+        while (lv >= 1) {
+            def sl:string (itemAt headingSlugs lv)
+            if ((strlen sl) > 0) {
+                def i:int 0
+                while (i < (array_length chartScopes)) {
+                    if ((itemAt chartScopes i) == sl) {
+                        return (itemAt chartScopeConfig i)
+                    }
+                    i = (i + 1)
+                }
+            }
+            lv = (lv - 1)
+        }
+        return ""
+    }
+
     fn beginPass:void () {
         pass = (pass + 1)
     }

@@ -47,6 +47,7 @@ Import "MdNode.rgr"
 Import "MdEmbed.rgr"
 Import "MdEmbedKinds.rgr"
 Import "MdVegaRender.rgr"
+Import "MdAnchor.rgr"
 Import "../../rangerflow/domains/mermaid/MermaidRender.rgr"
 Import "../../rangerflow/domains/plantuml/PlantUmlRender.rgr"
 Import "../../rangerflow/domains/graphviz/DotRender.rgr"
@@ -64,6 +65,22 @@ class MdDiagram {
     ; broken around a diagram whose height nobody has asked for yet.
     sfn prepare:void (doc:MdNode cache:MdEmbedCache width:double styleName:string) {
         cache.beginPass()
+        ; charts drawn under other defaults are drawn again
+        def key:string (cache.chartKey())
+        if (key != cache.chartKeyDrawn) {
+            cache.chartKeyDrawn = key
+            def kept:[MdEmbedEntry]
+            def k:int 0
+            while (k < (array_length cache.entries)) {
+                def ce:MdEmbedEntry (itemAt cache.entries k)
+                if ((MdEmbedKinds.notationOf(ce.kind)) != "vega") {
+                    push kept ce
+                }
+                k = (k + 1)
+            }
+            cache.entries = kept
+        }
+        cache.resetHeadings()
         MdDiagram.walk(doc cache width styleName)
         ; What this document no longer has a fence for goes. The store is
         ; keyed by the fence's TEXT, so without this every keystroke inside a
@@ -73,6 +90,9 @@ class MdDiagram {
     }
 
     sfn walk:void (node:MdNode cache:MdEmbedCache width:double styleName:string) {
+        if (node.kind == "heading") {
+            cache.underHeading(node.level (MdAnchor.slug((node.plainText()))))
+        }
         if (node.kind == "embed") {
             def word:string (MdEmbedKinds.firstWord(node.info))
             def notation:string (MdEmbedKinds.notationOf(word))
@@ -109,9 +129,15 @@ class MdDiagram {
         e.atWidth = width
 
         def pad:double (MdDiagram.padding())
-        def sc:FlowScene (MdDiagram.sceneFor(notation node.literal styleName width pad))
+        ; a chart is drawn over the host's defaults (the entry keeps the
+        ; fence's own text: that is what the layout asks the cache by)
+        def text:string node.literal
+        if (notation == "vega") {
+            text = (MdVegaRender.withDefaults(text (MdVegaRender.mergeDefaults((cache.scopedConfig()) cache.chartConfig))))
+        }
+        def sc:FlowScene (MdDiagram.sceneFor(notation text styleName width pad))
         if (sc.worldW <= 0.0) {
-            e.note = (MdDiagram.refusal(notation node.literal))
+            e.note = (MdDiagram.refusal(notation text))
             cache.add(e)
             return
         }
