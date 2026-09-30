@@ -12238,6 +12238,20 @@ class VlCompile {
                     expr = (VlCompile.describeDate((text.outField())))
                 }
                 }
+                ; …and in the channel's own `format` when it gives one:
+                ; `"text": {"field": "hp", "format": ".0f"}` is 99, not 99.2512
+                def fmt:string (text.def0.stringOr("format" ""))
+                if (((strlen fmt) > 0) && ((indexOf fmt "\"") < 0)) {
+                    def ftype:string (text.def0.stringOr("formatType" ""))
+                    def fref:string (VlCompile.datumRef((text.outField())))
+                    if ((ftype == "time") || (((strlen ftype) == 0) && ((text.kind == "temporal") || ((strlen text.timeUnit) > 0)))) {
+                        expr = (((("(timeFormat(" + fref) + ", \"") + fmt) + "\"))")
+                    } {
+                        if ((ftype == "number") || ((strlen ftype) == 0)) {
+                            expr = (((("(format(" + fref) + ", \"") + fmt) + "\"))")
+                        }
+                    }
+                }
                 signal.setMember("signal" (VlJson.stringValue(expr)))
                 update.setMember("text" signal)
             }
@@ -12624,6 +12638,16 @@ class VlCompile {
             if ((strlen second.field) > 0) {
                 update.setMember(axis (this.scaled(axis (ch.outField()))))
                 update.setMember((axis + "2") (this.scaled(axis (second.outField()))))
+                return
+            }
+            ; …or a constant: `"x2": {"datum": 0}` is a lollipop's stem, drawn
+            ; back to the zero of the scale
+            if second.hasDatum {
+                def to (VlJson.objectValue())
+                to.setMember("scale" (VlJson.stringValue((this.sname(axis)))))
+                to.setMember("value" second.value)
+                update.setMember(axis (this.scaled(axis (ch.outField()))))
+                update.setMember((axis + "2") to)
                 return
             }
         }

@@ -2371,6 +2371,22 @@ class VlRuntime {
                 }
                 def tickCount:int (this.axisTickCount(adef))
                 def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition) axis.labelFormat axis.labelFormatType axis.tickBand (this.axisTickMinStep(adef))))
+                ; A TIME axis whose labels cannot all fit asks for fewer ticks
+                ; rather than halving the ones it has: the calendar then moves
+                ; up an interval (quarters to years) and the labels it keeps are
+                ; the round ones. Halved, quarterly ticks over six years kept
+                ; every October and none of the years.
+                ; (A document's axis only: Vega keeps every tick and hides
+                ; labels, and the parity goldens say so.)
+                if (autoLabelAngle && ((((sc.scaleType == "time") || (sc.scaleType == "utc")) && ((strlen axis.labelOverlapMode) > 0)) && ((adef.has("values")) == false))) {
+                    def room:double (fabs (sc.rangeMax - sc.rangeMin))
+                    def tries:int 0
+                    while ((tries < 6) && ((tickCount > 2) && ((VlAxis.labelsFitAlong(ticks axis.labelFontSize room)) == false))) {
+                        tickCount = (idiv (tickCount + 1) 2)
+                        ticks = (VlAxis.tickValues(sc tickCount (axis.bandPosition) axis.labelFormat axis.labelFormatType axis.tickBand (this.axisTickMinStep(adef))))
+                        tries = (tries + 1)
+                    }
+                }
                 ; An axis may name the values it wants ticked rather than let
                 ; the algorithm choose, and may rewrite what each one is called.
                 ; Both are the specification being specific, and ignoring them

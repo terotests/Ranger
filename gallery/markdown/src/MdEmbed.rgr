@@ -56,6 +56,12 @@ class MdEmbedCache {
     def chartScopes:[string]
     def chartScopeConfig:[string]
     def chartKeyDrawn:string ""
+    ; A chart narrower than its room drawn larger, this many times at most
+    ; (0: as it asks). A slide wants its charts to fill it; a report does not.
+    def chartGrow:double 0.0
+    ; and the tallest a grown chart may get (0: no limit) — a slide's page
+    ; clips what runs over its bottom edge
+    def chartMaxH:double 0.0
     ; Files the charts read (`"data": {"url": "data/cars.json"}`): the host
     ; fetches them and hands them over, url and text, and a chart's url data
     ; is its rows (MdVegaRender.withFiles). A file arriving draws the charts
@@ -88,7 +94,7 @@ class MdEmbedCache {
     ; which nothing changed touches everything and drops nothing, which is
     ; the case that has to stay free.
     fn chartKey:string () {
-        def k:string chartConfig
+        def k:string (chartConfig + "|grow:" + (to_string chartGrow) + "/" + (to_string chartMaxH))
         def f:int 0
         while (f < (array_length dataUrls)) {
             k = (k + "|file:" + (itemAt dataUrls f) + ":" + (to_string (strlen (itemAt dataTexts f))))

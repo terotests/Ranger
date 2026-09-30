@@ -233,6 +233,68 @@ class MdVegaTest {
         c.ok("nothing outside the scene" (MdVegaTest.allInside(d.scene)))
     }
 
+    ; What the spec says in words: a colour by name, a number format on the
+    ; text, a stem drawn back to zero.
+    fn fromTheSpec:void (c:VegaCheck) {
+        print "-- colours, formats and constants from the spec --"
+        def line:string "{\"width\": 300, \"height\": 200, \"data\": {\"values\": [{\"a\": 1, \"b\": 2}, {\"a\": 2, \"b\": 4}]}, \"mark\": {\"type\": \"line\", \"color\": \"firebrick\"}, \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"quantitative\"}, \"y\": {\"field\": \"b\", \"type\": \"quantitative\"}}}"
+        def d:MdVegaDrawing (MdVegaRender.draw(line 520.0 10.0))
+        c.ok("a named colour is drawn in hex" (MdVegaTest.hasStroke(d.scene "#b22222")))
+        def txt:string "{\"data\": {\"values\": [{\"k\": \"a\", \"v\": 99.2512}]}, \"mark\": \"text\", \"encoding\": {\"y\": {\"field\": \"k\", \"type\": \"nominal\"}, \"text\": {\"field\": \"v\", \"type\": \"quantitative\", \"format\": \".0f\"}}}"
+        def d2:MdVegaDrawing (MdVegaRender.draw(txt 520.0 10.0))
+        c.ok("the text's own format" ((MdVegaTest.textNamed(d2.scene "99")).text == "99"))
+        def lol:string "{\"width\": 300, \"data\": {\"values\": [{\"k\": \"a\", \"v\": 50}]}, \"encoding\": {\"y\": {\"field\": \"k\", \"type\": \"nominal\"}, \"x\": {\"field\": \"v\", \"type\": \"quantitative\"}}, \"layer\": [{\"mark\": \"rule\", \"encoding\": {\"x2\": {\"datum\": 0}}}, {\"mark\": \"circle\"}]}"
+        def d3:MdVegaDrawing (MdVegaRender.draw(lol 520.0 10.0))
+        c.ok("a stem back to the datum" (MdVegaTest.longestRun(d3.scene) > 100.0))
+    }
+
+    ; A small chart asked larger, but no taller than it may be; a tall one
+    ; drawn shorter.
+    fn grownToFit:void (c:VegaCheck) {
+        print "-- grown to the room --"
+        def small:string "{\"width\": 200, \"height\": 100, \"data\": {\"values\": [{\"m\": \"a\", \"n\": 2}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"m\", \"type\": \"nominal\"}, \"y\": {\"field\": \"n\", \"type\": \"quantitative\"}}}"
+        def g:string (MdVegaRender.grown(small 800.0 10.0 2.5 1000.0))
+        c.ok("wider" ((indexOf g "\"width\":500") >= 0))
+        def g2:string (MdVegaRender.grown(small 800.0 10.0 2.5 200.0))
+        c.ok("but held to the height" ((indexOf g2 "\"width\":500") < 0))
+        def tall:string "{\"width\": 700, \"height\": 600, \"data\": {\"values\": [{\"m\": \"a\", \"n\": 2}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"m\", \"type\": \"nominal\"}, \"y\": {\"field\": \"n\", \"type\": \"quantitative\"}}}"
+        def g3:string (MdVegaRender.grown(tall 800.0 10.0 2.5 300.0))
+        c.ok("a tall one drawn shorter" ((indexOf g3 "\"height\":600") < 0))
+    }
+
+    sfn hasStroke:boolean (sc:FlowScene want:string) {
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def it:SceneItem (itemAt sc.items i)
+            if (it.stroke == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; the longest horizontal two-point path in the scene drawn in the rule's
+    ; black (not an axis's grey)
+    sfn longestRun:double (sc:FlowScene) {
+        def best:double 0.0
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def it:SceneItem (itemAt sc.items i)
+            if ((array_length it.pts) == 4) {
+                def dx:double (fabs ((itemAt it.pts 2) - (itemAt it.pts 0)))
+                def dy:double (fabs ((itemAt it.pts 3) - (itemAt it.pts 1)))
+                if ((dy < 0.5) && (dx > best)) {
+                    if (it.stroke == "#000000") {
+                        best = dx
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
     ; --- the small answers ----------------------------------------------------
 
     sfn textNamed:SceneItem (sc:FlowScene want:string) {
@@ -311,6 +373,8 @@ class MdVegaTest {
         this.refused(c)
         this.centred(c)
         this.turned(c)
+        this.fromTheSpec(c)
+        this.grownToFit(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

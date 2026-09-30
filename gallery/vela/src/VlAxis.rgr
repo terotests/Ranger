@@ -1152,6 +1152,26 @@ class VlAxis {
         return (VlText.widestLabel(shown fontSize))
     }
 
+    ; Whether the labels would sit side by side along `room` without
+    ; touching: the widest, with a space, once per tick.
+    sfn labelsFitAlong:boolean (ticks:[VlAxisTickValue] fontSize:double room:double) {
+        def n:int (array_length ticks)
+        if (n < 2) {
+            return true
+        }
+        def widest:double 0.0
+        def i:int 0
+        while (i < n) {
+            def tv:VlAxisTickValue (itemAt ticks i)
+            def w:double (VlText.drawWidth(tv.label fontSize))
+            if (w > widest) {
+                widest = w
+            }
+            i = (i + 1)
+        }
+        return (((widest + (fontSize * 0.6)) * (to_double n)) <= room)
+    }
+
     fn hideOverlappingLabels:void (mark:VlSceneMark) {
         def visible:[int]
         for mark.items item:VlSceneItem idx {

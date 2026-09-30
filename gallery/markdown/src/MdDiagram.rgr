@@ -135,6 +135,9 @@ class MdDiagram {
         if (notation == "vega") {
             text = (MdVegaRender.withFiles(text cache.dataUrls cache.dataTexts))
             text = (MdVegaRender.withDefaults(text (MdVegaRender.mergeDefaults((cache.scopedConfig()) cache.chartConfig))))
+            if (cache.chartGrow > 1.0) {
+                text = (MdVegaRender.grown(text width pad cache.chartGrow cache.chartMaxH))
+            }
         }
         def sc:FlowScene (MdDiagram.sceneFor(notation text styleName width pad))
         if (sc.worldW <= 0.0) {
