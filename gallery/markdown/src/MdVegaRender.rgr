@@ -38,6 +38,7 @@
 
 Import "../../rangerflow/core/FlowScene.rgr"
 Import "../../vela/src/VlJson.rgr"
+Import "../../vela/src/VlShape.rgr"
 Import "../../vela/src/VlCompile.rgr"
 Import "../../vela/src/VlRuntime.rgr"
 Import "../../vela/src/VlCommand.rgr"
@@ -370,6 +371,60 @@ class MdVegaRender {
         return out
     }
 
+    ; The points of a line drawn with `interpolate`, as a polyline: the shape
+    ; VlShape builds for it, each cubic cut into short straight pieces.
+    sfn curvePoints:[double] (pts:[double] interpolate:string tension:double) {
+        def b (new PathBuilder())
+        VlShape.appendCurve(b pts interpolate tension false)
+        def out:[double]
+        def cmds:[PathCommand] (b.getCommands())
+        def cx:double 0.0
+        def cy:double 0.0
+        def i:int 0
+        while (i < (array_length cmds)) {
+            def k:PathCommand (itemAt cmds i)
+            if ((k.type == "M") || (k.type == "L")) {
+                push out k.x
+                push out k.y
+                cx = k.x
+                cy = k.y
+            }
+            if (k.type == "C") {
+                def st:int 1
+                while (st <= 12) {
+                    def t:double ((to_double st) / 12.0)
+                    def u:double (1.0 - t)
+                    def a:double ((u * u) * u)
+                    def bq:double ((3.0 * (u * u)) * t)
+                    def cq:double ((3.0 * u) * (t * t))
+                    def d:double ((t * t) * t)
+                    push out ((((a * cx) + (bq * k.x1)) + (cq * k.x2)) + (d * k.x))
+                    push out ((((a * cy) + (bq * k.y1)) + (cq * k.y2)) + (d * k.y))
+                    st = (st + 1)
+                }
+                cx = k.x
+                cy = k.y
+            }
+            if (k.type == "Q") {
+                def sq:int 1
+                while (sq <= 10) {
+                    def t2:double ((to_double sq) / 10.0)
+                    def u2:double (1.0 - t2)
+                    push out ((((u2 * u2) * cx) + (((2.0 * u2) * t2) * k.x1)) + ((t2 * t2) * k.x))
+                    push out ((((u2 * u2) * cy) + (((2.0 * u2) * t2) * k.y1)) + ((t2 * t2) * k.y))
+                    sq = (sq + 1)
+                }
+                cx = k.x
+                cy = k.y
+            }
+            i = (i + 1)
+        }
+        if ((array_length out) < 4) {
+            return pts
+        }
+        return out
+    }
+
     sfn emit:void (out:MdVegaDrawing c:VlDrawCommand scale:double padX:double padY:double) {
         def sc:FlowScene out.scene
         if (c.op == "rect") {
@@ -516,6 +571,12 @@ class MdVegaRender {
             if ((array_length pts) < 4) {
                 push out.skipped c.op
                 return
+            }
+            ; A curve ("monotone", "basis", …) or steps: the runtime's own
+            ; shape, sampled into the polyline a scene draws. Drawn through
+            ; its data points only, a "smooth" line came out straight.
+            if (((c.op == "polyline") || (c.op == "line")) && (((strlen c.interpolate) > 0) && (c.interpolate != "linear"))) {
+                pts = (MdVegaRender.curvePoints(pts c.interpolate c.tension))
             }
             def l:SceneItem (sc.path(pts "" (MdVegaRender.stroke(c)) (c.strokeWidth * scale)))
             l.d = (FlowScene.polygonPath(l.pts false))
