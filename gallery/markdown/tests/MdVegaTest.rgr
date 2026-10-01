@@ -246,6 +246,14 @@ class MdVegaTest {
         def lol:string "{\"width\": 300, \"data\": {\"values\": [{\"k\": \"a\", \"v\": 50}]}, \"encoding\": {\"y\": {\"field\": \"k\", \"type\": \"nominal\"}, \"x\": {\"field\": \"v\", \"type\": \"quantitative\"}}, \"layer\": [{\"mark\": \"rule\", \"encoding\": {\"x2\": {\"datum\": 0}}}, {\"mark\": \"circle\"}]}"
         def d3:MdVegaDrawing (MdVegaRender.draw(lol 520.0 10.0))
         c.ok("a stem back to the datum" (MdVegaTest.longestRun(d3.scene) > 100.0))
+        ; a fence naming a file is the chart in that file
+        c.eqStr("a file's path" (MdVegaRender.specFile("charts/a.vl.json\n")) "charts/a.vl.json")
+        c.eqStr("a spec is not a path" (MdVegaRender.specFile(line)) "")
+        def urls:[string]
+        def texts:[string]
+        push urls "./charts/a.vl.json"
+        push texts line
+        c.eqStr("read from the file" (MdVegaRender.fromFile("charts/a.vl.json" urls texts)) line)
     }
 
     ; A small chart asked larger, but no taller than it may be; a tall one

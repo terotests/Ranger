@@ -126,8 +126,55 @@ class MdVegaRender {
 
     ; The files a chart reads (`"url"` of any data in it, a layer's and a
     ; lookup's included), in the order they appear.
+    ; A fence whose whole text is a file's path (`charts/sales.vl.json`):
+    ; the chart is in that file. The path, or "" for a fence that is a spec.
+    sfn specFile:string (text:string) {
+        def t:string (trim text)
+        if (((strlen t) == 0) || ((indexOf t "{") >= 0)) {
+            return ""
+        }
+        if (((indexOf t "\n") >= 0) || ((indexOf t " ") >= 0)) {
+            return ""
+        }
+        if ((indexOf t ".json") < 0) {
+            return ""
+        }
+        return t
+    }
+
+    ; The fence's spec: its own text, or the text of the file it names when
+    ; the host has handed that over.
+    sfn fromFile:string (text:string urls:[string] texts:[string]) {
+        def path:string (MdVegaRender.specFile(text))
+        if ((strlen path) == 0) {
+            return text
+        }
+        def bare:string (MdVegaRender.bareUrl(path))
+        def i:int 0
+        while (i < (array_length urls)) {
+            if ((MdVegaRender.bareUrl((itemAt urls i))) == bare) {
+                return (itemAt texts i)
+            }
+            i = (i + 1)
+        }
+        return text
+    }
+
+    ; "./data/x.csv" and "data/x.csv" are the same file.
+    sfn bareUrl:string (u:string) {
+        if ((indexOf u "./") == 0) {
+            return (substring u 2 (strlen u))
+        }
+        return u
+    }
+
     sfn urlsOf:[string] (text:string) {
         def out:[string]
+        def file:string (MdVegaRender.specFile(text))
+        if ((strlen file) > 0) {
+            push out file
+            return out
+        }
         def p (new VlJsonParser())
         def spec:VlJson (p.parse(text))
         if (p.ok) {
@@ -235,7 +282,7 @@ class MdVegaRender {
         def url:string (d.stringOr("url" ""))
         def i:int 0
         while (i < (array_length urls)) {
-            if ((itemAt urls i) == url) {
+            if ((MdVegaRender.bareUrl((itemAt urls i))) == (MdVegaRender.bareUrl(url))) {
                 def body:string (itemAt texts i)
                 def fmt:VlJson (d.get("format"))
                 def ftype:string (fmt.stringOr("type" ""))
@@ -535,6 +582,11 @@ class MdVegaRender {
 
     sfn draw:MdVegaDrawing (text:string width:double pad:double) {
         def out (new MdVegaDrawing())
+        def file:string (MdVegaRender.specFile(text))
+        if ((strlen file) > 0) {
+            out.error = ("the chart is in " + file + ", which has not arrived")
+            return out
+        }
         def parser (new VlJsonParser())
         def spec:VlJson (parser.parse((MdVegaRender.sized(text width pad))))
         if (parser.ok == false) {
