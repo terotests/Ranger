@@ -98,9 +98,18 @@ class MdEmbedKinds {
     ; draw across the margin, and `{width=2000}` is a typo far more often than
     ; it is a wish. Anything that is not a plain number is the column width,
     ; because refusing to draw over a unit nobody parsed helps no one.
-    sfn widthOf:double (want:string avail:double) {
+    sfn widthOf:double (want0:string avail:double) {
+        def want:string want0
         def n:int (strlen want)
         if (n == 0) { return avail }
+        ; `60%`: a share of the room
+        def share:boolean false
+        if ((charAt want (n - 1)) == 37) {
+            share = true
+            want = (substring want 0 (n - 1))
+            n = (n - 1)
+            if (n == 0) { return avail }
+        }
         def v:int 0
         def digits:int 0
         def i:int 0
@@ -115,6 +124,9 @@ class MdEmbedKinds {
         }
         if (digits == 0) { return avail }
         def out:double (to_double v)
+        if share {
+            out = ((avail * out) / 100.0)
+        }
         if (out <= 0.0) { return avail }
         if (out > avail) { return avail }
         return out

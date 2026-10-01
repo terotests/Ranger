@@ -135,6 +135,27 @@ class MdStyle {
     def wantToc:boolean false
     def breakOnH1:boolean false
     def furnitureSize:double 8.5
+    ; What every page says at its top and its bottom (`header { content }`,
+    ; `footer { … }`, or `header:` / `footer:` in the front matter), with a
+    ; picture beside it (`background-image: url(logo.png)`). {page}, {pages}
+    ; and {title} are filled in per page.
+    def headerText:string ""
+    def headerImage:string ""
+    def headerAlign:string "start"
+    def headerSize:double 0.0
+    def headerColor:string ""
+    def headerImageH:double 22.0
+    def footerText:string ""
+    def footerImage:string ""
+    def footerAlign:string "start"
+    def footerSize:double 0.0
+    def footerColor:string ""
+    def footerImageH:double 22.0
+    ; Pictures (`img { }`): where a picture narrower than the column sits
+    ; ("" the start, "center", "end"; a slide centres unless told) and how
+    ; tall one may be (0: as tall as the room).
+    def imgAlign:string ""
+    def imgMaxHeight:double 0.0
 
     ; An embedded diagram that is wider than the column is scaled down to it,
     ; never up: a three-node flowchart should not become a poster.
@@ -195,6 +216,9 @@ class MdStyle {
         if wantToc { out = (out + "/toc") }
         if breakOnH1 { out = (out + "/h1") }
         out = ((out + "/") + (to_string furnitureSize))
+        out = (out + " head " + headerText + "/" + headerImage + "/" + headerAlign + "/" + (to_string headerSize) + "/" + headerColor + "/" + (to_string headerImageH))
+        out = (out + " foot " + footerText + "/" + footerImage + "/" + footerAlign + "/" + (to_string footerSize) + "/" + footerColor + "/" + (to_string footerImageH))
+        out = (out + " img " + imgAlign + "/" + (to_string imgMaxHeight))
         out = ((out + " embed ") + (to_string embedSpacing))
         return out
     }

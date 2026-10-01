@@ -171,7 +171,9 @@ class MdAttrs {
         while (e4 < stop) {
             def vc:int (charAt text e4)
             if (MdAttrs.isSpaceCode(vc)) { break }
-            if (! (MdAttrs.isNameCode(vc))) { return -1 }
+            ; a bare VALUE may also be a path or a share — `bg=media/kansi.jpg`,
+            ; `width=60%` — which are what people type without quotes
+            if (! ((MdAttrs.isNameCode(vc)) || ((vc == 47) || (vc == 37)))) { return -1 }
             e4 = (e4 + 1)
         }
         if (e4 == v) { return -1 }

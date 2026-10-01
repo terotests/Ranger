@@ -513,6 +513,14 @@ class MdLayout {
         style.title = (meta.get("title" ""))
         style.runningHead = (MdChar.lower((meta.get("runninghead" ""))))
         style.pageNumbers = (MdChar.lower((meta.get("pagenumbers" ""))))
+        ; the master's header and footer: `header: ACME Oy`, `footer: {page} /
+        ; {pages}`, `header-image: media/logo.png`, `header-align: right`
+        if (meta.has("header")) { style.headerText = (meta.get("header" "")) }
+        if (meta.has("footer")) { style.footerText = (meta.get("footer" "")) }
+        if (meta.has("header-image")) { style.headerImage = (meta.get("header-image" "")) }
+        if (meta.has("footer-image")) { style.footerImage = (meta.get("footer-image" "")) }
+        if (meta.has("header-align")) { style.headerAlign = (MdCss.alignWord((meta.get("header-align" "")))) }
+        if (meta.has("footer-align")) { style.footerAlign = (MdCss.alignWord((meta.get("footer-align" "")))) }
         style.wantToc = (meta.flag("toc" false))
         style.breakOnH1 = (meta.flag("breakonh1" false))
         if (meta.has("highlight")) {
@@ -714,6 +722,7 @@ class MdLayout {
     ; content, because until then nobody knows how many sheets there are.
     fn emitFurniture:void () {
         if (! paginate) { return }
+        this.emitHeadFoot()
         def wantHead:boolean ((strlen style.runningHead) > 0)
         def wantNum:boolean ((strlen style.pageNumbers) > 0)
         if ((! wantHead) && (! wantNum)) { return }
@@ -765,6 +774,143 @@ class MdLayout {
             p = (p + 1)
         }
         page = savedPage
+    }
+
+    ; The header and the footer on every sheet: a picture and a line of text,
+    ; together where `text-align` puts them, in the top and the bottom margin.
+    fn emitHeadFoot:void () {
+        def wantTop:boolean (((strlen style.headerText) > 0) || ((strlen style.headerImage) > 0))
+        def wantBottom:boolean (((strlen style.footerText) > 0) || ((strlen style.footerImage) > 0))
+        if ((! wantTop) && (! wantBottom)) { return }
+        def savedPage:int page
+        def p:int 0
+        while (p < pageCount) {
+            page = p
+            if wantTop {
+                this.furnitureLine(style.headerText style.headerImage style.headerAlign style.headerSize style.headerColor style.headerImageH p true)
+            }
+            if wantBottom {
+                this.furnitureLine(style.footerText style.footerImage style.footerAlign style.footerSize style.footerColor style.footerImageH p false)
+            }
+            p = (p + 1)
+        }
+        page = savedPage
+    }
+
+    fn furnitureLine:void (text0:string image:string align:string size0:double colour0:string imgH0:double p:int top:boolean) {
+        def size:double size0
+        if (size <= 0.0) {
+            size = style.furnitureSize
+            if slides {
+                size = (style.bodySize * 0.6)
+            }
+        }
+        def colour:string colour0
+        if ((strlen colour) == 0) {
+            colour = style.mutedColor
+        }
+        def text:string (MdLayout.fillTokens(text0 (p + 1) pageCount style.title))
+        def lh:double (size * 1.3)
+        ; the picture, when the store has it
+        def path:string ""
+        def iw:double 0.0
+        def ih:double imgH0
+        def natW:int 0
+        def natH:int 0
+        if (((strlen image) > 0) && haveImages) {
+            def resolved:string (images.resolve(image docDir))
+            if ((strlen resolved) > 0) {
+                def st:VfsStat (images.stat(resolved))
+                if (st.found) {
+                    path = resolved
+                    natW = st.pixelW
+                    natH = st.pixelH
+                    if (st.pixelH > 0) {
+                        iw = (ih * ((to_double st.pixelW) / (to_double st.pixelH)))
+                    } {
+                        iw = ih
+                    }
+                }
+            }
+        }
+        if ((strlen path) == 0) {
+            ih = 0.0
+        }
+        def tw:double 0.0
+        if ((strlen text) > 0) {
+            def probe:MdRun (new MdRun())
+            probe.family = style.bodyFamily
+            probe.size = size
+            tw = (this.measureRun(text probe))
+        }
+        def gap:double 0.0
+        if ((iw > 0.0) && (tw > 0.0)) {
+            gap = (size * 0.8)
+        }
+        def total:double ((iw + gap) + tw)
+        if (total > contentW) {
+            tw = ((contentW - iw) - gap)
+            total = contentW
+        }
+        def x:double contentX
+        if (align == "center") {
+            x = (contentX + ((contentW - total) * 0.5))
+        }
+        if (align == "end") {
+            x = ((contentX + contentW) - total)
+        }
+        def rowH:double lh
+        if (ih > rowH) {
+            rowH = ih
+        }
+        ; in the margin, clear of the content
+        def y:double ((contentTop - rowH) - 8.0)
+        if (top == false) {
+            y = (contentBottom + 8.0)
+        }
+        if (y < 2.0) {
+            y = 2.0
+        }
+        if ((strlen path) > 0) {
+            def b:MdBox (new MdBox())
+            b.kind = 4
+            b.x = x
+            b.y = (y + ((rowH - ih) * 0.5))
+            b.w = iw
+            b.h = ih
+            b.imagePath = path
+            b.imageNaturalW = natW
+            b.imageNaturalH = natH
+            this.emit(b)
+        }
+        if (tw > 0.0) {
+            def t:MdBox (MdBox.text(text ((x + iw) + gap) (y + ((rowH - lh) * 0.5)) tw lh))
+            t.family = style.bodyFamily
+            t.size = size
+            t.color = colour
+            this.emit(t)
+        }
+    }
+
+    ; {page}, {pages} and {title} in a header or footer.
+    sfn fillTokens:string (text:string page:int pages:int title:string) {
+        def out:string text
+        out = (MdLayout.replaceAll(out "{page}" (to_string page)))
+        out = (MdLayout.replaceAll(out "{pages}" (to_string pages)))
+        out = (MdLayout.replaceAll(out "{title}" title))
+        return out
+    }
+
+    sfn replaceAll:string (text:string what:string with:string) {
+        def out:string ""
+        def rest:string text
+        def at:int (indexOf rest what)
+        while (at >= 0) {
+            out = (out + (substring rest 0 at) + with)
+            rest = (substring rest (at + (strlen what)) (strlen rest))
+            at = (indexOf rest what)
+        }
+        return (out + rest)
     }
 
     ; What the running head says on that sheet.
@@ -4009,11 +4155,62 @@ class MdLayout {
             useH = (useH * (w / useW))
             useW = w
         }
+        ; `{height=200}` / `{height=50%}` (of the page's content height), and
+        ; the theme's `img { max-height }`: the picture keeps its shape
+        def fullH:double (contentBottom - contentTop)
+        def maxH:double 0.0
+        def hAttr:string (node.attrValue("height"))
+        if ((strlen hAttr) > 0) {
+            def hBase:double fullH
+            if (hBase <= 0.0) {
+                hBase = useH
+            }
+            maxH = (MdEmbedKinds.widthOf(hAttr hBase))
+        }
+        if ((style.imgMaxHeight > 0.0) && ((maxH <= 0.0) || (style.imgMaxHeight < maxH))) {
+            if ((strlen hAttr) == 0) {
+                maxH = style.imgMaxHeight
+            }
+        }
+        if ((maxH > 0.0) && (useH > maxH)) {
+            useW = (useW * (maxH / useH))
+            useH = maxH
+        }
+        ; On a slide a picture taller than the room under its heading is
+        ; given that room (shrunk, its shape kept) rather than running off
+        ; the bottom; on a full slide it moves on as it did.
+        if (slides && paginate) {
+            def avail:double (contentBottom - cursorY)
+            if ((useH > avail) && (avail >= (fullH * 0.35))) {
+                useW = (useW * (avail / useH))
+                useH = avail
+            }
+            if (useH > fullH) {
+                useW = (useW * (fullH / useH))
+                useH = fullH
+            }
+        }
+        ; where it sits in the column: `{align=center}`, else the theme's
+        ; `img { justify-content }`, else centred on a slide
+        def align:string (MdCss.alignWord((node.attrValue("align"))))
+        if ((strlen align) == 0) {
+            align = style.imgAlign
+        }
+        if (((strlen align) == 0) && slides) {
+            align = "center"
+        }
+        def px:double x
+        if (align == "center") {
+            px = (x + ((w - useW) * 0.5))
+        }
+        if (align == "end") {
+            px = ((x + w) - useW)
+        }
 
         def y:double (this.reserve(useH))
         def b:MdBox (new MdBox())
         b.kind = 4
-        b.x = x
+        b.x = px
         b.y = y
         b.w = useW
         b.h = useH

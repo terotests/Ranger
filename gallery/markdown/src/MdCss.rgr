@@ -153,6 +153,9 @@ class MdCss {
         this.list(style (this.forTag("list")))
         this.item(style (this.forTag("li")))
         this.table(style (this.forTag("table")))
+        this.picture(style (this.forTag("img")))
+        this.furniture(style (this.forTag("header")) true)
+        this.furniture(style (this.forTag("footer")) false)
         this.deck((this.forTag("deck")))
     }
 
@@ -348,6 +351,67 @@ class MdCss {
         style.cellPadX = (this.len(got "padding-left" style.cellPadX))
         style.cellPadY = (this.len(got "padding-top" style.cellPadY))
         this.rest(got "border-color,background-color,padding-left,padding-top")
+    }
+
+    ; `img { justify-content: center; max-height: 300px }`
+    fn picture:void (style:MdStyle got:CssComputed) {
+        def a:string (MdCss.alignWord((this.raw(got "justify-content"))))
+        if ((strlen a) == 0) {
+            a = (MdCss.alignWord((this.raw(got "text-align"))))
+        }
+        if ((strlen a) > 0) {
+            style.imgAlign = a
+        }
+        style.imgMaxHeight = (this.len(got "max-height" style.imgMaxHeight))
+        this.rest(got "justify-content,text-align,max-height")
+    }
+
+    ; "center" / "end" / "start" from what CSS says about it; "" for nothing.
+    sfn alignWord:string (v:string) {
+        def t:string (CssSheet.lower((CssSheet.tidy(v))))
+        if ((strlen t) == 0) { return "" }
+        if ((t == "center") || (t == "centre")) { return "center" }
+        if (((t == "right") || (t == "end")) || (t == "flex-end")) { return "end" }
+        return "start"
+    }
+
+    ; `header { content: "ACME · {page}/{pages}"; background-image:
+    ; url(logo.png); text-align: right; font-size: 10pt; color: #777;
+    ; height: 24px }` — and `footer` the same.
+    fn furniture:void (style:MdStyle got:CssComputed top:boolean) {
+        def text:string (MdCss.unquote((this.raw(got "content"))))
+        def img:string (MdCss.urlOf((this.raw(got "background-image"))))
+        def al:string (MdCss.alignWord((this.raw(got "text-align"))))
+        if (top) {
+            if ((strlen text) > 0) { style.headerText = text }
+            if ((strlen img) > 0) { style.headerImage = img }
+            if ((strlen al) > 0) { style.headerAlign = al }
+            style.headerSize = (this.len(got "font-size" style.headerSize))
+            style.headerColor = (this.color(got "color" style.headerColor))
+            style.headerImageH = (this.len(got "height" style.headerImageH))
+        } {
+            if ((strlen text) > 0) { style.footerText = text }
+            if ((strlen img) > 0) { style.footerImage = img }
+            if ((strlen al) > 0) { style.footerAlign = al }
+            style.footerSize = (this.len(got "font-size" style.footerSize))
+            style.footerColor = (this.color(got "color" style.footerColor))
+            style.footerImageH = (this.len(got "height" style.footerImageH))
+        }
+        this.rest(got "content,background-image,text-align,font-size,color,height")
+    }
+
+    ; `"text"` or `'text'` as text; anything else as it was written.
+    sfn unquote:string (v:string) {
+        def t:string (trim v)
+        def n:int (strlen t)
+        if (n >= 2) {
+            def q:int (charAt t 0)
+            if (((q == 34) || (q == 39)) && ((charAt t (n - 1)) == q)) {
+                return (substring t 1 (n - 1))
+            }
+        }
+        if (t == "none") { return "" }
+        return t
     }
 
     ; `deck { split-level: 2; overflow: split; aspect-ratio: 16 / 9 }` —
