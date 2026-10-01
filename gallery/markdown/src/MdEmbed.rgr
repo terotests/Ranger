@@ -38,9 +38,29 @@ class MdEmbedEntry {
     def note:string ""
     ; Which pass last wanted this entry. See `MdEmbedCache.endPass`.
     def gen:int 0
+    ; Where in its column a drawing narrower than the column sits: "" (the
+    ; start), "center" or "end". A chart says it in its spec
+    ; (`"usermeta": {"presAlign": "center"}`), so a host's chart rule and a
+    ; heading's own reach it the way the rest of the chart defaults do.
+    def align:string ""
     def root@(optional):EVGElement
 
     Constructor () {
+    }
+
+    ; How far right of its column's start the drawing goes, in a column `w`
+    ; wide.
+    fn shiftIn:double (w:double) {
+        if ((width <= 0.0) || (width >= w)) {
+            return 0.0
+        }
+        if (align == "center") {
+            return ((w - width) * 0.5)
+        }
+        if (align == "end") {
+            return (w - width)
+        }
+        return 0.0
     }
 }
 

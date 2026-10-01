@@ -214,7 +214,8 @@ class MdToEvg {
         def e:MdEmbedEntry (layout.embeds.entryAt(idx))
         if (! e.ok) { return }
         def root:EVGElement (unwrap e.root)
-        MdToEvg.put(root box.x y box.w box.h)
+        def dx:double (e.shiftIn(box.w))
+        MdToEvg.put(root (box.x + dx) y (box.w - dx) box.h)
         def le:EVGLayout (new EVGLayout())
         le.setPageSize(box.w box.h)
         le.layout(root)
@@ -416,7 +417,9 @@ class MdToEvg {
             return
         }
         def root:EVGElement (unwrap e.root)
-        MdToEvg.put(root b.x (b.y + yOffset) b.w b.h)
+        ; a drawing narrower than its column sits where the chart asked
+        def dx:double (e.shiftIn(b.w))
+        MdToEvg.put(root (b.x + dx) (b.y + yOffset) (b.w - dx) b.h)
         ; The scene's own paper is dropped. A diagram in a document sits on
         ; the document's page; painting the editor's canvas behind it puts a
         ; grey slab across a white sheet.

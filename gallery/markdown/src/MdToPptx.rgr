@@ -1108,7 +1108,9 @@ class MdToPptx {
         ; three quarters of the column it was laid out to fill, and left a
         ; quarter of the slide empty beside it.
         conv.unit = 1.0
-        def group:PptxShape (conv.build(dl x y))
+        ; a drawing narrower than its column sits where the chart asked
+        def dx:double (e.shiftIn(w))
+        def group:PptxShape (conv.build(dl (x + dx) y))
 
         ; The group is an OBJECT, so it says what it is.
         ;

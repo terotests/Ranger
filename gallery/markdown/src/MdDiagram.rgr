@@ -149,6 +149,9 @@ class MdDiagram {
         e.height = sc.worldH
         e.root = (sc.toEvgTree())
         e.ok = true
+        if (notation == "vega") {
+            e.align = (MdVegaRender.alignOf(text))
+        }
         cache.add(e)
     }
 

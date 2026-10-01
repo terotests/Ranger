@@ -475,8 +475,62 @@ class MdVegaRender {
         }
         spec.setMember("width" (VlJson.numberValue((to_double (to_int (plotW * f))))))
         spec.setMember("height" (VlJson.numberValue((to_double (to_int (plotH * f))))))
+        ; the words grow a little with it: a plot two and a half times the
+        ; size with its legend at the old size reads as a small print
+        MdVegaRender.growWords(spec (1.0 + ((f - 1.0) * 0.3)))
         def w (new VlJsonWriter())
         return (w.write(spec))
+    }
+
+    ; Where the chart sits in its column: `usermeta.presAlign` ("center",
+    ; "end"; "" the start). CSS words are taken too: "flex-end", "right".
+    sfn alignOf:string (text:string) {
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(text))
+        if ((p.ok == false) || ((spec.isObject()) == false)) {
+            return ""
+        }
+        def meta:VlJson (spec.get("usermeta"))
+        if ((meta.isObject()) == false) {
+            return ""
+        }
+        def a:string (meta.stringOr("presAlign" ""))
+        if ((a == "center") || (a == "centre")) {
+            return "center"
+        }
+        if (((a == "end") || (a == "flex-end")) || (a == "right")) {
+            return "end"
+        }
+        return ""
+    }
+
+    sfn growWords:void (spec:VlJson k:double) {
+        def cfg:VlJson (spec.get("config"))
+        if ((cfg.isObject()) == false) {
+            cfg = (VlJson.objectValue())
+            spec.setMember("config" cfg)
+        }
+        def names:[string] (strsplit "axis legend" " ")
+        def i:int 0
+        while (i < (array_length names)) {
+            def g:VlJson (cfg.get((itemAt names i)))
+            if ((g.isObject()) == false) {
+                g = (VlJson.objectValue())
+                cfg.setMember((itemAt names i) g)
+            }
+            MdVegaRender.growNumber(g "labelFontSize" 10.0 k)
+            MdVegaRender.growNumber(g "titleFontSize" 11.0 k)
+            i = (i + 1)
+        }
+    }
+
+    sfn growNumber:void (g:VlJson key:string dflt:double k:double) {
+        def v:double dflt
+        def got:VlJson (g.get(key))
+        if (got.isNumber()) {
+            v = got.num
+        }
+        g.setMember(key (VlJson.numberValue((to_double (to_int ((v * k) + 0.5))))))
     }
 
     sfn draw:MdVegaDrawing (text:string width:double pad:double) {
