@@ -316,6 +316,64 @@ class MdSlidesTest {
         return l
     }
 
+    ; A title set so large that it wraps, with a diagram under it. The
+    ; diagram went to a slide of its own with the title said again, and the
+    ; slide it left held the title and nothing else — one heading, two slides
+    ; (Sliqtly: `h2 { font-size: 80pt }` over a chart). The diagram now takes
+    ; the room left under the title; a title too big for even that is set
+    ; smaller; a title alone on its slide keeps its size.
+    fn bigTitle:void (c:SlideCheck) {
+        print "-- a big title keeps its diagram --"
+        def dia:string "```mermaid\nflowchart TD\n  A[Kirjoita jotain] --> B[Renderoi se]\n```\n"
+        def css:string "deck { split-level: 2 } page { width: 720pt; height: 300pt; padding: 20pt } h2 { font-size: 44pt }"
+        def src:string ("## Keskilämpötila kuukausittain kolmella asemalla\n\n" + dia)
+        def l:MdLayout (MdSlidesTest.asSlidesWithDiagrams(src css))
+        c.eqInt("a wrapped title and its diagram are one slide" l.pageCount 1)
+        c.eqInt("…the diagram is on it" (MdSlidesTest.slideOfEmbed(l)) 0)
+        c.eqInt("…and nothing was said twice" l.slideOverflows 0)
+        c.ok("…and the diagram stays on the slide" (MdSlidesTest.embedBottom(l) <= (l.contentBottom + 0.5)))
+        c.ok("the title kept its size" ((MdSlidesTest.biggestText(l)) > 43.0))
+
+        def hcss:string "deck { split-level: 2 } page { width: 720pt; height: 300pt; padding: 20pt } h2 { font-size: 120pt }"
+        def hl:MdLayout (MdSlidesTest.asSlidesWithDiagrams(src hcss))
+        c.eqInt("a title taller than the slide and its diagram are one slide" hl.pageCount 1)
+        c.eqInt("…the diagram is on it" (MdSlidesTest.slideOfEmbed(hl)) 0)
+        c.ok("…because the title was set smaller" ((MdSlidesTest.biggestText(hl)) < 119.0))
+        c.ok("…and the diagram stays on the slide" (MdSlidesTest.embedBottom(hl) <= (hl.contentBottom + 0.5)))
+
+        def scss:string "deck { split-level: 2 } page { width: 720pt; height: 300pt; padding: 20pt } h2 { font-size: 90pt }"
+        def sl:MdLayout (MdSlidesTest.asSlidesWithDiagrams("## Iso otsikko\n\n## Seuraava\n\nTekstiä.\n" scss))
+        c.ok("a title alone on its slide keeps its size" ((MdSlidesTest.biggestTextOn(sl 0)) > 89.0))
+    }
+
+    sfn embedBottom:double (l:MdLayout) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 3) { return (b.y + b.h) }
+            i = (i + 1)
+        }
+        return 0.0
+    }
+
+    sfn biggestText:double (l:MdLayout) {
+        return (MdSlidesTest.biggestTextOn(l (0 - 1)))
+    }
+
+    ; The largest text size on slide `p` (any slide when `p` is -1).
+    sfn biggestTextOn:double (l:MdLayout p:int) {
+        def big:double 0.0
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 0) && ((p < 0) || (b.page == p))) {
+                if (b.size > big) { big = b.size }
+            }
+            i = (i + 1)
+        }
+        return big
+    }
+
     ; How many slides have a heading as the lowest thing on them.
     sfn slidesEndingOnAHeading:int (l:MdLayout) {
         def bad:int 0
@@ -662,6 +720,7 @@ class MdSlidesTest {
         this.columns(c)
         this.breaks(c)
         this.keepWithNext(c)
+        this.bigTitle(c)
         this.overflow(c)
         this.wholeItems(c)
         this.shrinkToFit(c)
