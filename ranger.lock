@@ -19,6 +19,12 @@
       "subdir": "cer",
       "sha256": "87c8253fe59723e6df52e56490306c0624e6960d37d28e3edaa859298793f5e3"
     },
+    "vela": {
+      "git": "https://github.com/terotests/VelaCharts.git",
+      "rev": "8747b4f51d2d29a93aea754d116a4186df5df247",
+      "subdir": "vela",
+      "sha256": "b6b2ccc2821fb79e9f17aaef3860dd9f6b8d5cf22404a8967b346465c62dd1f5"
+    },
     "zip": {
       "path": "lib/zip"
     },

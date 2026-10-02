@@ -30,7 +30,7 @@ compiler — the long-form writeups live here.
 | [`invaders`](invaders/) | Terminal Space Invaders compiled to several targets, including the experimental LLVM backend |
 | [`game_engine`](game_engine/README.md) | Retained-mode game runner, SDL launcher, and TSX games (Pong, Breakout, Invaders, Pac-Man); scripting is documented in [`docs/GAME_SCRIPTING.md`](game_engine/docs/GAME_SCRIPTING.md) |
 | [`ranger_engine`](ranger_engine/README.md) | An engine that runs **Ranger** source directly: bytecode VM plus a JIT tier that compiles hot functions to host code |
-| [`vela`](vela/README.md) | Vega-compatible visualization runtime: a Vega spec in, a scene out, checked against official Vega |
+| [`vela`](https://github.com/terotests/VelaCharts) | Vega-compatible visualization runtime: a Vega spec in, a scene out, checked against official Vega. Developed in [terotests/VelaCharts](https://github.com/terotests/VelaCharts); `npm run deps` puts it here |
 | [`text_editor`](text_editor/README.md) | EVG/SoftCanvas multiline text-editor prototype (canvas-editor benchmark target), JS validation + bench |
 | [`book`](book/README.md) | Visual book composition engine **and editor**: stories, linked text frames, master pages, auto layout, preflight, PDF through the EVG tooling — a spread editor that runs in the browser on WebGL with no server, and photographs brought in from an Apple album or searched out of a photo library by date and place. Runs in a browser, in Node, or as a native SDL2 window |
 | [`figma`](figma/README.md) | Figma `.fig` / `.deck` reader: ZIP → kiwi schema + message → node tree → EVG, with a github.io page that opens a file in the tab |

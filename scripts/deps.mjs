@@ -6,18 +6,18 @@
 //
 // EVG (lib/evg) and the image codecs (lib/image) live in terotests/evg;
 // ComponentEngine (gallery/componentengine) and CEr (gallery/cer) in
-// terotests/componentengine. The root ranger.json pins each repository at
-// one commit; this runs `rgrc install` against it (the cache and
-// ranger.lock, as for any project) and copies every git package of the lock
-// to its place in PLACES. Those directories are not in git: they are what
+// terotests/componentengine; Vela (gallery/vela) in terotests/VelaCharts.
+// The root ranger.json pins each repository at one commit; this runs
+// `rgrc install` against it (the cache and ranger.lock, as for any project)
+// and copies every git package of the lock to its place in PLACES. Those directories are not in git: they are what
 // node_modules is to npm.
 //
 //   npm run deps                        # the pinned commit (npm ci runs this too)
 //   npm run deps -- --from=../evg       # a checkout's working tree instead of its pinned commit
 //   npm run deps -- --check             # exit 1 unless every place matches ranger.lock
 //
-// Changing EVG (or ComponentEngine): commit to its repository, put the new
-// commit in ranger.json ("rev"), npm run deps, commit ranger.json and
+// Changing EVG (or ComponentEngine, or Vela): commit to its repository, put
+// the new commit in ranger.json ("rev"), npm run deps, commit ranger.json and
 // ranger.lock.
 
 import fs from "node:fs";
@@ -38,6 +38,7 @@ const PLACES = {
   image: "lib/image",
   componentengine: "gallery/componentengine",
   cer: "gallery/cer",
+  vela: "gallery/vela",
 };
 // What --from=<checkout> copies: the packages whose repository that
 // checkout is, found by the subdirectories the lock names.

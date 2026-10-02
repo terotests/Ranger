@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pkg:componentengine/…`, with `componentengine` and `ts_parser` as path
   dependencies in `gallery/game_engine` and `gallery/mfiles`.
   `gallery/ts_parser` has a `ranger.json`, so componentengine can depend on it.
+- **Vela moved to [terotests/VelaCharts](https://github.com/terotests/VelaCharts),**
+  with its history. `gallery/vela` is that repository's `vela/`, pinned by
+  the root `ranger.json` and placed by `npm run deps`; git no longer tracks
+  it. The gallery projects that import `../../vela/src/…`, the `vela:*`
+  scripts and the `/vela/` page build from the placed copy unchanged.
 
 ### Added
 

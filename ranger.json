@@ -2,7 +2,7 @@
   "name": "ranger",
   "version": "4.0.1",
   "license": "MIT",
-  "description": "The packages this tree takes from other repositories. npm run deps fetches them (rgrc install) and puts each where scripts/deps.mjs says: lib/evg, lib/image, gallery/componentengine, gallery/cer.",
+  "description": "The packages this tree takes from other repositories. npm run deps fetches them (rgrc install) and puts each where scripts/deps.mjs says: lib/evg, lib/image, gallery/componentengine, gallery/cer, gallery/vela.",
   "dependencies": {
     "evg": {
       "git": "https://github.com/terotests/evg.git",
@@ -18,6 +18,11 @@
       "git": "https://github.com/terotests/componentengine.git",
       "rev": "32435100570ed4b8d08d94f8392c4c9f63bc5e45",
       "subdir": "cer"
+    },
+    "vela": {
+      "git": "https://github.com/terotests/VelaCharts.git",
+      "rev": "8747b4f51d2d29a93aea754d116a4186df5df247",
+      "subdir": "vela"
     },
     "zip": {
       "path": "lib/zip"

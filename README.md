@@ -692,7 +692,7 @@ Protocol details, the cache layout and the tests are in
 
 ### Packages this repository takes from elsewhere
 
-EVG and ComponentEngine have repositories of their own; this tree names them
+EVG, ComponentEngine and Vela have repositories of their own; this tree names them
 in the root [`ranger.json`](ranger.json) and does not track their files:
 
 | Package | Repository | Placed at |
@@ -700,12 +700,14 @@ in the root [`ranger.json`](ranger.json) and does not track their files:
 | `evg` (EVG layout engine), `image` (codecs) | [terotests/evg](https://github.com/terotests/evg) `storm/`, `image/` | `lib/evg`, `lib/image` |
 | `componentengine` (the JavaScript/TSX evaluator) | [terotests/componentengine](https://github.com/terotests/componentengine) `engine/` | `gallery/componentengine` |
 | `cer` (the evaluator as a strict Rust module) | terotests/componentengine `cer/` | `gallery/cer` |
+| `vela` (the Vega-compatible chart runtime) | [terotests/VelaCharts](https://github.com/terotests/VelaCharts) `vela/` | `gallery/vela` |
 
 `npm ci` (through `prepare`) and `npm run deps` run `rgrc install` against
 the root `ranger.json` and copy each package to its place
 ([`scripts/deps.mjs`](scripts/deps.mjs)), so every path the gallery uses —
 `"evg": { "path": "../../lib/evg" }`, `"componentengine": { "path":
-"../componentengine" }`, the web builds that copy `lib/evg/gl/*.js` — finds
+"../componentengine" }`, the `Import "../../vela/src/…"` lines, the web
+builds that copy `lib/evg/gl/*.js` — finds
 them. Those directories are git-ignored; do not edit them here.
 
 To change one: commit to its repository, put the new commit in the root
