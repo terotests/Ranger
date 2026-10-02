@@ -4582,7 +4582,11 @@ class VlCompile {
         ; tick on it. The type is inferred from the same three places
         ; Vega-Lite infers it from — the transform on the channel, and
         ; failing that, the data.
-        ch.kind = (cdef.stringOr("type" ""))
+        ch.kind = (VlCompile.kindWord((cdef.stringOr("type" ""))))
+        ; A type that is not one of the four is read as no type at all, and
+        ; inferred. `"type": "point"` (a SCALE type, written one level too
+        ; high) went through as a kind no scale answered to, and every point
+        ; of a line chart landed at x = 0 under one tick.
         if ((strlen ch.kind) == 0) {
             ch.kind = (this.inferKind(ch))
         }
@@ -4643,6 +4647,20 @@ class VlCompile {
             }
         }
         return ch
+    }
+
+    ; The channel's `type` as one of the four kinds (or geojson), or "" when it is none of
+    ; them. The one-letter forms ("Q", "N", "O", "T") are Vega-Lite's
+    ; shorthand for the same four.
+    sfn kindWord:string (t:string) {
+        if (((((t == "quantitative") || (t == "nominal")) || (t == "ordinal")) || (t == "temporal")) || (t == "geojson")) {
+            return t
+        }
+        if ((t == "Q") || (t == "q")) { return "quantitative" }
+        if ((t == "N") || (t == "n")) { return "nominal" }
+        if ((t == "O") || (t == "o")) { return "ordinal" }
+        if ((t == "T") || (t == "t")) { return "temporal" }
+        return ""
     }
 
     ; ------------------------------------------------------- type inference ---
