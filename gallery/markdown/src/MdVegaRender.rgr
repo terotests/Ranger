@@ -489,9 +489,17 @@ class MdVegaRender {
             return text
         }
         def avail:double ((width - (pad * 2.0)) * 0.95)
+        ; A chart that names no width of its own takes the room's whole width,
+        ; whatever its height may grow by: Vega-Lite's default for a discrete
+        ; axis is 20 points a category, so seven months came out as a narrow
+        ; column whose names overprinted, and growing both sides by the same
+        ; factor kept it narrow. A pie keeps its square (see `sized`).
+        def fill:boolean (((spec.has("width")) == false) && ((indexOf text "\"arc\"") < 0))
+        def fw:double 1.0
         def f:double 1.0
         if (viewW < (avail * 0.8)) {
-            f = ((avail - (viewW - plotW)) / plotW)
+            fw = ((avail - (viewW - plotW)) / plotW)
+            f = fw
             if (f > most) {
                 f = most
             }
@@ -507,20 +515,26 @@ class MdVegaRender {
                     if (fh < 0.3) {
                         fh = 0.3
                     }
-                    if (fh > 0.97) {
+                    if ((fh > 0.97) && ((fill == false) || (fw < 1.05))) {
                         return text
                     }
                     spec.setMember("height" (VlJson.numberValue((to_double (to_int (plotH * fh))))))
+                    if (fill && (fw >= 1.05)) {
+                        spec.setMember("width" (VlJson.numberValue((to_double (to_int (plotW * fw))))))
+                    }
                     def w0 (new VlJsonWriter())
                     return (w0.write(spec))
                 }
                 f = fh
             }
         }
-        if (f < 1.05) {
+        if (fill == false) {
+            fw = f
+        }
+        if ((f < 1.05) && (fw < 1.05)) {
             return text
         }
-        spec.setMember("width" (VlJson.numberValue((to_double (to_int (plotW * f))))))
+        spec.setMember("width" (VlJson.numberValue((to_double (to_int (plotW * fw))))))
         spec.setMember("height" (VlJson.numberValue((to_double (to_int (plotH * f))))))
         ; the words grow a little with it: a plot two and a half times the
         ; size with its legend at the old size reads as a small print
