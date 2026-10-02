@@ -279,6 +279,15 @@ class MdVegaTest {
         print ((("   months: width " + (to_string w4)) + " height ") + (to_string h4))
         c.ok("no width stated: the room's width" (w4 > 900.0))
         c.ok("…and wider than it is tall" (w4 > (h4 * 2.0)))
+        ; `"width": "container"` (what an assistant writing Vega-Lite
+        ; usually says) fills the room the same way
+        def boxed:string "{\"width\": \"container\", \"height\": 360, \"data\": {\"values\": [{\"m\": \"Maalis\", \"n\": 588}, {\"m\": \"Huhti\", \"n\": 500}, {\"m\": \"Touko\", \"n\": 265}, {\"m\": \"Kesä\", \"n\": 470}, {\"m\": \"Heinä\", \"n\": 118}, {\"m\": \"Elo\", \"n\": 147}, {\"m\": \"Syys\", \"n\": 176}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"m\", \"type\": \"nominal\", \"sort\": null}, \"y\": {\"field\": \"n\", \"type\": \"quantitative\"}}}"
+        def g5:string (MdVegaRender.grown(boxed 1200.0 10.0 2.5 420.0))
+        def p5 (new VlJsonParser())
+        def s5:VlJson (p5.parse(g5))
+        def w5:double (s5.doubleOr("width" 0.0))
+        print ("   container: width " + (to_string w5))
+        c.ok("\"width\": \"container\" takes the room's width" (w5 > 900.0))
         c.ok("a stated width is kept to the plot's own proportions" ((indexOf g "\"height\":250") >= 0))
     }
 
