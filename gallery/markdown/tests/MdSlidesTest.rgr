@@ -571,6 +571,91 @@ class MdSlidesTest {
         c.eqInt("the title stays one line" (MdLayout.headingLines(tl.boxes 0 (array_length tl.boxes) 27.0)) 1)
     }
 
+    ; The header's and the footer's box with this text on slide p, or null.
+    sfn edgeBox@(optional):MdBox (l:MdLayout want:string p:int) {
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (((b.kind == 0) && (b.page == p)) && ((b.text == want) && (b.furniture > 0))) {
+                def hit@(optional):MdBox b
+                return hit
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):MdBox
+        return miss
+    }
+
+    sfn has:boolean (l:MdLayout want:string p:int) {
+        def b@(optional):MdBox (MdSlidesTest.edgeBox(l want p))
+        return (!null? b)
+    }
+
+    ; Header and footer: three places an edge, {page}/{pages}, the first and
+    ; the last slide left out, a slide that turns its edge off, the CSS.
+    fn edges:void (c:SlideCheck) {
+        print "-- header and footer --"
+        def css:string "deck { split-level: 2 } page { width: 960pt; height: 540pt; padding: 40pt } document { font-size: 20pt }"
+        def src:string ("---\nheader-left: ACME\nheader-right: Q4\nfooter-left: Luottamuksellinen\nfooter-right: \"{page} / {pages}\"\nfooter-skip: first last\n---\n\n"
+            + "## Kansi\n\nAlku\n\n## Toka\n\nTeksti\n\n## Kolmas {header=off}\n\nLisaa\n\n## Loppu\n\nKiitos\n")
+        def l:MdLayout (MdSlidesTest.slidesWith(src css 1.0))
+        c.eqInt("four slides" l.pageCount 4)
+        c.ok("header on the first slide" (MdSlidesTest.has(l "ACME" 0)))
+        c.ok("footer left off the first slide" ((MdSlidesTest.has(l "Luottamuksellinen" 0)) == false))
+        c.ok("page number on slide 2" (MdSlidesTest.has(l "2 / 4" 1)))
+        c.ok("footer left off the last slide" ((MdSlidesTest.has(l "4 / 4" 3)) == false))
+        c.ok("{header=off} drops the header" ((MdSlidesTest.has(l "ACME" 2)) == false))
+        c.ok("but keeps that slide's footer" (MdSlidesTest.has(l "3 / 4" 2)))
+        def lb@(optional):MdBox (MdSlidesTest.edgeBox(l "ACME" 1))
+        def rb@(optional):MdBox (MdSlidesTest.edgeBox(l "Q4" 1))
+        if ((!null? lb) && (!null? rb)) {
+            def left:MdBox (unwrap lb)
+            def right:MdBox (unwrap rb)
+            c.ok("left place at the content's left" ((left.x > 39.0) && (left.x < 41.0)))
+            c.ok("right place ends at the content's right" (((right.x + right.w) > 919.0) && ((right.x + right.w) < 921.0)))
+            c.ok("header above the content" ((left.y + left.h) < 40.0))
+        } {
+            c.ok("header places found" false)
+        }
+        def fb@(optional):MdBox (MdSlidesTest.edgeBox(l "2 / 4" 1))
+        if (!null? fb) {
+            c.ok("footer below the content" ((unwrap fb).y > 500.0))
+        }
+
+        ; The theme says it: a band, bold, a centred place, the hairline.
+        def css2:string (css + " footer { content-center: \"Sivu {page}\"; background-color: #222244; border-color: #ff8800; font-weight: bold; color: #ffffff }")
+        def l2:MdLayout (MdSlidesTest.slidesWith("## Yksi\n\nTeksti\n" css2 1.0))
+        def cb@(optional):MdBox (MdSlidesTest.edgeBox(l2 "Sivu 1" 0))
+        c.ok("a CSS place" (!null? cb))
+        if (!null? cb) {
+            def cbox:MdBox (unwrap cb)
+            c.ok("centred" ((fabs ((cbox.x + (cbox.w * 0.5)) - 480.0)) < 1.0))
+            c.ok("bold" cbox.bold)
+            c.eqStr("its colour" cbox.color "#FFFFFF")
+        }
+        def bands:int 0
+        def i:int 0
+        while (i < (array_length l2.boxes)) {
+            def b:MdBox (itemAt l2.boxes i)
+            if ((b.kind == 1) && (b.furniture == 2)) {
+                bands = (bands + 1)
+            }
+            i = (i + 1)
+        }
+        c.eqInt("band and hairline" bands 2)
+
+        ; A tall header widens a margin too small for it.
+        def css3:string "deck { split-level: 2 } page { width: 960pt; height: 540pt; padding: 10pt } document { font-size: 20pt } header { content: \"Otsikko\"; font-size: 30pt }"
+        def l3:MdLayout (MdSlidesTest.slidesWith("## Yksi\n\nTeksti\n" css3 1.0))
+        def hb@(optional):MdBox (MdSlidesTest.edgeBox(l3 "Otsikko" 0))
+        def ty:double (MdSlidesTest.yOf(l3 "Yksi"))
+        if (!null? hb) {
+            c.ok("content starts below a tall header" (ty > ((unwrap hb).y + (unwrap hb).h)))
+        } {
+            c.ok("tall header found" false)
+        }
+    }
+
     fn run:void () {
         def c:SlideCheck (new SlideCheck())
         print "== MdSlidesTest =="
@@ -582,6 +667,7 @@ class MdSlidesTest {
         this.shrinkToFit(c)
         this.oneDocument(c)
         this.grow(c)
+        this.edges(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
