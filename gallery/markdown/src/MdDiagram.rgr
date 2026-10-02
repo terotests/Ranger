@@ -136,6 +136,7 @@ class MdDiagram {
             text = (MdVegaRender.fromFile(text cache.dataUrls cache.dataTexts))
             text = (MdVegaRender.withFiles(text cache.dataUrls cache.dataTexts))
             text = (MdVegaRender.withDefaults(text (MdVegaRender.mergeDefaults((cache.scopedConfig()) cache.chartConfig))))
+            text = (MdVegaRender.withoutContainer(text))
             if (cache.chartGrow > 1.0) {
                 text = (MdVegaRender.grown(text width pad cache.chartGrow cache.chartMaxH))
             }
