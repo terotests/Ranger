@@ -1283,7 +1283,13 @@ class RangerGolangClassWriter {
       ; Check if obj has paramDesc and it's optional
       if obj.hasParamDesc {
         def p:RangerAppParamDesc (unwrap obj.paramDesc)
-        if (p.is_optional) {
+        ; a local initialised from an optional (`def previous:T board`) is a
+        ; *GoNullable as well, though only its name node says so
+        def optName:boolean false
+        if (!null? p.nameNode) {
+          optName = (p.nameNode.hasFlag("optional"))
+        }
+        if (p.is_optional || optName) {
           if (!null? p.nameNode) {
             def parameterName:CodeNode (unwrap p.nameNode)
             needs_unwrap = true

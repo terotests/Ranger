@@ -8336,6 +8336,15 @@ class RangerAppWriterContext  {
     }
     return false;
   };
+  goBuiltinLocal (name) {
+    if ( this.getTargetLangName() == "go" ) {
+      const builtins = ["append", "cap", "copy", "delete", "make", "panic"];
+      if ( builtins.indexOf(name) >= 0 ) {
+        return "_" + name;
+      }
+    }
+    return "";
+  };
   assignParamCompiledName (p) {
     switch (p.name ) { 
       case "self" : 
@@ -8349,6 +8358,10 @@ class RangerAppWriterContext  {
         break;
       default: 
         p.compiledName = this.transformBindingWord(p.name);
+        const gb = this.goBuiltinLocal(p.name);
+        if ( gb.length > 0 ) {
+          p.compiledName = gb;
+        }
         break;
     };
   };
@@ -8374,6 +8387,10 @@ class RangerAppWriterContext  {
             desc.compiledName = this.transformMemberWord(name);
           } else {
             desc.compiledName = this.transformBindingWord(name);
+            const gb = this.goBuiltinLocal(name);
+            if ( gb.length > 0 ) {
+              desc.compiledName = gb;
+            }
           }
           break;
       };
@@ -51473,7 +51490,11 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       let obj_type_name = "";
       if ( obj.hasParamDesc ) {
         const p = obj.paramDesc;
-        if ( p.is_optional ) {
+        let optName = false;
+        if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
+          optName = p.nameNode.hasFlag("optional");
+        }
+        if ( p.is_optional || optName ) {
           if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
             const parameterName = p.nameNode;
             needs_unwrap = true;
