@@ -392,18 +392,28 @@ class GridView {
     ; the returned top may sit above `rect.y`, and is meant to.
     fn textTopFor:int (rect:GridRect st:CellStyle lineH:int lines:int cellPx:double) {
         def total:int (lineH * lines)
+        ; A border heavier than the grid line takes room inside the cell, and
+        ; the text keeps clear of it rather than writing over it.
+        def topLine:int 0
+        if (st.borderTop.has()) {
+            topLine = ((st.borderTop.width()) - 1)
+        }
+        def botLine:int 0
+        if (st.borderBottom.has()) {
+            botLine = ((st.borderBottom.width()) - 1)
+        }
         if (st.valign == "top") {
-            return (rect.y + 3)
+            return ((rect.y + 3) + topLine)
         }
         if (st.valign == "center") {
-            return (rect.y + (idiv (rect.h - total) 2))
+            return (rect.y + (idiv (((rect.h - total) + topLine) - botLine) 2))
         }
         ; Excel's default is bottom. Room under the baseline is a descender's
         ; worth of the type size — the letters that actually hang, not the
         ; face's full declared descent, which no Latin glyph reaches.
         def asc:double (ctx.tr.ascent(cellPx))
         def drop:double (cellPx * 0.21)
-        def baseline:double ((((to_double rect.y) + (to_double rect.h)) - 2.0) - drop)
+        def baseline:double (((((to_double rect.y) + (to_double rect.h)) - 2.0) - drop) - (to_double botLine))
         def first:double ((baseline - asc) - (to_double (lineH * (lines - 1))))
         return (to_int first)
     }
@@ -718,10 +728,20 @@ class GridView {
         if (st.hasBorder == false) {
             return
         }
-        this.pushEdge(dl st.borderTop rect.x rect.y rect.w true)
-        this.pushEdge(dl st.borderBottom rect.x ((rect.y + rect.h) - (st.borderBottom.width())) rect.w true)
-        this.pushEdge(dl st.borderLeft rect.x rect.y rect.h false)
-        this.pushEdge(dl st.borderRight ((rect.x + rect.w) - (st.borderRight.width())) rect.y rect.h false)
+        ; On the grid line, not inside the cell: a cell's right edge and its
+        ; neighbour's left edge are the same line and land on the same pixels,
+        ; as in Excel and Sheets. Drawn inside each cell, two thin borders
+        ; side by side made a line twice as heavy as either asked for.
+        ; The grid line of a cell is its last pixel (x + w - 1); the line
+        ; before it is the previous cell's, at x - 1.
+        def topY:int ((rect.y - 1) - (idiv ((st.borderTop.width()) - 1) 2))
+        def botY:int (((rect.y + rect.h) - 1) - (idiv ((st.borderBottom.width()) - 1) 2))
+        def leftX:int ((rect.x - 1) - (idiv ((st.borderLeft.width()) - 1) 2))
+        def rightX:int (((rect.x + rect.w) - 1) - (idiv ((st.borderRight.width()) - 1) 2))
+        this.pushEdge(dl st.borderTop (rect.x - 1) topY (rect.w + 1) true)
+        this.pushEdge(dl st.borderBottom (rect.x - 1) botY (rect.w + 1) true)
+        this.pushEdge(dl st.borderLeft leftX (rect.y - 1) (rect.h + 1) false)
+        this.pushEdge(dl st.borderRight rightX (rect.y - 1) (rect.h + 1) false)
     }
 
     fn paintCell:void (dl:EVGDisplayList model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string r:int c:int) {
@@ -933,6 +953,60 @@ class GridView {
         return 16
     }
 
+    ; The selection the headers mark: set at the start of each frame.
+    def hdrSel:GridSelection (new GridSelection)
+
+    ; 0: the row (or column) has nothing selected; 1: part of it is in the
+    ; selection; 2: all of it is. The header says which, as every spreadsheet
+    ; does — tinted, and in the accent, so the eye finds the caret's row and
+    ; column from the edges.
+    fn headerState:int (model:SpreadsheetModel index:int isRow:boolean) {
+        def best:int 0
+        def i:int 0
+        while (i < (hdrSel.rangeCount())) {
+            def g:GridRange (hdrSel.rangeAt(i))
+            def a0:int g.r0
+            def a1:int g.r1
+            def b0:int g.c0
+            def b1:int g.c1
+            if (isRow == false) {
+                a0 = g.c0
+                a1 = g.c1
+                b0 = g.r0
+                b1 = g.r1
+            }
+            if (a0 > a1) {
+                def t:int a0
+                a0 = a1
+                a1 = t
+            }
+            if (b0 > b1) {
+                def t2:int b0
+                b0 = b1
+                b1 = t2
+            }
+            if ((index >= a0) && (index <= a1)) {
+                def span:int (? isRow (model.colCount - 1) (model.rowCount - 1))
+                if ((b0 <= 0) && (b1 >= span)) {
+                    best = 2
+                } {
+                    if (best < 1) {
+                        best = 1
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    fn headerTint:EVGColor (state:int) {
+        if (state == 2) {
+            return (theme.activeBorder.withAlpha(0.32))
+        }
+        return (theme.activeBorder.withAlpha(0.14))
+    }
+
     fn paintColHeaders:void (dl:EVGDisplayList model:SpreadsheetModel grid:DataGrid bodyLeft:int headerTop:int vw:int) {
         this.pushRect(dl (to_double bodyLeft) (to_double headerTop) (to_double vw) (to_double grid.colHeaderH) theme.headerBg)
         this.pushClip(dl (to_double bodyLeft) (to_double headerTop) (to_double vw) (to_double grid.colHeaderH))
@@ -962,7 +1036,13 @@ class GridView {
                 labelW = 1
             }
             def lx:int (hx + (to_int ((to_double (labelW - lw)) / 2.0)))
-            this.pushText(dl label (to_double lx) (to_double (headerTop + 4)) (fontSize * 0.9) theme.headerText)
+            def hs:int (this.headerState(model mc false))
+            def hInk:EVGColor theme.headerText
+            if (hs > 0) {
+                this.pushRect(dl (to_double hx) (to_double headerTop) (to_double cw) (to_double grid.colHeaderH) (this.headerTint(hs)))
+                hInk = theme.activeBorder
+            }
+            this.pushText(dl label (to_double lx) (to_double (headerTop + 4)) (fontSize * 0.9) hInk)
             ; Always-visible dropdown target: clicking the letter selects data,
             ; clicking this arrow opens the existing sort/filter menu.
             def ax:int ((hx + cw) - aw)
@@ -1293,6 +1373,7 @@ class GridView {
     }
 
     fn buildDisplayList:EVGDisplayList (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {
+        hdrSel = sel
         grid.updateVisible(model)
         this.syncWindowTheme()
         def dl:EVGDisplayList (new EVGDisplayList)
@@ -1414,7 +1495,13 @@ class GridView {
                 if (rr.y < bandBot) {
                     def nw:int (to_int (ctx.tr.measureWidth(num (fontSize * 0.85))))
                     def nx:int ((grid.x + grid.rowHeaderW) - nw - 6)
-                    this.pushText(dl num (to_double nx) (to_double (rr.y + 3)) (fontSize * 0.85) theme.headerText)
+                    def rs:int (this.headerState(model mr true))
+                    def rInk:EVGColor theme.headerText
+                    if (rs > 0) {
+                        this.pushRect(dl (to_double grid.x) (to_double rr.y) (to_double grid.rowHeaderW) (to_double rh) (this.headerTint(rs)))
+                        rInk = theme.activeBorder
+                    }
+                    this.pushText(dl num (to_double nx) (to_double (rr.y + 3)) (fontSize * 0.85) rInk)
                     this.pushRect(dl (to_double grid.x) (to_double (rr.y + rh - 1)) (to_double grid.rowHeaderW) 1.0 theme.gridLine)
                 }
             }
