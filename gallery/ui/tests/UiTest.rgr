@@ -24,6 +24,7 @@ Import "../src/HoverCtl.rgr"
 Import "../src/SliderCtl.rgr"
 Import "../src/ToastCtl.rgr"
 Import "../src/ComboboxCtl.rgr"
+Import "../src/CropCtl.rgr"
 Import "../src/UiText.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
@@ -312,6 +313,7 @@ class UiTest {
         UiTest.testText(t)
         UiTest.testA11yTree(t)
         UiTest.testDrawer(t)
+        UiTest.testCrop(t)
         print ""
         print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
         if (t.failed > 0) {
@@ -321,6 +323,81 @@ class UiTest {
         }
     }
 
+
+    ; --- the crop -----------------------------------------------------------------
+    ; No reference to measure against; the claims are the geometry: the frame
+    ; stays inside the picture, an aspect holds through every drag, and the
+    ; pixels handed back are the frame's.
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 0.0005)
+    }
+
+    sfn testCrop:void (t:Check) {
+        print "--- crop ---"
+        def h (new UiHost())
+        def c (new CropCtl())
+        c.tid = "crop"
+        c.name = "Crop image"
+        c.maxW = 400.0
+        c.maxH = 300.0
+        c.setImage("/media/a.png" 1600.0 900.0)
+        h.add(c)
+        t.ok("the box keeps the picture's proportions" (UiTest.near((c.boxH()) 225.0)))
+        t.ok("a new picture is kept whole" (c.isWhole()))
+        t.eqStr("whole, in pixels" (c.cropPixels()) "0,0,1600,900")
+
+        ; the se handle dragged in by a quarter, free
+        t.eqStr("a handle press focuses the frame" (c.pressAt("crop-h-se" 1.0 1.0)) "crop-box")
+        c.dragAt(0.75 0.5)
+        c.release()
+        t.eqStr("the frame follows the handle" (c.cropPixels()) "0,0,1200,450")
+        t.ok("and the drag is over" ((c.dragging()) == false))
+
+        ; moved past the edge: it stops at the edge
+        c.pressAt("crop-box" 0.5 0.5)
+        c.dragAt(1.5 1.5)
+        c.release()
+        t.eqStr("a move stops at the picture's edge" (c.cropPixels()) "400,450,1200,450")
+
+        ; a square: the largest one, round the old centre, inside the picture
+        c.setAspect(1.0)
+        t.eqStr("a 1:1 crop is the picture's height square" (c.cropPixels()) "550,0,900,900")
+        c.pressAt("crop-h-w" 0.34375 0.5)
+        c.dragAt(0.6 0.5)
+        c.release()
+        def parts:[string] (strsplit (c.cropPixels()) ",")
+        t.ok("a square stays square through a drag" ((itemAt parts 2) == (itemAt parts 3)))
+        t.ok("and keeps its right edge" (((?? (str2int (itemAt parts 0)) 0) + (?? (str2int (itemAt parts 2)) 0)) == 1450))
+
+        ; the keys, on the frame
+        c.setAspect(0.0)
+        c.reset()
+        c.pressAt("crop-h-se" 1.0 1.0)
+        c.dragAt(0.5 0.5)
+        c.release()
+        h.focus("crop-box")
+        h.key("ArrowRight")
+        t.eqStr("an arrow moves the frame by 1 %" (c.cropPixels()) "16,0,800,450")
+        h.keyWith("ArrowDown" true false)
+        t.eqStr("Shift and an arrow grows it" (c.cropPixels()) "16,0,800,459")
+
+        def rows:[UiRow] (c.rows())
+        def box:UiRow (itemAt rows 2)
+        t.ok("the frame is the one tab stop" box.tabStop)
+        t.eqStr("and says what is kept" box.valueText "50% × 51%, 1% 0%")
+        h.setPageSize(420.0 600.0)
+        def problems:[string] (h.a11yProblems())
+        def i:int 0
+        while (i < (array_length problems)) {
+            print ("       lint: " + (itemAt problems i))
+            i = (i + 1)
+        }
+        t.eqInt("a crop lints clean" (array_length problems) 0)
+    }
 
     ; --- the combobox -----------------------------------------------------------
     ; The numbers are Base UI's (conformance/oracle/combobox.json); the check
