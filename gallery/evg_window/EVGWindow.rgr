@@ -115,6 +115,9 @@ class EVGWindowTheme {
     ; shadow to lift it off the page without looking like a drop shadow.
     def shadow:EVGColor (EVGColor.create(20.0 30.0 45.0 0.07))
     def toolBg:EVGColor (EVGColor.rgb(255 255 255))
+    ; A text field's own fill — white on a light panel, and not white on a
+    ; dark one, where white text in a white box would be no field at all.
+    def fieldBg:EVGColor (EVGColor.rgb(255 255 255))
     def toolIcon:EVGColor (EVGColor.rgb(74 84 98))
 
     Constructor () {
@@ -1412,7 +1415,7 @@ class EVGWindow {
                 }
                 def fx:int (cx + lw)
                 def fw:int (c.w - lw)
-                this.rect(dl fx cy fw c.h (EVGColor.rgb(255 255 255)))
+                this.rect(dl fx cy fw c.h theme.fieldBg)
                 def edge2:EVGColor theme.border
                 if (focusedId != c.id) {
                     edge2 = theme.muted

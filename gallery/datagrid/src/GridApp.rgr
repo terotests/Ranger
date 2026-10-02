@@ -78,6 +78,19 @@ class GridApp {
     ; that never touches a database carries a class it never constructs.
     def db:GridDbSource (new GridDbSource)
     def statusH:int 22
+    ; Which of the program's own furniture is drawn. A host that brings its
+    ; own toolbar, sheet switcher or status line — EVGSheets puts EVGUI
+    ; controls around the grid — turns these off, and the grid takes the room.
+    ; Everything they did stays reachable through `runCommand`.
+    def showToolbar:boolean true
+    def showFormulaBar:boolean true
+    def showSheetTabs:boolean true
+    def showStatus:boolean true
+    ; A workbook to look at and not to change: cells select, scroll, copy,
+    ; sort and filter (those are views), and nothing writes into the model.
+    ; Checked where an edit BEGINS rather than where it lands, so a refused
+    ; edit leaves no half-open editor behind.
+    def readOnly:boolean false
     def editing:boolean false
     def editBuf:string ""
     def editCaret:int 0
@@ -330,8 +343,7 @@ class GridApp {
         this.buildCommands()
         view.commands = commands
         view.toolbar.build()
-        grid.toolbarH = (view.toolbar.heightFor(W))
-        grid.setBounds(0 0 W (H - statusH))
+        this.layoutFrame()
         this.loadDemo()
     }
 
@@ -345,8 +357,7 @@ class GridApp {
         this.buildCommands()
         view.commands = commands
         view.toolbar.build()
-        grid.toolbarH = (view.toolbar.heightFor(W))
-        grid.setBounds(0 0 W (H - statusH))
+        this.layoutFrame()
     }
 
     ; A face, from bytes. The first one loaded becomes the family the grid
@@ -1249,7 +1260,88 @@ class GridApp {
         return false
     }
 
+    ; The frame: what of the chrome is shown decides where the grid starts and
+    ; how much of the window it gets. One place, because the toolbar's height
+    ; depends on the width and every resize and render has to settle it.
+    fn layoutFrame:void () {
+        if showToolbar {
+            grid.toolbarH = (view.toolbar.heightFor(W))
+        } {
+            grid.toolbarH = 0
+        }
+        if showFormulaBar {
+            grid.formulaBarH = 32
+        } {
+            grid.formulaBarH = 0
+        }
+        if showSheetTabs {
+            grid.sheetTabH = 26
+        } {
+            grid.sheetTabH = 0
+        }
+        if showStatus {
+            statusH = 22
+        } {
+            statusH = 0
+        }
+        grid.setBounds(0 0 W (H - statusH))
+    }
+
+    fn setChrome:void (toolbar:boolean formulaBar:boolean sheetTabs:boolean status:boolean) {
+        showToolbar = toolbar
+        showFormulaBar = formulaBar
+        showSheetTabs = sheetTabs
+        showStatus = status
+        this.layoutFrame()
+        grid.updateVisible(model)
+    }
+
+    fn setReadOnly:void (on:boolean) {
+        if (on && editing) {
+            this.cancelEdit()
+        }
+        readOnly = on
+    }
+
+    ; What a read-only workbook still answers to: moving, selecting, looking,
+    ; copying out, and the views (sort, filter, freeze, theme) that change how
+    ; the sheet is shown and not what is in it.
+    sfn viewOnlyCommand:boolean (id:string) {
+        def keep:[string] ([] _:string ("nav." "select." "view." "edit.copy" "edit.find" "chart.copy" "file.saveAs" "file.print" "file.open" "data.sort." "data.filter." "format.autofit." "sheet.next" "sheet.prev" "script.run" "script.next" "script.close" "script.page." "script.zoom." "script.export."))
+        def i:int 0
+        while (i < (array_length keep)) {
+            def k:string (itemAt keep i)
+            if ((strlen id) >= (strlen k)) {
+                if ((substring id 0 (strlen k)) == k) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn viewOnlyChords:string (t:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen t)) {
+            def ch:int (charAt t i)
+            ; a, c, f in either case
+            if ((ch == 97) || (ch == 65) || (ch == 99) || (ch == 67) || (ch == 102) || (ch == 70)) {
+                out = (out + (substring t i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     fn runCommand:boolean (id:string arg:string) {
+        if readOnly {
+            if ((GridApp.viewOnlyCommand(id)) == false) {
+                view.status = "Read-only"
+                return false
+            }
+        }
         ; Printing is the host's: this program can lay a sheet out and draw
         ; it, and it has no idea what printers exist. `fileRequest` is the
         ; same channel saving already goes out on, and a host that does not
@@ -3324,6 +3416,10 @@ class GridApp {
             return
         }
         def col:int view.menuCol
+        if (readOnly && (action >= 8)) {
+            this.closeHeaderMenu()
+            return
+        }
         if (action == 1) {
             this.applySort(col true)
         }
@@ -3374,6 +3470,10 @@ class GridApp {
 
     fn runRowMenu:void (action:int) {
         def row:int view.menuRow
+        if (readOnly && (action >= 5)) {
+            this.closeHeaderMenu()
+            return
+        }
         if (row < 0) {
             this.closeHeaderMenu()
             return
@@ -5465,6 +5565,9 @@ class GridApp {
 
     ; Replace in the active cell if it matches, then move on — Excel's Replace.
     fn replaceCurrent:boolean () {
+        if readOnly {
+            return false
+        }
         def r:int sel.active.row
         def c:int sel.active.col
         def before:string (this.searchTextAt(model r c))
@@ -5496,6 +5599,9 @@ class GridApp {
     }
 
     fn replaceAll:int () {
+        if readOnly {
+            return 0
+        }
         if ((strlen findQuery) == 0) {
             findStatus = "nothing to find"
             return 0
@@ -5863,8 +5969,7 @@ class GridApp {
         ; it and the buttons that no longer fit wrapped onto a row painted
         ; BELOW the strip, over the formula bar; widen it and a band of empty
         ; chrome sat where a row used to be.
-        grid.toolbarH = (view.toolbar.heightFor(W))
-        grid.setBounds(0 0 W (H - statusH))
+        this.layoutFrame()
         grid.updateVisible(model)
     }
 
@@ -5890,6 +5995,9 @@ class GridApp {
     ; Ctrl+Z / Ctrl+Y: undo or redo one whole action (paste and fill count as
     ; one), re-register the restored formulas, then recalculate.
     fn undoEdit:void () {
+        if readOnly {
+            return
+        }
         if editing {
             this.cancelEdit()
         }
@@ -5912,6 +6020,9 @@ class GridApp {
     }
 
     fn redoEdit:void () {
+        if readOnly {
+            return
+        }
         if editing {
             this.cancelEdit()
         }
@@ -6581,6 +6692,9 @@ class GridApp {
     }
 
     fn beginEdit:void (seed:string clearFirst:boolean) {
+        if readOnly {
+            return
+        }
         editSelAnchor = -1
         this.clearFormulaPick()
         if clearFirst {
@@ -6600,6 +6714,9 @@ class GridApp {
     }
 
     fn beginFormulaBarEdit:void () {
+        if readOnly {
+            return
+        }
         if (editing == false) {
             this.clearFormulaPick()
             editBuf = (model.formulaBarText(sel.active.row sel.active.col))
@@ -7376,6 +7493,9 @@ class GridApp {
     ; block pastes without ref translation (Excel moves formulas as written).
     ; Formulas elsewhere that pointed at the moved cells are not rewritten.
     fn cutSelection:void () {
+        if readOnly {
+            return
+        }
         this.copySelection()
         this.clearSelection()
         clipCut = true
@@ -7398,6 +7518,9 @@ class GridApp {
     }
 
     fn pasteClipboard:void () {
+        if readOnly {
+            return
+        }
         if editing {
             this.commitEdit()
         }
@@ -7558,6 +7681,9 @@ class GridApp {
     ; selection is several rectangles and Delete has to clear all of them, in
     ; one transaction, so it is one Ctrl+Z.
     fn clearSelection:void () {
+        if readOnly {
+            return
+        }
         model.beginTx()
         def i:int 0
         while (i < (sel.rangeCount())) {
@@ -7748,9 +7874,12 @@ class GridApp {
         def onFill:boolean false
         if (editing == false) {
             onFill = (grid.hitFillHandle(model sel input.pointerX input.pointerY))
+            if readOnly {
+                onFill = false
+            }
         }
         if (editing == false) {
-            if (onFill == false) {
+            if ((onFill == false) && (readOnly == false)) {
                 if ((sel.isSingle()) == false) {
                     if (grid.hitSelectionEdge(model sel input.pointerX input.pointerY)) {
                         def start:CellPos (grid.hitTest(model input.pointerX input.pointerY))
@@ -7812,7 +7941,7 @@ class GridApp {
                         ; …and a header is also a handle. Armed, not carried:
                         ; the pointer has to travel before a click on a header
                         ; stops meaning "select this column".
-                        if (input.ctrlDown == false) {
+                        if ((input.ctrlDown == false) && (readOnly == false)) {
                             colDragArmed = true
                             colDragFrom = hit.col
                             colDragTo = hit.col
@@ -8207,6 +8336,12 @@ class GridApp {
     }
 
     fn update:void (input:UIInput) {
+        ; A read-only sheet answers the chords that look (select all, copy,
+        ; find) and none of the ones that write. Filtered here, once, rather
+        ; than at each of the twenty places a chord lands.
+        if (readOnly && input.ctrlDown) {
+            input.textInput = (GridApp.viewOnlyChords(input.textInput))
+        }
         ; The window may be showing more sheet than the sheet has. Cheap when
         ; it is not, which is almost always.
         this.ensureViewportFilled()
@@ -8284,7 +8419,7 @@ class GridApp {
                 view.focused = true
                 ; Armed, not yet carried: a press on a tab is a click until
                 ; the pointer has moved far enough that it cannot be one.
-                tabDragArmed = true
+                tabDragArmed = (readOnly == false)
                 tabDragFrom = tab
                 tabDragStartX = input.pointerX
             } {
@@ -8711,7 +8846,7 @@ class GridApp {
         ; The band is as tall as the page showing on it needs, and pages
         ; differ. Settling this only on resize leaves the strip short after a
         ; page change.
-        grid.toolbarH = (view.toolbar.heightFor(W))
+        this.layoutFrame()
         view.render(model sel grid editing editBuf book)
     }
 
@@ -8769,5 +8904,155 @@ class GridApp {
             return editBuf
         }
         return (model.getCell(sel.active.row sel.active.col))
+    }
+
+    ; --- what a host's own chrome reads -----------------------------------------
+    ; One JSON object with everything a toolbar drawn by someone else needs to
+    ; show the truth: which toggles are on under the caret, the font, the
+    ; sheets, whether there is anything to undo, and the selection's sum.
+    ; Read after each input, so a host's Bold button is pressed exactly when
+    ; this program's own would have been.
+    sfn jsonBool:string (b:boolean) {
+        if b {
+            return "true"
+        }
+        return "false"
+    }
+
+    sfn jsonStr:string (s:string) {
+        return ("\"" + (ChartData.jsonEscape(s)) + "\"")
+    }
+
+    fn stateJson:string () {
+        def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        def o:string "{"
+        o = (o + "\"cell\":" + (GridApp.jsonStr((this.activeLabel()))))
+        o = (o + ",\"row\":" + (to_string sel.active.row))
+        o = (o + ",\"col\":" + (to_string sel.active.col))
+        o = (o + ",\"formula\":" + (GridApp.jsonStr((model.formulaBarText(sel.active.row sel.active.col)))))
+        o = (o + ",\"display\":" + (GridApp.jsonStr((model.getDisplay(sel.active.row sel.active.col)))))
+        o = (o + ",\"editing\":" + (GridApp.jsonBool(editing)))
+        o = (o + ",\"editText\":" + (GridApp.jsonStr(editBuf)))
+        o = (o + ",\"readOnly\":" + (GridApp.jsonBool(readOnly)))
+        o = (o + ",\"bold\":" + (GridApp.jsonBool(st.bold)))
+        o = (o + ",\"italic\":" + (GridApp.jsonBool(st.italic)))
+        o = (o + ",\"underline\":" + (GridApp.jsonBool(st.underline)))
+        o = (o + ",\"strike\":" + (GridApp.jsonBool(st.strike)))
+        o = (o + ",\"wrap\":" + (GridApp.jsonBool(st.wrapText)))
+        o = (o + ",\"align\":" + (GridApp.jsonStr(st.align)))
+        o = (o + ",\"alignSet\":" + (GridApp.jsonBool(st.alignSet)))
+        o = (o + ",\"valign\":" + (GridApp.jsonStr(st.valign)))
+        o = (o + ",\"font\":" + (GridApp.jsonStr(st.fontName)))
+        o = (o + ",\"size\":" + (to_string st.fontSizePt))
+        o = (o + ",\"color\":" + (GridApp.jsonStr(st.textRgb)))
+        o = (o + ",\"fill\":" + (GridApp.jsonStr(st.fillRgb)))
+        o = (o + ",\"numFmt\":" + (GridApp.jsonStr(st.numFmt)))
+        o = (o + ",\"merged\":" + (GridApp.jsonBool(((strlen (model.mergeAt(sel.active.row sel.active.col))) > 0))))
+        o = (o + ",\"freezeRows\":" + (to_string model.freezeRows))
+        o = (o + ",\"freezeCols\":" + (to_string model.freezeCols))
+        o = (o + ",\"canUndo\":" + (GridApp.jsonBool((model.history.canUndo()))))
+        o = (o + ",\"canRedo\":" + (GridApp.jsonBool((model.history.canRedo()))))
+        o = (o + ",\"theme\":" + (GridApp.jsonStr((this.themeName()))))
+        o = (o + ",\"rtl\":" + (GridApp.jsonBool(uiRtl)))
+        o = (o + ",\"status\":" + (GridApp.jsonStr(view.status)))
+        o = (o + ",\"source\":" + (GridApp.jsonStr(book.sourcePath)))
+        o = (o + ",\"activeSheet\":" + (to_string book.activeIndex))
+        o = (o + ",\"sheets\":[")
+        def i:int 0
+        while (i < (book.sheetCount())) {
+            def sh:SpreadsheetModel (book.sheetAt(i))
+            if (i > 0) {
+                o = (o + ",")
+            }
+            o = (o + (GridApp.jsonStr(sh.name)))
+            i = (i + 1)
+        }
+        o = (o + "]")
+        o = (o + (this.selectionStatsJson()))
+        o = (o + ",\"modal\":" + (GridApp.jsonBool((windows.anyModalVisible()))))
+        o = (o + "}")
+        return o
+    }
+
+    ; Count, numeric count, sum, min and max of what is selected — the line a
+    ; spreadsheet's status bar is for. Capped: a selected whole column is a
+    ; million cells, and the answer to "sum of a column" is not worth a frame.
+    fn selectionStatsJson:string () {
+        def count:int 0
+        def nums:int 0
+        def sum:double 0.0
+        def mn:double 0.0
+        def mx:double 0.0
+        def seen:int 0
+        def capped:boolean false
+        def lastR:int (model.usedRow())
+        def lastC:int (model.usedCol())
+        def cells:int 0
+        def ri:int 0
+        while (ri < (sel.rangeCount())) {
+            def g:GridRange (sel.rangeAt(ri))
+            def r0:int g.r0
+            def r1:int g.r1
+            def c0:int g.c0
+            def c1:int g.c1
+            if (r0 > r1) {
+                def t:int r0
+                r0 = r1
+                r1 = t
+            }
+            if (c0 > c1) {
+                def t2:int c0
+                c0 = c1
+                c1 = t2
+            }
+            cells = (cells + (((r1 - r0) + 1) * ((c1 - c0) + 1)))
+            if (r1 > lastR) {
+                r1 = lastR
+            }
+            if (c1 > lastC) {
+                c1 = lastC
+            }
+            def r:int r0
+            while ((r <= r1) && (capped == false)) {
+                def c:int c0
+                while (c <= c1) {
+                    seen = (seen + 1)
+                    if (seen > 50000) {
+                        capped = true
+                        break
+                    }
+                    def raw:string (trim (model.getCell(r c)))
+                    if ((strlen raw) > 0) {
+                        count = (count + 1)
+                        if (ChartData.looksNumeric(raw)) {
+                            def v:double (ConditionalFormat.cellNumber(model r c))
+                            if (nums == 0) {
+                                mn = v
+                                mx = v
+                            }
+                            if (v < mn) {
+                                mn = v
+                            }
+                            if (v > mx) {
+                                mx = v
+                            }
+                            sum = (sum + v)
+                            nums = (nums + 1)
+                        }
+                    }
+                    c = (c + 1)
+                }
+                r = (r + 1)
+            }
+            ri = (ri + 1)
+        }
+        def o:string (",\"selCells\":" + (to_string cells))
+        o = (o + ",\"selCount\":" + (to_string count))
+        o = (o + ",\"selNumbers\":" + (to_string nums))
+        o = (o + ",\"selSum\":" + (to_string sum))
+        o = (o + ",\"selMin\":" + (to_string mn))
+        o = (o + ",\"selMax\":" + (to_string mx))
+        o = (o + ",\"selCapped\":" + (GridApp.jsonBool(capped)))
+        return o
     }
 }

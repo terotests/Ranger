@@ -312,6 +312,10 @@ class GridView {
         dl.addClipEnd()
     }
 
+    sfn nearBlack:boolean (c:EVGColor) {
+        return (((c.r + c.g) + c.b) < 64.0)
+    }
+
     fn colorOr:EVGColor (hex:string fallback:EVGColor) {
         if ((strlen hex) >= 4) {
             return (EVGColor.parse(hex))
@@ -756,8 +760,21 @@ class GridView {
         def linked:boolean (model.hasHyperlink(r c))
         if ((strlen txt) > 0) {
             def col:EVGColor theme.cellText
+            ; On the dark sheet the automatic text colour is light, which is
+            ; wrong on a cell the workbook (or a rule) filled: that fill was
+            ; picked for black text, so black it gets.
+            def filled:boolean (((strlen cfFill) > 0) || (st.hasFill && ((strlen st.fillRgb) >= 4)))
+            if ((theme.name == "dark") && filled) {
+                col = (EVGColor.rgb(17 24 39))
+            }
             if ((strlen st.textRgb) >= 4) {
                 col = (EVGColor.parse(st.textRgb))
+                ; …and black text on NO fill is the workbook's "automatic"
+                ; colour written out, not a choice — Excel's own dark mode
+                ; turns it too.
+                if ((theme.name == "dark") && (filled == false) && (GridView.nearBlack(col))) {
+                    col = theme.cellText
+                }
             }
             if linked {
                 col = theme.linkText
@@ -1287,81 +1304,86 @@ class GridView {
             this.paintToolbar(dl model sel grid)
         }
 
-        ; --- formula bar ---
-        ; Grey chrome + white name/formula inputs (Excel-style). The field used
-        ; to share formulaBg with the bar, so it read as a static label.
-        def fbY:int (grid.formulaBarY())
-        this.pushRect(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) theme.statusBg)
-        def addr:string (SpreadsheetModel.cellLabel(sel.active.row sel.active.col))
-        def shown:string (model.formulaBarText(sel.active.row sel.active.col))
-        if editing {
-            shown = editBuf
-        }
-        def formulaEdit:boolean false
-        if editing {
-            if ((strlen editBuf) > 0) {
-                if ((charAt editBuf 0) == 61) {
-                    formulaEdit = true
-                }
-            }
-        }
+        ; A host that draws its own formula bar sets the height to zero, and then
+        ; nothing of this one is drawn — not even its text in a zero-high strip.
         caretInFormulaBar = false
-        if editing {
-            if editInFormulaBar {
-                caretInFormulaBar = true
+        if (grid.formulaBarH > 0) {
+            ; --- formula bar ---
+            ; Grey chrome + white name/formula inputs (Excel-style). The field used
+            ; to share formulaBg with the bar, so it read as a static label.
+            def fbY:int (grid.formulaBarY())
+            this.pushRect(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) theme.statusBg)
+            def addr:string (SpreadsheetModel.cellLabel(sel.active.row sel.active.col))
+            def shown:string (model.formulaBarText(sel.active.row sel.active.col))
+            if editing {
+                shown = editBuf
             }
-            if formulaEdit {
-                caretInFormulaBar = true
-            }
-        }
-        def addrBoxW:int 64
-        def addrX:int (grid.x + 4)
-        def fieldX:int ((grid.x + addrBoxW) + 10)
-        def fieldW:int ((grid.w - addrBoxW) - 18)
-        def fieldY:int (fbY + 3)
-        def fieldH:int (grid.formulaBarH - 6)
-        def nameEdge:EVGColor theme.gridLine
-        def fieldEdge:EVGColor (EVGColor.rgb(160 170 185))
-        if editing {
-            fieldEdge = theme.activeBorder
-            if editInFormulaBar {
-                nameEdge = theme.activeBorder
-            }
-        }
-        this.pushRect(dl (to_double addrX) (to_double fieldY) (to_double addrBoxW) (to_double fieldH) (EVGColor.rgb(255 255 255)))
-        this.pushBorder(dl (to_double addrX) (to_double fieldY) (to_double addrBoxW) (to_double fieldH) 1.0 nameEdge)
-        this.pushText(dl addr (to_double (addrX + 6)) (to_double (fieldY + 3)) 12.0 theme.headerText)
-        this.pushRect(dl (to_double fieldX) (to_double fieldY) (to_double fieldW) (to_double fieldH) (EVGColor.rgb(255 255 255)))
-        this.pushBorder(dl (to_double fieldX) (to_double fieldY) (to_double fieldW) (to_double fieldH) 1.0 fieldEdge)
-        fbFieldX = fieldX
-        fbFieldY = fieldY
-        fbFieldW = fieldW
-        fbFieldH = fieldH
-        fbTextX = (fieldX + 6)
-        fbTextY = (fieldY + 3)
-        fbFontSize = 13.0
-        if caretInFormulaBar {
-            this.paintTextSelection(dl shown (fieldX + 6) (fieldY + 3) 13.0 (fieldH - 6))
-        }
-        this.paintFormulaBarText(dl shown (fieldX + 6) (fieldY + 3) 13.0)
-        ; Formula edits always put the solid caret here, even when editing was
-        ; entered from the cell (F2 / typing). There must be only one caret.
-        if caretInFormulaBar {
-            def upTo:string shown
-            def cn:int (strlen shown)
-            if (editCaret < cn) {
-                def cc:int editCaret
-                if (cc < 0) {
-                    cc = 0
+            def formulaEdit:boolean false
+            if editing {
+                if ((strlen editBuf) > 0) {
+                    if ((charAt editBuf 0) == 61) {
+                        formulaEdit = true
+                    }
                 }
-                upTo = (substring shown 0 cc)
             }
-            def ew:int (to_int (ctx.tr.measureWidth(upTo 13.0)))
-            ; One pixel of visual gap keeps the caret after, not over, a glyph.
-            def caretX:int (((fieldX + 6) + ew) + 1)
-            this.pushRect(dl (to_double caretX) (to_double (fieldY + 3)) 2.0 (to_double (fieldH - 6)) theme.activeBorder)
+            caretInFormulaBar = false
+            if editing {
+                if editInFormulaBar {
+                    caretInFormulaBar = true
+                }
+                if formulaEdit {
+                    caretInFormulaBar = true
+                }
+            }
+            def addrBoxW:int 64
+            def addrX:int (grid.x + 4)
+            def fieldX:int ((grid.x + addrBoxW) + 10)
+            def fieldW:int ((grid.w - addrBoxW) - 18)
+            def fieldY:int (fbY + 3)
+            def fieldH:int (grid.formulaBarH - 6)
+            def nameEdge:EVGColor theme.gridLine
+            def fieldEdge:EVGColor (EVGColor.rgb(160 170 185))
+            if editing {
+                fieldEdge = theme.activeBorder
+                if editInFormulaBar {
+                    nameEdge = theme.activeBorder
+                }
+            }
+            this.pushRect(dl (to_double addrX) (to_double fieldY) (to_double addrBoxW) (to_double fieldH) theme.formulaBg)
+            this.pushBorder(dl (to_double addrX) (to_double fieldY) (to_double addrBoxW) (to_double fieldH) 1.0 nameEdge)
+            this.pushText(dl addr (to_double (addrX + 6)) (to_double (fieldY + 3)) 12.0 theme.headerText)
+            this.pushRect(dl (to_double fieldX) (to_double fieldY) (to_double fieldW) (to_double fieldH) theme.formulaBg)
+            this.pushBorder(dl (to_double fieldX) (to_double fieldY) (to_double fieldW) (to_double fieldH) 1.0 fieldEdge)
+            fbFieldX = fieldX
+            fbFieldY = fieldY
+            fbFieldW = fieldW
+            fbFieldH = fieldH
+            fbTextX = (fieldX + 6)
+            fbTextY = (fieldY + 3)
+            fbFontSize = 13.0
+            if caretInFormulaBar {
+                this.paintTextSelection(dl shown (fieldX + 6) (fieldY + 3) 13.0 (fieldH - 6))
+            }
+            this.paintFormulaBarText(dl shown (fieldX + 6) (fieldY + 3) 13.0)
+            ; Formula edits always put the solid caret here, even when editing was
+            ; entered from the cell (F2 / typing). There must be only one caret.
+            if caretInFormulaBar {
+                def upTo:string shown
+                def cn:int (strlen shown)
+                if (editCaret < cn) {
+                    def cc:int editCaret
+                    if (cc < 0) {
+                        cc = 0
+                    }
+                    upTo = (substring shown 0 cc)
+                }
+                def ew:int (to_int (ctx.tr.measureWidth(upTo 13.0)))
+                ; One pixel of visual gap keeps the caret after, not over, a glyph.
+                def caretX:int (((fieldX + 6) + ew) + 1)
+                this.pushRect(dl (to_double caretX) (to_double (fieldY + 3)) 2.0 (to_double (fieldH - 6)) theme.activeBorder)
+            }
+            this.pushBorder(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) 1.0 theme.gridLine)
         }
-        this.pushBorder(dl (to_double grid.x) (to_double fbY) (to_double grid.w) (to_double grid.formulaBarH) 1.0 theme.gridLine)
 
         def headerTop:int (grid.headerTop())
         def bodyLeft:int (grid.x + grid.rowHeaderW)
@@ -1749,79 +1771,82 @@ class GridView {
             }
         }
 
-        ; sheet tabs
-        def tabY:int (grid.sheetTabY())
-        this.pushRect(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) theme.headerBg)
-        ; A tab is as wide as its name, between a minimum and a maximum. It used
-        ; to be a fixed 88 pixels with the name drawn into it unmeasured, so
-        ; anything longer than "Forecast" ran out of its own tab and across the
-        ; next one. Past the maximum the name is cut and given an ellipsis —
-        ; the whole name is still in the status bar.
-        def si:int 0
-        def sn:int (book.sheetCount())
-        def minTabW:int 64
-        def maxTabW:int 190
-        def tabPad:int 10
-        def tabX:int grid.x
-        grid.clearTabLayout()
-        this.applyFaceStyled(false false)
-        while (si < sn) {
-            def sheet:SpreadsheetModel (book.sheetAt(si))
-            if sheet.sheetHidden {
-                si = (si + 1)
-            } {
-                def nm:string sheet.name
-                if ((strlen nm) == 0) {
-                    nm = ("Sheet" + (to_string (si + 1)))
-                }
-                def shown:string (GridView.fitLabel(ctx.tr nm 12.0 (maxTabW - (tabPad * 2))))
-                def textW:int (to_int (ctx.tr.measureWidth(shown 12.0)))
-                def tabW:int (textW + (tabPad * 2))
-                if (tabW < minTabW) {
-                    tabW = minTabW
-                }
-                if (tabW > maxTabW) {
-                    tabW = maxTabW
-                }
-                ; A tab that would hang off the right edge is not drawn at all
-                ; rather than half drawn.
-                if ((tabX + tabW) > (grid.x + grid.w)) {
-                    si = sn
-                } {
-                    if (si == book.activeIndex) {
-                        this.pushRect(dl (to_double tabX) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.formulaBg)
-                    }
-                    ; The tab you are carrying is greyed where it came from,
-                    ; the way a dragged column header is: the strip has to
-                    ; show that this one has been picked up.
-                    if (si == tabDragFrom) {
-                        this.pushRect(dl (to_double tabX) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.selection)
-                    }
-                    this.pushText(dl shown (to_double (tabX + tabPad)) (to_double (tabY + 5)) 12.0 theme.headerText)
-                    this.pushRect(dl (to_double ((tabX + tabW) - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
-                    grid.addTabLayout(si tabX tabW)
-                    tabX = (tabX + tabW)
+        ; Likewise the tabs, for a host with its own sheet switcher.
+        if (grid.sheetTabH > 0) {
+            ; sheet tabs
+            def tabY:int (grid.sheetTabY())
+            this.pushRect(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) theme.headerBg)
+            ; A tab is as wide as its name, between a minimum and a maximum. It used
+            ; to be a fixed 88 pixels with the name drawn into it unmeasured, so
+            ; anything longer than "Forecast" ran out of its own tab and across the
+            ; next one. Past the maximum the name is cut and given an ellipsis —
+            ; the whole name is still in the status bar.
+            def si:int 0
+            def sn:int (book.sheetCount())
+            def minTabW:int 64
+            def maxTabW:int 190
+            def tabPad:int 10
+            def tabX:int grid.x
+            grid.clearTabLayout()
+            this.applyFaceStyled(false false)
+            while (si < sn) {
+                def sheet:SpreadsheetModel (book.sheetAt(si))
+                if sheet.sheetHidden {
                     si = (si + 1)
+                } {
+                    def nm:string sheet.name
+                    if ((strlen nm) == 0) {
+                        nm = ("Sheet" + (to_string (si + 1)))
+                    }
+                    def shown:string (GridView.fitLabel(ctx.tr nm 12.0 (maxTabW - (tabPad * 2))))
+                    def textW:int (to_int (ctx.tr.measureWidth(shown 12.0)))
+                    def tabW:int (textW + (tabPad * 2))
+                    if (tabW < minTabW) {
+                        tabW = minTabW
+                    }
+                    if (tabW > maxTabW) {
+                        tabW = maxTabW
+                    }
+                    ; A tab that would hang off the right edge is not drawn at all
+                    ; rather than half drawn.
+                    if ((tabX + tabW) > (grid.x + grid.w)) {
+                        si = sn
+                    } {
+                        if (si == book.activeIndex) {
+                            this.pushRect(dl (to_double tabX) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.formulaBg)
+                        }
+                        ; The tab you are carrying is greyed where it came from,
+                        ; the way a dragged column header is: the strip has to
+                        ; show that this one has been picked up.
+                        if (si == tabDragFrom) {
+                            this.pushRect(dl (to_double tabX) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.selection)
+                        }
+                        this.pushText(dl shown (to_double (tabX + tabPad)) (to_double (tabY + 5)) 12.0 theme.headerText)
+                        this.pushRect(dl (to_double ((tabX + tabW) - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
+                        grid.addTabLayout(si tabX tabW)
+                        tabX = (tabX + tabW)
+                        si = (si + 1)
+                    }
                 }
             }
+            ; The new-sheet button, after the last tab. Excel's plus, in Excel's
+            ; place, doing Excel's thing — a sheet after the one you are on.
+            def plusW:int 26
+            if ((tabX + plusW) <= (grid.x + grid.w)) {
+                grid.setTabPlus(tabX plusW)
+                def pcx:int (tabX + (idiv plusW 2))
+                def pcy:int (tabY + (idiv grid.sheetTabH 2))
+                this.pushRect(dl (to_double (pcx - 5)) (to_double pcy) 11.0 1.0 theme.headerText)
+                this.pushRect(dl (to_double pcx) (to_double (pcy - 5)) 1.0 11.0 theme.headerText)
+                this.pushRect(dl (to_double ((tabX + plusW) - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
+            }
+            ; Where a carried tab would land.
+            if (tabDropSlot >= 0) {
+                def dropX:int (grid.tabSlotX(tabDropSlot))
+                this.pushRect(dl (to_double (dropX - 1)) (to_double tabY) 2.0 (to_double grid.sheetTabH) theme.activeBorder)
+            }
+            this.pushBorder(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) 1.0 theme.gridLine)
         }
-        ; The new-sheet button, after the last tab. Excel's plus, in Excel's
-        ; place, doing Excel's thing — a sheet after the one you are on.
-        def plusW:int 26
-        if ((tabX + plusW) <= (grid.x + grid.w)) {
-            grid.setTabPlus(tabX plusW)
-            def pcx:int (tabX + (idiv plusW 2))
-            def pcy:int (tabY + (idiv grid.sheetTabH 2))
-            this.pushRect(dl (to_double (pcx - 5)) (to_double pcy) 11.0 1.0 theme.headerText)
-            this.pushRect(dl (to_double pcx) (to_double (pcy - 5)) 1.0 11.0 theme.headerText)
-            this.pushRect(dl (to_double ((tabX + plusW) - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
-        }
-        ; Where a carried tab would land.
-        if (tabDropSlot >= 0) {
-            def dropX:int (grid.tabSlotX(tabDropSlot))
-            this.pushRect(dl (to_double (dropX - 1)) (to_double tabY) 2.0 (to_double grid.sheetTabH) theme.activeBorder)
-        }
-        this.pushBorder(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) 1.0 theme.gridLine)
 
         ; outer chrome
         this.pushBorder(dl (to_double grid.x) (to_double grid.y) (to_double grid.w) (to_double grid.h) 1.0 theme.gridLine)
@@ -2216,16 +2241,25 @@ class GridView {
             toolbar.a11y(t "app" "app" grid.x tby grid.w grid.toolbarH)
         }
 
-        this.a11yFormulaBar(t model sel grid editing editBuf)
+        if (grid.formulaBarH > 0) {
+            this.a11yFormulaBar(t model sel grid editing editBuf)
+        }
         this.a11yGrid(t model sel grid editing editBuf)
-        this.a11ySheetTabs(t grid book)
+        if (grid.sheetTabH > 0) {
+            this.a11ySheetTabs(t grid book)
+        }
 
         ; What has just happened, for things with no anchor on screen: a file
         ; opened, a sort applied, a recalculation finished. Polite, because
         ; assertive interrupts whatever is being read and that is for errors.
         def st:EVGA11yNode (t.statusRegion("app/status" "app" status))
-        def sy:int (pageH - 22)
-        t.place(st 0 sy pageW 22)
+        ; Without a status bar of its own the region is still there — a host
+        ; drawing its own announces nothing unless this says it — but it has
+        ; no rectangle to claim.
+        if ((grid.y + grid.h) < pageH) {
+            def sy:int (pageH - 22)
+            t.place(st 0 sy pageW 22)
+        }
 
         ; Dialogs and panels last, so they are the innermost thing a reader
         ; walks into — and each says whether it is modal.
@@ -2434,7 +2468,7 @@ class GridView {
         def rowNum:string (to_string (sel.active.row + 1))
         def cellId:string ("app/grid/row:" + rowNum + "/" + addr)
         if editing {
-            if caretInFormulaBar {
+            if (caretInFormulaBar && (t.has("app/formula"))) {
                 t.setFocus("app/formula")
                 return
             }
