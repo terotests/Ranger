@@ -247,9 +247,14 @@ class GridTest {
         c.ok("view.theme rejects a typo" ((app.runCommand("view.theme" "greeen")) == false))
         c.ok("view.theme.next command" (app.runCommand("view.theme.next" "")))
         c.eqStr("cycled past green" (app.themeName()) "blue")
-        ; …and cycling wraps round the end of the list: blue → red → default.
+        ; …past the two EVGSheets palettes, and cycling wraps round the end of
+        ; the list: blue → red → modern → dark → default.
         app.runCommand("view.theme.next" "")
         c.eqStr("cycled past blue" (app.themeName()) "red")
+        app.runCommand("view.theme.next" "")
+        c.eqStr("cycled past red" (app.themeName()) "modern")
+        app.runCommand("view.theme.next" "")
+        c.eqStr("cycled past modern" (app.themeName()) "dark")
         app.runCommand("view.theme.next" "")
         c.eqStr("cycle wraps" (app.themeName()) "default")
         ; Dialogs are tinted from the same accent, and they are built lazily —
@@ -268,6 +273,39 @@ class GridTest {
         c.ok("dialog title back to the classic blue" ((dlg2.theme.titleBg.blue()) > (dlg2.theme.titleBg.green())))
         def themedScene:string (app.sceneJson())
         c.ok("themed sheet still renders" ((strlen themedScene) > 50))
+
+        print "== host chrome: hidden furniture, read-only, state =="
+        ; A host with its own controls turns the built-in ones off, and the
+        ; grid starts at the top of the window and runs to the bottom.
+        app.setChrome(false false false false)
+        c.eqInt("no toolbar" app.grid.toolbarH 0)
+        c.eqInt("no formula bar" app.grid.formulaBarH 0)
+        c.eqInt("no sheet tabs" app.grid.sheetTabH 0)
+        c.eqInt("grid runs to the bottom" app.grid.h app.H)
+        def bareA11y:string (app.a11yJson())
+        c.ok("no formula bar in the reader's tree" ((indexOf bareA11y "app/formulabar") < 0))
+        c.ok("no sheet tabs in the reader's tree" ((indexOf bareA11y "app/sheets") < 0))
+        c.ok("the grid is still there" ((indexOf bareA11y "app/grid") >= 0))
+        ; Read-only: looking works, writing does not.
+        app.gotoCell("A1")
+        app.setReadOnly(true)
+        def before:string (app.model.getCell(0 0))
+        c.ok("a write command is refused" ((app.runCommand("format.bold" "")) == false))
+        c.ok("navigation still runs" (app.runCommand("nav.goto" "B2")))
+        app.beginEdit("x" true)
+        c.ok("no editor opens" (app.editing == false))
+        app.gotoCell("A1")
+        app.clearSelection()
+        c.eqStr("clearing changed nothing" (app.model.getCell(0 0)) before)
+        app.setReadOnly(false)
+        app.setChrome(true true true true)
+        c.ok("chrome comes back" (app.grid.formulaBarH > 0))
+        ; The state a host toolbar reads.
+        app.gotoCell("A1")
+        def stj:string (app.stateJson())
+        c.ok("state names the cell" ((indexOf stj "\"cell\":\"A1\"") >= 0))
+        c.ok("state lists the sheets" ((indexOf stj "\"sheets\":[") >= 0))
+        c.ok("state carries the bold toggle" ((indexOf stj "\"bold\":") >= 0))
 
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

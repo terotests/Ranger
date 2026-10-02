@@ -80,7 +80,7 @@ class GridTheme {
     ; Every theme this build knows, in switch order, space separated. A host
     ; that wants a menu asks for this rather than hard-coding the list.
     sfn themeNames:string () {
-        return "default green blue red"
+        return "default green blue red modern dark"
     }
 
     ; The accent a name stands for. Unknown names give back a transparent
@@ -111,6 +111,14 @@ class GridTheme {
         }
         if (n == "default") {
             this.applyDefault()
+            return true
+        }
+        if (n == "modern") {
+            this.applyModern()
+            return true
+        }
+        if (n == "dark") {
+            this.applyDark()
             return true
         }
         def a:EVGColor (GridTheme.accentFor(n))
@@ -176,6 +184,62 @@ class GridTheme {
         revision = (revision + 1)
     }
 
+    ; The palette EVGSheets draws its EVGUI chrome in: white sheet, slate
+    ; hairlines, one blue accent. Quieter than the default — the chrome around
+    ; the grid carries the colour, so the grid itself does not have to.
+    fn applyModern:void () {
+        name = "modern"
+        accent = (EVGColor.rgb(37 99 235))
+        bg = (EVGColor.rgb(255 255 255))
+        headerBg = (EVGColor.rgb(248 250 252))
+        headerText = (EVGColor.rgb(100 116 139))
+        gridLine = (EVGColor.rgb(226 232 240))
+        cellText = (EVGColor.rgb(15 23 42))
+        formulaBg = (EVGColor.rgb(255 255 255))
+        formulaText = (EVGColor.rgb(15 23 42))
+        selection = (EVGColor.rgba(37 99 235 0.12))
+        linkText = (EVGColor.rgb(29 78 216))
+        noteMark = (EVGColor.rgb(220 38 38))
+        noteBg = (EVGColor.rgb(254 252 232))
+        activeBorder = (EVGColor.rgb(37 99 235))
+        editBg = (EVGColor.rgb(255 255 255))
+        statusBg = (EVGColor.rgb(248 250 252))
+        statusText = (EVGColor.rgb(71 85 105))
+        cornerBg = (EVGColor.rgb(241 245 249))
+        barBg = (EVGColor.rgb(248 250 252))
+        barText = (EVGColor.rgb(71 85 105))
+        barButton = (EVGColor.rgb(241 245 249))
+        revision = (revision + 1)
+    }
+
+    ; The same layout at night. Cell text a workbook left at its default turns
+    ; light with the sheet; a fill or a colour the workbook chose is its own
+    ; and stays what it was.
+    fn applyDark:void () {
+        name = "dark"
+        accent = (EVGColor.rgb(96 165 250))
+        bg = (EVGColor.rgb(17 24 39))
+        headerBg = (EVGColor.rgb(31 41 55))
+        headerText = (EVGColor.rgb(156 163 175))
+        gridLine = (EVGColor.rgb(55 65 81))
+        cellText = (EVGColor.rgb(229 231 235))
+        formulaBg = (EVGColor.rgb(17 24 39))
+        formulaText = (EVGColor.rgb(229 231 235))
+        selection = (EVGColor.rgba(96 165 250 0.22))
+        linkText = (EVGColor.rgb(147 197 253))
+        noteMark = (EVGColor.rgb(248 113 113))
+        noteBg = (EVGColor.rgb(66 56 24))
+        activeBorder = (EVGColor.rgb(96 165 250))
+        editBg = (EVGColor.rgb(30 41 59))
+        statusBg = (EVGColor.rgb(31 41 55))
+        statusText = (EVGColor.rgb(209 213 219))
+        cornerBg = (EVGColor.rgb(31 41 55))
+        barBg = (EVGColor.rgb(31 41 55))
+        barText = (EVGColor.rgb(209 213 219))
+        barButton = (EVGColor.rgb(55 65 81))
+        revision = (revision + 1)
+    }
+
     ; One accent → a whole palette. The tints climb toward white in the order
     ; the chrome stacks: page, status strip, header, corner, rule.
     fn applyAccent:void (id:string tone:EVGColor) {
@@ -219,6 +283,12 @@ class GridTheme {
     ; not still wearing the default blue.
     fn tintWindow:void (wt:EVGWindowTheme) {
         if (name == "default") {
+            wt.titleText = (EVGColor.rgb(255 255 255))
+            wt.text = (EVGColor.rgb(32 38 48))
+            wt.muted = (EVGColor.rgb(120 130 145))
+            wt.fieldBg = (EVGColor.rgb(255 255 255))
+            wt.toolBg = (EVGColor.rgb(255 255 255))
+            wt.toolIcon = (EVGColor.rgb(74 84 98))
             wt.panel = (EVGColor.rgb(252 253 255))
             wt.titleBg = (EVGColor.rgb(31 78 121))
             wt.border = (EVGColor.rgb(70 110 160))
@@ -228,6 +298,46 @@ class GridTheme {
             wt.hairline = (EVGColor.rgb(206 212 222))
             return
         }
+        if (name == "modern") {
+            wt.panel = (EVGColor.rgb(255 255 255))
+            wt.titleBg = (EVGColor.rgb(248 250 252))
+            wt.titleText = (EVGColor.rgb(15 23 42))
+            wt.text = (EVGColor.rgb(15 23 42))
+            wt.muted = (EVGColor.rgb(100 116 139))
+            wt.border = (EVGColor.rgb(203 213 225))
+            wt.buttonBg = (EVGColor.rgb(241 245 249))
+            wt.buttonHot = (EVGColor.rgb(226 232 240))
+            wt.accent = (EVGColor.rgb(37 99 235))
+            wt.hairline = (EVGColor.rgb(226 232 240))
+            wt.fieldBg = (EVGColor.rgb(255 255 255))
+            wt.toolBg = (EVGColor.rgb(255 255 255))
+            wt.toolIcon = (EVGColor.rgb(71 85 105))
+            return
+        }
+        if (name == "dark") {
+            wt.panel = (EVGColor.rgb(31 41 55))
+            wt.titleBg = (EVGColor.rgb(17 24 39))
+            wt.titleText = (EVGColor.rgb(229 231 235))
+            wt.text = (EVGColor.rgb(229 231 235))
+            wt.muted = (EVGColor.rgb(156 163 175))
+            wt.border = (EVGColor.rgb(75 85 99))
+            wt.buttonBg = (EVGColor.rgb(55 65 81))
+            wt.buttonHot = (EVGColor.rgb(75 85 99))
+            wt.accent = (EVGColor.rgb(96 165 250))
+            wt.hairline = (EVGColor.rgb(55 65 81))
+            wt.fieldBg = (EVGColor.rgb(17 24 39))
+            wt.toolBg = (EVGColor.rgb(31 41 55))
+            wt.toolIcon = (EVGColor.rgb(209 213 219))
+            return
+        }
+        ; Back from modern or dark: the colours those set that an accent does
+        ; not, put back to the window's own.
+        wt.titleText = (EVGColor.rgb(255 255 255))
+        wt.text = (EVGColor.rgb(32 38 48))
+        wt.muted = (EVGColor.rgb(120 130 145))
+        wt.fieldBg = (EVGColor.rgb(255 255 255))
+        wt.toolBg = (EVGColor.rgb(255 255 255))
+        wt.toolIcon = (EVGColor.rgb(74 84 98))
         wt.panel = (accent.lighten(0.975))
         wt.titleBg = (accent.darken(0.28))
         wt.border = (accent.darken(0.05))

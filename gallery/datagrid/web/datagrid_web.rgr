@@ -296,4 +296,19 @@ class DataGridWeb {
     fn activeLabel:string () {
         return (app.activeLabel())
     }
+
+    ; What a host's own toolbar reads to show the truth — see GridApp.stateJson.
+    fn state:string () {
+        return (app.stateJson())
+    }
+
+    ; Which of the built-in chrome is drawn: a host with its own controls turns
+    ; the toolbar, the formula bar, the sheet tabs or the status bar off.
+    fn setChrome:void (toolbar:boolean formulaBar:boolean sheetTabs:boolean status:boolean) {
+        app.setChrome(toolbar formulaBar sheetTabs status)
+    }
+
+    fn setReadOnly:void (on:boolean) {
+        app.setReadOnly(on)
+    }
 }

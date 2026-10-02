@@ -247,6 +247,10 @@ compiler/bin/api.ts
 # scripts) to gallery/evgui to build against this checkout.
 gallery/evgui/
 
+# The spreadsheet editor with EVGUI chrome lives in
+# https://github.com/terotests/EVGSheets and is copied here by its scripts.
+gallery/evgsheets/
+
 # Fetched by npm run deps from the commits ranger.json pins (terotests/evg,
 # terotests/componentengine): they are not edited here. See scripts/deps.mjs.
 /lib/evg/
