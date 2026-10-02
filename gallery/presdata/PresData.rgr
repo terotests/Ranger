@@ -1,0 +1,286 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PresData - chart data for a presentation, from a spreadsheet, as CSV.
+;
+; A chart in a deck can take its rows as JSON, CSV or XLSX. CSV is the form the
+; other two meet in, so a workbook is turned into CSV here and the chart reads
+; one format. The sheet is read through the datagrid's own loader, which keeps
+; a formula cell's cached result, so `=B3*C3` arrives as `54`, not as the
+; formula.
+;
+; What is written:
+;   - every row from 0 to `usedRow()` and every column from 0 to `usedCol()`,
+;     so each line has the same number of fields, blanks included;
+;   - fields quoted when they hold a comma, a quote or a line break, quotes
+;     doubled (RFC 4180); lines end in "\n";
+;   - an empty sheet is the empty string;
+;   - a number with more than 15 significant digits is rounded to 15, as
+;     Excel shows it. The loader recalculates formulas, and 3 * 19.9 comes
+;     back as 59.699999999999996 where Excel's cell says 59.7.
+;
+; `display` picks what a cell says: false writes the stored value (a number
+; stays `0.25`), true writes it through the cell's number format (`25%`).
+; Charts want the first; a table pasted as text wants the second.
+; ==============================================================================
+
+Import "../datagrid/src/xlsx/XlsxLoader.rgr"
+
+class PresData {
+    def lastError:string ""
+
+    ; Quote one field when CSV needs it to.
+    sfn csvField:string (v:string) {
+        def n:int (strlen v)
+        def needs:boolean false
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt v i)
+            if ((ch == 44) || (ch == 34) || (ch == 10) || (ch == 13)) {
+                needs = true
+            }
+            i = (i + 1)
+        }
+        if (needs == false) {
+            return v
+        }
+        def out:string (strfromcode 34)
+        def start:int 0
+        def j:int 0
+        while (j < n) {
+            if ((charAt v j) == 34) {
+                out = (out + (substring v start (j + 1)) + (strfromcode 34))
+                start = (j + 1)
+            }
+            j = (j + 1)
+        }
+        out = (out + (substring v start n) + (strfromcode 34))
+        return out
+    }
+
+    sfn isDigit:boolean (ch:int) {
+        return ((ch >= 48) && (ch <= 57))
+    }
+
+    ; A plain number with more than 15 significant digits, rounded to 15 and
+    ; written without trailing zeros. Anything else, text included, comes back
+    ; unchanged. Done on the digits rather than on a double so every target
+    ; gives the same answer.
+    sfn round15:string (v:string) {
+        def n:int (strlen v)
+        def i:int 0
+        def sign:string ""
+        if ((n > 0) && ((charAt v 0) == 45)) {
+            sign = "-"
+            i = 1
+        }
+        def intStart:int i
+        while ((i < n) && (PresData.isDigit((charAt v i)))) {
+            i = (i + 1)
+        }
+        def intDigits:string (substring v intStart i)
+        def fracDigits:string ""
+        if ((i < n) && ((charAt v i) == 46)) {
+            i = (i + 1)
+            def fracStart:int i
+            while ((i < n) && (PresData.isDigit((charAt v i)))) {
+                i = (i + 1)
+            }
+            fracDigits = (substring v fracStart i)
+        }
+        def rest:string (substring v i n)
+        if ((strlen rest) > 0) {
+            ; Only an exponent may follow: e, an optional sign, digits.
+            def ec:int (charAt rest 0)
+            if ((ec != 101) && (ec != 69)) {
+                return v
+            }
+            def k:int 1
+            if ((k < (strlen rest)) && (((charAt rest k) == 43) || ((charAt rest k) == 45))) {
+                k = (k + 1)
+            }
+            if (k >= (strlen rest)) {
+                return v
+            }
+            while (k < (strlen rest)) {
+                if ((PresData.isDigit((charAt rest k))) == false) {
+                    return v
+                }
+                k = (k + 1)
+            }
+        }
+        def digits:string (intDigits + fracDigits)
+        def total:int (strlen digits)
+        if (total == 0) {
+            return v
+        }
+        def lead:int 0
+        while ((lead < total) && ((charAt digits lead) == 48)) {
+            lead = (lead + 1)
+        }
+        if ((total - lead) <= 15) {
+            return v
+        }
+        def keep:int (lead + 15)
+        def d:[int]
+        def j:int 0
+        while (j < keep) {
+            push d ((charAt digits j) - 48)
+            j = (j + 1)
+        }
+        def point:int (strlen intDigits)
+        if ((charAt digits keep) >= 53) {
+            def at:int (keep - 1)
+            def carry:boolean true
+            while (carry && (at >= 0)) {
+                def nd:int ((itemAt d at) + 1)
+                if (nd == 10) {
+                    set d at 0
+                    at = (at - 1)
+                } {
+                    set d at nd
+                    carry = false
+                }
+            }
+            if carry {
+                def grown:[int]
+                push grown 1
+                def g:int 0
+                while (g < (array_length d)) {
+                    push grown (itemAt d g)
+                    g = (g + 1)
+                }
+                d = grown
+                point = (point + 1)
+            }
+        }
+        def whole:string ""
+        def fraction:string ""
+        def m:int 0
+        while (m < (array_length d)) {
+            if (m < point) {
+                whole = (whole + (to_string (itemAt d m)))
+            } {
+                fraction = (fraction + (to_string (itemAt d m)))
+            }
+            m = (m + 1)
+        }
+        ; Digits dropped from the integer part are zeros, not nothing.
+        while (m < point) {
+            whole = (whole + "0")
+            m = (m + 1)
+        }
+        def wn:int (strlen whole)
+        def ws:int 0
+        while ((ws < (wn - 1)) && ((charAt whole ws) == 48)) {
+            ws = (ws + 1)
+        }
+        whole = (substring whole ws wn)
+        if ((strlen whole) == 0) {
+            whole = "0"
+        }
+        def fe:int (strlen fraction)
+        while ((fe > 0) && ((charAt fraction (fe - 1)) == 48)) {
+            fe = (fe - 1)
+        }
+        fraction = (substring fraction 0 fe)
+        if ((strlen fraction) > 0) {
+            return (sign + whole + "." + fraction + rest)
+        }
+        return (sign + whole + rest)
+    }
+
+    sfn isEmptySheet:boolean (sheet:SpreadsheetModel) {
+        if ((sheet.usedRow()) > 0) {
+            return false
+        }
+        if ((sheet.usedCol()) > 0) {
+            return false
+        }
+        return ((strlen (sheet.getCell(0 0))) == 0)
+    }
+
+    ; The used range of one sheet as CSV.
+    sfn sheetToCsv:string (sheet:SpreadsheetModel display:boolean) {
+        if (PresData.isEmptySheet(sheet)) {
+            return ""
+        }
+        def lastR:int (sheet.usedRow())
+        def lastC:int (sheet.usedCol())
+        def nl:string (strfromcode 10)
+        def out:string ""
+        def r:int 0
+        while (r <= lastR) {
+            def line:string ""
+            def c:int 0
+            while (c <= lastC) {
+                def v:string ""
+                if display {
+                    v = (sheet.getDisplay(r c))
+                } {
+                    v = (PresData.round15((sheet.getCell(r c))))
+                }
+                if (c > 0) {
+                    line = (line + ",")
+                }
+                line = (line + (PresData.csvField(v)))
+                c = (c + 1)
+            }
+            out = (out + line + nl)
+            r = (r + 1)
+        }
+        return out
+    }
+
+    ; Sheet `index` of an opened workbook. Out of range sets lastError.
+    fn workbookToCsv:string (book:WorkbookModel index:int display:boolean) {
+        if ((index < 0) || (index >= (book.sheetCount()))) {
+            lastError = ("no sheet " + (to_string index) + " (the workbook has " + (to_string (book.sheetCount())) + ")")
+            return ""
+        }
+        return (PresData.sheetToCsv((book.sheetAt(index)) display))
+    }
+
+    ; Sheet by name, as the tab shows it.
+    fn workbookSheetToCsv:string (book:WorkbookModel name:string display:boolean) {
+        def at:int (book.indexOfName(name))
+        if (at < 0) {
+            lastError = ("no sheet named " + name)
+            return ""
+        }
+        return (this.workbookToCsv(book at display))
+    }
+
+    ; Open an .xlsx file and return sheet `index` as CSV. On failure the
+    ; result is "" and lastError says why; check lastError, since an empty
+    ; sheet is also "".
+    fn xlsxFileToCsv:string (path:string index:int display:boolean) {
+        lastError = ""
+        def dirs:[string]
+        def names:[string]
+        OpcPackage.splitPath(path dirs names)
+        if ((file_exists (itemAt dirs 0) (itemAt names 0)) == false) {
+            lastError = ("no such file: " + path)
+            return ""
+        }
+        def book:WorkbookModel (new WorkbookModel)
+        def loader:XlsxLoader (new XlsxLoader)
+        if ((loader.loadPath(path book)) == false) {
+            lastError = loader.lastError
+            return ""
+        }
+        return (this.workbookToCsv(book index display))
+    }
+
+    ; The same from bytes, for the browser build, which has no file read.
+    fn xlsxBytesToCsv:string (bytes:buffer index:int display:boolean) {
+        lastError = ""
+        def book:WorkbookModel (new WorkbookModel)
+        def loader:XlsxLoader (new XlsxLoader)
+        if ((loader.loadBytes(bytes book)) == false) {
+            lastError = loader.lastError
+            return ""
+        }
+        return (this.workbookToCsv(book index display))
+    }
+}

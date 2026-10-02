@@ -746,6 +746,7 @@
     "pptx:writer:visual": "bash scripts/rgr-suite.sh ./gallery/pptx/src/pptx_write_visual.rgr ./gallery/pptx/bin pptx_write_visual.js",
     "prepare": "node scripts/deps.mjs",
     "prepublishOnly": "npm run build:dist && npm run test:publish",
+    "presdata:test": "bash gallery/presdata/tools/run_test.sh",
     "r5:web": "bash gallery/r5/web/build.sh",
     "r5:web:serve": "bash gallery/r5/web/build.sh && python3 -m http.server -d gallery/r5/web/dist 8009",
     "r5:web:test": "bash gallery/r5/web/build.sh && node gallery/r5/web/smoke.mjs",
