@@ -643,8 +643,11 @@ class MdVegaRender {
         ; whatever its height may grow by: Vega-Lite's default for a discrete
         ; axis is 20 points a category, so seven months came out as a narrow
         ; column whose names overprinted, and growing both sides by the same
-        ; factor kept it narrow. A pie keeps its square (see `sized`).
-        def fill:boolean (((spec.has("width")) == false) && ((indexOf text "\"arc\"") < 0))
+        ; factor kept it narrow. `"width": "container"` asks for the same
+        ; thing in Vega-Lite's own words (Vela, with no page to measure,
+        ; answers it with the default width). A pie keeps its square (see
+        ; `sized`).
+        def fill:boolean ((((spec.has("width")) == false) || ((spec.get("width")).isString())) && ((indexOf text "\"arc\"") < 0))
         def fw:double 1.0
         def f:double 1.0
         if (viewW < (avail * 0.8)) {
