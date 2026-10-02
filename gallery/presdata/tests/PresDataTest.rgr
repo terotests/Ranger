@@ -1,0 +1,98 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PresDataTest - an .xlsx read into CSV, and the CSV rules on their own.
+; ==============================================================================
+
+Import "../PresData.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+}
+
+class PresDataTest {
+    sfn main:void () {
+        def c:Checker (new Checker)
+        def nl:string (strfromcode 10)
+        def q:string (strfromcode 34)
+
+        print "== csv fields =="
+        c.eqStr("plain" (PresData.csvField("Widget")) "Widget")
+        c.eqStr("empty" (PresData.csvField("")) "")
+        c.eqStr("comma" (PresData.csvField("a,b")) (q + "a,b" + q))
+        c.eqStr("quote doubled" (PresData.csvField(("say " + q + "hi" + q))) (q + "say " + q + q + "hi" + q + q + q))
+        c.eqStr("line break" (PresData.csvField(("a" + nl + "b"))) (q + "a" + nl + "b" + q))
+
+        print "== 15 significant digits =="
+        c.eqStr("float noise" (PresData.round15("59.699999999999996")) "59.7")
+        c.eqStr("negative" (PresData.round15("-0.30000000000000004")) "-0.3")
+        c.eqStr("carry into a new digit" (PresData.round15("99.99999999999999999")) "100")
+        c.eqStr("long integer keeps its magnitude" (PresData.round15("12345678901234567")) "12345678901234600")
+        c.eqStr("exponent kept" (PresData.round15("1.2345678901234567e+21")) "1.23456789012346e+21")
+        c.eqStr("short number untouched" (PresData.round15("4.50")) "4.50")
+        c.eqStr("leading zeros untouched" (PresData.round15("007")) "007")
+        c.eqStr("text untouched" (PresData.round15("1.2345678901234567 kg")) "1.2345678901234567 kg")
+
+        print "== a sheet built in memory =="
+        def s:SpreadsheetModel (new SpreadsheetModel)
+        s.resize(10 5)
+        c.eqStr("an empty sheet is empty" (PresData.sheetToCsv(s false)) "")
+        s.setCellRaw(0 0 "Label")
+        s.setCellRaw(0 1 "Value")
+        s.setCellRaw(1 0 "North, East")
+        s.setCellRaw(1 1 "7")
+        s.setCellRaw(2 2 "x")
+        def want:string ("Label,Value," + nl + q + "North, East" + q + ",7," + nl + ",,x" + nl)
+        c.eqStr("used range, rectangular" (PresData.sheetToCsv(s false)) want)
+
+        print "== sales.xlsx =="
+        def pd:PresData (new PresData)
+        def path:string "gallery/datagrid/fixtures/sales.xlsx"
+        def sales:string (pd.xlsxFileToCsv(path 0 false))
+        c.eqStr("opened without error" pd.lastError "")
+        def wantSales:string ("Quarterly Sales,,," + nl + "Product,Qty,Price,Total" + nl + "Widget,12,4.5,54" + nl + "Gadget,3,19.9,59.7" + nl + "Doohickey,100,0.25,25" + nl + "Grand total,,,138.7" + nl)
+        c.eqStr("sheet 0 as CSV, formulas as their values" sales wantSales)
+
+        def book:WorkbookModel (new WorkbookModel)
+        def loader:XlsxLoader (new XlsxLoader)
+        c.ok("workbook loads" (loader.loadPath(path book)))
+        def summary:string (pd.workbookSheetToCsv(book "Summary" false))
+        print summary
+        c.ok("Summary by name has three lines" ((array_length (strsplit summary nl)) == 4))
+        c.ok("Summary carries the cross-sheet sum" ((indexOf summary "Sum,138.7") >= 0))
+        def shown:string (pd.workbookToCsv(book 0 true))
+        print shown
+        c.ok("display mode applies number formats" (shown != sales))
+
+        print "== failures =="
+        def none:string (pd.workbookSheetToCsv(book "Nope" false))
+        c.ok("unknown sheet name sets lastError" (((strlen none) == 0) && ((strlen pd.lastError) > 0)))
+        def far:string (pd.workbookToCsv(book 9 false))
+        c.ok("sheet index out of range sets lastError" (((strlen far) == 0) && ((strlen pd.lastError) > 0)))
+        def missing:string (pd.xlsxFileToCsv("gallery/presdata/no-such.xlsx" 0 false))
+        c.ok("missing file sets lastError" (((strlen missing) == 0) && ((strlen pd.lastError) > 0)))
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}
