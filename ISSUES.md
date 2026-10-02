@@ -1801,7 +1801,11 @@ Implement basic control flow analysis for return statements:
 
 ## Issue #58: Go slice/array pass-by-value causes data loss
 
-**Status:** Open (Workaround documented)  
+**Status:** Fixed (2026-10-02). An array parameter the body grows or empties
+(StaticAnalyzer's `needs_swift_inout`, now computed for Go as well) is a
+`*[]T`; a call passes the caller's address, or a temporary's for a value with
+none. Methods decide it by name across all classes, so overrides and
+interfaces keep one signature. The workaround below is no longer needed.  
 **Severity:** High  
 **Found:** December 17, 2025
 

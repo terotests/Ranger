@@ -2139,6 +2139,19 @@ class RangerAppWriterContext {
     }
     return false
   }
+  ; Go's built-in functions are names in the universe scope: a local or a
+  ; parameter called `copy` hides copy() from a buffer_copy in the same
+  ; function. Fields and methods are reached through a receiver and can
+  ; keep the name.
+  fn goBuiltinLocal:string (name:string) {
+    if ((this.getTargetLangName()) == "go") {
+      def builtins:[string] ([] _:string ("append" "cap" "copy" "delete" "make" "panic"))
+      if ((indexOf builtins name) >= 0) {
+        return ("_" + name)
+      }
+    }
+    return ""
+  }
   fn assignParamCompiledName:void (p:RangerAppParamDesc) {
     switch p.name {
       case "self" {
@@ -2152,6 +2165,10 @@ class RangerAppWriterContext {
       }
       default {
         p.compiledName = (this.transformBindingWord(p.name))
+        def gb:string (this.goBuiltinLocal(p.name))
+        if ((strlen gb) > 0) {
+          p.compiledName = gb
+        }
       }
     }
   }
@@ -2184,6 +2201,10 @@ class RangerAppWriterContext {
             desc.compiledName = (this.transformMemberWord(name))
           } {
             desc.compiledName = (this.transformBindingWord(name))
+            def gb:string (this.goBuiltinLocal(name))
+            if ((strlen gb) > 0) {
+              desc.compiledName = gb
+            }
           }
         }
       }
