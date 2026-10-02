@@ -8878,7 +8878,7 @@ class GridApp {
         return (t.dump())
     }
 
-    fn sceneJson:string () {
+    fn prepareScene:void () {
         this.publishTextSelection()
         def tip2:string (view.toolbar.hotLabel())
         if ((strlen tip2) > 0) {
@@ -8892,7 +8892,23 @@ class GridApp {
         view.editInFormulaBar = editInFormulaBar
         view.windows = windows
         this.refreshFormulaHilites()
+    }
+
+    fn sceneJson:string () {
+        this.prepareScene()
         return (view.sceneJson(model sel grid editing editBuf book))
+    }
+
+    ; The same frame as a list rather than as text, for a host that puts it
+    ; inside a display list of its own (EVGSheets paints it into an element
+    ; of its EVGUI page). In the app's own coordinates: (0,0) is the grid's
+    ; top-left, and the host moves it to wherever it put the grid.
+    fn sceneList:EVGDisplayList () {
+        this.prepareScene()
+        view.ctx.frame = view.frame
+        def dl:EVGDisplayList (view.buildDisplayList(model sel grid editing editBuf book))
+        view.frame = (view.frame + 1)
+        return dl
     }
 
     fn activeLabel:string () {
