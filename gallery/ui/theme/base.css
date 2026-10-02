@@ -802,6 +802,14 @@
   width: 160px;
 }
 .ui-dropdownmenu-item-disabled, .ui-contextmenu-item-disabled { opacity: 0.45; }
+/* A sub-trigger: its name at the start, the chevron at the far edge. */
+.ui-dropdownmenu-subtrigger, .ui-contextmenu-subtrigger {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  align-items: center;
+}
 /* The border colour has to clear contrast against the label too: the display
    list check samples whatever rect is painted under each glyph, and a dashed
    frame drawn round the text is one of them. #94a3b8 here read 4.04:1. */

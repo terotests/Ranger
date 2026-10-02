@@ -286,7 +286,19 @@ class MenuCtl extends UiCtl {
             if it.disabled {
                 UiTree.addClass(el (base + "-item-disabled"))
             }
-            UiTree.leafText(el it.name)
+            if isSub {
+                ; The name and the chevron as two children, so a stylesheet can
+                ; push the chevron to the row's far edge (`justify-content:
+                ; space-between`). Neither has a test id: a press on either
+                ; falls through to the row.
+                UiTree.clearChildren(el)
+                el.textContent = ""
+                el.elementType = 0
+                el.addChild((UiTree.label("" (base + "-item-label") it.name)))
+                el.addChild((UiTree.label("" (base + "-subtrigger-chevron") "▸")))
+            } {
+                UiTree.leafText(el it.name)
+            }
             surface.addChild(el)
 
             push rowTid myTid
