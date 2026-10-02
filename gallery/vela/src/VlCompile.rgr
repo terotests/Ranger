@@ -4083,6 +4083,14 @@ class VlCompile {
                                 already.setMember("padding" (sc.get("padding")))
                             }
                         }
+                        ; …and so is an interval one layer states: the
+                        ; reference takes `"scale": {"domain": [-15, 25]}`
+                        ; from whichever layer wrote it.
+                        if (VlCompile.statedInterval(sc)) {
+                            if (! (VlCompile.statedInterval(already))) {
+                                already.setMember("domain" (sc.get("domain")))
+                            }
+                        }
                     }
                 }
             }
@@ -4164,6 +4172,16 @@ class VlCompile {
         }
     }
 
+    ; A continuous scale whose domain is written out as values: an interval
+    ; the chart asked for, not categories.
+    sfn statedInterval:boolean (sc:VlJson) {
+        def kind:string (sc.stringOr("type" ""))
+        if ((((kind == "ordinal") || (kind == "band")) || (kind == "point")) || (kind == "")) {
+            return false
+        }
+        return ((sc.get("domain")).isArray())
+    }
+
     ; One layer contributing to a scale leaves its domain as it was; more than
     ; one turns it into a list of the fields they each contribute.
     sfn applyMergedDomains:void (scales:VlJson names:[string] domains:[string:VlJson]) {
@@ -4173,6 +4191,14 @@ class VlCompile {
             def name:string (sc.stringOr("name" ""))
             if (has domains name) {
                 def collected:VlJson (unwrap (get domains name))
+                ; A continuous scale whose interval a layer wrote out keeps
+                ; it: the other layers' fields do not widen or narrow it. Read
+                ; as a union, a dumbbell chart stated -15..25 and was drawn
+                ; over its data's -12.5..18, its ends clipped at the edges.
+                if (VlCompile.statedInterval(sc)) {
+                    i = (i + 1)
+                    continue
+                }
                 if ((collected.count()) > 1) {
                     ; Entries that are values rather than field references make
                     ; a literal domain, not a list of fields to read.
