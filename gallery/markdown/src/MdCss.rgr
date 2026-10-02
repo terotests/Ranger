@@ -389,6 +389,12 @@ class MdCss {
             style.headerSize = (this.len(got "font-size" style.headerSize))
             style.headerColor = (this.color(got "color" style.headerColor))
             style.headerImageH = (this.len(got "height" style.headerImageH))
+            style.headerLeft = (this.slot(got "content-left" style.headerLeft))
+            style.headerCenter = (this.slot(got "content-center" style.headerCenter))
+            style.headerRight = (this.slot(got "content-right" style.headerRight))
+            style.headerBold = (this.boldOf(got style.headerBold))
+            style.headerBackground = (this.color(got "background-color" style.headerBackground))
+            style.headerRule = (this.color(got "border-color" style.headerRule))
         } {
             if ((strlen text) > 0) { style.footerText = text }
             if ((strlen img) > 0) { style.footerImage = img }
@@ -396,8 +402,30 @@ class MdCss {
             style.footerSize = (this.len(got "font-size" style.footerSize))
             style.footerColor = (this.color(got "color" style.footerColor))
             style.footerImageH = (this.len(got "height" style.footerImageH))
+            style.footerLeft = (this.slot(got "content-left" style.footerLeft))
+            style.footerCenter = (this.slot(got "content-center" style.footerCenter))
+            style.footerRight = (this.slot(got "content-right" style.footerRight))
+            style.footerBold = (this.boldOf(got style.footerBold))
+            style.footerBackground = (this.color(got "background-color" style.footerBackground))
+            style.footerRule = (this.color(got "border-color" style.footerRule))
         }
-        this.rest(got "content,background-image,text-align,font-size,color,height")
+        this.rest(got "content,content-left,content-center,content-right,background-image,background-color,border-color,font-weight,text-align,font-size,color,height")
+    }
+
+    ; `content-left: "ACME"` — one of an edge's three places.
+    fn slot:string (got:CssComputed name:string fallback:string) {
+        if (! (got.has(name))) { return fallback }
+        return (MdCss.unquote((this.raw(got name))))
+    }
+
+    ; `font-weight: bold` (or 600 and over) for an edge's text.
+    fn boldOf:boolean (got:CssComputed fallback:boolean) {
+        if (! (got.has("font-weight"))) { return fallback }
+        def w:string (CssSheet.lower((CssSheet.tidy((this.raw(got "font-weight"))))))
+        if ((w == "bold") || (w == "bolder")) { return true }
+        def n@(optional):int (str2int w)
+        if (!null? n) { return ((unwrap n) >= 600) }
+        return false
     }
 
     ; `"text"` or `'text'` as text; anything else as it was written.

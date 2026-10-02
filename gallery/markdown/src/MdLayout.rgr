@@ -157,6 +157,18 @@ class MdLine {
     }
 }
 
+; A picture in a header or footer place, as the byte store has it.
+class MdSlotPic {
+    def path:string ""
+    def w:double 0.0
+    def h:double 0.0
+    def natW:int 0
+    def natH:int 0
+
+    Constructor () {
+    }
+}
+
 ; One thing to draw. The layout produces a flat list of these and the EVG
 ; bridge turns each into an element; nothing above this file knows about
 ; markdown and nothing below it knows about layout.
@@ -202,6 +214,8 @@ class MdBox {
     ; into an offset by measuring across it.
     def segSrc:int -1
     def segLen:int 0
+    ; 1 a header's, 2 a footer's: page furniture, not the document's text
+    def furniture:int 0
 
     Constructor () {
     }
@@ -233,6 +247,7 @@ class MdBox {
         b.srcStart = srcStart
         b.segSrc = segSrc
         b.segLen = segLen
+        b.furniture = furniture
         return b
     }
 
@@ -383,6 +398,10 @@ class MdLayout {
     ; than hidden: `book_slides.rgr` set that precedent, and a deck that
     ; silently drops the third bullet is worse than one that says it did.
     def slideOverflows:int 0
+    ; Sheets whose heading said `{header=off}`, `{footer=off}` or
+    ; `{furniture=off}`: the edge is left off that sheet.
+    def headerOff:[int]
+    def footerOff:[int]
     ; GROW: a slide with room to spare is laid out again with everything on
     ; it larger — text, headings, spacing, together, so the title stays the
     ; larger thing — by at most this factor (1.0 = off). A deck has no font
@@ -521,6 +540,23 @@ class MdLayout {
         if (meta.has("footer-image")) { style.footerImage = (meta.get("footer-image" "")) }
         if (meta.has("header-align")) { style.headerAlign = (MdCss.alignWord((meta.get("header-align" "")))) }
         if (meta.has("footer-align")) { style.footerAlign = (MdCss.alignWord((meta.get("footer-align" "")))) }
+        ; three places on each edge, and how the edge is set
+        if (meta.has("header-left")) { style.headerLeft = (meta.get("header-left" "")) }
+        if (meta.has("header-center")) { style.headerCenter = (meta.get("header-center" "")) }
+        if (meta.has("header-right")) { style.headerRight = (meta.get("header-right" "")) }
+        if (meta.has("footer-left")) { style.footerLeft = (meta.get("footer-left" "")) }
+        if (meta.has("footer-center")) { style.footerCenter = (meta.get("footer-center" "")) }
+        if (meta.has("footer-right")) { style.footerRight = (meta.get("footer-right" "")) }
+        if (meta.has("header-color")) { style.headerColor = (meta.get("header-color" "")) }
+        if (meta.has("footer-color")) { style.footerColor = (meta.get("footer-color" "")) }
+        if (meta.has("header-background")) { style.headerBackground = (meta.get("header-background" "")) }
+        if (meta.has("footer-background")) { style.footerBackground = (meta.get("footer-background" "")) }
+        if (meta.has("header-size")) { style.headerSize = (MdFrontMatter.points((meta.get("header-size" "")) style.headerSize)) }
+        if (meta.has("footer-size")) { style.footerSize = (MdFrontMatter.points((meta.get("footer-size" "")) style.footerSize)) }
+        if (meta.has("header-image-height")) { style.headerImageH = (MdFrontMatter.points((meta.get("header-image-height" "")) style.headerImageH)) }
+        if (meta.has("footer-image-height")) { style.footerImageH = (MdFrontMatter.points((meta.get("footer-image-height" "")) style.footerImageH)) }
+        if (meta.has("header-skip")) { style.headerSkip = (MdChar.lower((meta.get("header-skip" "")))) }
+        if (meta.has("footer-skip")) { style.footerSkip = (MdChar.lower((meta.get("footer-skip" "")))) }
         style.wantToc = (meta.flag("toc" false))
         style.breakOnH1 = (meta.flag("breakonh1" false))
         if (meta.has("highlight")) {
@@ -641,6 +677,9 @@ class MdLayout {
         contentW = (style.pageWidth - (style.margin * 2.0))
         contentTop = style.margin
         contentBottom = (style.pageHeight - style.margin)
+        clear headerOff
+        clear footerOff
+        this.makeEdgeRoom()
         cursorY = contentTop
         clear blockFirstPage
         clear blockLastPage
@@ -776,94 +815,195 @@ class MdLayout {
         page = savedPage
     }
 
-    ; The header and the footer on every sheet: a picture and a line of text,
-    ; together where `text-align` puts them, in the top and the bottom margin.
+    ; The header and the footer on every sheet: up to three places on each
+    ; edge (left, centre, right), each a picture and a line of text, in the
+    ; top and the bottom margin. `header: …` with `header-align` is the place
+    ; that alignment names.
     fn emitHeadFoot:void () {
-        def wantTop:boolean (((strlen style.headerText) > 0) || ((strlen style.headerImage) > 0))
-        def wantBottom:boolean (((strlen style.footerText) > 0) || ((strlen style.footerImage) > 0))
+        def top:[string] (this.edgeSlots(true))
+        def bottom:[string] (this.edgeSlots(false))
+        def wantTop:boolean (MdLayout.anySlot(top))
+        def wantBottom:boolean (MdLayout.anySlot(bottom))
         if ((! wantTop) && (! wantBottom)) { return }
         def savedPage:int page
         def p:int 0
         while (p < pageCount) {
             page = p
-            if wantTop {
-                this.furnitureLine(style.headerText style.headerImage style.headerAlign style.headerSize style.headerColor style.headerImageH p true)
+            if (wantTop && ((this.edgeShown(p true)))) {
+                this.edgeRow(top p true)
             }
-            if wantBottom {
-                this.furnitureLine(style.footerText style.footerImage style.footerAlign style.footerSize style.footerColor style.footerImageH p false)
+            if (wantBottom && ((this.edgeShown(p false)))) {
+                this.edgeRow(bottom p false)
             }
             p = (p + 1)
         }
         page = savedPage
     }
 
-    fn furnitureLine:void (text0:string image:string align:string size0:double colour0:string imgH0:double p:int top:boolean) {
-        def size:double size0
+    ; [left, centre, right] of one edge, the single `header:` folded into
+    ; the place its alignment names.
+    fn edgeSlots:[string] (top:boolean) {
+        def out:[string]
+        def text:string (? top style.headerText style.footerText)
+        def image:string (? top style.headerImage style.footerImage)
+        def align:string (? top style.headerAlign style.footerAlign)
+        push out (? top style.headerLeft style.footerLeft)
+        push out (? top style.headerCenter style.footerCenter)
+        push out (? top style.headerRight style.footerRight)
+        def one:string text
+        if ((strlen image) > 0) {
+            one = (trim ("![](" + image + ") " + text))
+        }
+        if ((strlen one) > 0) {
+            def at:int 0
+            if (align == "center") { at = 1 }
+            if (align == "end") { at = 2 }
+            def was:string (itemAt out at)
+            if ((strlen was) == 0) {
+                set out at one
+            } {
+                set out at (was + " " + one)
+            }
+        }
+        return out
+    }
+
+    sfn anySlot:boolean (slots:[string]) {
+        def i:int 0
+        while (i < (array_length slots)) {
+            if ((strlen (trim (itemAt slots i))) > 0) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Whether an edge is drawn on sheet p: not where `header-skip` names the
+    ; sheet (first, last, its number) nor where its heading turned it off.
+    fn edgeShown:boolean (p:int top:boolean) {
+        def off:[int] (? top headerOff footerOff)
+        def i:int 0
+        while (i < (array_length off)) {
+            if ((itemAt off i) == p) { return false }
+            i = (i + 1)
+        }
+        def skip:string (? top style.headerSkip style.footerSkip)
+        return ((MdLayout.skips(skip p pageCount)) == false)
+    }
+
+    sfn skips:boolean (spec:string p:int pages:int) {
+        def words:[string] (strsplit (MdLayout.replaceAll(spec "," " ")) " ")
+        def i:int 0
+        while (i < (array_length words)) {
+            def w:string (trim (itemAt words i))
+            if ((w == "first") && (p == 0)) { return true }
+            if ((w == "last") && (p == (pages - 1))) { return true }
+            if ((strlen w) > 0) {
+                def n@(optional):int (str2int w)
+                if (!null? n) {
+                    if ((unwrap n) == (p + 1)) { return true }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; `{header=off}`, `{footer=off}` or `{furniture=off}` on a heading.
+    fn readEdgesOff:void (node:MdNode) {
+        def both:boolean (MdLayout.isOff((node.attrValue("furniture"))))
+        if (both || (MdLayout.isOff((node.attrValue("header"))))) {
+            push headerOff page
+        }
+        if (both || (MdLayout.isOff((node.attrValue("footer"))))) {
+            push footerOff page
+        }
+    }
+
+    sfn isOff:boolean (v:string) {
+        def t:string (MdChar.lower((trim v)))
+        return ((((t == "off") || (t == "none")) || (t == "false")) || (t == "no"))
+    }
+
+    ; The text size of an edge.
+    fn edgeSize:double (top:boolean) {
+        def size:double (? top style.headerSize style.footerSize)
         if (size <= 0.0) {
             size = style.furnitureSize
             if slides {
                 size = (style.bodySize * 0.6)
             }
         }
-        def colour:string colour0
-        if ((strlen colour) == 0) {
-            colour = style.mutedColor
+        return size
+    }
+
+    ; How tall an edge's row is: its line, or its tallest picture.
+    fn edgeRowH:double (slots:[string] top:boolean) {
+        def lh:double ((this.edgeSize(top)) * 1.3)
+        def imgH:double (? top style.headerImageH style.footerImageH)
+        def h:double lh
+        def i:int 0
+        while (i < (array_length slots)) {
+            if (((strlen (MdLayout.slotImage((itemAt slots i)))) > 0) && (imgH > h)) {
+                h = imgH
+            }
+            i = (i + 1)
         }
-        def text:string (MdLayout.fillTokens(text0 (p + 1) pageCount style.title))
-        def lh:double (size * 1.3)
-        ; the picture, when the store has it
-        def path:string ""
-        def iw:double 0.0
-        def ih:double imgH0
-        def natW:int 0
-        def natH:int 0
-        if (((strlen image) > 0) && haveImages) {
-            def resolved:string (images.resolve(image docDir))
-            if ((strlen resolved) > 0) {
-                def st:VfsStat (images.stat(resolved))
-                if (st.found) {
-                    path = resolved
-                    natW = st.pixelW
-                    natH = st.pixelH
-                    if (st.pixelH > 0) {
-                        iw = (ih * ((to_double st.pixelW) / (to_double st.pixelH)))
-                    } {
-                        iw = ih
-                    }
-                }
+        return h
+    }
+
+    ; A margin too small for its edge is widened, so a tall logo pushes the
+    ; content down rather than sitting on it.
+    fn makeEdgeRoom:void () {
+        def top:[string] (this.edgeSlots(true))
+        if (MdLayout.anySlot(top)) {
+            def need:double ((this.edgeRowH(top true)) + 14.0)
+            if (contentTop < need) { contentTop = need }
+        }
+        def bottom:[string] (this.edgeSlots(false))
+        if (MdLayout.anySlot(bottom)) {
+            def needB:double ((this.edgeRowH(bottom false)) + 14.0)
+            if ((style.pageHeight - contentBottom) < needB) {
+                contentBottom = (style.pageHeight - needB)
             }
         }
-        if ((strlen path) == 0) {
-            ih = 0.0
-        }
-        def tw:double 0.0
-        if ((strlen text) > 0) {
-            def probe:MdRun (new MdRun())
-            probe.family = style.bodyFamily
-            probe.size = size
-            tw = (this.measureRun(text probe))
-        }
-        def gap:double 0.0
-        if ((iw > 0.0) && (tw > 0.0)) {
-            gap = (size * 0.8)
-        }
-        def total:double ((iw + gap) + tw)
-        if (total > contentW) {
-            tw = ((contentW - iw) - gap)
-            total = contentW
-        }
-        def x:double contentX
-        if (align == "center") {
-            x = (contentX + ((contentW - total) * 0.5))
-        }
-        if (align == "end") {
-            x = ((contentX + contentW) - total)
-        }
-        def rowH:double lh
-        if (ih > rowH) {
-            rowH = ih
-        }
-        ; in the margin, clear of the content
+    }
+
+    ; `![alt](path)` in a place: the picture's path, or "".
+    sfn slotImage:string (slot:string) {
+        def a:int (indexOf slot "![")
+        if (a < 0) { return "" }
+        def m:int (indexOf slot "](")
+        if (m < a) { return "" }
+        def rest:string (substring slot (m + 2) (strlen slot))
+        def e:int (indexOf rest ")")
+        if (e < 0) { return "" }
+        return (trim (substring rest 0 e))
+    }
+
+    ; The place without its picture, and whether the picture came first.
+    sfn slotText:string (slot:string) {
+        def a:int (indexOf slot "![")
+        def m:int (indexOf slot "](")
+        if ((a < 0) || (m < a)) { return (trim slot) }
+        def rest:string (substring slot (m + 2) (strlen slot))
+        def e:int (indexOf rest ")")
+        if (e < 0) { return (trim slot) }
+        def before:string (substring slot 0 a)
+        def after:string (substring rest (e + 1) (strlen rest))
+        return (trim ((trim before) + " " + (trim after)))
+    }
+
+    sfn imageFirst:boolean (slot:string) {
+        def a:int (indexOf slot "![")
+        if (a < 0) { return true }
+        return ((strlen (trim (substring slot 0 a))) == 0)
+    }
+
+    ; One edge on sheet p: the band and the hairline, then each place.
+    fn edgeRow:void (slots:[string] p:int top:boolean) {
+        def size:double (this.edgeSize(top))
+        def lh:double (size * 1.3)
+        def rowH:double (this.edgeRowH(slots top))
         def y:double ((contentTop - rowH) - 8.0)
         if (top == false) {
             y = (contentBottom + 8.0)
@@ -871,23 +1011,199 @@ class MdLayout {
         if (y < 2.0) {
             y = 2.0
         }
-        if ((strlen path) > 0) {
+        def mark:int (? top 1 2)
+        def band:string (? top style.headerBackground style.footerBackground)
+        def haveBand:boolean (((strlen band) > 0) && (band != "transparent"))
+        if haveBand {
+            def by:double 0.0
+            def bh:double ((y + rowH) + 8.0)
+            if (top == false) {
+                by = (y - 8.0)
+                bh = (style.pageHeight - by)
+            }
+            def bb:MdBox (MdBox.rect(0.0 by style.pageWidth bh band))
+            bb.furniture = mark
+            this.emit(bb)
+        }
+        def rule:string (? top style.headerRule style.footerRule)
+        if (((strlen rule) > 0) && (rule != "transparent")) {
+            def rx:double contentX
+            def rw:double contentW
+            if haveBand {
+                rx = 0.0
+                rw = style.pageWidth
+            }
+            def ry:double ((y + rowH) + 7.0)
+            if (top == false) {
+                ry = (y - 8.0)
+            }
+            def rb:MdBox (MdBox.rect(rx ry rw 0.75 rule))
+            rb.furniture = mark
+            this.emit(rb)
+        }
+        ; each place's natural width, then the room it gets
+        def widths:[double]
+        def i:int 0
+        while (i < 3) {
+            push widths (this.slotWidth((itemAt slots i) p top))
+            i = (i + 1)
+        }
+        def gap:double (size * 1.5)
+        def wl:double (itemAt widths 0)
+        def wc:double (itemAt widths 1)
+        def wr:double (itemAt widths 2)
+        def side:double contentW
+        if (wc > 0.0) {
+            side = (((contentW - wc) * 0.5) - gap)
+        }
+        if (wc > contentW) { wc = contentW }
+        def roomL:double side
+        def roomR:double side
+        if (wc <= 0.0) {
+            if (wr > 0.0) { roomL = ((contentW - wr) - gap) }
+            if (wl > 0.0) { roomR = ((contentW - wl) - gap) }
+        }
+        if (wl > 0.0) {
+            this.slotAt((itemAt slots 0) contentX y rowH (MdLayout.minD(wl roomL)) p top)
+        }
+        if (wc > 0.0) {
+            this.slotAt((itemAt slots 1) (contentX + ((contentW - wc) * 0.5)) y rowH wc p top)
+        }
+        if (wr > 0.0) {
+            def w2:double (MdLayout.minD(wr roomR))
+            this.slotAt((itemAt slots 2) ((contentX + contentW) - w2) y rowH w2 p top)
+        }
+    }
+
+    ; An edge's text colour when nobody named one: the muted colour, unless
+    ; it is too faint on the sheet to read at that size (WCAG 4.5:1); then
+    ; the text colour.
+    fn edgeInk:string () {
+        def paper:string style.pageBackground
+        if ((strlen paper) == 0) { paper = "#ffffff" }
+        if ((MdLayout.contrast(style.mutedColor paper)) >= 4.5) { return style.mutedColor }
+        return style.textColor
+    }
+
+    sfn contrast:double (a:string b:string) {
+        def la:double (MdLayout.luminance(a))
+        def lb:double (MdLayout.luminance(b))
+        if (la < lb) {
+            return ((lb + 0.05) / (la + 0.05))
+        }
+        return ((la + 0.05) / (lb + 0.05))
+    }
+
+    sfn luminance:double (hex:string) {
+        def c:EVGColor (EVGColor.parse(hex))
+        def r:double (MdLayout.channel((to_double (c.red()))))
+        def g:double (MdLayout.channel((to_double (c.green()))))
+        def b:double (MdLayout.channel((to_double (c.blue()))))
+        return (((0.2126 * r) + (0.7152 * g)) + (0.0722 * b))
+    }
+
+    sfn channel:double (v:double) {
+        def x:double (v / 255.0)
+        if (x <= 0.04045) { return (x / 12.92) }
+        ; y^2.4, as y^2.375 = y² · y^¼ · y^⅛ (close enough for a threshold)
+        def y:double ((x + 0.055) / 1.055)
+        def q:double (sqrt (sqrt y))
+        return (((y * y) * q) * (sqrt q))
+    }
+
+    sfn minD:double (a:double b:double) {
+        if (a < b) { return a }
+        return b
+    }
+
+    ; A place's picture as the byte store has it; `path` empty when it has not.
+    fn slotPicture:MdSlotPic (slot:string top:boolean) {
+        def out:MdSlotPic (new MdSlotPic())
+        def image:string (MdLayout.slotImage(slot))
+        if (((strlen image) == 0) || (haveImages == false)) { return out }
+        def resolved:string (images.resolve(image docDir))
+        if ((strlen resolved) == 0) { return out }
+        def st:VfsStat (images.stat(resolved))
+        if (st.found == false) { return out }
+        out.h = (? top style.headerImageH style.footerImageH)
+        out.w = out.h
+        if (st.pixelH > 0) {
+            out.w = (out.h * ((to_double st.pixelW) / (to_double st.pixelH)))
+        }
+        out.path = resolved
+        out.natW = st.pixelW
+        out.natH = st.pixelH
+        return out
+    }
+
+    fn slotRun:MdRun (top:boolean) {
+        def probe:MdRun (new MdRun())
+        probe.family = style.bodyFamily
+        probe.size = (this.edgeSize(top))
+        probe.bold = (? top style.headerBold style.footerBold)
+        return probe
+    }
+
+    fn slotWidth:double (slot:string p:int top:boolean) {
+        if ((strlen (trim slot)) == 0) { return 0.0 }
+        def text:string (MdLayout.fillTokens((MdLayout.slotText(slot)) (p + 1) pageCount style.title))
+        def tw:double 0.0
+        if ((strlen text) > 0) {
+            tw = (this.measureRun(text (this.slotRun(top))))
+        }
+        def iw:double (this.slotPicture(slot top)).w
+        if ((iw > 0.0) && (tw > 0.0)) {
+            return ((iw + tw) + ((this.edgeSize(top)) * 0.8))
+        }
+        return (iw + tw)
+    }
+
+    ; One place, from x, in w at most.
+    fn slotAt:void (slot:string x:double y:double rowH:double w:double p:int top:boolean) {
+        def size:double (this.edgeSize(top))
+        def lh:double (size * 1.3)
+        def colour:string (? top style.headerColor style.footerColor)
+        if ((strlen colour) == 0) {
+            colour = (this.edgeInk())
+        }
+        def text:string (MdLayout.fillTokens((MdLayout.slotText(slot)) (p + 1) pageCount style.title))
+        def pic:MdSlotPic (this.slotPicture(slot top))
+        def iw:double pic.w
+        def ih:double pic.h
+        def gap:double 0.0
+        if ((iw > 0.0) && ((strlen text) > 0)) {
+            gap = (size * 0.8)
+        }
+        if (iw > w) { iw = w }
+        def tw:double ((w - iw) - gap)
+        def first:boolean (MdLayout.imageFirst(slot))
+        def ix:double x
+        def tx:double ((x + iw) + gap)
+        if (first == false) {
+            tx = x
+            ix = ((x + w) - iw)
+        }
+        def mark:int (? top 1 2)
+        if (iw > 0.0) {
             def b:MdBox (new MdBox())
             b.kind = 4
-            b.x = x
+            b.x = ix
             b.y = (y + ((rowH - ih) * 0.5))
             b.w = iw
             b.h = ih
-            b.imagePath = path
-            b.imageNaturalW = natW
-            b.imageNaturalH = natH
+            b.imagePath = pic.path
+            b.imageNaturalW = pic.natW
+            b.imageNaturalH = pic.natH
+            b.furniture = mark
             this.emit(b)
         }
-        if (tw > 0.0) {
-            def t:MdBox (MdBox.text(text ((x + iw) + gap) (y + ((rowH - lh) * 0.5)) tw lh))
+        if ((tw > 0.0) && ((strlen text) > 0)) {
+            def t:MdBox (MdBox.text(text tx (y + ((rowH - lh) * 0.5)) tw lh))
             t.family = style.bodyFamily
             t.size = size
+            t.bold = (? top style.headerBold style.footerBold)
             t.color = colour
+            t.furniture = mark
             this.emit(t)
         }
     }
@@ -2226,6 +2542,7 @@ class MdLayout {
         push headLevel node.level
         push headPage page
         push headY at
+        this.readEdgesOff(node)
         this.paragraph(runs x w)
         if (node.level <= 2) {
             def y:double cursorY

@@ -151,6 +151,27 @@ class MdStyle {
     def footerSize:double 0.0
     def footerColor:string ""
     def footerImageH:double 22.0
+    ; Three places on each edge, beside the one above: `header-left`,
+    ; `header-center`, `header-right` (and the footer's). A place may hold a
+    ; picture written as in the text, `![](media/logo.png) ACME`.
+    def headerLeft:string ""
+    def headerCenter:string ""
+    def headerRight:string ""
+    def footerLeft:string ""
+    def footerCenter:string ""
+    def footerRight:string ""
+    ; How the edge is set: bold text, a band of colour behind it reaching the
+    ; sheet's edge, a hairline between it and the content.
+    def headerBold:boolean false
+    def headerBackground:string ""
+    def headerRule:string ""
+    def footerBold:boolean false
+    def footerBackground:string ""
+    def footerRule:string ""
+    ; The sheets an edge is left off: "first", "last", page numbers, or any
+    ; of them together (`header-skip: first last`).
+    def headerSkip:string ""
+    def footerSkip:string ""
     ; Pictures (`img { }`): where a picture narrower than the column sits
     ; ("" the start, "center", "end"; a slide centres unless told) and how
     ; tall one may be (0: as tall as the room).
@@ -218,6 +239,10 @@ class MdStyle {
         out = ((out + "/") + (to_string furnitureSize))
         out = (out + " head " + headerText + "/" + headerImage + "/" + headerAlign + "/" + (to_string headerSize) + "/" + headerColor + "/" + (to_string headerImageH))
         out = (out + " foot " + footerText + "/" + footerImage + "/" + footerAlign + "/" + (to_string footerSize) + "/" + footerColor + "/" + (to_string footerImageH))
+        out = (out + " slots " + headerLeft + "/" + headerCenter + "/" + headerRight + "/" + footerLeft + "/" + footerCenter + "/" + footerRight)
+        out = (out + " edge " + headerBackground + "/" + headerRule + "/" + footerBackground + "/" + footerRule + "/" + headerSkip + "/" + footerSkip)
+        if headerBold { out = (out + "/hb") }
+        if footerBold { out = (out + "/fb") }
         out = (out + " img " + imgAlign + "/" + (to_string imgMaxHeight))
         out = ((out + " embed ") + (to_string embedSpacing))
         return out
