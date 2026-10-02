@@ -288,6 +288,21 @@ class MdVegaTest {
         def w5:double (s5.doubleOr("width" 0.0))
         print ("   container: width " + (to_string w5))
         c.ok("\"width\": \"container\" takes the room's width" (w5 > 900.0))
+        ; a legend along the bottom wider than the 300 a page-less
+        ; `"container"` falls back to left the plot no width at all
+        def stacked:string "{\"width\": \"container\", \"height\": 340, \"data\": {\"values\": [{\"kk\": \"Tammi\", \"b\": \"0 (ajallaan)\", \"o\": 0, \"v\": 20}, {\"kk\": \"Tammi\", \"b\": \"1 (1-30 pv)\", \"o\": 1, \"v\": 20}, {\"kk\": \"Tammi\", \"b\": \"2 (31-60 pv)\", \"o\": 2, \"v\": 20}, {\"kk\": \"Tammi\", \"b\": \"3 (61-90 pv)\", \"o\": 3, \"v\": 20}, {\"kk\": \"Tammi\", \"b\": \"4 (yli 90 pv)\", \"o\": 4, \"v\": 20}, {\"kk\": \"Helmi\", \"b\": \"0 (ajallaan)\", \"o\": 0, \"v\": 20}, {\"kk\": \"Helmi\", \"b\": \"1 (1-30 pv)\", \"o\": 1, \"v\": 20}, {\"kk\": \"Helmi\", \"b\": \"2 (31-60 pv)\", \"o\": 2, \"v\": 20}, {\"kk\": \"Helmi\", \"b\": \"3 (61-90 pv)\", \"o\": 3, \"v\": 20}, {\"kk\": \"Helmi\", \"b\": \"4 (yli 90 pv)\", \"o\": 4, \"v\": 20}, {\"kk\": \"Maalis\", \"b\": \"0 (ajallaan)\", \"o\": 0, \"v\": 20}, {\"kk\": \"Maalis\", \"b\": \"1 (1-30 pv)\", \"o\": 1, \"v\": 20}, {\"kk\": \"Maalis\", \"b\": \"2 (31-60 pv)\", \"o\": 2, \"v\": 20}, {\"kk\": \"Maalis\", \"b\": \"3 (61-90 pv)\", \"o\": 3, \"v\": 20}, {\"kk\": \"Maalis\", \"b\": \"4 (yli 90 pv)\", \"o\": 4, \"v\": 20}, {\"kk\": \"Huhti\", \"b\": \"0 (ajallaan)\", \"o\": 0, \"v\": 20}, {\"kk\": \"Huhti\", \"b\": \"1 (1-30 pv)\", \"o\": 1, \"v\": 20}, {\"kk\": \"Huhti\", \"b\": \"2 (31-60 pv)\", \"o\": 2, \"v\": 20}, {\"kk\": \"Huhti\", \"b\": \"3 (61-90 pv)\", \"o\": 3, \"v\": 20}, {\"kk\": \"Huhti\", \"b\": \"4 (yli 90 pv)\", \"o\": 4, \"v\": 20}, {\"kk\": \"Touko\", \"b\": \"0 (ajallaan)\", \"o\": 0, \"v\": 20}, {\"kk\": \"Touko\", \"b\": \"1 (1-30 pv)\", \"o\": 1, \"v\": 20}, {\"kk\": \"Touko\", \"b\": \"2 (31-60 pv)\", \"o\": 2, \"v\": 20}, {\"kk\": \"Touko\", \"b\": \"3 (61-90 pv)\", \"o\": 3, \"v\": 20}, {\"kk\": \"Touko\", \"b\": \"4 (yli 90 pv)\", \"o\": 4, \"v\": 20}, {\"kk\": \"Kesa\", \"b\": \"0 (ajallaan)\", \"o\": 0, \"v\": 20}, {\"kk\": \"Kesa\", \"b\": \"1 (1-30 pv)\", \"o\": 1, \"v\": 20}, {\"kk\": \"Kesa\", \"b\": \"2 (31-60 pv)\", \"o\": 2, \"v\": 20}, {\"kk\": \"Kesa\", \"b\": \"3 (61-90 pv)\", \"o\": 3, \"v\": 20}, {\"kk\": \"Kesa\", \"b\": \"4 (yli 90 pv)\", \"o\": 4, \"v\": 20}, {\"kk\": \"Heina\", \"b\": \"0 (ajallaan)\", \"o\": 0, \"v\": 20}, {\"kk\": \"Heina\", \"b\": \"1 (1-30 pv)\", \"o\": 1, \"v\": 20}, {\"kk\": \"Heina\", \"b\": \"2 (31-60 pv)\", \"o\": 2, \"v\": 20}, {\"kk\": \"Heina\", \"b\": \"3 (61-90 pv)\", \"o\": 3, \"v\": 20}, {\"kk\": \"Heina\", \"b\": \"4 (yli 90 pv)\", \"o\": 4, \"v\": 20}, {\"kk\": \"Elo\", \"b\": \"0 (ajallaan)\", \"o\": 0, \"v\": 20}, {\"kk\": \"Elo\", \"b\": \"1 (1-30 pv)\", \"o\": 1, \"v\": 20}, {\"kk\": \"Elo\", \"b\": \"2 (31-60 pv)\", \"o\": 2, \"v\": 20}, {\"kk\": \"Elo\", \"b\": \"3 (61-90 pv)\", \"o\": 3, \"v\": 20}, {\"kk\": \"Elo\", \"b\": \"4 (yli 90 pv)\", \"o\": 4, \"v\": 20}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"kk\", \"type\": \"nominal\"}, \"y\": {\"field\": \"v\", \"type\": \"quantitative\"}, \"color\": {\"field\": \"b\", \"type\": \"nominal\", \"legend\": {\"orient\": \"bottom\"}}, \"order\": {\"field\": \"o\", \"type\": \"quantitative\"}}}"
+        def un:string (MdVegaRender.withoutContainer(stacked))
+        c.ok("\"container\" dropped" ((indexOf un "\"container\"") < 0))
+        c.ok("a stated height kept" ((indexOf un "\"height\":340") >= 0))
+        def comp6 (new VlCompile())
+        def rt6 (new VlRuntime())
+        rt6.run((comp6.compileSpec(((new VlJsonParser()).parse(un)))))
+        print ("   bottom legend: plot width " + (to_string rt6.chartWidth))
+        c.ok("a wide bottom legend leaves the plot its width" (rt6.chartWidth > 100.0))
+        def p6 (new VlJsonParser())
+        def s6:VlJson (p6.parse((MdVegaRender.grown(un 1200.0 10.0 2.5 420.0))))
+        print ("   bottom legend, grown: width " + (to_string (s6.doubleOr("width" 0.0))))
+        c.ok("…and fills the room" ((s6.doubleOr("width" 0.0)) > 700.0))
         c.ok("a stated width is kept to the plot's own proportions" ((indexOf g "\"height\":250") >= 0))
     }
 

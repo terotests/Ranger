@@ -607,6 +607,38 @@ class MdVegaRender {
         }
     }
 
+    ; `"width": "container"` (or a `"height"` written so) is a chart asking
+    ; the page for its size. Vela has no page to ask, so it answers with the
+    ; reference's fallback: 300 for the WHOLE drawing, fitted (`fit-x`). A
+    ; legend along the bottom wider than that leaves the plot no width at all:
+    ; an empty chart with every label at the left edge. Here the size is
+    ; dropped instead, which is what this renderer already reads as "fill the
+    ; room" (see `grown`).
+    sfn withoutContainer:string (text:string) {
+        if ((indexOf text "\"container\"") < 0) {
+            return text
+        }
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(text))
+        if ((p.ok == false) || ((spec.isObject()) == false)) {
+            return text
+        }
+        def changed:boolean false
+        if ((spec.get("width")).isString()) {
+            spec.removeMember("width")
+            changed = true
+        }
+        if ((spec.get("height")).isString()) {
+            spec.removeMember("height")
+            changed = true
+        }
+        if (changed == false) {
+            return text
+        }
+        def w (new VlJsonWriter())
+        return (w.write(spec))
+    }
+
     ; A chart much narrower than its room, drawn larger: its plot's `width`
     ; and `height` asked for again, `most` times at most, so that the whole
     ; view (axes and legend included) comes to about the room's width. The
@@ -652,6 +684,26 @@ class MdVegaRender {
         def f:double 1.0
         if (viewW < (avail * 0.8)) {
             fw = ((avail - (viewW - plotW)) / plotW)
+            ; what is not plot is mostly axes, but a legend wider than the
+            ; plot counts too, and a plot grown past it no longer pays for
+            ; it: measured again at the width asked for, once
+            if (fill && ((viewW - plotW) > plotW)) {
+                def p2 (new VlJsonParser())
+                def probe:VlJson (p2.parse(text))
+                probe.setMember("width" (VlJson.numberValue((to_double (to_int (plotW * fw))))))
+                def c2 (new VlCompile())
+                c2.autoLabelAngle = true
+                def rt2 (new VlRuntime())
+                rt2.autoLabelAngle = true
+                rt2.run((c2.compileSpec(probe)))
+                def plot2:double rt2.chartWidth
+                if (plot2 >= 1.0) {
+                    def fw2:double ((avail - ((rt2.viewWidth()) - plot2)) / plotW)
+                    if (fw2 > fw) {
+                        fw = fw2
+                    }
+                }
+            }
             f = fw
             if (f > most) {
                 f = most
