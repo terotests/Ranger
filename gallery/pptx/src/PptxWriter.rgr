@@ -515,7 +515,7 @@ class PptxWriter {
         return false
     }
 
-    sfn runXml:string (run:PptxTextRun keepInherited:boolean math:boolean) {
+    sfn runXml:string (run:PptxTextRun keepInherited:boolean withMath:boolean) {
         def attrs:string " lang=\"en-US\" dirty=\"0\""
         def sizeNow:string (to_string (to_int ((run.fontSizePt * 100.0) + 0.5)))
         if (PptxWriter.stillInherited(run.resolvedSizeSig sizeNow keepInherited)) {
@@ -568,7 +568,7 @@ class PptxWriter {
             rPr = ("<a:rPr" + attrs + ">" + inner + "</a:rPr>")
         }
         ; xml:space matters: a run of spaces between two words is content.
-        if (math && ((strlen run.math) > 0)) {
+        if (withMath && ((strlen run.math) > 0)) {
             return (PptxWriter.mathXml(run attrs inner))
         }
         if ((strlen run.field) > 0) {
@@ -579,7 +579,7 @@ class PptxWriter {
         return ("<a:r>" + rPr + "<a:t xml:space=\"preserve\">" + (PptxWriter.esc(run.text)) + "</a:t></a:r>")
     }
 
-    sfn paraXml:string (para:PptxParagraph keepInherited:boolean math:boolean) {
+    sfn paraXml:string (para:PptxParagraph keepInherited:boolean withMath:boolean) {
         def attrs:string ""
         if (para.level > 0) {
             attrs = (attrs + " lvl=\"" + (to_string para.level) + "\"")
@@ -667,7 +667,7 @@ class PptxWriter {
             if (run.text == "\n") {
                 out = (out + "<a:br/>")
             } {
-                out = (out + (PptxWriter.runXml(run keepInherited math)))
+                out = (out + (PptxWriter.runXml(run keepInherited withMath)))
             }
             i = (i + 1)
         }
@@ -677,7 +677,7 @@ class PptxWriter {
         return (out + "</a:p>")
     }
 
-    sfn bodyXml:string (body:PptxTextBody keepInherited:boolean math:boolean) {
+    sfn bodyXml:string (body:PptxTextBody keepInherited:boolean withMath:boolean) {
         def attrs:string (" lIns=\"" + (PptxWriter.emu(body.insetL)) + "\" tIns=\"" + (PptxWriter.emu(body.insetT)) + "\" rIns=\"" + (PptxWriter.emu(body.insetR)) + "\" bIns=\"" + (PptxWriter.emu(body.insetB)) + "\"")
         attrs = (attrs + " anchor=\"" + body.anchor + "\"")
         if body.wrap {
@@ -697,7 +697,7 @@ class PptxWriter {
         def i:int 0
         while (i < (array_length body.paragraphs)) {
             def para:PptxParagraph (itemAt body.paragraphs i)
-            out = (out + (PptxWriter.paraXml(para keepInherited math)))
+            out = (out + (PptxWriter.paraXml(para keepInherited withMath)))
             i = (i + 1)
         }
         if ((array_length body.paragraphs) == 0) {
@@ -1119,7 +1119,7 @@ class PptxWriter {
         return (this.spXmlAs(shape id false))
     }
 
-    fn spXmlAs:string (shape:PptxShape id:int math:boolean) {
+    fn spXmlAs:string (shape:PptxShape id:int withMath:boolean) {
         def name:string shape.name
         if ((strlen name) == 0) {
             name = ("Shape " + (to_string id))
@@ -1164,7 +1164,7 @@ class PptxWriter {
         ; shape that has no text into one that has an empty paragraph — which
         ; is a different thing to everything that reads the file afterwards.
         if shape.hasText {
-            out = (out + (PptxWriter.bodyXml(shape.text overMode math)))
+            out = (out + (PptxWriter.bodyXml(shape.text overMode withMath)))
         }
         return (out + "</p:sp>")
     }
