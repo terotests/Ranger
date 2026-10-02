@@ -124,6 +124,11 @@ class RangerAppParamDesc {
   ; propagates it through calls (propagateArgMutRef), so a parameter that is
   ; only handed on to a mutating callee carries it too.
   def needs_swift_inout:boolean false
+  ; Go: an array parameter the body grows or empties (needs_swift_inout on
+  ; an array). A slice is passed by value, so `append` in the callee is lost
+  ; to the caller; the parameter is a *[]T and the call passes its address.
+  ; Set by RangerGolangClassWriter.goSlicePtrPrepare (ISSUES.md #58).
+  def go_slice_ptr:boolean false
   ; Every value ever assigned to this string is a literal or a copy of another
   ; such string (StaticAnalyzer.analyzeRustStaticStrings) — Rust emits it as
   ; `&'static str`: assignment is a pointer copy, no allocation, Copy semantics.
