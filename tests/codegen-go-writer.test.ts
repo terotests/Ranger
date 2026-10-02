@@ -144,4 +144,86 @@ class ToIntFloorRun {
       expect(run?.output).toContain("-2");
     }
   );
+
+  it.skipIf(!goAvailable)(
+    "PresDeck shapes: map-of-double get, optional-backed local, indexOfFrom, a local named copy",
+    () => {
+      // Four things that kept Sliqtly's PresDeck from building as Go:
+      // `unwrap (get m k)` on a [string:double] read .value off a float64;
+      // `def previous:T board` (board optional) is a *GoNullable and a
+      // method call on it was a call on the box; indexOfFrom's own `idx`
+      // hid a caller's `idx` in the start offset; a local named `copy` hid
+      // copy() from buffer_copy.
+      const tmpFile = path.join(OUTPUT_DIR, "go_presdeck_shapes_run.rgr");
+      fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+      fs.writeFileSync(
+        tmpFile,
+        `
+class ShapeBoard {
+    def kind:string "board"
+    fn clone:ShapeBoard () {
+        def b (new ShapeBoard)
+        b.kind = this.kind
+        return b
+    }
+}
+class ShapeHolder {
+    def board@(optional):ShapeBoard
+    fn kids:string () {
+        def previous:ShapeBoard board
+        def child (previous.clone())
+        child.kind = (child.kind + "-step")
+        return child.kind
+    }
+}
+class ShapeBuf {
+    def data:buffer (buffer_alloc 4)
+    fn clone:ShapeBuf () {
+        def copy (new ShapeBuf)
+        buffer_copy copy.data 0 this.data 0 4
+        return copy
+    }
+}
+class PresDeckShapesRun {
+    sfn m@(main):void () {
+        def sums:[string:double]
+        set sums "a" 1.5
+        def s:double 0.0
+        if (has sums "a") {
+            s = (unwrap (get sums "a"))
+        }
+        print ("sum " + s)
+        def xml:string "<a><Relationship x><b>"
+        def idx:int (indexOfFrom xml "<Relationship" 0)
+        def end:int (indexOfFrom xml ">" idx)
+        print ("idx " + idx + " end " + end)
+        def h (new ShapeHolder)
+        h.board = (new ShapeBoard)
+        print (h.kids())
+        def b (new ShapeBuf)
+        def c:ShapeBuf (b.clone())
+        print ("copied " + (buffer_length c.data))
+    }
+}
+`,
+        "utf8"
+      );
+      const relPath = path.relative(ROOT_DIR, tmpFile).replace(/\\/g, "/");
+      const { compile, run } = compileAndRunGo(`./${relPath}`);
+      try {
+        fs.unlinkSync(tmpFile);
+      } catch {
+        // ignore
+      }
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      expect(run?.output).toContain("sum 1.5");
+      expect(run?.output).toContain("idx 3 end 18");
+      expect(run?.output).toContain("board-step");
+      expect(run?.output).toContain("copied 4");
+    }
+  );
 });
