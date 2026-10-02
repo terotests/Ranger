@@ -861,6 +861,22 @@
 }
 .ui-slider-thumb-disabled { opacity: 0.45; }
 
+/* --- crop ------------------------------------------------------------------
+   CropCtl writes every position and size inline (it alone knows the
+   picture's proportions); the sheet only says what the parts look like. */
+
+.ui-crop { background-color: #18181b; }
+.ui-crop-shade { background-color: rgba(0, 0, 0, 0.55); }
+.ui-crop-box { border: 2px solid #ffffff; }
+.ui-crop-third { background-color: rgba(255, 255, 255, 0.35); }
+.ui-crop-handle {
+  background-color: #ffffff;
+  border: 1px solid #2563eb;
+  border-radius: 2px;
+}
+.ui-crop-handle-disabled { opacity: 0.45; }
+.ui-crop-box-disabled { opacity: 0.6; }
+
 /* --- toast ----------------------------------------------------------------
    The region is the named landmark a reader finds; the viewport is the list
    inside it. Both are real in the reference, and both are here. */

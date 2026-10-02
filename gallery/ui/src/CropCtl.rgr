@@ -1,0 +1,607 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; CropCtl — a picture, and the part of it to keep
+; =============================================================================
+; No Radix reference: Radix has no cropper. The shape follows the croppers
+; people already know (react-easy-crop, the OS photo tools): the whole picture
+; in a box, the parts that go dimmed, a frame over the part that stays, with a
+; handle on each corner and edge and the rule-of-thirds lines inside it.
+;
+; The crop is held as FRACTIONS of the picture (x, y, w, h in 0..1), not
+; pixels: the box is drawn at whatever size fits, and the caller turns the
+; fractions into source pixels once (`cropPixels`). `aspect` is width over
+; height in source pixels; 0 is free.
+;
+; The pointer: the host hands the press and every move over as a fraction of
+; the root's rectangle (`pressAt`, `dragAt`, `release`), because only the host
+; knows where the box was laid out. That is the slider's split
+; (dragBoundsTid/dragTo) in two dimensions.
+;
+; The keys, on the frame: arrows move the crop by 1 % of the picture, Shift
+; and an arrow grows or shrinks it from the right or bottom edge (keeping the
+; aspect when one is set).
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
+
+class CropCtl extends UiCtl {
+    ; the picture: what the img draws and its size in pixels
+    def src:string ""
+    def imgW:double 0.0
+    def imgH:double 0.0
+    ; the largest box the picture is drawn in; it keeps its proportions
+    def maxW:double 480.0
+    def maxH:double 300.0
+    ; the crop, as fractions of the picture
+    def cx:double 0.0
+    def cy:double 0.0
+    def cw:double 1.0
+    def ch:double 1.0
+    ; width / height in source pixels, 0 for free
+    def aspect:double 0.0
+    ; the smallest side, as a fraction of the picture's side
+    def minFrac:double 0.05
+    ; a drag: the part pressed ("move", "n", "ne", … "nw"), where, and the
+    ; crop as it was then
+    def dragPart:string ""
+    def sx:double 0.0
+    def sy:double 0.0
+    def x0:double 0.0
+    def y0:double 0.0
+    def w0:double 1.0
+    def h0:double 1.0
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+    fn imgTid:string () {
+        return (tid + "-img")
+    }
+
+    fn boxTid:string () {
+        return (tid + "-box")
+    }
+
+    fn handleTid:string (part:string) {
+        return (tid + "-h-" + part)
+    }
+
+    sfn parts:[string] () {
+        def out:[string]
+        push out "nw"
+        push out "n"
+        push out "ne"
+        push out "e"
+        push out "se"
+        push out "s"
+        push out "sw"
+        push out "w"
+        return out
+    }
+
+    ; --- the picture ------------------------------------------------------------
+    fn setImage:void (path:string w:double h:double) {
+        src = path
+        imgW = w
+        imgH = h
+        cx = 0.0
+        cy = 0.0
+        cw = 1.0
+        ch = 1.0
+        if (aspect > 0.0) {
+            this.setAspect(aspect)
+        }
+        this.build()
+    }
+
+    ; The box the picture is drawn in: the picture's proportions, as large as
+    ; fits in maxW × maxH.
+    fn boxW:double () {
+        if ((imgW <= 0.0) || (imgH <= 0.0)) {
+            return maxW
+        }
+        def k:double (maxW / imgW)
+        if ((imgH * k) > maxH) {
+            k = (maxH / imgH)
+        }
+        return (imgW * k)
+    }
+
+    fn boxH:double () {
+        if ((imgW <= 0.0) || (imgH <= 0.0)) {
+            return maxH
+        }
+        def k:double (maxW / imgW)
+        if ((imgH * k) > maxH) {
+            k = (maxH / imgH)
+        }
+        return (imgH * k)
+    }
+
+    ; The aspect in fractions: a crop cw × ch of the picture is
+    ; (cw * imgW) / (ch * imgH) in pixels.
+    fn fracAspect:double () {
+        if (((aspect <= 0.0) || (imgW <= 0.0)) || (imgH <= 0.0)) {
+            return 0.0
+        }
+        return ((aspect * imgH) / imgW)
+    }
+
+    ; A new aspect: the largest crop of it, round the centre of the old one.
+    fn setAspect:void (a:double) {
+        aspect = a
+        def fa:double (this.fracAspect())
+        if (fa <= 0.0) {
+            this.build()
+            return
+        }
+        def mx:double (cx + (cw * 0.5))
+        def my:double (cy + (ch * 0.5))
+        def w:double 1.0
+        def h:double (1.0 / fa)
+        if (h > 1.0) {
+            h = 1.0
+            w = fa
+        }
+        cw = w
+        ch = h
+        cx = (CropCtl.clamp((mx - (w * 0.5)) 0.0 (1.0 - w)))
+        cy = (CropCtl.clamp((my - (h * 0.5)) 0.0 (1.0 - h)))
+        this.build()
+    }
+
+    fn reset:void () {
+        cx = 0.0
+        cy = 0.0
+        cw = 1.0
+        ch = 1.0
+        this.setAspect(aspect)
+    }
+
+    sfn clamp:double (v:double lo:double hi:double) {
+        if (v < lo) {
+            return lo
+        }
+        if (v > hi) {
+            return hi
+        }
+        return v
+    }
+
+    ; Nothing cut away.
+    fn isWhole:boolean () {
+        return ((((cx <= 0.0005) && (cy <= 0.0005)) && (cw >= 0.9995)) && (ch >= 0.9995))
+    }
+
+    ; The crop in source pixels: "x,y,w,h".
+    fn cropPixels:string () {
+        def px:int (to_int ((cx * imgW) + 0.5))
+        def py:int (to_int ((cy * imgH) + 0.5))
+        def pw:int (to_int ((cw * imgW) + 0.5))
+        def ph:int (to_int ((ch * imgH) + 0.5))
+        if ((px + pw) > (to_int imgW)) {
+            pw = ((to_int imgW) - px)
+        }
+        if ((py + ph) > (to_int imgH)) {
+            ph = ((to_int imgH) - py)
+        }
+        return ((to_string px) + "," + (to_string py) + "," + (to_string pw) + "," + (to_string ph))
+    }
+
+    ; --- building -----------------------------------------------------------------
+    sfn px:string (v:double) {
+        return ((to_string (to_int (v + 0.5))) + "px")
+    }
+
+    fn place:void (el:EVGElement x:double y:double w:double h:double) {
+        UiTree.inline(el "position" "absolute")
+        UiTree.inline(el "left" (CropCtl.px(x)))
+        UiTree.inline(el "top" (CropCtl.px(y)))
+        UiTree.inline(el "width" (CropCtl.px(w)))
+        UiTree.inline(el "height" (CropCtl.px(h)))
+    }
+
+    fn build:void () {
+        def bw:double (this.boxW())
+        def bh:double (this.boxH())
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-crop"
+        UiTree.clearChildren(root)
+        UiTree.inline(root "position" "relative")
+        UiTree.inline(root "width" (CropCtl.px(bw)))
+        UiTree.inline(root "height" (CropCtl.px(bh)))
+        root.setAttribute("overflow" "hidden")
+
+        def im (EVGElement.createImg())
+        im.id = (this.imgTid())
+        im.className = "ui-crop-img"
+        im.src = src
+        im.objectFit = "fill"
+        im.sourceWidth = imgW
+        im.sourceHeight = imgH
+        this.place(im 0.0 0.0 bw bh)
+        root.addChild(im)
+
+        ; the frame in box pixels
+        def l:double (cx * bw)
+        def t:double (cy * bh)
+        def r:double ((cx + cw) * bw)
+        def b:double ((cy + ch) * bh)
+        ; what goes, dimmed: above, below, and the two sides between
+        def sTop:EVGElement (UiTree.div((tid + "-shade-t") "ui-crop-shade"))
+        this.place(sTop 0.0 0.0 bw t)
+        root.addChild(sTop)
+        def sBot:EVGElement (UiTree.div((tid + "-shade-b") "ui-crop-shade"))
+        this.place(sBot 0.0 b bw (bh - b))
+        root.addChild(sBot)
+        def sLeft:EVGElement (UiTree.div((tid + "-shade-l") "ui-crop-shade"))
+        this.place(sLeft 0.0 t l (b - t))
+        root.addChild(sLeft)
+        def sRight:EVGElement (UiTree.div((tid + "-shade-r") "ui-crop-shade"))
+        this.place(sRight r t (bw - r) (b - t))
+        root.addChild(sRight)
+
+        def box:EVGElement (UiTree.div((this.boxTid()) "ui-crop-box"))
+        this.place(box l t (r - l) (b - t))
+        if disabled {
+            UiTree.addClass(box "ui-crop-box-disabled")
+        }
+        ; the rule of thirds
+        def k:int 1
+        while (k <= 2) {
+            def fx:double (((r - l) * (to_double k)) / 3.0)
+            def v:EVGElement (UiTree.div((tid + "-third-v" + (to_string k)) "ui-crop-third"))
+            this.place(v fx 0.0 1.0 (b - t))
+            box.addChild(v)
+            def fy:double (((b - t) * (to_double k)) / 3.0)
+            def hz:EVGElement (UiTree.div((tid + "-third-h" + (to_string k)) "ui-crop-third"))
+            this.place(hz 0.0 fy (r - l) 1.0)
+            box.addChild(hz)
+            k = (k + 1)
+        }
+        root.addChild(box)
+
+        ; the handles, centred on the corners and the middles of the edges
+        def hs:double 12.0
+        def mx:double ((l + r) * 0.5)
+        def my:double ((t + b) * 0.5)
+        def ps:[string] (CropCtl.parts())
+        def i:int 0
+        while (i < (array_length ps)) {
+            def p:string (itemAt ps i)
+            def hx:double mx
+            def hy:double my
+            if ((indexOf p "w") >= 0) {
+                hx = l
+            }
+            if ((indexOf p "e") >= 0) {
+                hx = r
+            }
+            if ((indexOf p "n") >= 0) {
+                hy = t
+            }
+            if ((indexOf p "s") >= 0) {
+                hy = b
+            }
+            def hd:EVGElement (UiTree.div((this.handleTid(p)) "ui-crop-handle"))
+            this.place(hd (hx - (hs * 0.5)) (hy - (hs * 0.5)) hs hs)
+            if disabled {
+                UiTree.addClass(hd "ui-crop-handle-disabled")
+            }
+            root.addChild(hd)
+            i = (i + 1)
+        }
+    }
+
+    ; --- the pointer --------------------------------------------------------------
+    ; What a press on `target` grabs: a handle's part, "move" for the frame, ""
+    ; for nothing (the dimmed part and the picture outside do nothing).
+    fn partOf:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if ((target == (this.boxTid())) || ((indexOf target (tid + "-third-")) == 0)) {
+            return "move"
+        }
+        def pre:string (tid + "-h-")
+        if ((indexOf target pre) == 0) {
+            return (substring target (strlen pre) (strlen target))
+        }
+        return ""
+    }
+
+    ; A press at (fx, fy), fractions of the root's rectangle. Returns the tid
+    ; that takes focus: the frame, or "" when the press grabbed nothing.
+    fn pressAt:string (target:string fx:double fy:double) {
+        dragPart = (this.partOf(target))
+        if ((strlen dragPart) == 0) {
+            return ""
+        }
+        sx = fx
+        sy = fy
+        x0 = cx
+        y0 = cy
+        w0 = cw
+        h0 = ch
+        return (this.boxTid())
+    }
+
+    fn dragging:boolean () {
+        return ((strlen dragPart) > 0)
+    }
+
+    fn release:void () {
+        dragPart = ""
+    }
+
+    fn dragAt:void (fx:double fy:double) {
+        if ((strlen dragPart) == 0) {
+            return
+        }
+        def dx:double (fx - sx)
+        def dy:double (fy - sy)
+        if (dragPart == "move") {
+            cx = (CropCtl.clamp((x0 + dx) 0.0 (1.0 - cw)))
+            cy = (CropCtl.clamp((y0 + dy) 0.0 (1.0 - ch)))
+            this.build()
+            return
+        }
+        def west:boolean ((indexOf dragPart "w") >= 0)
+        def east:boolean ((indexOf dragPart "e") >= 0)
+        def north:boolean ((indexOf dragPart "n") >= 0)
+        def south:boolean ((indexOf dragPart "s") >= 0)
+        def l:double x0
+        def r:double (x0 + w0)
+        def t:double y0
+        def b:double (y0 + h0)
+        if west {
+            l = (CropCtl.clamp((x0 + dx) 0.0 (r - minFrac)))
+        }
+        if east {
+            r = (CropCtl.clamp(((x0 + w0) + dx) (l + minFrac) 1.0))
+        }
+        if north {
+            t = (CropCtl.clamp((y0 + dy) 0.0 (b - minFrac)))
+        }
+        if south {
+            b = (CropCtl.clamp(((y0 + h0) + dy) (t + minFrac) 1.0))
+        }
+        def fa:double (this.fracAspect())
+        if (fa <= 0.0) {
+            cx = l
+            cy = t
+            cw = (r - l)
+            ch = (b - t)
+            this.build()
+            return
+        }
+        this.fitAspect(l t r b west east north south)
+        this.build()
+    }
+
+    ; The dragged edges, held to the aspect: the side that moved decides the
+    ; size, the opposite side (or the middle, for an edge) stays put, and the
+    ; size shrinks until it fits in the picture.
+    fn fitAspect:void (l:double t:double r:double b:double west:boolean east:boolean north:boolean south:boolean) {
+        def fa:double (this.fracAspect())
+        def horiz:boolean (west || east)
+        def vert:boolean (north || south)
+        def w:double (r - l)
+        def h:double (b - t)
+        if (horiz && vert) {
+            if ((w / fa) > h) {
+                h = (w / fa)
+            } {
+                w = (h * fa)
+            }
+        } {
+            if horiz {
+                h = (w / fa)
+            } {
+                w = (h * fa)
+            }
+        }
+        ; the room there is, from the side or the middle that stays
+        def ax:double (x0 + (w0 * 0.5))
+        def roomW:double ((2.0 * (CropCtl.minOf(ax (1.0 - ax)))))
+        if west {
+            ax = (x0 + w0)
+            roomW = ax
+        }
+        if east {
+            ax = x0
+            roomW = (1.0 - ax)
+        }
+        def ay:double (y0 + (h0 * 0.5))
+        def roomH:double ((2.0 * (CropCtl.minOf(ay (1.0 - ay)))))
+        if north {
+            ay = (y0 + h0)
+            roomH = ay
+        }
+        if south {
+            ay = y0
+            roomH = (1.0 - ay)
+        }
+        if (w > roomW) {
+            w = roomW
+            h = (w / fa)
+        }
+        if (h > roomH) {
+            h = roomH
+            w = (h * fa)
+        }
+        if (w < minFrac) {
+            w = minFrac
+            h = (w / fa)
+        }
+        cw = w
+        ch = h
+        if west {
+            cx = (ax - w)
+        } {
+            if east {
+                cx = ax
+            } {
+                cx = (ax - (w * 0.5))
+            }
+        }
+        if north {
+            cy = (ay - h)
+        } {
+            if south {
+                cy = ay
+            } {
+                cy = (ay - (h * 0.5))
+            }
+        }
+        cx = (CropCtl.clamp(cx 0.0 (1.0 - cw)))
+        cy = (CropCtl.clamp(cy 0.0 (1.0 - ch)))
+    }
+
+    sfn minOf:double (a:double b:double) {
+        if (a < b) {
+            return a
+        }
+        return b
+    }
+
+    ; --- the keys -------------------------------------------------------------------
+    fn moveBy:void (dx:double dy:double) {
+        cx = (CropCtl.clamp((cx + dx) 0.0 (1.0 - cw)))
+        cy = (CropCtl.clamp((cy + dy) 0.0 (1.0 - ch)))
+        this.build()
+    }
+
+    ; Grow or shrink from the right and bottom edges, as the se handle does.
+    fn resizeBy:void (dw:double dh:double) {
+        x0 = cx
+        y0 = cy
+        w0 = cw
+        h0 = ch
+        sx = 0.0
+        sy = 0.0
+        def part:string "se"
+        if ((dw != 0.0) && (dh == 0.0)) {
+            part = "e"
+        }
+        if ((dh != 0.0) && (dw == 0.0)) {
+            part = "s"
+        }
+        dragPart = part
+        this.dragAt(dw dh)
+        dragPart = ""
+    }
+
+    fn keyDownWith:string (target:string key:string shift:boolean ctrl:boolean) {
+        if disabled {
+            return ""
+        }
+        if (target != (this.boxTid())) {
+            return ""
+        }
+        def st:double 0.01
+        def dx:double 0.0
+        def dy:double 0.0
+        if (key == "ArrowLeft") {
+            dx = (0.0 - st)
+        }
+        if (key == "ArrowRight") {
+            dx = st
+        }
+        if (key == "ArrowUp") {
+            dy = (0.0 - st)
+        }
+        if (key == "ArrowDown") {
+            dy = st
+        }
+        if ((dx == 0.0) && (dy == 0.0)) {
+            return ""
+        }
+        if shift {
+            this.resizeBy(dx dy)
+        } {
+            this.moveBy(dx dy)
+        }
+        return ""
+    }
+
+    fn keyDown:string (target:string key:string) {
+        return (this.keyDownWith(target key false false))
+    }
+
+    ; --- what is reported -------------------------------------------------------------
+    sfn pct:string (v:double) {
+        return ((to_string (to_int ((v * 100.0) + 0.5))) + "%")
+    }
+
+    ; What a reader hears on the frame: the part kept and where it starts.
+    fn valueText:string () {
+        return ((CropCtl.pct(cw)) + " × " + (CropCtl.pct(ch)) + ", " + (CropCtl.pct(cx)) + " " + (CropCtl.pct(cy)))
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.imgTid())
+        push a (this.boxTid())
+        push a (tid + "-shade-t")
+        push a (tid + "-shade-b")
+        push a (tid + "-shade-l")
+        push a (tid + "-shade-r")
+        def k:int 1
+        while (k <= 2) {
+            push a (tid + "-third-v" + (to_string k))
+            push a (tid + "-third-h" + (to_string k))
+            k = (k + 1)
+        }
+        def ps:[string] (CropCtl.parts())
+        def i:int 0
+        while (i < (array_length ps)) {
+            push a (this.handleTid((itemAt ps i)))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        return (target == (this.boxTid()))
+    }
+
+    fn hitFocusId:string (hit:string) {
+        if ((strlen (this.partOf(hit))) > 0) {
+            return (this.boxTid())
+        }
+        return ""
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.group()) name))
+        rootRow.disabled = disabled
+        push out rootRow
+        def imgRow:UiRow (UiRow.of((this.imgTid()) (EVGA11yRole.none()) ""))
+        imgRow.parentTid = tid
+        imgRow.hidden = true
+        push out imgRow
+        def boxRow:UiRow (UiRow.of((this.boxTid()) (EVGA11yRole.group()) name))
+        boxRow.parentTid = tid
+        boxRow.roleDescription = "crop area"
+        boxRow.valueText = (this.valueText())
+        boxRow.disabled = disabled
+        if (disabled == false) {
+            boxRow.tabStop = true
+            boxRow.focusable = true
+        }
+        push out boxRow
+        return out
+    }
+}

@@ -38,6 +38,7 @@ Import "ToolbarCtl.rgr"
 Import "DialogCtl.rgr"
 Import "DrawerCtl.rgr"
 Import "WindowCtl.rgr"
+Import "CropCtl.rgr"
 Import "AlertDialogCtl.rgr"
 Import "PopoverCtl.rgr"
 Import "MenuCtl.rgr"
@@ -420,6 +421,17 @@ class UiHost {
         c.tid = tid
         c.name = name
         c.build()
+        this.add(c)
+        return c
+    }
+
+    ; A picture and the part of it to keep. The pointer goes through
+    ; `pressAt` / `dragAt` on the control, as fractions of its rectangle.
+    fn addCrop:CropCtl (tid:string name:string src:string w:double h:double) {
+        def c (new CropCtl())
+        c.tid = tid
+        c.name = name
+        c.setImage(src w h)
         this.add(c)
         return c
     }
