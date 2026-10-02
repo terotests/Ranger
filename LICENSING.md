@@ -9,7 +9,9 @@ This repository uses two licenses.
 
 `lib/evg` and `lib/image` are fetched from
 [terotests/evg](https://github.com/terotests/evg) (MIT) by `npm run deps`, at
-the commit the root `ranger.json` pins; they are not tracked here.
+the commit the root `ranger.json` pins; they are not tracked here. The same
+holds for `gallery/vela`, from
+[terotests/VelaCharts](https://github.com/terotests/VelaCharts) (AGPL-3.0).
 
 The root [`LICENSE`](LICENSE) file is the overview, not a single license
 text. GitHub may not show a single license badge; that is intentional.
@@ -265,7 +267,7 @@ file:
 | `gallery/pdf_writer/assets/fonts/Noto_Emoji/` | SIL OFL-1.1 |
 | `gallery/datagrid/src/xlsx/vendor/ooxml-encryption/` | MIT (third party) |
 | `gallery/datagrid/src/xlsx/vendor/office-crypto.LICENSE` | MIT (third party) |
-| `gallery/vela/VEGA_LICENSE` | BSD-3-Clause (Vega project; Vela itself is AGPL) |
+| `gallery/vela/VEGA_LICENSE` (from terotests/VelaCharts) | BSD-3-Clause (Vega project; Vela itself is AGPL) |
 | `gallery/game_engine/v2/interp/bench/zoo_octane/` | BSD-style (V8 / Octane) |
 
 ## SPDX headers

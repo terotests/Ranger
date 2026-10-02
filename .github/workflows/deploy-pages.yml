@@ -32,8 +32,9 @@
 #                deployer would clobber the site rather than sit beside it.
 #   /vela/    -> paste a Vega or Vega-Lite specification and see what the
 #                Ranger runtime draws. The compiler and the SVG renderer it
-#                loads are built from gallery/vela/src, so the page shows this
-#                commit's own output rather than a recorded one.
+#                loads are built from gallery/vela/src (terotests/VelaCharts at
+#                the commit ranger.json pins), so the page shows that commit's
+#                own output rather than a recorded one.
 #   /office/  -> the .pptx API playground: code on the left writing a deck, the
 #                editor on the right opening the bytes it produced. Its
 #                reference is at /office/reference/ (Astro + Starlight: EVG,
@@ -134,10 +135,10 @@ on:
       - "compiler/**"
       - "lib/**"
       - "docs/**"
-      # lib/evg and lib/image are fetched from the commit these pin.
+      # lib/evg, lib/image and gallery/vela are fetched from the commit
+      # these pin.
       - "ranger.json"
       - "ranger.lock"
-      - "gallery/vela/**"
       # The RealTrainer page at /realtrainer/ is built from these, and from
       # the controls in gallery/ui it is drawn with.
       - "gallery/realtrainer/**"
