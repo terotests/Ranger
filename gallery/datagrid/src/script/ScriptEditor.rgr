@@ -147,6 +147,11 @@ class ScriptEditor {
     ; lang/EditorLanguage.rgr.
     def language:EditorLanguage (new EditorLanguage)
     def diagnostics:[EditorDiagnostic]
+    ; Complaints the HOST has about the text, beside the language's own: a
+    ; presentation that finds a colour too faint on its slide says so on the
+    ; line that set it. Painted and listed like the rest; set them again when
+    ; the text or what they are about changes.
+    def hostDiagnostics:[EditorDiagnostic]
     ; Per line: 0 plain, 1 added, 2 removed. Shorter than the buffer means
     ; the rest is plain. Set by a host showing a merged diff view; cleared
     ; by `init`, because the marks belong to one text.
@@ -362,11 +367,35 @@ class ScriptEditor {
     ; Re-run the plugin when, and only when, the document changed. The same
     ; rule the tokens follow, for the same reason: a plugin that parses is not
     ; free, and nothing has changed sixty times a second.
+    fn setHostDiagnostics:void (list:[EditorDiagnostic]) {
+        hostDiagnostics = list
+        quickVersion = -1
+        diagVersion = -1
+    }
+
+    fn withHost:[EditorDiagnostic] (own:[EditorDiagnostic]) {
+        if ((array_length hostDiagnostics) == 0) {
+            return own
+        }
+        def out:[EditorDiagnostic]
+        def i:int 0
+        while (i < (array_length own)) {
+            push out (itemAt own i)
+            i = (i + 1)
+        }
+        i = 0
+        while (i < (array_length hostDiagnostics)) {
+            push out (itemAt hostDiagnostics i)
+            i = (i + 1)
+        }
+        return out
+    }
+
     fn ensureDiagnostics:void () {
         ; The cheap pass, on every change. A bracket that has just lost its
         ; partner should be underlined while the finger is still on the key.
         if (quickVersion != buf.version) {
-            diagnostics = (language.quickDiagnose(buf.lines))
+            diagnostics = (this.withHost((language.quickDiagnose(buf.lines))))
             quickVersion = buf.version
             quickOnly = true
         }
@@ -385,7 +414,7 @@ class ScriptEditor {
             }
         }
         def t0:double (wall_clock_ms)
-        diagnostics = (language.diagnose((buf.getText())))
+        diagnostics = (this.withHost((language.diagnose((buf.getText())))))
         def t1:double (wall_clock_ms)
         def took:double ((t1 - t0) * 1000.0)
         diagnoseUs = (to_int took)
@@ -1499,8 +1528,15 @@ class ScriptEditor {
                     if marks {
                         def gx:double (to_double (layout.x + 4))
                         def gy:double (to_double ((layout.caretPixelY(line)) + 5))
-                        this.pushRect(dl gx gy 3.0 (to_double (layout.lineHeight - 10)) col)
+                        if (d.severity == (DiagnosticSeverity.warning())) {
+                            this.paintWarningMark(dl gx (to_double (layout.caretPixelY(line))) col)
+                        } {
+                            this.pushRect(dl gx gy 3.0 (to_double (layout.lineHeight - 10)) col)
+                        }
                     } {
+                      ; an end column below zero: about the whole line, a mark
+                      ; in the gutter and no squiggle
+                      if (d.endCol >= 0) {
                         def text:string (buf.lineAt(line))
                         def len:int (strlen text)
                         def c0:int 0
@@ -1531,12 +1567,32 @@ class ScriptEditor {
                         }
                         def yBase:double (to_double ((layout.caretPixelY(line)) + layout.lineHeight - 3))
                         this.paintSquiggle(dl (to_double x0) yBase (to_double x1) col)
+                      }
                     }
                 }
                 line = (line + 1)
             }
             i = (i + 1)
         }
+    }
+
+    ; A warning's mark: a small triangle with an exclamation mark cut out of
+    ; it, centred on the line, at the gutter's left edge.
+    fn paintWarningMark:void (dl:EVGDisplayList x:double lineY:double col:EVGColor) {
+        def side:double 11.0
+        def tall:double 10.0
+        def y0:double (lineY + (((to_double layout.lineHeight) - tall) * 0.5))
+        def pts:[double]
+        push pts (x + (side * 0.5))
+        push pts y0
+        push pts (x + side)
+        push pts (y0 + tall)
+        push pts x
+        push pts (y0 + tall)
+        dl.addPolygon(pts col)
+        def cx:double ((x + (side * 0.5)) - 0.75)
+        this.pushRect(dl cx (y0 + 3.0) 1.5 3.6 theme.gutterBg)
+        this.pushRect(dl cx (y0 + 7.4) 1.5 1.5 theme.gutterBg)
     }
 
     fn paintSelection:void (dl:EVGDisplayList tr:UITextRenderer first:int last:int) {
