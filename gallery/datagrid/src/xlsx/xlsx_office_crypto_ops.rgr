@@ -19,6 +19,7 @@ operators {
         templates {
             es6 ("true")
             cpp ("false")
+            go ("false")
         }
     }
 
@@ -26,6 +27,7 @@ operators {
         templates {
             es6 ("(function(data, password){ function asNodeBuffer(buf){ if (typeof Buffer !== 'undefined' && Buffer.isBuffer(buf)) return buf; if (buf instanceof ArrayBuffer) return Buffer.from(buf); if (buf && buf.buffer instanceof ArrayBuffer) return Buffer.from(buf.buffer, buf.byteOffset || 0, buf.byteLength || buf.length || 0); return Buffer.from(buf || []); } function asRangerBuffer(nodeBuf){ var ab = nodeBuf.buffer.slice(nodeBuf.byteOffset, nodeBuf.byteOffset + nodeBuf.byteLength); ab._view = new DataView(ab); return ab; } try { var path = require('path'); var mod = require(path.join(__dirname, '../src/xlsx/vendor/office-crypto.cjs')); var OfficeFile = mod.OfficeFile || (mod.default && mod.default.OfficeFile); if (!OfficeFile) return asRangerBuffer(Buffer.alloc(0)); var file = OfficeFile(asNodeBuffer(data)); file.loadKey({ password: String(password || ''), verifyPassword: true }); var plain = Buffer.from(file.decrypt()); return asRangerBuffer(plain); } catch (e) { return asRangerBuffer(Buffer.alloc(0)); } })(" (e 1) ", " (e 2) ")")
             cpp ("std::vector<uint8_t>()")
+            go ("[]byte{}")
         }
     }
 }
