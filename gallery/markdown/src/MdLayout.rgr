@@ -685,7 +685,9 @@ class MdLayout {
         clear blockLastPage
         slidesGrown = 0
         slidesShrunk = 0
+        slideTitleOnly = false
         this.layoutBody(doc)
+        slideTitleOnly = false
         if (slides && (tocLines == 0)) {
             this.shrinkSlides(doc)
         }
@@ -1541,8 +1543,22 @@ class MdLayout {
                     }
                 }
             }
+            ; Whether this block opens its slide: a heading that does is the
+            ; slide's title, and what comes right under it is fitted to it
+            ; (see `fitSlideTitle`) rather than spilled onto a slide of its own.
+            def opensSlide:boolean (slides && ((cursorY - contentTop) < 0.5))
+            def startPage:int page
+            def fromBox:int (array_length boxes)
+            def fromHead:int (array_length headText)
             push blockFirstPage page
             this.blockCached(child docSource contentX contentW)
+            if slides {
+                def isTitle:boolean (opensSlide && (child.kind == "heading"))
+                if (isTitle && (MdLayout.bodyFollows(doc i splitLevel))) {
+                    this.fitSlideTitle(child fromBox fromHead startPage)
+                }
+                slideTitleOnly = (isTitle && (page == startPage))
+            }
             push blockLastPage page
             if (! placed) {
                 ; After the title, which is where a reader looks for it; at
@@ -1561,6 +1577,61 @@ class MdLayout {
                 }
             }
             i = (i + 1)
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A title too big for its slide
+    ; ----------------------------------------------------------------------
+    ;
+    ; A heading set large enough wraps onto two or three lines, and whatever
+    ; is under it no longer fits. A diagram or a chart cannot be cut, so it
+    ; went to a slide of its own with the title said again, and the slide it
+    ; left held the title and nothing else: one heading, two slides. A title
+    ; with something under it on its slide now takes at most `slideTitleMax`
+    ; of the room, laid out a step smaller until it does, and the block under
+    ; it is given what is left (`slideTitleOnly`, read by `embed` and
+    ; `pictureBlock`). A title with nothing under it — a section slide — keeps
+    ; the size it was given.
+    def slideTitleMax:double 0.6
+    ; The slide so far holds its title and nothing else.
+    def slideTitleOnly:boolean false
+
+    ; Whether the block after `i` stays on the slide `i` starts, rather than
+    ; starting one of its own.
+    sfn bodyFollows:boolean (doc:MdNode i:int splitLevel:int) {
+        if ((i + 1) >= (doc.childCount())) { return false }
+        def next:MdNode (doc.childAt((i + 1)))
+        if (next.kind == "front_matter") { return false }
+        if (next.hasClass("no-break")) { return true }
+        if (next.hasClass("slide")) { return false }
+        if ((next.kind == "heading") && (next.level <= splitLevel)) { return false }
+        return true
+    }
+
+    fn fitSlideTitle:void (child:MdNode fromBox:int fromHead:int startPage:int) {
+        def cap:double ((contentBottom - contentTop) * slideTitleMax)
+        if ((page == startPage) && ((cursorY - contentTop) <= cap)) { return }
+        def saved:[double] (this.styleNumbers())
+        def savedOverflows:int slideOverflows
+        def sc:double 0.9
+        while (sc > 0.15) {
+            this.truncate(fromBox)
+            while ((array_length headText) > fromHead) {
+                removeLast headText
+                removeLast headLevel
+                removeLast headPage
+                removeLast headY
+            }
+            this.scaleStyle(saved sc)
+            page = startPage
+            pageCount = (page + 1)
+            slideOverflows = savedOverflows
+            cursorY = contentTop
+            this.block(child contentX contentW)
+            this.restoreStyle(saved)
+            if ((page == startPage) && ((cursorY - contentTop) <= cap)) { return }
+            sc = (sc - 0.1)
         }
     }
 
@@ -2858,7 +2929,8 @@ class MdLayout {
         if (slides && paginate) {
             def full:double (contentBottom - contentTop)
             def avail:double (contentBottom - cursorY)
-            if ((h > avail) && (avail >= (full * 0.45))) {
+            def under:boolean (slideTitleOnly && (avail >= (full * 0.2)))
+            if ((h > avail) && ((avail >= (full * 0.45)) || under)) {
                 h = avail
             }
             if (h > full) {
@@ -4498,7 +4570,8 @@ class MdLayout {
         ; the bottom; on a full slide it moves on as it did.
         if (slides && paginate) {
             def avail:double (contentBottom - cursorY)
-            if ((useH > avail) && (avail >= (fullH * 0.35))) {
+            def under:boolean (slideTitleOnly && (avail >= (fullH * 0.2)))
+            if ((useH > avail) && ((avail >= (fullH * 0.35)) || under)) {
                 useW = (useW * (avail / useH))
                 useH = avail
             }
