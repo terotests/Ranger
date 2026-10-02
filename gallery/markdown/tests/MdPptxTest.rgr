@@ -1292,6 +1292,62 @@ prose
 
     ; A title retyped on the slide is a patch on the heading, not a second
     ; document. Attributes and the hashes stay.
+    ; `$…$` in a line: an equation PowerPoint can edit, between the words,
+    ; and the formula as Unicode where there are no equations — never the
+    ; TeX source.
+    fn inlineMath:void (c:DeckCheck) {
+        print "-- a formula in a line is an equation, not its TeX --"
+        def src:string "# Savings\n\nRounded: $FV = PMT \\cdot \\frac{(1+r)^n - 1}{r}$ at 5 %\n\n- yearly $x^2$\n\n| a |\n|---|\n| $\\alpha$ |\n"
+        def d:PptxDeck (this.build(src "deck { split-level: 1 }\n"))
+        def text:string (MdPptxTest.deckText(d))
+        c.ok("no TeX source in the deck" ((indexOf text "\\frac") < 0))
+        c.ok("the formula reads as Unicode" ((indexOf text "FV = PMT ⋅ ((1 + r)ⁿ − 1)/r") >= 0))
+        def sl:PptxSlide (itemAt d.pres.slides 0)
+        def cells:string ""
+        def k:int 0
+        while (k < (array_length sl.shapes)) {
+            def sh:PptxShape (itemAt sl.shapes k)
+            def ci:int 0
+            while (ci < (array_length sh.tableCells)) {
+                def cell:PptxTableCell (itemAt sh.tableCells ci)
+                cells = (cells + cell.text + "|")
+                ci = (ci + 1)
+            }
+            k = (k + 1)
+        }
+        c.eqStr("the table cell has the letter, not its name" cells "a|α|")
+        def w:PptxWriter (new PptxWriter())
+        def xml:string (w.slideXml(sl))
+        c.ok("the paragraph is an equation for PowerPoint" ((indexOf xml "<mc:Choice xmlns:a14=\"http://schemas.microsoft.com/office/drawing/2010/main\" Requires=\"a14\"><p:sp>") >= 0))
+        c.ok("the equation is Office Math" ((indexOf xml "<a14:m><m:oMath xmlns:m=") >= 0))
+        c.ok("the fraction is a fraction" ((indexOf xml "<m:f><m:num>") >= 0))
+        c.ok("the power is on the bracket" ((indexOf xml "<m:sSup><m:e><m:d>") >= 0))
+        c.ok("the words around it stay text" ((indexOf xml ">Rounded: </a:t>") >= 0))
+        c.ok("…and after it" ((indexOf xml "> at 5 %</a:t>") >= 0))
+        c.ok("every math run has the text's colour and the math face" ((indexOf xml "<a:latin typeface=\"Cambria Math\"") >= 0))
+        c.ok("the fallback is the same shape as text" ((indexOf xml "<mc:Fallback><p:sp>") >= 0))
+        c.ok("the list item has its equation" ((indexOf xml "<m:sSup><m:e><m:r>") >= 0))
+        def back:PptxDeck (this.reopened(d))
+        c.eqInt("the deck still opens" (back.slideCount()) (d.slideCount()))
+
+        print "-- a $$ display is an equation, with its drawing as the fallback --"
+        def d2:PptxDeck (this.build("# Sum\n\n$$\n\\sum_{i=1}^{n} i^2 = \\frac{n(n+1)(2n+1)}{6}\n$$\n" "deck { split-level: 1 }\n"))
+        def w2:PptxWriter (new PptxWriter())
+        def xml2:string (w2.slideXml((itemAt d2.pres.slides 0)))
+        c.ok("the display is Office Math in its own paragraph" ((indexOf xml2 "<a14:m><m:oMathPara xmlns:m=") >= 0))
+        c.ok("the sum keeps its limits" ((indexOf xml2 "<m:nary><m:naryPr><m:chr m:val=\"∑\"/><m:limLoc m:val=\"undOvr\"/>") >= 0))
+        c.ok("the fallback is the drawing" ((indexOf xml2 "<mc:Fallback><p:grpSp>") >= 0))
+        def six:int (indexOf xml2 "<a:path w=\"100000\" h=\"100000\"><a:moveTo>")
+        c.ok("the drawing is there" (six >= 0))
+        ; a glyph with a counter is one path of two contours, so the counter
+        ; is a hole and not a second fill over the letter
+        def holes:int 0
+        def at:int (indexOf xml2 "<a:close/><a:moveTo>")
+        if (at >= 0) { holes = 1 }
+        c.ok("a 6 keeps its hole" (holes == 1))
+        c.ok("no glyph is two fills" ((indexOf xml2 "<a:close/></a:path><a:path") < 0))
+    }
+
     fn headingWriteback:void (c:DeckCheck) {
         def src:string "# Hello there {.lead}\n\nA line.\n"
         def d:PptxDeck (this.build(src "deck { split-level: 1 }\n"))
@@ -1341,6 +1397,7 @@ prose
         this.drawingObject(c)
         this.drawingEdit(c)
         this.headingWriteback(c)
+        this.inlineMath(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

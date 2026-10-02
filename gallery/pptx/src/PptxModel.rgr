@@ -205,6 +205,14 @@ class PptxTextRun {
     ; the one that matters: the file carries the number it had when it was
     ; saved, and a viewer has to substitute the one the slide has now.
     def field:string ""
+    ; An equation: the children of an `m:oMath`, Office Math as PowerPoint
+    ; keeps it. `text` is then the same formula as plain Unicode, which is
+    ; what a reader with no equations shows instead — the writer puts both in
+    ; the file, the equation as the choice and the text as its fallback.
+    def math:string ""
+    ; …set as a display (`m:oMathPara`): limits under the sum, a full-size
+    ; fraction, the formula centred on its own line.
+    def mathDisplay:boolean false
     def fontFamily:string ""
     def fontSizePt:double 18.0
     def sizeSet:boolean false
@@ -942,6 +950,10 @@ class PptxShape {
     def chart:PptxChart (new PptxChart())
     ; Group children
     def children:[PptxShape]
+    ; What a reader with no Office Math shows instead of this shape, when the
+    ; shape holds an equation: a drawing of it (the first one is used). With
+    ; none, the shape itself with each formula as plain text.
+    def mathFallback:[PptxShape]
     ; Group child coordinate space (chOff / chExt), in pt
     def chX:double 0.0
     def chY:double 0.0

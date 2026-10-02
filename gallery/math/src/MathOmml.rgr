@@ -1,0 +1,718 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; MathOmml.rgr — TeX math, as Office Math (OMML) and as plain Unicode text
+; ==============================================================================
+;
+;   MathOmml.omml(tex)     the children of an `m:oMath`: what PowerPoint and
+;                          Word keep an equation as, so it opens as one the
+;                          reader can edit with the equation tools
+;   MathOmml.linear(tex)   the same formula as one line of Unicode —
+;                          "FV = PMT ⋅ ((1 + r)ⁿ − 1)/r" — for a reader that
+;                          has no equations (Keynote, Google Slides, a table
+;                          cell), so it never sees the TeX source
+;
+; Both read the atoms `MathParser` makes, so what the stage draws and what the
+; file holds are the same formula.
+;
+; A run in the OMML carries an `m:rPr` and its text and nothing else; the
+; writer puts its own run properties (`a:rPr` in a slide, `w:rPr` in a Word
+; document) in front of every `<m:t`, so the colour and the size are the
+; host's. Letters are written plain: the math engine sets a letter italic
+; unless the run says `m:sty`.
+; ==============================================================================
+
+Import "MathParser.rgr"
+
+class MathOmml {
+
+    sfn omml:string (tex:string) {
+        def atoms:[MathAtom] (MathParser.parse(tex))
+        return (MathOmml.list(atoms))
+    }
+
+    sfn linear:string (tex:string) {
+        def atoms:[MathAtom] (MathParser.parse(tex))
+        return (trim (MathOmml.lin(atoms true)))
+    }
+
+    sfn esc:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 38) {
+                out = (out + "&amp;")
+            } {
+                if (c == 60) {
+                    out = (out + "&lt;")
+                } {
+                    if (c == 62) {
+                        out = (out + "&gt;")
+                    } {
+                        if (c == 34) {
+                            out = (out + "&quot;")
+                        } {
+                            out = (out + (substring s i (i + 1)))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- OMML ------------------------------------------------------------------
+
+    sfn run:string (text:string sty:string scr:string) {
+        def pr:string ""
+        if ((strlen scr) > 0) {
+            pr = (pr + "<m:scr m:val=\"" + scr + "\"/>")
+        }
+        if ((strlen sty) > 0) {
+            pr = (pr + "<m:sty m:val=\"" + sty + "\"/>")
+        }
+        if ((strlen pr) > 0) {
+            pr = ("<m:rPr>" + pr + "</m:rPr>")
+        }
+        return ("<m:r>" + pr + "<m:t xml:space=\"preserve\">" + (MathOmml.esc(text)) + "</m:t></m:r>")
+    }
+
+    ; How a glyph is set: "" as the math engine decides (italic letters),
+    ; "p" upright, "b" bold. `scr` is the alphabet: double-struck, script.
+    sfn styOf:string (a:MathAtom) {
+        if (a.font == (MathFont.mainFont())) {
+            if (MathOmml.isLetter(a.cp)) {
+                return "p"
+            }
+            return ""
+        }
+        if (a.font == (MathFont.bold())) {
+            return "b"
+        }
+        return ""
+    }
+
+    sfn scrOf:string (a:MathAtom) {
+        if (a.font == (MathFont.ams())) {
+            if (MathOmml.isLetter(a.cp)) {
+                return "double-struck"
+            }
+        }
+        if (a.font == (MathFont.cal())) {
+            return "script"
+        }
+        return ""
+    }
+
+    sfn isLetter:boolean (c:int) {
+        if ((c >= 65) && (c <= 90)) { return true }
+        if ((c >= 97) && (c <= 122)) { return true }
+        return false
+    }
+
+    sfn plain:boolean (a:MathAtom) {
+        if (a.kind != "sym") { return false }
+        if a.hasSup { return false }
+        if a.hasSub { return false }
+        if (a.type == "op") { return false }
+        return true
+    }
+
+    sfn delimChar:string (d:string) {
+        if (d == ".") { return "" }
+        if (d == "<") { return (strfromcode 10216) }
+        if (d == ">") { return (strfromcode 10217) }
+        if (d == "||") { return (strfromcode 8214) }
+        if (d == "lfloor") { return (strfromcode 8970) }
+        if (d == "rfloor") { return (strfromcode 8971) }
+        if (d == "lceil") { return (strfromcode 8968) }
+        if (d == "rceil") { return (strfromcode 8969) }
+        return d
+    }
+
+    ; The combining mark OMML puts over its base, for the spacing accent
+    ; the parser keeps.
+    sfn accentChar:string (cp:int) {
+        if (cp == 710) { return (strfromcode 770) }
+        if (cp == 732) { return (strfromcode 771) }
+        if (cp == 711) { return (strfromcode 780) }
+        if (cp == 728) { return (strfromcode 774) }
+        if (cp == 713) { return (strfromcode 773) }
+        if (cp == 729) { return (strfromcode 775) }
+        if (cp == 168) { return (strfromcode 776) }
+        if (cp == 730) { return (strfromcode 778) }
+        if (cp == 714) { return (strfromcode 769) }
+        if (cp == 715) { return (strfromcode 768) }
+        return (strfromcode cp)
+    }
+
+    sfn spaceText:string (em:double) {
+        if (em >= 1.5) { return ((strfromcode 8195) + (strfromcode 8195)) }
+        if (em >= 0.9) { return (strfromcode 8195) }
+        if (em >= 0.45) { return (strfromcode 8194) }
+        if (em >= 0.25) { return (strfromcode 8197) }
+        if (em > 0.0) { return (strfromcode 8201) }
+        return ""
+    }
+
+    sfn e:string (atoms:[MathAtom]) {
+        return ("<m:e>" + (MathOmml.list(atoms)) + "</m:e>")
+    }
+
+    ; A list of atoms. Plain glyphs in the same style are one run, so "PMT"
+    ; is one word to edit and not three; a big operator takes what follows it,
+    ; up to the next relation, as its body.
+    sfn list:string (given:[MathAtom]) {
+        def atoms:[MathAtom] (MathOmml.grouped(given))
+        def out:string ""
+        def i:int 0
+        def n:int (array_length atoms)
+        while (i < n) {
+            def a:MathAtom (itemAt atoms i)
+            if (MathOmml.plain(a)) {
+                def sty:string (MathOmml.styOf(a))
+                def scr:string (MathOmml.scrOf(a))
+                def text:string (strfromcode a.cp)
+                def j:int (i + 1)
+                def more:boolean true
+                while ((j < n) && more) {
+                    def b:MathAtom (itemAt atoms j)
+                    more = false
+                    if (MathOmml.plain(b)) {
+                        if (((MathOmml.styOf(b)) == sty) && ((MathOmml.scrOf(b)) == scr)) {
+                            text = (text + (strfromcode b.cp))
+                            more = true
+                            j = (j + 1)
+                        }
+                    }
+                }
+                out = (out + (MathOmml.run(text sty scr)))
+                i = j
+            } {
+                if ((a.kind == "sym") && (a.type == "op")) {
+                    def rest:[MathAtom]
+                    def j2:int (i + 1)
+                    def stop:boolean false
+                    while ((j2 < n) && (stop == false)) {
+                        def b2:MathAtom (itemAt atoms j2)
+                        if ((b2.type == "rel") || (b2.kind == "rowend")) {
+                            stop = true
+                        } {
+                            push rest b2
+                            j2 = (j2 + 1)
+                        }
+                    }
+                    out = (out + (MathOmml.nary(a rest)))
+                    i = j2
+                } {
+                    if ((a.kind == "opname") && ((i + 1) < n)) {
+                        def next:MathAtom (itemAt atoms (i + 1))
+                        if ((next.type == "rel") || ((next.type == "bin") || ((next.type == "punct") || (next.kind == "space")))) {
+                            out = (out + (MathOmml.atom(a)))
+                            i = (i + 1)
+                        } {
+                            def arg:[MathAtom]
+                            push arg next
+                            out = (out + "<m:func><m:fName>" + (MathOmml.atom(a)) + "</m:fName>" + (MathOmml.e(arg)) + "</m:func>")
+                            i = (i + 2)
+                        }
+                    } {
+                        out = (out + (MathOmml.atom(a)))
+                        i = (i + 1)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    ; TeX attaches the n of (1+r)^n to the ")" alone. The parenthesis and
+    ; what it closes are one delimited group here, carrying the script, so
+    ; the exponent belongs to the whole bracket as an equation editor makes it.
+    sfn grouped:[MathAtom] (atoms:[MathAtom]) {
+        def out:[MathAtom]
+        def i:int 0
+        def n:int (array_length atoms)
+        while (i < n) {
+            def a:MathAtom (itemAt atoms i)
+            def done:boolean false
+            if (((a.kind == "sym") && (a.type == "close")) && (a.hasSup || a.hasSub)) {
+                def depth:int 0
+                def j:int ((array_length out) - 1)
+                def at:int -1
+                while ((j >= 0) && (at < 0)) {
+                    def b:MathAtom (itemAt out j)
+                    if ((b.kind == "sym") && (b.type == "close")) {
+                        depth = (depth + 1)
+                    }
+                    if ((b.kind == "sym") && (b.type == "open")) {
+                        if (depth == 0) {
+                            if ((b.hasSup == false) && (b.hasSub == false)) {
+                                at = j
+                            }
+                            j = -1
+                        } {
+                            depth = (depth - 1)
+                        }
+                    }
+                    j = (j - 1)
+                }
+                if (at >= 0) {
+                    def open:MathAtom (itemAt out at)
+                    def lr:MathAtom (MathAtom.of("lr"))
+                    lr.ldelim = (strfromcode open.cp)
+                    lr.rdelim = (strfromcode a.cp)
+                    lr.sup = a.sup
+                    lr.sub = a.sub
+                    lr.hasSup = a.hasSup
+                    lr.hasSub = a.hasSub
+                    def k:int (at + 1)
+                    while (k < (array_length out)) {
+                        push lr.body (itemAt out k)
+                        k = (k + 1)
+                    }
+                    def keep:[MathAtom]
+                    def m:int 0
+                    while (m < at) {
+                        push keep (itemAt out m)
+                        m = (m + 1)
+                    }
+                    push keep lr
+                    out = keep
+                    done = true
+                }
+            }
+            if (done == false) {
+                push out a
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ∑ ∫ ∏ … with their limits and the body after them.
+    sfn nary:string (a:MathAtom rest:[MathAtom]) {
+        def under:boolean (a.limits != 2)
+        if (MathParser.isIntegral(a.cp)) {
+            under = (a.limits == 1)
+        }
+        def pr:string ("<m:chr m:val=\"" + (MathOmml.esc((strfromcode a.cp))) + "\"/>")
+        if under {
+            pr = (pr + "<m:limLoc m:val=\"undOvr\"/>")
+        } {
+            pr = (pr + "<m:limLoc m:val=\"subSup\"/>")
+        }
+        if (a.hasSub == false) {
+            pr = (pr + "<m:subHide m:val=\"1\"/>")
+        }
+        if (a.hasSup == false) {
+            pr = (pr + "<m:supHide m:val=\"1\"/>")
+        }
+        def out:string ("<m:nary><m:naryPr>" + pr + "</m:naryPr>")
+        out = (out + "<m:sub>" + (MathOmml.list(a.sub)) + "</m:sub>")
+        out = (out + "<m:sup>" + (MathOmml.list(a.sup)) + "</m:sup>")
+        return (out + (MathOmml.e(rest)) + "</m:nary>")
+    }
+
+    ; One atom with its scripts.
+    sfn atom:string (a:MathAtom) {
+        def base:string (MathOmml.nucleus(a))
+        if (a.kind == "stack") {
+            return base
+        }
+        if ((a.kind == "opname") && (a.limits != 2)) {
+            ; \lim_{x→0}: the limit under the name
+            if (a.hasSub && (a.hasSup == false)) {
+                return ("<m:limLow><m:e>" + base + "</m:e><m:lim>" + (MathOmml.list(a.sub)) + "</m:lim></m:limLow>")
+            }
+        }
+        if (a.hasSub && a.hasSup) {
+            return ("<m:sSubSup><m:e>" + base + "</m:e><m:sub>" + (MathOmml.list(a.sub)) + "</m:sub><m:sup>" + (MathOmml.list(a.sup)) + "</m:sup></m:sSubSup>")
+        }
+        if a.hasSup {
+            return ("<m:sSup><m:e>" + base + "</m:e><m:sup>" + (MathOmml.list(a.sup)) + "</m:sup></m:sSup>")
+        }
+        if a.hasSub {
+            return ("<m:sSub><m:e>" + base + "</m:e><m:sub>" + (MathOmml.list(a.sub)) + "</m:sub></m:sSub>")
+        }
+        return base
+    }
+
+    sfn nucleus:string (a:MathAtom) {
+        def k:string a.kind
+        if (k == "sym") {
+            return (MathOmml.run((strfromcode a.cp) (MathOmml.styOf(a)) (MathOmml.scrOf(a))))
+        }
+        if (k == "list") {
+            return (MathOmml.list(a.body))
+        }
+        if ((k == "style") || (k == "color")) {
+            return (MathOmml.list(a.body))
+        }
+        if (k == "frac") {
+            def f:string ""
+            if (a.num == 0.0) {
+                f = "<m:fPr><m:type m:val=\"noBar\"/></m:fPr>"
+            }
+            def fx:string ("<m:f>" + f + "<m:num>" + (MathOmml.list(a.body)) + "</m:num><m:den>" + (MathOmml.list(a.body2)) + "</m:den></m:f>")
+            if ((strlen a.ldelim) > 0) {
+                return (MathOmml.delimited(fx a.ldelim a.rdelim))
+            }
+            return fx
+        }
+        if (k == "sqrt") {
+            if ((array_length a.body2) == 0) {
+                return ("<m:rad><m:radPr><m:degHide m:val=\"1\"/></m:radPr><m:deg/>" + (MathOmml.e(a.body)) + "</m:rad>")
+            }
+            return ("<m:rad><m:deg>" + (MathOmml.list(a.body2)) + "</m:deg>" + (MathOmml.e(a.body)) + "</m:rad>")
+        }
+        if (k == "lr") {
+            return (MathOmml.delimited((MathOmml.list(a.body)) a.ldelim a.rdelim))
+        }
+        if (k == "big") {
+            return (MathOmml.run((MathOmml.delimChar(a.ldelim)) "" ""))
+        }
+        if (k == "accent") {
+            return ("<m:acc><m:accPr><m:chr m:val=\"" + (MathOmml.esc((MathOmml.accentChar(a.cp)))) + "\"/></m:accPr>" + (MathOmml.e(a.body)) + "</m:acc>")
+        }
+        if (k == "over") {
+            return ("<m:bar><m:barPr><m:pos m:val=\"top\"/></m:barPr>" + (MathOmml.e(a.body)) + "</m:bar>")
+        }
+        if (k == "under") {
+            return ("<m:bar><m:barPr><m:pos m:val=\"bot\"/></m:barPr>" + (MathOmml.e(a.body)) + "</m:bar>")
+        }
+        if (k == "text") {
+            def sty:string "p"
+            if (a.textFont == (MathFont.bold())) { sty = "b" }
+            if (a.textFont == (MathFont.mathItalic())) { sty = "i" }
+            return (MathOmml.run(a.text sty ""))
+        }
+        if (k == "opname") {
+            return (MathOmml.run(a.text "p" ""))
+        }
+        if (k == "space") {
+            def sp:string (MathOmml.spaceText(a.num))
+            if ((strlen sp) == 0) {
+                return ""
+            }
+            return (MathOmml.run(sp "" ""))
+        }
+        if (k == "array") {
+            return (MathOmml.array(a))
+        }
+        if (k == "stack") {
+            if a.hasSup {
+                return ("<m:limUpp>" + (MathOmml.e(a.body)) + "<m:lim>" + (MathOmml.list(a.sup)) + "</m:lim></m:limUpp>")
+            }
+            return ("<m:limLow>" + (MathOmml.e(a.body)) + "<m:lim>" + (MathOmml.list(a.sub)) + "</m:lim></m:limLow>")
+        }
+        if (k == "box") {
+            return ("<m:borderBox>" + (MathOmml.e(a.body)) + "</m:borderBox>")
+        }
+        if (k == "phantom") {
+            return ("<m:phant><m:phantPr><m:show m:val=\"0\"/></m:phantPr>" + (MathOmml.e(a.body)) + "</m:phant>")
+        }
+        if (k == "not") {
+            return (MathOmml.run(((MathOmml.lin(a.body false)) + (strfromcode 824)) "" ""))
+        }
+        if (k == "error") {
+            return (MathOmml.run(a.text "p" ""))
+        }
+        return ""
+    }
+
+    sfn delimited:string (inner:string l:string r:string) {
+        def pr:string ("<m:dPr><m:begChr m:val=\"" + (MathOmml.esc((MathOmml.delimChar(l)))) + "\"/><m:endChr m:val=\"" + (MathOmml.esc((MathOmml.delimChar(r)))) + "\"/></m:dPr>")
+        return ("<m:d>" + pr + "<m:e>" + inner + "</m:e></m:d>")
+    }
+
+    sfn cellAt:[MathAtom] (a:MathAtom i:int) {
+        if (i < (array_length a.cells)) {
+            def c:MathCell (itemAt a.cells i)
+            return c.body
+        }
+        def none:[MathAtom]
+        return none
+    }
+
+    ; One column stacks as an equation array; more is a matrix.
+    sfn array:string (a:MathAtom) {
+        def out:string ""
+        if (a.cols <= 1) {
+            out = "<m:eqArr>"
+            def r:int 0
+            while (r < a.rows) {
+                out = (out + (MathOmml.e((MathOmml.cellAt(a r)))))
+                r = (r + 1)
+            }
+            out = (out + "</m:eqArr>")
+        } {
+            out = ("<m:m><m:mPr><m:mcs><m:mc><m:mcPr><m:count m:val=\"" + (to_string a.cols) + "\"/><m:mcJc m:val=\"center\"/></m:mcPr></m:mc></m:mcs></m:mPr>")
+            def r2:int 0
+            while (r2 < a.rows) {
+                out = (out + "<m:mr>")
+                def c:int 0
+                while (c < a.cols) {
+                    out = (out + (MathOmml.e((MathOmml.cellAt(a ((r2 * a.cols) + c))))))
+                    c = (c + 1)
+                }
+                out = (out + "</m:mr>")
+                r2 = (r2 + 1)
+            }
+            out = (out + "</m:m>")
+        }
+        if (((strlen a.ldelim) > 0) || ((strlen a.rdelim) > 0)) {
+            def l:string a.ldelim
+            def rr:string a.rdelim
+            if ((strlen l) == 0) { l = "." }
+            if ((strlen rr) == 0) { rr = "." }
+            return (MathOmml.delimited(out l rr))
+        }
+        return out
+    }
+
+    ; --- linear Unicode ----------------------------------------------------------
+
+    ; A character in the Unicode superscript (or subscript) alphabet, or ""
+    ; when it has none.
+    sfn supChar:string (c:int) {
+        if (c == 48) { return (strfromcode 8304) }
+        if (c == 49) { return (strfromcode 185) }
+        if (c == 50) { return (strfromcode 178) }
+        if (c == 51) { return (strfromcode 179) }
+        if ((c >= 52) && (c <= 57)) { return (strfromcode (8308 + (c - 52))) }
+        if ((c == 43) || (c == 8722)) {
+            if (c == 43) { return (strfromcode 8314) }
+            return (strfromcode 8315)
+        }
+        if (c == 45) { return (strfromcode 8315) }
+        if (c == 61) { return (strfromcode 8316) }
+        if (c == 40) { return (strfromcode 8317) }
+        if (c == 41) { return (strfromcode 8318) }
+        if (c == 110) { return (strfromcode 8319) }
+        if (c == 105) { return (strfromcode 8305) }
+        if (c == 8242) { return (strfromcode 8242) }
+        return ""
+    }
+
+    sfn subChar:string (c:int) {
+        if ((c >= 48) && (c <= 57)) { return (strfromcode (8320 + (c - 48))) }
+        if (c == 43) { return (strfromcode 8330) }
+        if ((c == 45) || (c == 8722)) { return (strfromcode 8331) }
+        if (c == 61) { return (strfromcode 8332) }
+        if (c == 40) { return (strfromcode 8333) }
+        if (c == 41) { return (strfromcode 8334) }
+        if (c == 97) { return (strfromcode 8336) }
+        if (c == 101) { return (strfromcode 8337) }
+        if (c == 111) { return (strfromcode 8338) }
+        if (c == 120) { return (strfromcode 8339) }
+        if (c == 105) { return (strfromcode 7522) }
+        if (c == 106) { return (strfromcode 11388) }
+        if (c == 110) { return (strfromcode 8345) }
+        if (c == 116) { return (strfromcode 8348) }
+        return ""
+    }
+
+    ; `s` in the script alphabet when every character has one, else "".
+    sfn scripted:string (s:string sup:boolean) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            def m:string ""
+            if sup {
+                m = (MathOmml.supChar(c))
+            } {
+                m = (MathOmml.subChar(c))
+            }
+            if ((strlen m) == 0) {
+                return ""
+            }
+            out = (out + m)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A script, as raised characters or as ^x / ^(…)
+    sfn script:string (atoms:[MathAtom] sup:boolean) {
+        def s:string (trim (MathOmml.lin(atoms false)))
+        def raised:string (MathOmml.scripted(s sup))
+        if ((strlen raised) > 0) {
+            return raised
+        }
+        def mark:string "_"
+        if sup { mark = "^" }
+        return (mark + (MathOmml.group(s)))
+    }
+
+    ; More than one character goes in parentheses, so a/(b + c) reads right.
+    sfn group:string (s:string) {
+        if ((strlen s) <= 1) {
+            return s
+        }
+        def first:int (charAt s 0)
+        def last:int (charAt s ((strlen s) - 1))
+        if ((first == 40) && (last == 41)) {
+            ; already one group only when the first ( closes at the end
+            def depth:int 0
+            def i:int 0
+            def whole:boolean true
+            while (i < (strlen s)) {
+                def c:int (charAt s i)
+                if (c == 40) { depth = (depth + 1) }
+                if (c == 41) {
+                    depth = (depth - 1)
+                    if ((depth == 0) && (i < ((strlen s) - 1))) {
+                        whole = false
+                    }
+                }
+                i = (i + 1)
+            }
+            if whole {
+                return s
+            }
+        }
+        def j:int 0
+        def simple:boolean true
+        while (j < (strlen s)) {
+            def c2:int (charAt s j)
+            if ((c2 == 32) || ((c2 == 43) || ((c2 == 8722) || ((c2 == 45) || ((c2 == 47) || (c2 == 61)))))) {
+                simple = false
+            }
+            j = (j + 1)
+        }
+        if simple {
+            return s
+        }
+        return ("(" + s + ")")
+    }
+
+    sfn lin:string (given:[MathAtom] top:boolean) {
+        def atoms:[MathAtom] (MathOmml.grouped(given))
+        def out:string ""
+        def i:int 0
+        def n:int (array_length atoms)
+        while (i < n) {
+            def a:MathAtom (itemAt atoms i)
+            def s:string (MathOmml.linNucleus(a))
+            if (top && ((a.type == "rel") || (a.type == "bin"))) {
+                s = (" " + s + " ")
+            }
+            if (a.hasSub && (a.kind != "stack")) {
+                s = (s + (MathOmml.script(a.sub false)))
+            }
+            if (a.hasSup && (a.kind != "stack")) {
+                s = (s + (MathOmml.script(a.sup true)))
+            }
+            if (a.kind == "opname") {
+                if ((i + 1) < n) {
+                    s = (s + " ")
+                }
+            }
+            out = (out + s)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn linNucleus:string (a:MathAtom) {
+        def k:string a.kind
+        if (k == "sym") {
+            return (strfromcode a.cp)
+        }
+        if (((k == "list") || (k == "style")) || ((k == "color") || (k == "box"))) {
+            return (MathOmml.lin(a.body true))
+        }
+        if (k == "frac") {
+            def num:string (MathOmml.group((trim (MathOmml.lin(a.body true)))))
+            def den:string (MathOmml.group((trim (MathOmml.lin(a.body2 true)))))
+            if (a.num == 0.0) {
+                return ("(" + num + " over " + den + ")")
+            }
+            return (num + "/" + den)
+        }
+        if (k == "sqrt") {
+            def root:string (strfromcode 8730)
+            if ((array_length a.body2) > 0) {
+                def idx:string (trim (MathOmml.lin(a.body2 false)))
+                if (idx == "3") {
+                    root = (strfromcode 8731)
+                } {
+                    if (idx == "4") {
+                        root = (strfromcode 8732)
+                    } {
+                        root = ((MathOmml.scripted(idx true)) + root)
+                    }
+                }
+            }
+            def body:string (trim (MathOmml.lin(a.body true)))
+            if ((strlen body) > 1) {
+                return (root + "(" + body + ")")
+            }
+            return (root + body)
+        }
+        if (k == "lr") {
+            return ((MathOmml.delimChar(a.ldelim)) + (MathOmml.lin(a.body true)) + (MathOmml.delimChar(a.rdelim)))
+        }
+        if (k == "big") {
+            return (MathOmml.delimChar(a.ldelim))
+        }
+        if (k == "accent") {
+            return ((MathOmml.lin(a.body false)) + (MathOmml.accentChar(a.cp)))
+        }
+        if (k == "over") {
+            return (MathOmml.lin(a.body false))
+        }
+        if (k == "under") {
+            return (MathOmml.lin(a.body false))
+        }
+        if (((k == "text") || (k == "opname")) || (k == "error")) {
+            return a.text
+        }
+        if (k == "space") {
+            if (a.num >= 0.25) {
+                return " "
+            }
+            return ""
+        }
+        if (k == "array") {
+            def out:string ""
+            def r:int 0
+            while (r < a.rows) {
+                if (r > 0) {
+                    out = (out + "; ")
+                }
+                def c:int 0
+                def cols:int a.cols
+                if (cols < 1) { cols = 1 }
+                while (c < cols) {
+                    if (c > 0) {
+                        out = (out + " ")
+                    }
+                    out = (out + (trim (MathOmml.lin((MathOmml.cellAt(a ((r * cols) + c))) true))))
+                    c = (c + 1)
+                }
+                r = (r + 1)
+            }
+            def l:string (MathOmml.delimChar(a.ldelim))
+            def rr:string (MathOmml.delimChar(a.rdelim))
+            return (l + out + rr)
+        }
+        if (k == "stack") {
+            def base:string (MathOmml.lin(a.body false))
+            if a.hasSup {
+                return (base + (MathOmml.script(a.sup true)))
+            }
+            return (base + (MathOmml.script(a.sub false)))
+        }
+        if (k == "not") {
+            return ((MathOmml.lin(a.body false)) + (strfromcode 824))
+        }
+        return ""
+    }
+}

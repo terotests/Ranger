@@ -44,6 +44,7 @@ Import "MdLayout.rgr"
 Import "MdToEvg.rgr"
 Import "MdEmbedKinds.rgr"
 Import "MdDeckSync.rgr"
+Import "../../math/src/MathOmml.rgr"
 Import "../../vfs/src/Vfs.rgr"
 Import "../../pptx/api/PptxApi.rgr"
 Import "../../pptx/src/PptxFromEvg.rgr"
@@ -517,7 +518,7 @@ class MdToPptx {
     ; placeholder, so a PowerPoint layout styles it and an outline view shows
     ; it. A deeper one is a text box, because a slide has one title.
     fn heading:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
-        def text:string (node.plainText())
+        def text:string (MdToPptx.flatText(node))
         def box:PptxShapeRef (slide.addTextBox(x y w h text))
         MdToPptx.tight(box)
         def size:double (layout.style.headingSize(node.level))
@@ -543,24 +544,26 @@ class MdToPptx {
     }
 
     fn paragraph:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
-        def text:string (node.plainText())
+        def text:string (MdToPptx.flatText(node))
         if ((strlen (trim text)) == 0) { return }
         def box:PptxShapeRef (slide.addTextBox(x y w h text))
         MdToPptx.tight(box)
         def r:PptxRunRef (box.runAt(0 0))
         r.font(layout.style.bodyFamily layout.style.bodySize)
         r.color(layout.style.textColor)
+        MdToPptx.withMath((box.model()) node)
         result.paragraphs = (result.paragraphs + 1)
     }
 
     fn quote:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
-        def text:string (trim (node.plainText()))
+        def text:string (trim (MdToPptx.flatText(node)))
         def box:PptxShapeRef (slide.addTextBox(x y w h text))
         MdToPptx.tight(box)
         def r:PptxRunRef (box.runAt(0 0))
         r.font(layout.style.bodyFamily layout.style.bodySize)
         r.italic(true)
         r.color(layout.style.quoteColor)
+        MdToPptx.withMath((box.model()) node)
         result.paragraphs = (result.paragraphs + 1)
     }
 
@@ -800,6 +803,9 @@ class MdToPptx {
                 r.sizeSet = true
                 r.color = (PptxApi.colorOf(layout.style.textColor))
                 push p.runs r
+                if (MdToPptx.hasMath(item)) {
+                    p.runs = (MdToPptx.mathRuns(item r))
+                }
                 push m.text.paragraphs p
                 result.bullets = (result.bullets + 1)
             }
@@ -828,13 +834,161 @@ class MdToPptx {
         while (i < (item.childCount())) {
             def c:MdNode (item.childAt(i))
             if (c.kind != "list") {
-                def part:string (c.plainText())
+                def part:string (MdToPptx.flatText(c))
                 if ((strlen out) > 0) { out = (out + " ") }
                 out = (out + part)
             }
             i = (i + 1)
         }
         return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; TeX in a line
+    ; ----------------------------------------------------------------------
+    ;
+    ; A `$…$` in a paragraph is an equation PowerPoint can edit: a run of its
+    ; own holding Office Math, between the runs of text around it. The text
+    ; a run shows where there are no equations (a table cell, a title, a
+    ; reader with no Office Math) is the formula as one line of Unicode, never
+    ; its TeX source.
+
+    ; The text of a block with each formula as Unicode.
+    sfn flatText:string (node:MdNode) {
+        if (node.kind == "math") {
+            return (MathOmml.linear(node.literal))
+        }
+        if (node.kind == "math_block") {
+            return (MathOmml.linear(node.literal))
+        }
+        if ((array_length node.children) == 0) {
+            return (node.plainText())
+        }
+        def out:string ""
+        def i:int 0
+        while (i < (node.childCount())) {
+            out = (out + (MdToPptx.flatText((node.childAt(i)))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn hasMath:boolean (node:MdNode) {
+        if (node.kind == "math") {
+            return true
+        }
+        def i:int 0
+        while (i < (node.childCount())) {
+            def c:MdNode (node.childAt(i))
+            if (c.kind != "list") {
+                if (MdToPptx.hasMath(c)) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; A text box of one paragraph, its one run split where the formulas are.
+    sfn withMath:void (m:PptxShape node:MdNode) {
+        if ((MdToPptx.hasMath(node)) == false) {
+            return
+        }
+        if ((array_length m.text.paragraphs) == 0) {
+            return
+        }
+        def para:PptxParagraph (itemAt m.text.paragraphs 0)
+        if ((array_length para.runs) == 0) {
+            return
+        }
+        def tmpl:PptxTextRun (itemAt para.runs 0)
+        para.runs = (MdToPptx.mathRuns(node tmpl))
+    }
+
+    ; The runs of `node`'s text in the style of `tmpl`: text, an equation,
+    ; text… A list nested in an item is not its text.
+    sfn mathRuns:[PptxTextRun] (node:MdNode tmpl:PptxTextRun) {
+        def out:[PptxTextRun]
+        MdToPptx.collectRuns(node tmpl out)
+        ; the text around a formula is trimmed at the ends of the paragraph
+        ; only, as the one run it replaces was
+        def n:int (array_length out)
+        if (n > 0) {
+            def first:PptxTextRun (itemAt out 0)
+            if ((strlen first.math) == 0) {
+                first.text = (MdToPptx.trimLeft(first.text))
+            }
+            def last:PptxTextRun (itemAt out (n - 1))
+            if ((strlen last.math) == 0) {
+                last.text = (MdToPptx.trimRight(last.text))
+            }
+        }
+        return out
+    }
+
+    sfn collectRuns:void (node:MdNode tmpl:PptxTextRun out:[PptxTextRun]) {
+        if (node.kind == "math") {
+            def r (new PptxTextRun)
+            tmpl.copyStyleTo(r)
+            r.color = tmpl.color
+            r.text = (MathOmml.linear(node.literal))
+            r.math = (MathOmml.omml(node.literal))
+            push out r
+            return
+        }
+        if ((array_length node.children) == 0) {
+            def t:string (node.plainText())
+            if ((strlen t) == 0) {
+                return
+            }
+            def n:int (array_length out)
+            if (n > 0) {
+                def last:PptxTextRun (itemAt out (n - 1))
+                if ((strlen last.math) == 0) {
+                    last.text = (last.text + t)
+                    return
+                }
+            }
+            def r2 (new PptxTextRun)
+            tmpl.copyStyleTo(r2)
+            r2.color = tmpl.color
+            r2.text = t
+            push out r2
+            return
+        }
+        def i:int 0
+        def blocks:int 0
+        while (i < (node.childCount())) {
+            def c:MdNode (node.childAt(i))
+            if (c.kind != "list") {
+                ; two paragraphs of one item are one line, a space apart
+                if ((node.kind == "item") && (blocks > 0)) {
+                    def sp:MdNode (MdNode.create("text"))
+                    sp.literal = " "
+                    MdToPptx.collectRuns(sp tmpl out)
+                }
+                MdToPptx.collectRuns(c tmpl out)
+                blocks = (blocks + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn trimLeft:string (s:string) {
+        def i:int 0
+        while ((i < (strlen s)) && ((charAt s i) == 32)) {
+            i = (i + 1)
+        }
+        return (substring s i (strlen s))
+    }
+
+    sfn trimRight:string (s:string) {
+        def n:int (strlen s)
+        while ((n > 0) && ((charAt s (n - 1)) == 32)) {
+            n = (n - 1)
+        }
+        return (substring s 0 n)
     }
 
     sfn bulletFor:string (level:int) {
@@ -891,7 +1045,7 @@ class MdToPptx {
                 def cell (new PptxTableCell)
                 if (cc < (row.childCount())) {
                     def cn:MdNode (row.childAt(cc))
-                    cell.text = (trim (cn.plainText()))
+                    cell.text = (trim (MdToPptx.flatText(cn)))
                     def a:string cn.align
                     if ((strlen a) > 0) {
                         if (a == "right") { cell.align = "r" }
@@ -1061,10 +1215,26 @@ class MdToPptx {
         def group:PptxShape (conv.build(dl b.x b.y))
         group.name = ("Formula " + (to_string (result.drawn + 1)))
         group.altText = node.literal
-        group.embedNotation = "tex"
-        group.embedSource = node.literal
-        def model:PptxSlide (slide.model())
-        push model.shapes group
+        ; An equation PowerPoint can edit, centred in the column where the
+        ; drawing is; the drawing is what every other reader shows instead.
+        def box:PptxShapeRef (slide.addTextBox(layout.contentX b.y layout.contentW b.h (MathOmml.linear(node.literal))))
+        MdToPptx.tight(box)
+        def m:PptxShape (box.model())
+        def para:PptxParagraph (itemAt m.text.paragraphs 0)
+        para.align = "ctr"
+        para.alignSet = true
+        def r:PptxTextRun (itemAt para.runs 0)
+        r.fontFamily = layout.style.bodyFamily
+        r.fontSizePt = b.size
+        r.sizeSet = true
+        r.color = (PptxApi.colorOf(b.color))
+        r.math = (MathOmml.omml(node.literal))
+        r.mathDisplay = true
+        m.name = group.name
+        m.altText = node.literal
+        m.embedNotation = "tex"
+        m.embedSource = node.literal
+        push m.mathFallback group
         result.drawn = (result.drawn + 1)
     }
 
