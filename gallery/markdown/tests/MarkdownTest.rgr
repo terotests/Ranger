@@ -117,6 +117,30 @@ class MarkdownTest {
         this.ok("…and a change in the defaults draws the charts again" ((h1 - plain) < 0.5))
     }
 
+    ; A Google Sheet as a chart's data: fetched as its CSV.
+    fn sheetSources:void () {
+        def base:string "https://docs.google.com/spreadsheets/d/AbC123/gviz/tq?tqx=out:csv&headers=1"
+        def p (new VlJsonParser())
+        def a:VlJson (p.parse("{\"source\": \"google-sheets\", \"id\": \"AbC123\", \"range\": \"Monthly!A:B\"}"))
+        this.eq("a sheet's tab and range" (MdVegaRender.sourceUrl(a)) (base + "&sheet=Monthly&range=A%3AB"))
+        def b:VlJson (p.parse("{\"url\": \"https://docs.google.com/spreadsheets/d/AbC123/edit?usp=sharing#gid=42\"}"))
+        this.eq("a sheet's link, its tab by gid" (MdVegaRender.sourceUrl(b)) (base + "&gid=42"))
+        def c:VlJson (p.parse("{\"url\": \"sheet://AbC123/'My km'!A1:C9\"}"))
+        this.eq("sheet:// with a quoted tab" (MdVegaRender.sourceUrl(c)) (base + "&sheet=My%20km&range=A1%3AC9"))
+        def d:VlJson (p.parse("{\"url\": \"https://example.com/km.json\"}"))
+        this.eq("any other url is itself" (MdVegaRender.sourceUrl(d)) "https://example.com/km.json")
+        def spec:string "{\"data\": {\"source\": \"google-sheets\", \"id\": \"AbC123\", \"sheet\": \"Monthly\"}, \"mark\": \"bar\"}"
+        def us:[string] (MdVegaRender.urlsOf(spec))
+        this.eq("the sheet is a file the chart reads" (itemAt us 0) (base + "&sheet=Monthly"))
+        def urls:[string]
+        def texts:[string]
+        push urls (itemAt us 0)
+        push texts "\"month\",\"km\"\n\"Jan\",\"120\"\n\"Feb\",\"95.5\"\n"
+        def out:string (MdVegaRender.withFiles(spec urls texts))
+        this.ok("the sheet's CSV is its rows, numbers as numbers" (((indexOf out "\"km\":95.5") >= 0) && ((indexOf out "\"month\":\"Jan\"") >= 0)))
+        this.ok("no source is left" ((indexOf out "google-sheets") < 0))
+    }
+
     ; A chart's url data, from the files the host supplied.
     fn chartFiles:void () {
         def spec:string "{\"data\": {\"url\": \"data/t.csv\"}, \"mark\": \"bar\", \"layer\": [{\"data\": {\"url\": \"data/j.json\"}}]}"
@@ -168,6 +192,7 @@ class MarkdownTest {
         this.notations()
         this.chartDefaults()
         this.chartFiles()
+        this.sheetSources()
         this.diagramWidth()
         this.narrowLabels()
         this.pictureProbe()

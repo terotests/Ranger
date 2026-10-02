@@ -168,6 +168,157 @@ class MdVegaRender {
         return u
     }
 
+    ; Where a chart's data is fetched from: its `url`, or — for a Google
+    ; Sheet — the sheet's CSV. A sheet is named by
+    ;   {"source": "google-sheets", "id": "<id or link>", "sheet": "Monthly", "range": "A:B"}
+    ;   (or "range": "Monthly!A:B", or "gid": 123),
+    ;   {"url": "https://docs.google.com/spreadsheets/d/<id>/edit#gid=123"}, or
+    ;   {"url": "sheet://<id>/Monthly!A:B"}.
+    ; A sheet shared "anyone with the link" is read without signing in.
+    ; "" for data with neither (inline `values`, a named dataset).
+    sfn sourceUrl:string (d:VlJson) {
+        if ((d.isObject()) == false) {
+            return ""
+        }
+        def src:string (MdChar.lower((d.stringOr("source" ""))))
+        def url:string (d.stringOr("url" ""))
+        if (((src == "google-sheets") || (src == "sheets")) || ((src == "sheet") || (src == "google-sheet"))) {
+            def id:string (d.stringOr("id" ""))
+            if ((strlen id) == 0) {
+                id = url
+            }
+            def gv:VlJson (d.get("gid"))
+            def gid:string ""
+            if (gv.isNumber()) {
+                gid = (to_string (gv.asInt()))
+            }
+            if (gv.isString()) {
+                gid = (gv.asString())
+            }
+            return (MdVegaRender.sheetCsv(id (d.stringOr("sheet" "")) (d.stringOr("range" "")) gid))
+        }
+        if ((strlen url) == 0) {
+            return ""
+        }
+        if ((indexOf url "sheet://") == 0) {
+            def rest:string (substring url 8 (strlen url))
+            def slash:int (indexOf rest "/")
+            if (slash < 0) {
+                return (MdVegaRender.sheetCsv(rest "" "" ""))
+            }
+            return (MdVegaRender.sheetCsv((substring rest 0 slash) "" (substring rest (slash + 1) (strlen rest)) ""))
+        }
+        if (MdVegaRender.isSheetLink(url)) {
+            return (MdVegaRender.sheetCsv(url "" "" ""))
+        }
+        return url
+    }
+
+    ; `sourceUrl` of a bare address (a ```table fence's file line).
+    sfn resolveUrl:string (u:string) {
+        def d:VlJson (VlJson.objectValue())
+        d.setMember("url" (VlJson.stringValue(u)))
+        return (MdVegaRender.sourceUrl(d))
+    }
+
+    ; A Google Sheets editing / viewing link (not already a CSV address or a
+    ; "published to the web" one, which are fetched as they are).
+    sfn isSheetLink:boolean (url:string) {
+        if ((indexOf url "docs.google.com/spreadsheets/d/") < 0) {
+            return false
+        }
+        if (((indexOf url "/gviz/") >= 0) || ((indexOf url "/export") >= 0)) {
+            return false
+        }
+        if (((indexOf url "/spreadsheets/d/e/") >= 0) || ((indexOf url "/pub") >= 0)) {
+            return false
+        }
+        return true
+    }
+
+    ; The CSV of a sheet: `idOrLink` is the spreadsheet's id or any link to
+    ; it (a link's #gid= picks the tab when nothing else does); `range` may
+    ; name the tab itself ("Monthly!A:B").
+    sfn sheetCsv:string (idOrLink:string sheet0:string range0:string gid0:string) {
+        def id:string (trim idOrLink)
+        def gid:string gid0
+        def at:int (indexOf id "/spreadsheets/d/")
+        if (at >= 0) {
+            def tail:string (substring id (at + 16) (strlen id))
+            def g:int (indexOf tail "gid=")
+            if (((strlen gid) == 0) && (g >= 0)) {
+                def k:int (g + 4)
+                def digits:string ""
+                while ((k < (strlen tail)) && (((charAt tail k) >= 48) && ((charAt tail k) <= 57))) {
+                    digits = (digits + (substring tail k (k + 1)))
+                    k = (k + 1)
+                }
+                gid = digits
+            }
+            def e:int 0
+            while ((e < (strlen tail)) && ((((charAt tail e) != 47) && ((charAt tail e) != 63)) && ((charAt tail e) != 35))) {
+                e = (e + 1)
+            }
+            id = (substring tail 0 e)
+        }
+        def sheet:string (trim sheet0)
+        def range:string (trim range0)
+        def bang:int (indexOf range "!")
+        if (bang >= 0) {
+            if ((strlen sheet) == 0) {
+                sheet = (substring range 0 bang)
+            }
+            range = (substring range (bang + 1) (strlen range))
+        }
+        ; 'My tab'!A:B
+        if (((strlen sheet) > 1) && (((charAt sheet 0) == 39) && ((charAt sheet ((strlen sheet) - 1)) == 39))) {
+            sheet = (substring sheet 1 ((strlen sheet) - 1))
+        }
+        def out:string (("https://docs.google.com/spreadsheets/d/" + id) + "/gviz/tq?tqx=out:csv&headers=1")
+        if ((strlen sheet) > 0) {
+            out = ((out + "&sheet=") + (MdVegaRender.queryPart(sheet)))
+        } {
+            if ((strlen gid) > 0) {
+                out = ((out + "&gid=") + gid)
+            }
+        }
+        if ((strlen range) > 0) {
+            out = ((out + "&range=") + (MdVegaRender.queryPart(range)))
+        }
+        return out
+    }
+
+    ; A value for a URL's query: ASCII other than letters, digits and -_.~
+    ; percent-encoded (the browser encodes the rest).
+    sfn queryPart:string (s:string) {
+        def hex:string "0123456789ABCDEF"
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            def keep:boolean ((c >= 128) || ((((c >= 48) && (c <= 57)) || ((c >= 65) && (c <= 90))) || (((c >= 97) && (c <= 122)) || (((c == 45) || (c == 95)) || ((c == 46) || (c == 126))))))
+            if keep {
+                out = (out + (substring s i (i + 1)))
+            } {
+                def hi:int (idiv c 16)
+                def lo:int (c - (hi * 16))
+                out = (((out + "%") + (substring hex hi (hi + 1))) + (substring hex lo (lo + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Data fetched from a CSV address: a .csv file, or an export
+    ; (Google Sheets' out:csv / format=csv / output=csv).
+    sfn csvUrl:boolean (url:string) {
+        def lower:string (MdChar.lower(url))
+        if ((indexOf lower ".csv") > 0) {
+            return true
+        }
+        return ((((indexOf lower "out:csv") > 0) || ((indexOf lower "format=csv") > 0)) || ((indexOf lower "output=csv") > 0))
+    }
+
     sfn urlsOf:[string] (text:string) {
         def out:[string]
         def file:string (MdVegaRender.specFile(text))
@@ -195,9 +346,8 @@ class MdVegaRender {
         if ((v.isObject()) == false) {
             return
         }
-        def u:VlJson (v.get("url"))
-        if (u.isString()) {
-            def s:string (u.asString())
+        def s:string (MdVegaRender.sourceUrl(v))
+        if ((strlen s) > 0) {
             def seen:boolean false
             def k:int 0
             while (k < (array_length out)) {
@@ -225,7 +375,7 @@ class MdVegaRender {
         if ((array_length urls) == 0) {
             return text
         }
-        if ((indexOf text "\"url\"") < 0) {
+        if (((indexOf text "\"url\"") < 0) && ((indexOf text "\"source\"") < 0)) {
             return text
         }
         def p (new VlJsonParser())
@@ -256,7 +406,7 @@ class MdVegaRender {
             return false
         }
         def d:VlJson (v.get("data"))
-        if ((d.isObject()) && ((d.get("url")).isString())) {
+        if ((strlen (MdVegaRender.sourceUrl(d))) > 0) {
             def rows:VlJson (MdVegaRender.fileRows(d urls texts))
             if (rows.isArray()) {
                 def nd (VlJson.objectValue())
@@ -279,7 +429,7 @@ class MdVegaRender {
     }
 
     sfn fileRows:VlJson (d:VlJson urls:[string] texts:[string]) {
-        def url:string (d.stringOr("url" ""))
+        def url:string (MdVegaRender.sourceUrl(d))
         def i:int 0
         while (i < (array_length urls)) {
             if ((MdVegaRender.bareUrl((itemAt urls i))) == (MdVegaRender.bareUrl(url))) {
@@ -287,7 +437,7 @@ class MdVegaRender {
                 def fmt:VlJson (d.get("format"))
                 def ftype:string (fmt.stringOr("type" ""))
                 def lower:string (MdChar.lower(url))
-                if ((ftype == "csv") || (((strlen ftype) == 0) && ((indexOf lower ".csv") > 0))) {
+                if ((ftype == "csv") || (((strlen ftype) == 0) && (MdVegaRender.csvUrl(url)))) {
                     return (MdVegaRender.delimited(body 44))
                 }
                 if ((ftype == "tsv") || (((strlen ftype) == 0) && ((indexOf lower ".tsv") > 0))) {
