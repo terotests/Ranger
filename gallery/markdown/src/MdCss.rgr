@@ -337,7 +337,8 @@ class MdCss {
     fn list:void (style:MdStyle got:CssComputed) {
         style.listIndent = (this.len(got "padding-left" style.listIndent))
         style.markerGap = (this.len(got "margin-left" style.markerGap))
-        this.rest(got "padding-left,margin-left")
+        style.markerColor = (this.color(got "color" style.markerColor))
+        this.rest(got "padding-left,margin-left,color")
     }
 
     fn item:void (style:MdStyle got:CssComputed) {

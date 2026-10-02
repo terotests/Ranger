@@ -105,6 +105,10 @@ class MdStyle {
 
     def listIndent:double 22.0
     def markerGap:double 8.0
+    ; The colour of a list's bullets and numbers: `list { color }`. Empty
+    ; follows the muted colour, which is what a marker was before a sheet
+    ; could say anything about it.
+    def markerColor:string ""
     ; What separates two items of a TIGHT list — one with no blank line
     ; between its items.
     ;
@@ -206,6 +210,7 @@ class MdStyle {
         out = ((out + "/") + (to_string quotePadY))
         out = ((((out + " list ") + (to_string listIndent)) + "/") + (to_string markerGap))
         out = ((out + "/") + (to_string listTightSpacing))
+        out = ((out + "/") + markerColor)
         out = ((((out + " table ") + tableBorder) + "/") + tableHeadBackground)
         out = ((((out + "/") + (to_string cellPadX)) + "/") + (to_string cellPadY))
         out = ((((out + " page ") + (to_string pageWidth)) + "/") + (to_string pageHeight))

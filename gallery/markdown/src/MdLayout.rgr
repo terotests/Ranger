@@ -2451,7 +2451,7 @@ class MdLayout {
             def mb:MdBox (MdBox.text(marker x markerY markerW (style.bodySize * style.lineHeight)))
             mb.family = style.bodyFamily
             mb.size = style.bodySize
-            mb.color = style.mutedColor
+            mb.color = (? ((strlen style.markerColor) > 0) style.markerColor style.mutedColor)
             this.emit(mb)
             page = savedPage
             if (! node.listTight) {
