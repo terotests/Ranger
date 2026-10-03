@@ -274,6 +274,7 @@ the flat middle as it is at the bevel).
 | `angle` | -55 | where the light is, degrees |
 | `rim` | 0.55 | how dark a drop's edge is |
 | `tint` | 0.06 | how much a drop darkens what it shows |
+| `matte` | 0 | 1 keeps drops a few px across from glinting, as `raindrops2` does |
 
 Unlike every other effect here `drops` has HISTORY: whether a drop runs now
 depends on what landed on it a second ago. So its plugin carries a `model`
