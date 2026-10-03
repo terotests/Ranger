@@ -1732,7 +1732,7 @@ class MdLayout {
         if ((strlen slideTitle) == 0) { return }
         def size:double (style.headingSize(slideTitleLevel))
         def h:double (size * style.lineHeight)
-        def b:MdBox (MdBox.text((slideTitle + " (jatkuu)") contentX cursorY contentW h))
+        def b:MdBox (MdBox.text(slideTitle contentX cursorY contentW h))
         b.family = style.headingFamily
         b.size = size
         b.bold = true
@@ -2014,7 +2014,7 @@ class MdLayout {
     ; ----------------------------------------------------------------------
     ;
     ; A slide whose last block runs over by a line or an item gets a slide of
-    ; its own for that remainder: the title again, "(jatkuu)", and one bullet.
+    ; its own for that remainder: the title again and one bullet.
     ; When the spill is short — at most `slideShrinkSpill` of a slide — and
     ; that continuation holds nothing else, the slide is laid out again a step
     ; smaller, down to `slideShrinkMin`, and kept at the first size where it
