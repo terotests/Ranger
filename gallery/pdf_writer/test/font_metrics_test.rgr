@@ -17,6 +17,8 @@
 Import "../src/fonts/FontManager.rgr"
 Import "../src/fonts/EVGFontSetup.rgr"
 Import "../src/fonts/TTFSubset.rgr"
+Import "../../office/text/OfficeCaretMotion.rgr"
+Import "pkg:evg/EVGGrapheme.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
 Import "pkg:evg/EVGTextMeasurer.rgr"
 Import "pkg:evg/EVGElement.rgr"
@@ -24,6 +26,9 @@ Import "pkg:evg/EVGLayout.rgr"
 Import "../../game_engine/v2/tests/harness/RgTest.rgr"
 
 class FontMetricsTest {
+    ; What the fake platform was asked, for testPlatformMeasure.
+    def platformCalls:int 0
+    def platformLast:string ""
 
     sfn m@(main):void () {
         def test (new FontMetricsTest())
@@ -52,6 +57,9 @@ class FontMetricsTest {
         test.testEmojiFallback(t fm)
         test.testSubset(t fm)
         test.testShaping(t fm)
+        test.testGraphemeOffsets(t)
+        ; Last: it attaches a platform measure to the shared manager.
+        test.testPlatformMeasure(t fm)
         t.summary()
     }
 
@@ -529,4 +537,108 @@ class FontMetricsTest {
              (viaManager < (viaFace * 2.0)))
     }
 
+
+    ; A string made of codepoints, so the test does not depend on how this
+    ; file's own bytes are decoded.
+    sfn cpStr:string (cps:[int]) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length cps)) {
+            out = out + (EVGCodepoint.toStr((itemAt cps i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The caret's unit is the grapheme cluster. Stepping by codepoint put it
+    ; between ♨ and its U+FE0F, or inside 👨‍👩‍👧, and the next edit split one
+    ; picture into pieces that are not characters.
+    fn testGraphemeOffsets:void (t:RgTest) {
+        ; "a♨️b": a | ♨ FE0F | b
+        def hot:string (FontMetricsTest.cpStr(([] _:int (97 9832 65039 98))))
+        def hotStops:[int] (EVGGrapheme.offsetStops(hot))
+        def w:int (EVGCodepoint.unitsAt(hot 1))
+        t.eqInt("a♨️b has three clusters" ((array_length hotStops) - 1) 3)
+        t.eqInt("the step after 'a' jumps over ♨ and its selector" (EVGGrapheme.nextOffset(hot 1)) ((1 + w) + (EVGCodepoint.unitsAt(hot (1 + w)))))
+        t.eqInt("and the step back from 'b' lands before ♨" (EVGGrapheme.prevOffset(hot ((strlen hot) - 1))) 1)
+        t.eqInt("an offset between ♨ and FE0F snaps to ♨" (EVGGrapheme.snapOffset(hot (1 + w))) 1)
+
+        ; 👨‍👩‍👧 then "x": one cluster of five codepoints, then one.
+        def fam:string (FontMetricsTest.cpStr(([] _:int (128104 8205 128105 8205 128103 120))))
+        def famLen:int ((strlen fam) - 1)
+        t.eqInt("a ZWJ family is one step" (EVGGrapheme.nextOffset(fam 0)) famLen)
+        t.eqInt("and one step back" (EVGGrapheme.prevOffset(fam famLen)) 0)
+        t.eqInt("an offset inside it snaps to its start" (EVGGrapheme.snapOffset(fam 3)) 0)
+
+        ; 🇫🇮🇸🇪: two flags, not one cluster of four
+        def flags:string (FontMetricsTest.cpStr(([] _:int (127467 127470 127480 127466))))
+        t.eqInt("two flags are two clusters" ((array_length (EVGGrapheme.offsetStops(flags))) - 1) 2)
+
+        ; The editors' caret steps are the same steps.
+        t.eqInt("OfficeCaretMotion steps over ♨️" (OfficeCaretMotion.stepForward(hot 1)) (EVGGrapheme.nextOffset(hot 1)))
+        t.eqInt("and back over it" (OfficeCaretMotion.stepBack(hot ((strlen hot) - 1))) 1)
+
+        ; Which clusters a browser takes from its emoji face.
+        def cps:[int] ([] _:int (9832 65039))
+        t.ok("♨ + VS16 presents as emoji" (EVGGrapheme.presentsAsEmoji(cps 0 2)))
+        t.ok("♨ alone does not" ((EVGGrapheme.presentsAsEmoji(cps 0 1)) == false))
+        def textAsk:[int] ([] _:int (128512 65038))
+        t.ok("VS15 asks for text" ((EVGGrapheme.presentsAsEmoji(textAsk 0 2)) == false))
+        def grin:[int] ([] _:int (128512))
+        t.ok("U+1F600 is emoji by default" (EVGGrapheme.presentsAsEmoji(grin 0 1)))
+        def key:[int] ([] _:int (49 65039 8419))
+        t.ok("a keycap presents as emoji" (EVGGrapheme.presentsAsEmoji(key 0 3)))
+        def tone:[int] ([] _:int (128077 127997))
+        t.ok("a skin tone presents as emoji" (EVGGrapheme.presentsAsEmoji(tone 0 2)))
+        def a:[int] ([] _:int (97))
+        t.ok("a letter does not" ((EVGGrapheme.presentsAsEmoji(a 0 1)) == false))
+    }
+
+    ; A browser draws every emoji from its own emoji face, and a character no
+    ; loaded face has from whatever the system substitutes. Only the platform
+    ; knows those widths; `setPlatformMeasure` asks it once per cluster and
+    ; charges the cluster ONE advance. Before this, ♨️ was measured as the
+    ; text face's answer for ♨ minus a `.notdef` for the selector, a whole
+    ; space narrower than it is drawn — the space after it vanished.
+    fn testPlatformMeasure:void (t:RgTest fm:FontManager) {
+        def before:string ((new TTFTextMeasurer(fm)).measureKey())
+        fm.setPlatformMeasure((fn:double (text:string family:string size:double) {
+            platformCalls = (platformCalls + 1)
+            platformLast = text
+            return (size * 1.25)
+        }))
+        t.ok("attaching a platform measure moves the measure key" (before != ((new TTFTextMeasurer(fm)).measureKey())))
+
+        def size:double 20.0
+        def emojiW:double (size * 1.25)
+        def b:double (fm.measureText("b" "Noto Sans" size))
+        def sp:double (fm.measureText(" b" "Noto Sans" size))
+
+        def hot:string (FontMetricsTest.cpStr(([] _:int (9832 65039))))
+        t.near("♨️ is one platform advance" (fm.measureText((hot + " b") "Noto Sans" size)) (emojiW + sp))
+        t.eqStr("asked for the whole cluster, selector included" platformLast hot)
+
+        def fam:string (FontMetricsTest.cpStr(([] _:int (128104 8205 128105 8205 128103))))
+        t.near("a ZWJ family is one advance, not three" (fm.measureText((fam + "b") "Noto Sans" size)) (emojiW + b))
+        def flag:string (FontMetricsTest.cpStr(([] _:int (127467 127470))))
+        t.near("a flag is one advance, not two" (fm.measureText((flag + "b") "Noto Sans" size)) (emojiW + b))
+        def key:string (FontMetricsTest.cpStr(([] _:int (49 65039 8419))))
+        t.near("a keycap is one advance" (fm.measureText((key + "b") "Noto Sans" size)) (emojiW + b))
+        def tone:string (FontMetricsTest.cpStr(([] _:int (128077 127997))))
+        t.near("a skin-toned hand is one advance" (fm.measureText((tone + "b") "Noto Sans" size)) (emojiW + b))
+
+        ; A character no loaded face has is the platform's too.
+        def priv:string (FontMetricsTest.cpStr(([] _:int (983040))))
+        t.near("a character no face has is measured by the platform" (fm.measureText((priv + "b") "Noto Sans" size)) (emojiW + b))
+
+        ; Text the faces draw is not the platform's business.
+        def calls0:int platformCalls
+        def plain:double (fm.measureText("Saunaan" "Noto Sans" size))
+        t.ok("plain text is measured from the face" (plain > 0.0))
+        t.eqInt("without asking the platform" platformCalls calls0)
+
+        ; Asked once per cluster and family, at any size.
+        fm.measureText((hot + hot + "x") "Noto Sans" 13.0)
+        t.eqInt("a cluster already asked about is not asked again" platformCalls calls0)
+    }
 }

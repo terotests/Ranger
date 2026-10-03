@@ -167,6 +167,159 @@ class EVGGrapheme {
         return n
     }
 
+    ; --- the same clusters in string offsets -------------------------------
+    ;
+    ; An editor keeps its caret as an offset into the stored string (UTF-16
+    ; units in JavaScript, bytes where strings are UTF-8), and that is where
+    ; it has to stop: on a cluster boundary. Stepping by codepoint put the
+    ; caret between ♨ and the U+FE0F that makes it an emoji, or between the
+    ; members of 👨‍👩‍👧, and the next keystroke split one picture into pieces
+    ; that are not characters.
+
+    ; Where each cluster of `s` starts, as string offsets, ending with
+    ; `strlen s`.
+    sfn offsetStops:[int] (s:string) {
+        def n:int (strlen s)
+        def cps:[int]
+        def offs:[int]
+        def u:int 0
+        while (u < n) {
+            push cps (EVGCodepoint.codeAt(s u))
+            push offs u
+            u = (u + (EVGCodepoint.unitsAt(s u)))
+        }
+        def out:[int]
+        def m:int (array_length cps)
+        def i:int 0
+        while (i < m) {
+            push out (itemAt offs i)
+            i = (EVGGrapheme.clusterEnd(cps i))
+        }
+        push out n
+        return out
+    }
+
+    ; The boundary at or before `off`: an offset inside a cluster is moved to
+    ; that cluster's start.
+    sfn snapOffset:int (s:string off:int) {
+        if (off <= 0) {
+            return 0
+        }
+        def stops:[int] (EVGGrapheme.offsetStops(s))
+        def best:int 0
+        def i:int 0
+        while (i < (array_length stops)) {
+            def at:int (itemAt stops i)
+            if (at > off) {
+                return best
+            }
+            best = at
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; The boundary one cluster before `off`.
+    sfn prevOffset:int (s:string off:int) {
+        if (off <= 0) {
+            return 0
+        }
+        def stops:[int] (EVGGrapheme.offsetStops(s))
+        def best:int 0
+        def i:int 0
+        while (i < (array_length stops)) {
+            def at:int (itemAt stops i)
+            if (at >= off) {
+                return best
+            }
+            best = at
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; The boundary one cluster after `off`.
+    sfn nextOffset:int (s:string off:int) {
+        def n:int (strlen s)
+        if (off >= n) {
+            return n
+        }
+        def stops:[int] (EVGGrapheme.offsetStops(s))
+        def i:int 0
+        while (i < (array_length stops)) {
+            def at:int (itemAt stops i)
+            if (at > off) {
+                return at
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; --- which clusters the platform draws as emoji ------------------------
+    ;
+    ; A browser does not take an emoji from the page's text faces. U+FE0F asks
+    ; for the emoji picture even when a text face has a glyph for the base
+    ; (♨ is in plenty of them; ♨️ is not drawn from any of them), and a skin
+    ; tone, a joiner, a keycap, a flag or a tag sequence only exists in the
+    ; emoji face. A measurer that sums the text faces' answer for such a
+    ; cluster measures something the screen never shows.
+    ;
+    ; Codepoints that are emoji by DEFAULT (Emoji_Presentation=Yes) are drawn
+    ; the same way unless U+FE0E asks for text.
+    sfn presentsAsEmoji:boolean (cps:[int] start:int end:int) {
+        if (start >= end) {
+            return false
+        }
+        def base:int (itemAt cps start)
+        if (EVGGrapheme.isRegionalIndicator(base)) {
+            return true
+        }
+        def i:int (start + 1)
+        while (i < end) {
+            def cp:int (itemAt cps i)
+            if (cp == 65038) {
+                ; VS15: text presentation, asked for in so many words
+                return false
+            }
+            if ((cp == 65039) || (cp == 8419) || (EVGGrapheme.isZWJ(cp)) || (EVGGrapheme.isEmojiModifier(cp)) || (EVGGrapheme.isTag(cp))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return (EVGGrapheme.isEmojiPresentation(base))
+    }
+
+    ; Emoji_Presentation=Yes, as inclusive ranges: Unicode 16.0's emoji-data.txt,
+    ; taken from `\p{Emoji_Presentation}`.
+    sfn isEmojiPresentation:boolean (cp:int) {
+        if (cp < 8986) {
+            return false
+        }
+        if (cp < 65536) {
+            def ranges:[int] ([] _:int (8986 8987 9193 9196 9200 9200 9203 9203 9725 9726 9748 9749 9800 9811 9855 9855 9875 9875 9889 9889 9898 9899 9917 9918 9924 9925 9934 9934 9940 9940 9962 9962 9970 9971 9973 9973 9978 9978 9981 9981 9989 9989 9994 9995 10024 10024 10060 10060 10062 10062 10067 10069 10071 10071 10133 10135 10160 10160 10175 10175 11035 11036 11088 11088 11093 11093))
+            return (EVGGrapheme.inRanges(ranges cp))
+        }
+        def wide:[int] ([] _:int (126980 126980 127183 127183 127374 127374 127377 127386 127462 127487 127489 127489 127514 127514 127535 127535 127538 127542 127544 127546 127568 127569 127744 127776 127789 127797 127799 127868 127870 127891 127904 127946 127951 127955 127968 127984 127988 127988 127992 128062 128064 128064 128066 128252 128255 128317 128331 128334 128336 128359 128378 128378 128405 128406 128420 128420 128507 128591 128640 128709 128716 128716 128720 128722 128725 128727 128732 128735 128747 128748 128756 128764 128992 129003 129008 129008 129292 129338 129340 129349 129351 129535 129648 129660 129664 129673 129679 129734 129742 129756 129759 129769 129776 129784))
+        return (EVGGrapheme.inRanges(wide cp))
+    }
+
+    ; `ranges` is pairs of inclusive bounds in ascending order.
+    sfn inRanges:boolean (ranges:[int] cp:int) {
+        def i:int 0
+        def n:int (array_length ranges)
+        while ((i + 1) < n) {
+            if (cp < (itemAt ranges i)) {
+                return false
+            }
+            if (cp <= (itemAt ranges (i + 1))) {
+                return true
+            }
+            i = (i + 2)
+        }
+        return false
+    }
+
     ; The cluster starting at UTF-16 index `i`, as a string. Convenient where
     ; a caller works in strings rather than codepoint arrays.
     sfn clusterAt:string (s:string i:int) {
