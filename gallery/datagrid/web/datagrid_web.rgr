@@ -248,6 +248,13 @@ class DataGridWeb {
         app.pasteClipboard()
     }
 
+    ; Ctrl+Shift+V in a browser: the same text, but the paste waits on the
+    ; Paste special dialog, which asks what of the copied cells to keep.
+    fn pasteTextSpecial:void (s:string) {
+        app.setClipboardText(s)
+        app.openPasteSpecial()
+    }
+
     ; True when the app has copied something since the page last asked, so the
     ; page writes the clipboard on a copy it did not predict — the Copy button
     ; on a chart window is a click, not a key.

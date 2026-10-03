@@ -1061,6 +1061,7 @@ class GridApp {
         commands.add("edit.cut" "Cut" "Edit" "Ctrl+X")
         commands.add("edit.paste" "Paste" "Edit" "Ctrl+V")
         commands.add("edit.pasteSpecial" "Paste special…" "Edit" "Ctrl+Shift+V")
+        commands.add("edit.pasteValues" "Paste values only" "Edit" "")
         commands.add("edit.clear" "Clear contents" "Edit" "Delete")
         commands.add("edit.formatPainter" "Copy formatting" "Edit" "Ctrl+Shift+C")
         commands.add("edit.find" "Find and replace…" "Edit" "Ctrl+F")
@@ -1460,6 +1461,10 @@ class GridApp {
         }
         if (id == "edit.paste") {
             this.pasteClipboard()
+            return true
+        }
+        if (id == "edit.pasteValues") {
+            this.pasteValues()
             return true
         }
         if (id == "edit.pasteSpecial") {
@@ -7510,8 +7515,13 @@ class GridApp {
     }
 
     ; Host-supplied clipboard text (OS paste): drops the structured block so the
-    ; TSV path is used and no stale formulas leak in.
+    ; TSV path is used and no stale formulas leak in. When the text is what this
+    ; sheet copied itself, the block stays: the browser hands every Ctrl+V over
+    ; as text, and a copy inside the sheet has to keep its formulas and formats.
     fn setClipboardText:void (text:string) {
+        if (((array_length clipValues) > 0) && ((GridApp.clipText(text)) == (GridApp.clipText(clipboardTsv)))) {
+            return
+        }
         clipboardTsv = text
         clipboardHtml = ""
         clipboardKind = "cells"
@@ -7523,6 +7533,73 @@ class GridApp {
         clear clipStyles
         clipRows = 0
         clipCols = 0
+    }
+
+    ; Clipboard text as rows: Windows line ends lose their \r, and the line end
+    ; Excel and Sheets put after the last row is not one more, empty, row.
+    sfn clipLines:[string] (text:string) {
+        def lines:[string] (strsplit text "\n")
+        def out:[string]
+        def i:int 0
+        def n:int (array_length lines)
+        while (i < n) {
+            def ln:string (itemAt lines i)
+            def len:int (strlen ln)
+            if ((len > 0) && ((charAt ln (len - 1)) == 13)) {
+                ln = (substring ln 0 (len - 1))
+            }
+            push out ln
+            i = (i + 1)
+        }
+        def last:int ((array_length out) - 1)
+        if ((last > 0) && ((strlen (itemAt out last)) == 0)) {
+            removeLast out
+        }
+        return out
+    }
+
+    sfn clipText:string (text:string) {
+        def lines:[string] (GridApp.clipLines(text))
+        def out:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            if (i > 0) {
+                str_append out "\n"
+            }
+            str_append out (itemAt lines i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; How many times a block of h x w goes into the selection down and across.
+    ; A selection that holds the block a whole number of times is filled with
+    ; it, as Excel does: one copied cell pasted over A1:C5 fills all fifteen.
+    ; Anything else pastes the block once, from the top-left corner.
+    fn pasteRepeats:[int] (h:int w:int) {
+        def out:[int]
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def selH:int ((b.row - a.row) + 1)
+        def selW:int ((b.col - a.col) + 1)
+        def ry:int 1
+        def rx:int 1
+        if (((sel.rangeCount()) == 1) && (h > 0) && (w > 0) && ((selH % h) == 0) && ((selW % w) == 0)) {
+            ry = (idiv selH h)
+            rx = (idiv selW w)
+        }
+        push out ry
+        push out rx
+        return out
+    }
+
+    ; Paste values only: what the copied cells show, into the cells' own formats.
+    fn pasteValues:void () {
+        def prev:int pasteMode
+        pasteMode = 1
+        this.pasteClipboard()
+        pasteMode = prev
     }
 
     fn pasteClipboard:void () {
@@ -7547,24 +7624,36 @@ class GridApp {
         sel.normalized(a b)
         def startR:int a.row
         def startC:int a.col
-        def dy:int (startR - clipR0)
-        def dx:int (startC - clipC0)
+        def reps:[int] (this.pasteRepeats(clipRows clipCols))
+        def repY:int (itemAt reps 0)
+        def repX:int (itemAt reps 1)
         if clipCut {
-            dy = 0
-            dx = 0
+            repY = 1
+            repX = 1
         }
-        this.ensureExtent(((startR + clipRows) - 1) ((startC + clipCols) - 1))
+        this.ensureExtent(((startR + (clipRows * repY)) - 1) ((startC + (clipCols * repX)) - 1))
         def maxR:int startR
         def maxC:int startC
         model.beginTx()
         engine.resetStats()
-        def idx:int 0
+        def outRows:int (clipRows * repY)
+        def outCols:int (clipCols * repX)
         def ri:int 0
-        while (ri < clipRows) {
+        while (ri < outRows) {
             def ci:int 0
-            while (ci < clipCols) {
+            while (ci < outCols) {
+                def br:int (ri % clipRows)
+                def bc:int (ci % clipCols)
+                def idx:int ((br * clipCols) + bc)
                 def tr:int (startR + ri)
                 def tc:int (startC + ci)
+                ; Each copy of the block is re-based to where it lands.
+                def dy:int ((tr - br) - clipR0)
+                def dx:int ((tc - bc) - clipC0)
+                if clipCut {
+                    dy = 0
+                    dx = 0
+                }
                 if ((tr < model.rowCount) && (tc < model.colCount)) {
                     def f:string (itemAt clipFormulas idx)
                     def srcStyle:CellStyle (itemAt clipStyles idx)
@@ -7601,7 +7690,6 @@ class GridApp {
                         maxC = tc
                     }
                 }
-                idx = (idx + 1)
                 ci = (ci + 1)
             }
             ri = (ri + 1)
@@ -7622,27 +7710,41 @@ class GridApp {
         if ((strlen clipboardTsv) == 0) {
             return
         }
-        def lines:[string] (strsplit clipboardTsv "\n")
-        def startR:int sel.active.row
-        def startC:int sel.active.col
+        def lines:[string] (GridApp.clipLines(clipboardTsv))
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        def startR:int a.row
+        def startC:int a.col
         def maxR:int startR
         def maxC:int startC
-        def firstCols:[string] (strsplit (itemAt lines 0) "\t")
-        this.ensureExtent(((startR + (array_length lines)) - 1) ((startC + (array_length firstCols)) - 1))
+        def nLines:int (array_length lines)
+        def width:int 0
+        def li:int 0
+        while (li < nLines) {
+            def lc:int (array_length (strsplit (itemAt lines li) "\t"))
+            if (lc > width) {
+                width = lc
+            }
+            li = (li + 1)
+        }
+        def reps:[int] (this.pasteRepeats(nLines width))
+        def outRows:int (nLines * (itemAt reps 0))
+        def outCols:int (width * (itemAt reps 1))
+        this.ensureExtent(((startR + outRows) - 1) ((startC + outCols) - 1))
         model.beginTx()
         engine.resetStats()
         def ri:int 0
-        def nLines:int (array_length lines)
-        while (ri < nLines) {
-            def rowText:string (itemAt lines ri)
-            def cols:[string] (strsplit rowText "\t")
-            def ci:int 0
+        while (ri < outRows) {
+            def cols:[string] (strsplit (itemAt lines (ri % nLines)) "\t")
             def nCols:int (array_length cols)
-            while (ci < nCols) {
+            def ci:int 0
+            while (ci < outCols) {
                 def tr:int (startR + ri)
                 def tc:int (startC + ci)
-                if ((tr < model.rowCount) && (tc < model.colCount)) {
-                    model.applyEdit(tr tc (itemAt cols ci) "")
+                def bc:int (ci % width)
+                if ((tr < model.rowCount) && (tc < model.colCount) && (bc < nCols)) {
+                    model.applyEdit(tr tc (itemAt cols bc) "")
                     engine.syncCell(book.activeIndex tr tc)
                     if (tr > maxR) {
                         maxR = tr
