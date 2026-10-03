@@ -186,7 +186,8 @@ class MdEmbedCache {
     def lazy:boolean false
     def viewFrom:int -1
     def viewTo:int -1
-    ; entries the last pass left undrawn because they were out of view
+    ; fences the last pass left undrawn, or drawn under old defaults,
+    ; because they were out of view
     def deferred:int 0
 
     Constructor () {

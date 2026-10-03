@@ -618,6 +618,7 @@ class MdVegaTest {
         c.eqInt("the two drawn out of view stay as drawn" (MdVegaTest.drawnCount(cache)) 3)
         c.eqInt("the ones out of view are not pending" cache.pending 0)
         c.eqInt("and are counted as undrawn" (cache.undrawnIn(0 1000000)) 3)
+        c.eqInt("with the one never drawn" cache.deferred 3)
         ; not lazy: everything is drawn, as before
         cache.lazy = false
         cache.redrawBudget = -1

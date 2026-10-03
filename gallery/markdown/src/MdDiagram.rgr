@@ -157,7 +157,18 @@ class MdDiagram {
                     return
                 }
             } {
-                if ((! was.stale) || (! (cache.mayRedraw(node.srcStart)))) {
+                if (! was.stale) {
+                    cache.touch(already)
+                    return
+                }
+                ; drawn under old defaults and out of view: kept as it is,
+                ; and counted with the ones not drawn yet
+                if (! wanted) {
+                    cache.deferred = (cache.deferred + 1)
+                    cache.touch(already)
+                    return
+                }
+                if (! (cache.mayRedraw(node.srcStart))) {
                     cache.touch(already)
                     return
                 }
