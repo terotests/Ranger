@@ -73,7 +73,7 @@ A plugin declares which it is, and the difference decides when it is drawn:
 | | drawn | reads | example |
 | --- | --- | --- | --- |
 | `source` | in paint order, at the element's own background | nothing | `starfield`, `plasma-wave`, `ambient-light`, `smoke` |
-| `backdrop` | in paint order, at the same point | the surface so far | `liquid-glass`, `bubbles`, `drops` |
+| `backdrop` | in paint order, at the same point | the surface so far | `liquid-glass`, `bubbles`, `drops`, `raindrops2` |
 | `filter` | after the frame, over the box's region | the finished surface | `ripple` |
 
 A source is under the element's content, which is what makes a starfield a
@@ -285,6 +285,32 @@ so a replay, a seek and a still for the PDF draw the same thing. Checkpoints
 every five seconds make a seek back cheap; past ten minutes the clock folds
 back to two. `npm run evg:drops:test` holds the model to all of that and
 times it.
+
+**`raindrops2`** (backdrop) — `drops` where a running drop draws a line.
+
+| | default | |
+| --- | --- | --- |
+| `rain` | 1 | how many drops land |
+| `size` | 1 | how big they are; at 1 they land 2.5…16 px and run from 9 px |
+| `mist` | 1 | the fine droplets between them; 0 is none |
+| `speed` | 1 | how fast a drop runs once it is heavy enough; 0 is none run |
+| `seed` | 1 | a different shower |
+| `streak` | 1 | a running drop leaves a line of water; 0 is `drops` |
+| `refract` | 1.1 | how hard a drop bends what is behind it |
+| `shine` | 0.8 | the glint and the caustic opposite it |
+| `angle` | -55 | where the light is, degrees |
+| `rim` | 0.55 | how dark a drop's edge is |
+| `tint` | 0.06 | how much a drop darkens what it shows |
+
+The same model with `streak` on. A running drop lays its water on the glass
+as a continuous line behind it (pieces from its last anchor to its tail, kept
+by the model as segments and drawn as capsules whose field is MAXed, not
+summed, so a line is one even width), and the water in the line comes out of
+the drop. Spent (under 7.2 px at size 1, where its pull can no longer beat the
+glass) it stops at the line's lower end and waits there, wet. A drop that
+lands on a line runs down it to that end and joins it; the end, heavier now
+and on glass that has let go of it once, runs on. A line beads up after 5…14 s:
+a piece goes, sometimes leaving a small drop where it was.
 
 **`smoke`** (source) — a bank of it rising through the box.
 
