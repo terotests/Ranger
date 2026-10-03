@@ -119,6 +119,22 @@ class EVGWindowTheme {
     ; dark one, where white text in a white box would be no field at all.
     def fieldBg:EVGColor (EVGColor.rgb(255 255 255))
     def toolIcon:EVGColor (EVGColor.rgb(74 84 98))
+    ; THE CARD LOOK: what an EVGUI dialog looks like (theme/base.css,
+    ; .ui-dialog-content) — a rounded panel on a soft shadow, the title on
+    ; the panel instead of on a band, rounded fields with a focus ring,
+    ; checkboxes with a tick, and the default button filled with the accent.
+    ; Off by default, so the other gallery apps keep the window they have; a
+    ; host that wants it turns it on (GridTheme does, for modern and dark).
+    ; Geometry is the same either way — only the painting differs, so a
+    ; dialog laid out before the theme changed still lines up.
+    def card:boolean false
+    def radius:double 10.0
+    def ctlRadius:double 6.0
+    ; Ink on an accent fill: the default button's label, a checkbox's tick.
+    def onAccent:EVGColor (EVGColor.rgb(255 255 255))
+    def cardShadow:EVGColor (EVGColor.create(15.0 23.0 42.0 0.18))
+    ; The halo around a focused field, the accent at low alpha.
+    def focusRing:EVGColor (EVGColor.create(37.0 99.0 235.0 0.25))
 
     Constructor () {
     }
@@ -1280,6 +1296,71 @@ class EVGWindow {
         dl.addFrame((to_double rx) (to_double ry) (to_double rw) (to_double rh) thick col)
     }
 
+    ; The same two with corners. The radius rides on the command the list
+    ; just appended, so every backend that ignores it still draws the box.
+    fn rrect:void (dl:EVGDisplayList rx:int ry:int rw:int rh:int rad:double col:EVGColor) {
+        dl.addRect((to_double rx) (to_double ry) (to_double rw) (to_double rh) col)
+        def c:EVGDrawCmd (dl.at(((dl.count()) - 1)))
+        c.radius = rad
+    }
+
+    fn rframe:void (dl:EVGDisplayList rx:int ry:int rw:int rh:int rad:double thick:double col:EVGColor) {
+        dl.addFrame((to_double rx) (to_double ry) (to_double rw) (to_double rh) thick col)
+        def c:EVGDrawCmd (dl.at(((dl.count()) - 1)))
+        c.radius = rad
+    }
+
+    ; A rounded panel with a soft drop shadow under it, the way a CSS
+    ; `box-shadow` is carried: on the rectangle, not as a second one.
+    fn shadowedPanel:void (dl:EVGDisplayList rx:int ry:int rw:int rh:int rad:double col:EVGColor sh:EVGColor) {
+        dl.addRect((to_double rx) (to_double ry) (to_double rw) (to_double rh) col)
+        def c:EVGDrawCmd (dl.at(((dl.count()) - 1)))
+        c.radius = rad
+        c.hasShadow = true
+        c.shadowX = 0.0
+        c.shadowY = 8.0
+        c.shadowBlur = 24.0
+        c.shadowR = (sh.red())
+        c.shadowG = (sh.green())
+        c.shadowB = (sh.blue())
+        c.shadowA = (sh.alpha())
+    }
+
+    ; A tick in a box at (bx, by) of side `side`: two strokes, short then long.
+    fn tick:void (dl:EVGDisplayList bx:int by:int side:int col:EVGColor) {
+        def s:double (to_double side)
+        def x0:double (to_double bx)
+        def y0:double (to_double by)
+        def pts:[double]
+        push pts (x0 + (s * 0.24))
+        push pts (y0 + (s * 0.52))
+        push pts (x0 + (s * 0.42))
+        push pts (y0 + (s * 0.70))
+        push pts (x0 + (s * 0.76))
+        push pts (y0 + (s * 0.32))
+        dl.addPolyline(pts 2.0 col)
+    }
+
+    ; An x as two strokes, centred in the box.
+    fn cross:void (dl:EVGDisplayList bx:int by:int side:int col:EVGColor) {
+        def s:double (to_double side)
+        def x0:double ((to_double bx) + (s * 0.22))
+        def y0:double ((to_double by) + (s * 0.22))
+        def e:double (s * 0.56)
+        def a:[double]
+        push a x0
+        push a y0
+        push a (x0 + e)
+        push a (y0 + e)
+        dl.addPolyline(a 1.5 col)
+        def b:[double]
+        push b (x0 + e)
+        push b y0
+        push b x0
+        push b (y0 + e)
+        dl.addPolyline(b 1.5 col)
+    }
+
     fn text:void (dl:EVGDisplayList s:string tx:int ty:int size:double col:EVGColor tr:UITextRenderer bold:boolean) {
         def w:double (tr.measureWidth(s size))
         def h:double (tr.lineHeight(size))
@@ -1309,11 +1390,25 @@ class EVGWindow {
             }
             this.frame(dl x y w h 1.0 edge0)
         } {
+        if theme.card {
+            ; The title sits on the panel, as an EVGUI dialog's does; the
+            ; band was the old Excel look.
+            this.shadowedPanel(dl x y w h theme.radius theme.panel theme.cardShadow)
+            this.rframe(dl x y w h theme.radius 1.0 theme.hairline)
+            this.text(dl title (x + padX) (y + 6) (fontSize + 1.0) theme.text tr true)
+            if closable {
+                def cside:int (this.boxSide())
+                def cbx:int ((x + w) - (cside + 8))
+                def cby:int (y + (idiv (titleH - cside) 2))
+                this.cross(dl cbx cby cside theme.muted)
+            }
+        } {
         this.rect(dl x y w h theme.panel)
         this.frame(dl x y w h 1.0 theme.border)
         this.rect(dl x y w titleH theme.titleBg)
         this.text(dl title (x + padX) (y + 6) fontSize theme.titleText tr true)
-        if closable {
+        }
+        if (closable && (theme.card == false)) {
             def side:int (this.boxSide())
             def bx:int ((x + w) - (side + 8))
             def by:int (y + (idiv (titleH - side) 2))
@@ -1343,11 +1438,19 @@ class EVGWindow {
                 ; chart did not need.
                 this.rect(dl cx cy c.w c.h theme.panel)
                 if (bare == false) {
-                    this.frame(dl cx cy c.w c.h 1.0 theme.muted)
+                    if theme.card {
+                        this.rframe(dl cx cy c.w c.h theme.ctlRadius 1.0 theme.hairline)
+                    } {
+                        this.frame(dl cx cy c.w c.h 1.0 theme.muted)
+                    }
                 }
             }
             if (c.kind == (EVGControlKind.separator())) {
-                this.rect(dl cx (cy + 3) c.w 1 theme.muted)
+                def rule:EVGColor theme.muted
+                if theme.card {
+                    rule = theme.hairline
+                }
+                this.rect(dl cx (cy + 3) c.w 1 rule)
             }
             if (c.kind == (EVGControlKind.radio())) {
                 def rr:int 12
@@ -1361,35 +1464,72 @@ class EVGWindow {
                     edge = theme.muted
                     ink = theme.muted
                 }
+                if theme.card {
+                    ; A circle: a square whose radius is half its side.
+                    def rc:int 16
+                    def ry3:int (cy + (idiv (c.h - rc) 2))
+                    def ring:EVGColor theme.border
+                    if (c.checked && c.enabled) {
+                        ring = theme.accent
+                    }
+                    if (c.enabled == false) {
+                        ring = theme.hairline
+                    }
+                    this.rrect(dl cx ry3 rc rc 8.0 theme.fieldBg)
+                    this.rframe(dl cx ry3 rc rc 8.0 1.0 ring)
+                    if c.checked {
+                        this.rrect(dl (cx + 4) (ry3 + 4) (rc - 8) (rc - 8) 4.0 ring)
+                    }
+                    this.text(dl c.text (cx + rc + 8) (cy + 4) fontSize ink tr false)
+                } {
                 this.frame(dl cx ry2 rr rr 1.0 edge)
                 if c.checked {
                     this.rect(dl (cx + 3) (ry2 + 3) (rr - 6) (rr - 6) theme.accent)
                 }
                 this.text(dl c.text (cx + rr + 8) (cy + 4) fontSize ink tr false)
+                }
             }
             if (c.kind == (EVGControlKind.checkbox())) {
                 def br:int 12
                 def by2:int (cy + (idiv (c.h - br) 2))
+                if theme.card {
+                    def bc:int 16
+                    def by3:int (cy + (idiv (c.h - bc) 2))
+                    if c.checked {
+                        this.rrect(dl cx by3 bc bc 4.0 theme.accent)
+                        this.tick(dl cx by3 bc theme.onAccent)
+                    } {
+                        this.rrect(dl cx by3 bc bc 4.0 theme.fieldBg)
+                        this.rframe(dl cx by3 bc bc 4.0 1.0 theme.border)
+                    }
+                    this.text(dl c.text (cx + bc + 8) (cy + 4) fontSize theme.text tr false)
+                } {
                 this.frame(dl cx by2 br br 1.0 theme.border)
                 if c.checked {
                     this.rect(dl (cx + 3) (by2 + 3) (br - 6) (br - 6) theme.accent)
                 }
                 this.text(dl c.text (cx + br + 8) (cy + 4) fontSize theme.text tr false)
+                }
             }
             if (c.kind == (EVGControlKind.swatch())) {
                 def fill:EVGColor (EVGColor.parse(c.value))
+                ; Square chips on the old window, rounded ones on a card.
+                def sr:double 0.0
+                if theme.card {
+                    sr = 4.0
+                }
                 ; Selected chips get a clear ring: dark outer, light gap, then
                 ; the colour — a 2px accent alone disappears on similar hues.
                 if c.checked {
-                    this.rect(dl (cx - 3) (cy - 3) (c.w + 6) (c.h + 6) (EVGColor.rgb(20 30 45)))
-                    this.rect(dl (cx - 2) (cy - 2) (c.w + 4) (c.h + 4) (EVGColor.rgb(255 255 255)))
+                    this.rrect(dl (cx - 3) (cy - 3) (c.w + 6) (c.h + 6) sr (EVGColor.rgb(20 30 45)))
+                    this.rrect(dl (cx - 2) (cy - 2) (c.w + 4) (c.h + 4) sr (EVGColor.rgb(255 255 255)))
                 } {
                     if (hot == c.id) {
-                        this.rect(dl (cx - 2) (cy - 2) (c.w + 4) (c.h + 4) theme.accent)
-                        this.rect(dl (cx - 1) (cy - 1) (c.w + 2) (c.h + 2) (EVGColor.rgb(255 255 255)))
+                        this.rrect(dl (cx - 2) (cy - 2) (c.w + 4) (c.h + 4) sr theme.accent)
+                        this.rrect(dl (cx - 1) (cy - 1) (c.w + 2) (c.h + 2) sr (EVGColor.rgb(255 255 255)))
                     }
                 }
-                this.rect(dl cx cy c.w c.h fill)
+                this.rrect(dl cx cy c.w c.h sr fill)
                 def edge3:EVGColor theme.border
                 if c.checked {
                     edge3 = theme.accent
@@ -1398,11 +1538,11 @@ class EVGWindow {
                 if c.checked {
                     thick = 2.0
                 }
-                this.frame(dl cx cy c.w c.h thick edge3)
+                this.rframe(dl cx cy c.w c.h sr thick edge3)
                 ; A pale chip needs an inner edge so white is still visible on
                 ; the panel; the outer frame alone disappears into it.
                 if ((fill.r > 230.0) && (fill.g > 230.0) && (fill.b > 230.0)) {
-                    this.frame(dl (cx + 1) (cy + 1) (c.w - 2) (c.h - 2) 1.0 theme.muted)
+                    this.rframe(dl (cx + 1) (cy + 1) (c.w - 2) (c.h - 2) sr 1.0 theme.muted)
                 }
             }
             if (c.kind == (EVGControlKind.input())) {
@@ -1415,12 +1555,27 @@ class EVGWindow {
                 }
                 def fx:int (cx + lw)
                 def fw:int (c.w - lw)
+                if theme.card {
+                    def focused:boolean (focusedId == c.id)
+                    if focused {
+                        ; The ring is outside the field, so the text inside
+                        ; does not move when focus arrives.
+                        this.rrect(dl (fx - 3) (cy - 3) (fw + 6) (c.h + 6) (theme.ctlRadius + 3.0) theme.focusRing)
+                    }
+                    this.rrect(dl fx cy fw c.h theme.ctlRadius theme.fieldBg)
+                    def edge4:EVGColor theme.border
+                    if focused {
+                        edge4 = theme.accent
+                    }
+                    this.rframe(dl fx cy fw c.h theme.ctlRadius 1.0 edge4)
+                } {
                 this.rect(dl fx cy fw c.h theme.fieldBg)
                 def edge2:EVGColor theme.border
                 if (focusedId != c.id) {
                     edge2 = theme.muted
                 }
                 this.frame(dl fx cy fw c.h 1.0 edge2)
+                }
                 ; What fits, not what was typed: a value longer than the field
                 ; used to be drawn from the left edge and run out of the box,
                 ; across the panel and over the document behind it. The window
@@ -1430,14 +1585,41 @@ class EVGWindow {
                 this.text(dl shown.text (fx + 5) (cy + 4) fontSize theme.text tr false)
                 if (focusedId == c.id) {
                     def caretX:int (to_int shown.caretX)
-                    this.rect(dl ((fx + 5) + caretX) (cy + 3) 1 (c.h - 6) theme.text)
+                    if theme.card {
+                        this.rect(dl ((fx + 5) + caretX) (cy + 4) 2 (c.h - 8) theme.accent)
+                    } {
+                        this.rect(dl ((fx + 5) + caretX) (cy + 3) 1 (c.h - 6) theme.text)
+                    }
                 }
             }
             if (c.kind == (EVGControlKind.tool())) {
                 ; Drawn by `paintOverlay`, after the owner has painted the
                 ; content — a strip drawn here would be under the picture.
             }
-            if (c.kind == (EVGControlKind.button())) {
+            if ((c.kind == (EVGControlKind.button())) && theme.card) {
+                ; EVGUI's buttons: the default one is primary (accent fill,
+                ; light label), the rest secondary (outlined, the panel's
+                ; fill until hovered).
+                def tw3:int (to_int (tr.measureWidth(c.text fontSize)))
+                def tx3:int (cx + (idiv (c.w - tw3) 2))
+                if c.isDefault {
+                    def pbg:EVGColor theme.accent
+                    if (hot == c.id) {
+                        pbg = (theme.accent.darken(0.1))
+                    }
+                    this.rrect(dl cx cy c.w c.h theme.ctlRadius pbg)
+                    this.text(dl c.text tx3 (cy + 5) fontSize theme.onAccent tr true)
+                } {
+                    def sbg:EVGColor theme.fieldBg
+                    if (hot == c.id) {
+                        sbg = theme.buttonHot
+                    }
+                    this.rrect(dl cx cy c.w c.h theme.ctlRadius sbg)
+                    this.rframe(dl cx cy c.w c.h theme.ctlRadius 1.0 theme.border)
+                    this.text(dl c.text tx3 (cy + 5) fontSize theme.text tr false)
+                }
+            }
+            if ((c.kind == (EVGControlKind.button())) && (theme.card == false)) {
                 def bg:EVGColor theme.buttonBg
                 if (hot == c.id) {
                     bg = theme.buttonHot

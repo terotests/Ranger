@@ -282,6 +282,13 @@ class GridTheme {
     ; grid's accent onto one of them, so a dialog opened over a green sheet is
     ; not still wearing the default blue.
     fn tintWindow:void (wt:EVGWindowTheme) {
+        ; Modern and dark are the EVGUI palettes (EVGSheets runs on them), so
+        ; their dialogs are drawn as EVGUI draws one; the others keep the
+        ; title-band window.
+        wt.card = ((name == "modern") || (name == "dark"))
+        wt.onAccent = (EVGColor.rgb(255 255 255))
+        wt.focusRing = (EVGColor.create(37.0 99.0 235.0 0.25))
+        wt.cardShadow = (EVGColor.create(15.0 23.0 42.0 0.18))
         if (name == "default") {
             wt.titleText = (EVGColor.rgb(255 255 255))
             wt.text = (EVGColor.rgb(32 38 48))
@@ -328,6 +335,11 @@ class GridTheme {
             wt.fieldBg = (EVGColor.rgb(17 24 39))
             wt.toolBg = (EVGColor.rgb(31 41 55))
             wt.toolIcon = (EVGColor.rgb(209 213 219))
+            ; A light accent wants dark ink, and a shadow on a dark page has
+            ; to be darker than the page to show at all.
+            wt.onAccent = (EVGColor.rgb(15 23 42))
+            wt.focusRing = (EVGColor.create(96.0 165.0 250.0 0.3))
+            wt.cardShadow = (EVGColor.create(0.0 0.0 0.0 0.5))
             return
         }
         ; Back from modern or dark: the colours those set that an accent does
