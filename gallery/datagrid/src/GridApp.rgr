@@ -1060,8 +1060,8 @@ class GridApp {
         commands.add("chart.copy" "Copy chart (picture + data)" "Chart" "Ctrl+C")
         commands.add("edit.cut" "Cut" "Edit" "Ctrl+X")
         commands.add("edit.paste" "Paste" "Edit" "Ctrl+V")
-        commands.add("edit.pasteSpecial" "Paste special…" "Edit" "Ctrl+Shift+V")
-        commands.add("edit.pasteValues" "Paste values only" "Edit" "")
+        commands.add("edit.pasteSpecial" "Paste special…" "Edit" "")
+        commands.add("edit.pasteValues" "Paste values only" "Edit" "Ctrl+Shift+V")
         commands.add("edit.clear" "Clear contents" "Edit" "Delete")
         commands.add("edit.formatPainter" "Copy formatting" "Edit" "Ctrl+Shift+C")
         commands.add("edit.find" "Find and replace…" "Edit" "Ctrl+F")
@@ -8757,8 +8757,10 @@ class GridApp {
                         ti = (ti + 1)
                         continue
                     }
+                    ; Ctrl+Shift+V is values only, as in Google Sheets. Paste
+                    ; special… stays on the menu.
                     if input.shiftDown {
-                        this.openPasteSpecial()
+                        this.pasteValues()
                     } {
                         this.pasteClipboard()
                     }

@@ -248,11 +248,11 @@ class DataGridWeb {
         app.pasteClipboard()
     }
 
-    ; Ctrl+Shift+V in a browser: the same text, but the paste waits on the
-    ; Paste special dialog, which asks what of the copied cells to keep.
-    fn pasteTextSpecial:void (s:string) {
+    ; Ctrl+Shift+V in a browser: the same text, values only, into the cells'
+    ; own formats.
+    fn pasteTextValues:void (s:string) {
         app.setClipboardText(s)
-        app.openPasteSpecial()
+        app.pasteValues()
     }
 
     ; True when the app has copied something since the page last asked, so the
