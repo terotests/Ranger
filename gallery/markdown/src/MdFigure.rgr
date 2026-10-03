@@ -1,0 +1,792 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdFigure.rgr — a slide layout written as a list and drawn as geometry.
+; ============================================================================
+;
+; ````markdown
+; ```process                 ```swot                    ```timeline
+; - Plan: goals, schedule    Strengths: strong brand    2023: Founded
+; - Build: code and tests    Weaknesses: small team     2024: First product
+; - Ship: in use             Opportunities: new markets 2026: Abroad
+; ```                        Threats: competitors       ```
+;                            ```
+; ````
+;
+; The layouts a template deck is bought for — chevron steps, a SWOT grid, a
+; timeline — are a handful of shapes placed by arithmetic. Here they are
+; computed from the text and the room, with the theme's colours, so the same
+; fence is a corporate blue slide in one theme and an orange one in the next,
+; and nobody nudges a box by hand.
+;
+; The result is a `FlowScene`, the same flat list of rectangles, polygons and
+; text the diagrams and charts produce. That is the whole export story: the
+; stage and the PDF draw the scene's EVG tree, and the PPTX gets it through
+; `PptxFromEvg` as shapes and text boxes a reader can still edit.
+;
+; Text is wrapped here, line by line, with `FlowView`'s measurer, and every
+; line is its own nowrap text item. The height of a layout depends on how many
+; lines its text took, and the renderers must not wrap a second time somewhere
+; else.
+;
+; Item syntax, the same for every figure:
+;
+;   Title: description         one item (`- ` or `1. ` in front is allowed)
+;     - a point                an indented bullet belongs to the item above
+;     more words               an indented line continues its description
+; ============================================================================
+
+Import "MdEmbed.rgr"
+Import "../../rangerflow/core/FlowScene.rgr"
+Import "../../rangerflow/core/FlowView.rgr"
+Import "pkg:evg/EVGColor.rgr"
+
+class MdFigureItem {
+    def title:string ""
+    def body:string ""
+    def bullets:[string]
+
+    ; description and bullets as one text, a bullet per line
+    fn text:string () {
+        def out:string body
+        def i:int 0
+        while (i < (array_length bullets)) {
+            if ((strlen out) > 0) {
+                out = (out + "\n")
+            }
+            out = (out + "• " + (itemAt bullets i))
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class MdFigure {
+    ; The fence words this file draws. `MdEmbedKinds` maps each to the
+    ; notation "figure".
+    sfn kinds:[string] () {
+        def k:[string] ([] _:string ("process" "swot" "timeline"))
+        return k
+    }
+
+    ; ------------------------------------------------------------- items --
+    sfn indentOf:int (line:string) {
+        def i:int 0
+        def n:int (strlen line)
+        def w:int 0
+        while (i < n) {
+            def c:int (charAt line i)
+            if (c == 32) {
+                w = (w + 1)
+            } {
+                if (c == 9) {
+                    w = (w + 4)
+                } {
+                    return w
+                }
+            }
+            i = (i + 1)
+        }
+        return w
+    }
+
+    ; "- x", "* x", "+ x" or "12. x" without its marker; "" when the line has
+    ; none.
+    sfn unmarked:string (t:string) {
+        def n:int (strlen t)
+        if (n >= 2) {
+            def c0:int (charAt t 0)
+            if ((((c0 == 45) || (c0 == 42)) || (c0 == 43)) && ((charAt t 1) == 32)) {
+                return (trim (substring t 2 n))
+            }
+        }
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt t i)
+            if ((c < 48) || (c > 57)) {
+                if ((i > 0) && (((c == 46) || (c == 41)) && ((i + 1) < n))) {
+                    if ((charAt t (i + 1)) == 32) {
+                        return (trim (substring t (i + 2) n))
+                    }
+                }
+                return ""
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn isMarked:boolean (t:string) {
+        return ((strlen (MdFigure.unmarked(t))) > 0)
+    }
+
+    ; "Title: description" — split at the first colon followed by a space or
+    ; ending the line, so "12:30" stays one word.
+    sfn itemOf:MdFigureItem (t:string) {
+        def it (new MdFigureItem)
+        def n:int (strlen t)
+        def i:int 0
+        while (i < n) {
+            if ((charAt t i) == 58) {
+                if ((i + 1) == n) {
+                    it.title = (trim (substring t 0 i))
+                    return it
+                }
+                if ((charAt t (i + 1)) == 32) {
+                    it.title = (trim (substring t 0 i))
+                    it.body = (trim (substring t (i + 1) n))
+                    return it
+                }
+            }
+            i = (i + 1)
+        }
+        it.title = (trim t)
+        return it
+    }
+
+    sfn items:[MdFigureItem] (text:string) {
+        def out:[MdFigureItem]
+        def lines:[string]
+        def start:int 0
+        def n:int (strlen text)
+        def i:int 0
+        while (i <= n) {
+            if ((i == n) || ((charAt text i) == 10)) {
+                push lines (substring text start i)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length lines)) {
+            def raw:string (itemAt lines k)
+            def t:string (trim raw)
+            k = (k + 1)
+            if ((strlen t) == 0) {
+                continue
+            }
+            def ind:int (MdFigure.indentOf(raw))
+            def have:boolean ((array_length out) > 0)
+            if ((ind >= 2) && have) {
+                def cur:MdFigureItem (itemAt out ((array_length out) - 1))
+                if (MdFigure.isMarked(t)) {
+                    push cur.bullets (MdFigure.unmarked(t))
+                } {
+                    if ((strlen cur.body) > 0) {
+                        cur.body = (cur.body + " " + t)
+                    } {
+                        cur.body = t
+                    }
+                }
+                continue
+            }
+            def own:string t
+            if (MdFigure.isMarked(t)) {
+                own = (MdFigure.unmarked(t))
+            }
+            push out (MdFigure.itemOf(own))
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------ colours --
+    sfn mix:string (a:string b:string t:double) {
+        def ca:EVGColor (EVGColor.parse(a))
+        def cb:EVGColor (EVGColor.parse(b))
+        if ((ca.isSet == false) || (cb.isSet == false)) {
+            return a
+        }
+        def r:double ((to_double (ca.red())) + (((to_double (cb.red())) - (to_double (ca.red()))) * t))
+        def g:double ((to_double (ca.green())) + (((to_double (cb.green())) - (to_double (ca.green()))) * t))
+        def bl:double ((to_double (ca.blue())) + (((to_double (cb.blue())) - (to_double (ca.blue()))) * t))
+        def c:EVGColor (EVGColor.create(r g bl 1.0))
+        return (c.toHexString())
+    }
+
+    ; Relative luminance, 0 (black) … 1 (white).
+    sfn lum:double (hex:string) {
+        def c:EVGColor (EVGColor.parse(hex))
+        if (c.isSet == false) {
+            return 1.0
+        }
+        def r:double ((to_double (c.red())) / 255.0)
+        def g:double ((to_double (c.green())) / 255.0)
+        def b:double ((to_double (c.blue())) / 255.0)
+        return (((r * 0.2126) + (g * 0.7152)) + (b * 0.0722))
+    }
+
+    ; The text colour on a fill: white on a dark one, near black on a light.
+    sfn onColor:string (fill:string) {
+        if ((MdFigure.lum(fill)) > 0.55) {
+            return "#16181d"
+        }
+        return "#ffffff"
+    }
+
+    ; Colour i of the series. More items than colours: the colours come round
+    ; again, a step towards the paper each time.
+    sfn colorAt:string (st:MdFigureStyle i:int) {
+        def n:int (array_length st.colors)
+        if (n == 0) {
+            return "#2f80ed"
+        }
+        def base:string (itemAt st.colors (i % n))
+        def round:int (idiv i n)
+        if (round == 0) {
+            return base
+        }
+        def t:double (0.28 * (to_double round))
+        if (t > 0.7) {
+            t = 0.7
+        }
+        return (MdFigure.mix(base st.paper t))
+    }
+
+    ; A ramp of the first colour for steps in order: deeper at the start,
+    ; the colour itself at the end.
+    sfn rampAt:string (st:MdFigureStyle i:int n:int) {
+        def base:string (MdFigure.colorAt(st 0))
+        if (n < 2) {
+            return base
+        }
+        ; towards whichever of the ink and the paper is darker
+        def dark:string st.ink
+        if ((MdFigure.lum(st.paper)) < (MdFigure.lum(st.ink))) {
+            dark = st.paper
+        }
+        def deep:string (MdFigure.mix(base dark 0.45))
+        def t:double ((to_double i) / (to_double (n - 1)))
+        return (MdFigure.mix(deep base t))
+    }
+
+    ; ------------------------------------------------------------- text --
+    sfn viewFor:FlowView (st:MdFigureStyle) {
+        def v (new FlowView)
+        if ((strlen st.font) > 0) {
+            v.theme.fontFamily = st.font
+        }
+        return v
+    }
+
+    sfn wrap:FlowTextLayout (v:FlowView t:string size:double w:double bold:boolean) {
+        return (v.layoutTextBold(t size w 0.0 99 bold))
+    }
+
+    ; The lines of `lay`, one nowrap text item each, from `top`.
+    sfn put:void (sc:FlowScene st:MdFigureStyle lay:FlowTextLayout x:double top:double w:double color:string bold:boolean align:string) {
+        def i:int 0
+        while (i < (array_length lay.lines)) {
+            def line:string (itemAt lay.lines i)
+            def s:SceneItem (sc.text(line x (top + ((to_double i) * lay.lineHeight)) w lay.size color))
+            s.align = align
+            s.bold = bold
+            s.nowrap = true
+            s.tag = "figure"
+            if ((strlen st.font) > 0) {
+                s.fontFamily = st.font
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------ entry --
+    ; The fence as a scene `width` wide; an empty scene (worldW 0) when there
+    ; is nothing to draw, which the caller reports with `refusal`.
+    sfn sceneOf:FlowScene (word:string text:string st:MdFigureStyle width:double pad:double) {
+        def sc (new FlowScene)
+        ; transparent: the slide is the background
+        sc.theme.background = ""
+        def its:[MdFigureItem] (MdFigure.items(text))
+        if ((array_length its) == 0) {
+            return sc
+        }
+        if (word == "process") {
+            MdFigure.process(sc its st width pad)
+        }
+        if (word == "swot") {
+            MdFigure.swot(sc its st width pad)
+        }
+        if (word == "timeline") {
+            MdFigure.timeline(sc its st width pad)
+        }
+        return sc
+    }
+
+    ; On a slide: the figure set larger while there is room under it — up to
+    ; 1.6 times the style's size and `maxH` tall — and a card grid stretched
+    ; to the room as well, so a four-item SWOT is not a strip at the top of
+    ; an empty slide. `maxH` 0: as the style says.
+    sfn sceneFit:FlowScene (word:string text:string st:MdFigureStyle width:double pad:double maxH:double) {
+        def best:FlowScene (MdFigure.sceneOf(word text st width pad))
+        if ((maxH <= 0.0) || (best.worldW <= 0.0)) {
+            return best
+        }
+        def bestSize:double st.size
+        def k:int 1
+        while (k <= 6) {
+            def sz:double (st.size * (1.0 + (0.1 * (to_double k))))
+            def sc:FlowScene (MdFigure.sceneOf(word text (st.sized(sz)) width pad))
+            if (sc.worldH > (maxH * 0.85)) {
+                k = 7
+            } {
+                best = sc
+                bestSize = sz
+            }
+            k = (k + 1)
+        }
+        if ((word == "swot") && (best.worldH < (maxH * 0.85))) {
+            def tall:MdFigureStyle (st.sized(bestSize))
+            tall.fillH = (maxH * 0.85)
+            best = (MdFigure.sceneOf(word text tall width pad))
+        }
+        return best
+    }
+
+    sfn refusal:string (word:string text:string) {
+        if ((array_length (MdFigure.items(text))) == 0) {
+            return ("an empty " + word + ": write one item per line, `Title: description`")
+        }
+        return ("nothing drew this " + word)
+    }
+
+    ; ---------------------------------------------------------- process --
+    ;
+    ;   ┌──────────╲ ╲──────────╲ ╲──────────╲
+    ;   │ 1  Plan   ╲ ╲ 2 Build  ╲ ╲ 3 Ship   ╲
+    ;   │           ╱ ╱          ╱ ╱          ╱
+    ;   └──────────╱ ╱──────────╱ ╱──────────╱
+    ;    goals and   code and     in use
+    ;    schedule    tests
+    ;
+    ; Chevrons nested into each other with a gap, in a ramp of the first
+    ; colour; the title inside, the description under its own chevron.
+    sfn process:void (sc:FlowScene its:[MdFigureItem] st:MdFigureStyle width:double pad:double) {
+        def v:FlowView (MdFigure.viewFor(st))
+        def n:int (array_length its)
+        def W:double (width - (pad * 2.0))
+        def gap:double 6.0
+        def size:double st.size
+        def small:double (st.size * 0.82)
+        def h:double (size * 3.4)
+        def notch:double (h * 0.32)
+        def cw:double ((W + ((to_double (n - 1)) * (notch - gap))) / (to_double n))
+        ; titles: as large as fits two lines in every chevron
+        def inner:double ((cw - (notch * 2.0)) - 8.0)
+        if (inner < 20.0) {
+            inner = 20.0
+        }
+        def titleLays:[FlowTextLayout]
+        def bodyLays:[FlowTextLayout]
+        def tallest:double 0.0
+        def i:int 0
+        while (i < n) {
+            def it:MdFigureItem (itemAt its i)
+            def tl:FlowTextLayout (v.layoutTextBold(it.title size inner (h - 12.0) 2 true))
+            push titleLays tl
+            def bl:FlowTextLayout (MdFigure.wrap(v (it.text()) small (cw - notch) false))
+            push bodyLays bl
+            if ((strlen (it.text())) > 0) {
+                if (bl.height > tallest) {
+                    tallest = bl.height
+                }
+            }
+            i = (i + 1)
+        }
+        def top:double pad
+        def x:double pad
+        i = 0
+        while (i < n) {
+            def fill:string (MdFigure.rampAt(st i n))
+            def pts:[double]
+            push pts x
+            push pts top
+            push pts ((x + cw) - notch)
+            push pts top
+            push pts (x + cw)
+            push pts (top + (h * 0.5))
+            push pts ((x + cw) - notch)
+            push pts (top + h)
+            push pts x
+            push pts (top + h)
+            if (i > 0) {
+                push pts (x + notch)
+                push pts (top + (h * 0.5))
+            }
+            def poly:SceneItem (sc.polygon(pts fill))
+            poly.tag = "figure"
+            def tl:FlowTextLayout (itemAt titleLays i)
+            def tx:double x
+            if (i > 0) {
+                tx = (x + notch)
+            }
+            def tw:double ((((x + cw) - notch) - tx) + 4.0)
+            def ty:double (top + ((h - tl.height) * 0.5))
+            MdFigure.put(sc st tl tx ty tw (MdFigure.onColor(fill)) true "center")
+            def bl:FlowTextLayout (itemAt bodyLays i)
+            def bx:double (x + (notch * 0.5))
+            if (i == 0) {
+                bx = x
+            }
+            if ((strlen ((itemAt its i).text())) > 0) {
+                MdFigure.put(sc st bl bx (top + h + (size * 0.7)) (cw - notch) st.ink false "left")
+            }
+            x = ((x + cw) - notch) + gap
+            i = (i + 1)
+        }
+        sc.worldX = 0.0
+        sc.worldY = 0.0
+        sc.worldW = width
+        def hh:double (top + h)
+        if (tallest > 0.0) {
+            hh = (hh + (size * 0.7) + tallest)
+        }
+        sc.worldH = (hh + pad)
+    }
+
+    ; ------------------------------------------------------------- swot --
+    ;
+    ;   ┌─(S)─ Strengths ──────┐ ┌─(W)─ Weaknesses ─────┐
+    ;   │  …                   │ │  …                   │
+    ;   └──────────────────────┘ └──────────────────────┘
+    ;   ┌─(O)─ Opportunities ──┐ ┌─(T)─ Threats ────────┐
+    ;
+    ; Four cards (or as many as written, two to a row), each tinted with its
+    ; colour, a disc with the title's first letter, the title in the colour.
+    ; In Finnish the letters come out V H M U, which is what the analysis is
+    ; called there.
+    sfn swot:void (sc:FlowScene its:[MdFigureItem] st:MdFigureStyle width:double pad:double) {
+        def v:FlowView (MdFigure.viewFor(st))
+        def n:int (array_length its)
+        def W:double (width - (pad * 2.0))
+        def gap:double 16.0
+        def cols:int 2
+        if (n == 1) {
+            cols = 1
+        }
+        def cw:double ((W - ((to_double (cols - 1)) * gap)) / (to_double cols))
+        def size:double st.size
+        def small:double (st.size * 0.82)
+        def disc:double (size * 2.4)
+        def inPad:double (size * 0.8)
+        def textX:double ((inPad + disc) + (size * 0.7))
+        def textW:double ((cw - textX) - inPad)
+        def titleLays:[FlowTextLayout]
+        def bodyLays:[FlowTextLayout]
+        def heights:[double]
+        def i:int 0
+        while (i < n) {
+            def it:MdFigureItem (itemAt its i)
+            def tl:FlowTextLayout (MdFigure.wrap(v it.title (size * 1.05) textW true))
+            def bl:FlowTextLayout (MdFigure.wrap(v (it.text()) small textW false))
+            push titleLays tl
+            push bodyLays bl
+            def ch:double (tl.height + (inPad * 2.0))
+            if ((strlen (it.text())) > 0) {
+                ch = (ch + (size * 0.35) + bl.height)
+            }
+            if (ch < (disc + (inPad * 2.0))) {
+                ch = (disc + (inPad * 2.0))
+            }
+            push heights ch
+            i = (i + 1)
+        }
+        def y:double pad
+        def row:int 0
+        def rows:int (idiv ((n + cols) - 1) cols)
+        ; the room a host asked the grid to fill, shared out to the rows
+        def need:double ((pad * 2.0) + ((to_double (rows - 1)) * gap))
+        def r0:int 0
+        while (r0 < rows) {
+            def most:double 0.0
+            def c0:int 0
+            while (c0 < cols) {
+                def k0:int ((r0 * cols) + c0)
+                if (k0 < n) {
+                    if ((itemAt heights k0) > most) {
+                        most = (itemAt heights k0)
+                    }
+                }
+                c0 = (c0 + 1)
+            }
+            need = (need + most)
+            r0 = (r0 + 1)
+        }
+        def extra:double 0.0
+        if (st.fillH > need) {
+            extra = ((st.fillH - need) / (to_double rows))
+        }
+        while (row < rows) {
+            def rh:double 0.0
+            def c:int 0
+            while (c < cols) {
+                def k:int ((row * cols) + c)
+                if (k < n) {
+                    if ((itemAt heights k) > rh) {
+                        rh = (itemAt heights k)
+                    }
+                }
+                c = (c + 1)
+            }
+            rh = (rh + extra)
+            c = 0
+            while (c < cols) {
+                def k:int ((row * cols) + c)
+                if (k < n) {
+                    def it:MdFigureItem (itemAt its k)
+                    def color:string (MdFigure.colorAt(st k))
+                    def x:double (pad + ((to_double c) * (cw + gap)))
+                    def card:SceneItem (sc.rect(x y cw rh (MdFigure.mix(color st.paper 0.86))))
+                    card.radius = 10.0
+                    card.tag = "figure"
+                    def bar:SceneItem (sc.rect(x y 6.0 rh color))
+                    bar.tag = "figure"
+                    def dx:double (x + inPad)
+                    def dy:double (y + inPad)
+                    def d:SceneItem (sc.rect(dx dy disc disc color))
+                    d.radius = (disc * 0.5)
+                    d.tag = "figure"
+                    def letter:string (to_uppercase (substring it.title 0 1))
+                    def ll:FlowTextLayout (v.layoutTextBold(letter (size * 1.4) disc 0.0 1 true))
+                    MdFigure.put(sc st ll dx (dy + ((disc - ll.height) * 0.5)) disc (MdFigure.onColor(color)) true "center")
+                    def tl:FlowTextLayout (itemAt titleLays k)
+                    def tcol:string color
+                    if ((MdFigure.lum(color)) > 0.62) {
+                        tcol = (MdFigure.mix(color st.ink 0.5))
+                    }
+                    MdFigure.put(sc st tl (x + textX) (y + inPad) textW tcol true "left")
+                    if ((strlen (it.text())) > 0) {
+                        def bl:FlowTextLayout (itemAt bodyLays k)
+                        MdFigure.put(sc st bl (x + textX) (((y + inPad) + tl.height) + (size * 0.35)) textW st.ink false "left")
+                    }
+                }
+                c = (c + 1)
+            }
+            y = ((y + rh) + gap)
+            row = (row + 1)
+        }
+        sc.worldX = 0.0
+        sc.worldY = 0.0
+        sc.worldW = width
+        sc.worldH = ((y - gap) + pad)
+    }
+
+    ; --------------------------------------------------------- timeline --
+    ;
+    ;      2023        2024        2026
+    ;   ────(●)─────────(●)─────────(●)────▶
+    ;    Founded    First product   Abroad
+    ;
+    ; The dates above a line, a ringed dot on it per item, the descriptions
+    ; under, each centred in its own slot.
+    sfn timeline:void (sc:FlowScene its:[MdFigureItem] st:MdFigureStyle width:double pad:double) {
+        def v:FlowView (MdFigure.viewFor(st))
+        def n:int (array_length its)
+        def W:double (width - (pad * 2.0))
+        def size:double st.size
+        def small:double (st.size * 0.82)
+        def slot:double (W / (to_double n))
+        def textW:double (slot - 12.0)
+        def titleLays:[FlowTextLayout]
+        def bodyLays:[FlowTextLayout]
+        def titleH:double 0.0
+        def bodyH:double 0.0
+        def i:int 0
+        while (i < n) {
+            def it:MdFigureItem (itemAt its i)
+            def tl:FlowTextLayout (MdFigure.wrap(v it.title (size * 1.1) textW true))
+            def bl:FlowTextLayout (MdFigure.wrap(v (it.text()) small textW false))
+            push titleLays tl
+            push bodyLays bl
+            if (tl.height > titleH) {
+                titleH = tl.height
+            }
+            if ((strlen (it.text())) > 0) {
+                if (bl.height > bodyH) {
+                    bodyH = bl.height
+                }
+            }
+            i = (i + 1)
+        }
+        def dot:double (size * 1.3)
+        def lineY:double (((pad + titleH) + (size * 0.6)) + (dot * 0.5))
+        def lineCol:string (MdFigure.mix(st.muted st.paper 0.35))
+        def axis:[double]
+        push axis pad
+        push axis lineY
+        push axis ((pad + W) - 10.0)
+        push axis lineY
+        def ln:SceneItem (sc.path(axis "" lineCol 3.0))
+        ln.d = (FlowScene.polygonPath(ln.pts false))
+        ln.tag = "figure"
+        def head:[double]
+        push head ((pad + W) - 14.0)
+        push head (lineY - 8.0)
+        push head (pad + W)
+        push head lineY
+        push head ((pad + W) - 14.0)
+        push head (lineY + 8.0)
+        def hd:SceneItem (sc.polygon(head lineCol))
+        hd.tag = "figure"
+        i = 0
+        while (i < n) {
+            def color:string (MdFigure.colorAt(st i))
+            def cx:double ((pad + (slot * (to_double i))) + (slot * 0.5))
+            def tl:FlowTextLayout (itemAt titleLays i)
+            def tcol:string color
+            if ((MdFigure.lum(color)) > 0.62) {
+                tcol = (MdFigure.mix(color st.ink 0.5))
+            }
+            MdFigure.put(sc st tl (cx - (textW * 0.5)) ((pad + titleH) - tl.height) textW tcol true "center")
+            def ring:SceneItem (sc.rect((cx - (dot * 0.5)) (lineY - (dot * 0.5)) dot dot color))
+            ring.radius = (dot * 0.5)
+            ring.tag = "figure"
+            def core:double (dot * 0.42)
+            def hole:SceneItem (sc.rect((cx - (core * 0.5)) (lineY - (core * 0.5)) core core st.paper))
+            hole.radius = (core * 0.5)
+            hole.tag = "figure"
+            if ((strlen ((itemAt its i).text())) > 0) {
+                def bl:FlowTextLayout (itemAt bodyLays i)
+                MdFigure.put(sc st bl (cx - (textW * 0.5)) ((lineY + (dot * 0.5)) + (size * 0.6)) textW st.ink false "center")
+            }
+            i = (i + 1)
+        }
+        sc.worldX = 0.0
+        sc.worldY = 0.0
+        sc.worldW = width
+        def hh:double (lineY + (dot * 0.5))
+        if (bodyH > 0.0) {
+            hh = ((hh + (size * 0.6)) + bodyH)
+        }
+        sc.worldH = (hh + pad)
+    }
+
+    ; ------------------------------------------------------------- art --
+    ;
+    ; A slide background drawn from lines: `{art=waves}`. Ribbons of thin
+    ; strokes, each ribbon the space between two curves, every stroke a step
+    ; across it with a slow twist, so neighbouring strokes cross and make the
+    ; moiré a printed template has. The colours run from one theme colour to
+    ; the next across a ribbon. `seed` moves the curves.
+    sfn artNames:[string] () {
+        def k:[string] ([] _:string ("waves"))
+        return k
+    }
+
+    sfn isArt:boolean (name:string) {
+        return (name == "waves")
+    }
+
+    ; a number 0..1 from the seed and a counter (same on every target)
+    sfn rnd:double (seed:int k:int) {
+        def v:int ((((seed * 7919) + (k * 104729)) + 12345) % 65536)
+        v = ((v * 75) % 65537)
+        v = ((v * 75) % 65537)
+        return ((to_double v) / 65537.0)
+    }
+
+    sfn bez:double (p0:double p1:double p2:double p3:double t:double) {
+        def u:double (1.0 - t)
+        return (((((u * u) * u) * p0) + ((((3.0 * u) * u) * t) * p1)) + ((((3.0 * u) * t) * t) * p2)) + (((t * t) * t) * p3)
+    }
+
+    sfn rgba:string (hex:string a:double) {
+        def c:EVGColor (EVGColor.parse(hex))
+        return ("rgba(" + (to_string (c.red())) + "," + (to_string (c.green())) + "," + (to_string (c.blue())) + "," + (to_string a) + ")")
+    }
+
+    ; A ribbon between two cubic curves `a` and `b` (8 numbers each, in
+    ; fractions of the page), `lines` strokes from colour c1 to c2.
+    sfn ribbon:void (sc:FlowScene w:double h:double a:[double] b:[double] lines:int c1:string c2:string alpha:double twist:double seed:int) {
+        def steps:int 64
+        def j:int 0
+        while (j < lines) {
+            def tj:double ((to_double j) / (to_double (lines - 1)))
+            def pts:[double]
+            def i:int 0
+            while (i <= steps) {
+                def s:double ((to_double i) / (to_double steps))
+                def ax:double (MdFigure.bez((itemAt a 0) (itemAt a 2) (itemAt a 4) (itemAt a 6) s))
+                def ay:double (MdFigure.bez((itemAt a 1) (itemAt a 3) (itemAt a 5) (itemAt a 7) s))
+                def bx:double (MdFigure.bez((itemAt b 0) (itemAt b 2) (itemAt b 4) (itemAt b 6) s))
+                def by:double (MdFigure.bez((itemAt b 1) (itemAt b 3) (itemAt b 5) (itemAt b 7) s))
+                def tt:double (tj + ((twist * (sin (((s * 6.2832) * 1.3) + ((tj * 3.1416) + (to_double seed))))) * (1.0 - tj)))
+                if (tt < 0.0) {
+                    tt = 0.0
+                }
+                if (tt > 1.0) {
+                    tt = 1.0
+                }
+                def x:double ((ax + ((bx - ax) * tt)) * w)
+                def y:double ((ay + ((by - ay) * tt)) * h)
+                if (x < 0.0) {
+                    x = 0.0
+                }
+                if (x > w) {
+                    x = w
+                }
+                if (y < 0.0) {
+                    y = 0.0
+                }
+                if (y > h) {
+                    y = h
+                }
+                push pts x
+                push pts y
+                i = (i + 1)
+            }
+            def col:string (MdFigure.rgba((MdFigure.mix(c1 c2 tj)) alpha))
+            def ln:SceneItem (sc.path(pts "" col 0.9))
+            ln.d = (FlowScene.polygonPath(ln.pts false))
+            ln.tag = "art"
+            j = (j + 1)
+        }
+    }
+
+    ; control points jittered by the seed
+    sfn ctl:[double] (base:[double] seed:int k:int amount:double) {
+        def out:[double]
+        def i:int 0
+        while (i < (array_length base)) {
+            def r:double ((MdFigure.rnd(seed (k + i))) - 0.5)
+            def v:double (itemAt base i)
+            ; the ends stay on their edges
+            if ((i > 1) && (i < 6)) {
+                v = (v + (r * amount))
+            }
+            push out v
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The art `name` for a w x h page; an empty scene for a name it does not
+    ; know.
+    sfn art:FlowScene (name:string st:MdFigureStyle w:double h:double seed:int) {
+        def sc (new FlowScene)
+        sc.theme.background = ""
+        if ((MdFigure.isArt(name)) == false) {
+            return sc
+        }
+        sc.worldX = 0.0
+        sc.worldY = 0.0
+        sc.worldW = w
+        sc.worldH = h
+        def c0:string (MdFigure.colorAt(st 0))
+        def c1:string (MdFigure.colorAt(st 1))
+        def c2:string (MdFigure.colorAt(st 2))
+        def alpha:double 0.55
+        ; the sweep up the left edge
+        def a1:[double] ([] _:double (0.0 -0.05 0.22 0.35 0.0 0.75 0.55 1.02))
+        def b1:[double] ([] _:double (0.17 -0.05 0.06 0.5 0.42 0.78 0.92 1.02))
+        MdFigure.ribbon(sc w h (MdFigure.ctl(a1 seed 0 0.12)) (MdFigure.ctl(b1 seed 10 0.12)) 40 c0 c1 alpha 0.12 seed)
+        ; the band along the bottom
+        def a2:[double] ([] _:double (0.0 0.78 0.3 0.66 0.65 0.97 1.0 0.84))
+        def b2:[double] ([] _:double (0.0 0.97 0.35 1.02 0.7 0.78 1.0 0.99))
+        MdFigure.ribbon(sc w h (MdFigure.ctl(a2 seed 20 0.1)) (MdFigure.ctl(b2 seed 30 0.1)) 30 c1 c2 alpha 0.22 (seed + 1))
+        ; a lighter one crossing it at the right
+        def a3:[double] ([] _:double (0.42 1.02 0.68 0.82 0.86 0.9 1.0 0.76))
+        def b3:[double] ([] _:double (0.5 1.02 0.74 0.98 0.9 0.96 1.0 1.0))
+        MdFigure.ribbon(sc w h (MdFigure.ctl(a3 seed 40 0.08)) (MdFigure.ctl(b3 seed 50 0.08)) 22 c2 c0 (alpha * 0.8) 0.3 (seed + 2))
+        return sc
+    }
+}

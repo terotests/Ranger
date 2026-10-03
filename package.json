@@ -582,6 +582,7 @@
     "jsparser:test": "node ./gallery/js_parser/js_parser.js ./gallery/js_parser/test.js",
     "lang:string:test": "bash tests/lang/run_string_test.sh",
     "math:test": "bash scripts/rgr-suite.sh ./gallery/math/tests/MathTest.rgr ./gallery/math/bin MathTest.js",
+    "markdown:figure:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdFigureTest.rgr ./gallery/markdown/bin MdFigureTest.js",
     "markdown:html:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdHtmlTest.rgr ./gallery/markdown/bin MdHtmlTest.js",
     "markdown:math:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdMathTest.rgr ./gallery/markdown/bin MdMathTest.js",
     "markdown:attrs:test": "bash scripts/rgr-suite.sh ./gallery/markdown/tests/MdAttrsTest.rgr ./gallery/markdown/bin MdAttrsTest.js",
