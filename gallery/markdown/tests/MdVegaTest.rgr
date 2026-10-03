@@ -32,6 +32,7 @@
 Import "../src/MdVegaRender.rgr"
 Import "../src/MdEmbedKinds.rgr"
 Import "../src/MdDiagram.rgr"
+Import "../src/MdBlock.rgr"
 
 class VegaCheck {
     def passed:int 0
@@ -538,6 +539,70 @@ class MdVegaTest {
         return false
     }
 
+    ; Four charts, each with its own data.
+    sfn fourCharts:string () {
+        def out:string ""
+        def i:int 1
+        while (i <= 4) {
+            out = (out + "## Kaavio " + (to_string i) + "\n\n```vega-lite\n{\"data\": {\"values\": [{\"m\": \"a\", \"n\": " + (to_string i) + "}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"m\", \"type\": \"nominal\"}, \"y\": {\"field\": \"n\", \"type\": \"quantitative\"}}}\n```\n\n")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn staleCount:int (cache:MdEmbedCache) {
+        def n:int 0
+        def i:int 0
+        while (i < (cache.count())) {
+            def e:MdEmbedEntry (cache.entryAt(i))
+            if e.stale {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; New chart defaults on a deck of charts: drawn again a few per pass,
+    ; the slide on the screen first, the rest shown as they were meanwhile.
+    fn staggered:void (c:VegaCheck) {
+        print "-- charts drawn again a few at a time --"
+        def doc:MdNode (MdBlock.parseText((MdVegaTest.fourCharts())))
+        def cache (new MdEmbedCache())
+        cache.chartConfig = "\"config\": {\"axis\": {\"labelFontSize\": 12}}"
+        MdDiagram.prepare(doc cache 600.0 "default")
+        c.eqInt("four charts" (cache.count()) 4)
+        c.eqInt("none stale" (MdVegaTest.staleCount(cache)) 0)
+        ; new defaults, one redraw a pass
+        cache.chartConfig = "\"config\": {\"axis\": {\"labelFontSize\": 20}}"
+        cache.redrawBudget = 1
+        MdDiagram.prepare(doc cache 600.0 "default")
+        c.eqInt("every chart still has a drawing" (cache.count()) 4)
+        c.eqInt("one drawn again" (MdVegaTest.staleCount(cache)) 3)
+        c.eqInt("three left for later passes" cache.pending 3)
+        ; the last chart is on the screen: drawn whatever the budget
+        def last:MdNode (doc.childAt(((doc.childCount()) - 1)))
+        cache.focusFrom = last.srcStart
+        cache.focusTo = (last.srcStart + 1)
+        MdDiagram.prepare(doc cache 600.0 "default")
+        def lastAt:int (cache.find("vega-lite" last.literal 600.0))
+        c.ok("the chart on the screen is found" (lastAt >= 0))
+        if (lastAt >= 0) {
+            def le:MdEmbedEntry (cache.entryAt(lastAt))
+            c.ok("and drawn again" (le.stale == false))
+        }
+        c.eqInt("and one more by the budget" (MdVegaTest.staleCount(cache)) 1)
+        MdDiagram.prepare(doc cache 600.0 "default")
+        c.eqInt("the passes after finish them" (MdVegaTest.staleCount(cache)) 0)
+        c.eqInt("nothing pending" cache.pending 0)
+        c.eqInt("still four" (cache.count()) 4)
+        ; no budget: all in the one pass, as before
+        cache.chartConfig = "\"config\": {\"axis\": {\"labelFontSize\": 14}}"
+        cache.redrawBudget = -1
+        MdDiagram.prepare(doc cache 600.0 "default")
+        c.eqInt("without a budget every chart is drawn at once" (MdVegaTest.staleCount(cache)) 0)
+    }
+
     fn run:void () {
         def c (new VegaCheck())
         print "== MdVegaTest =="
@@ -548,6 +613,7 @@ class MdVegaTest {
         this.turned(c)
         this.fromTheSpec(c)
         this.grownToFit(c)
+        this.staggered(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

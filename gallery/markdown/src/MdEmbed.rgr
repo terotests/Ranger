@@ -25,6 +25,7 @@
 
 Import "pkg:evg/EVGElement.rgr"
 Import "MdCss.rgr"
+Import "MdEmbedKinds.rgr"
 
 class MdEmbedEntry {
     def kind:string ""
@@ -39,6 +40,10 @@ class MdEmbedEntry {
     def note:string ""
     ; Which pass last wanted this entry. See `MdEmbedCache.endPass`.
     def gen:int 0
+    ; drawn under defaults (a chart's config, a figure's style) that have
+    ; changed since: still shown, and drawn again when a pass gets to it
+    ; (`MdEmbedCache.redrawBudget`)
+    def stale:boolean false
     ; Where in its column a drawing narrower than the column sits: "" (the
     ; start), "center" or "end". A chart says it in its spec
     ; (`"usermeta": {"presAlign": "center"}`), so a host's chart rule and a
@@ -153,6 +158,19 @@ class MdEmbedCache {
     ; The number of the pass now running. An entry that is not wanted during a
     ; pass is not wanted at all — see `endPass`.
     def pass:int 0
+    ; How many stale drawings one pass draws again; -1 (the default) is all
+    ; of them, as before. A host that lays out on every keystroke sets a
+    ; few, so a change to `chart { … }` on a deck of forty charts is not
+    ; forty charts in one frame: the rest are drawn by the passes after,
+    ; and until then shown as they were.
+    def redrawBudget:int -1
+    def redrawLeft:int 0
+    ; The source offsets drawn again first, whatever the budget (the slide
+    ; on the screen); -1 for none.
+    def focusFrom:int -1
+    def focusTo:int -1
+    ; The stale drawings the last pass left for a later one.
+    def pending:int 0
 
     Constructor () {
     }
@@ -272,6 +290,47 @@ class MdEmbedCache {
 
     fn beginPass:void () {
         pass = (pass + 1)
+        redrawLeft = redrawBudget
+        pending = 0
+    }
+
+    ; Every drawing of a notation ("vega", "figure") is stale: its defaults
+    ; changed.
+    fn markStale:void (notation:string) {
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:MdEmbedEntry (itemAt entries i)
+            if ((MdEmbedKinds.notationOf(e.kind)) == notation) {
+                e.stale = true
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Whether this pass draws again a stale drawing whose fence starts at
+    ; `at`: always inside the focus, otherwise while the budget lasts. A
+    ; drawing left stale is counted in `pending`.
+    fn mayRedraw:boolean (at:int) {
+        if (redrawBudget < 0) { return true }
+        if ((focusFrom >= 0) && ((at >= focusFrom) && (at < focusTo))) { return true }
+        if (redrawLeft > 0) {
+            redrawLeft = (redrawLeft - 1)
+            return true
+        }
+        pending = (pending + 1)
+        return false
+    }
+
+    fn removeAt:void (i:int) {
+        def kept:[MdEmbedEntry]
+        def k:int 0
+        while (k < (array_length entries)) {
+            if (k != i) {
+                push kept (itemAt entries k)
+            }
+            k = (k + 1)
+        }
+        entries = kept
     }
 
     fn touch:void (i:int) {
