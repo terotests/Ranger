@@ -128,6 +128,20 @@ class MdSlidesTest {
         return (0.0 - 1.0)
     }
 
+    ; The last slide a heading's text is on — a continuation repeats it.
+    sfn lastSlideOf:int (l:MdLayout want:string) {
+        def last:int -1
+        def i:int 0
+        while (i < (array_length l.boxes)) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 0) {
+                if (b.text == want) { last = b.page }
+            }
+            i = (i + 1)
+        }
+        return last
+    }
+
     sfn slideOf:int (l:MdLayout want:string) {
         def i:int 0
         while (i < (array_length l.boxes)) {
@@ -416,7 +430,8 @@ class MdSlidesTest {
         c.ok("it took more than one slide" (l.pageCount > 1))
         c.ok("and said how many blocks it cut" (l.slideOverflows > 0))
         c.eqStr("with the policy it was told" l.slideOverflow "split")
-        c.ok("the continuation carries the title" ((MdSlidesTest.slideOf(l "Long (jatkuu)")) > 0))
+        c.ok("the continuation carries the title" ((MdSlidesTest.lastSlideOf(l "Long")) > 0))
+        c.eqInt("and no untranslated suffix" (MdSlidesTest.slideOf(l "Long (jatkuu)")) -1)
 
         ; A policy this layout does not honour is carried and named rather
         ; than silently treated as the default.
