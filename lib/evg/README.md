@@ -519,7 +519,7 @@ Seven ship with the painter:
 | `plasma-wave` | source | drifting ribbons of light |
 | `bubbles` | backdrop | round drops on the pane, each one a small lens over the page (`raindrop` is its old name) |
 | `drops` | backdrop | rain on a window: drops land, merge and run down leaving trails; a deterministic model of time drives the shader |
-| `raindrops2` | backdrop | `drops` where a running drop leaves a line of water and waits at its end until more water reaches it; mostly fine drops that dry away, and the page's text is in the rain's way |
+| `raindrops2` | backdrop | `drops` where a running drop leaves a line of water and waits at its end until more water reaches it; mostly fine drops that dry away into a matte haze, no drop past a maximum size, and the page's text is in the rain's way |
 | `ambient-light` | source | a slow wash of colour with soft orbs in it |
 | `smoke` | source | a bank of smoke rising through the box, or a cloud filling it |
 
