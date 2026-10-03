@@ -647,6 +647,22 @@ class MdVegaRender {
     ; width too the chart is drawn at its size; with no width it takes the
     ; room's width.
     sfn grown:string (text:string width:double pad:double most:double maxH:double) {
+        ; A pie with no size is set square in its column (`sized`), and no
+        ; taller than the room: the 360 it was given, with the chart's
+        ; padding, ran out of a slide's 324 under its box.
+        def pie:string (MdVegaRender.sized(text width pad))
+        if (pie != text) {
+            def pp (new VlJsonParser())
+            def side:double ((pp.parse(pie)).doubleOr("height" 0.0))
+            def pq (new VlJsonParser())
+            def held:VlJson (pq.parse((MdVegaRender.heldTo(pie side maxH))))
+            def hh:double (held.doubleOr("height" side))
+            if (hh < side) {
+                held.setMember("width" (VlJson.numberValue(hh)))
+            }
+            def pw (new VlJsonWriter())
+            return (pw.write(held))
+        }
         def p (new VlJsonParser())
         def spec:VlJson (p.parse(text))
         if ((p.ok == false) || ((spec.isObject()) == false)) {
@@ -686,6 +702,10 @@ class MdVegaRender {
             rt.run((compiler.compileSpec(probe)))
             def vh:double (rt.viewHeight())
             def plotH:double rt.chartHeight
+            ; a pie has no plot of axes: its height is the stated one
+            if (plotH < 1.0) {
+                plotH = stated
+            }
             if ((plotH >= 1.0) && (vh > maxH)) {
                 want = (to_double (to_int (maxH - (vh - plotH))))
                 if (want < (stated * 0.3)) {
