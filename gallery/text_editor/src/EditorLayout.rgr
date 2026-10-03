@@ -55,7 +55,12 @@ class EditorLayout {
         }
         lineHeight = (lh + 4)
         if showLineNumbers {
-            gutterW = 48
+            ; room for four digits at the numbers' size (0.85 of the text's)
+            ; and their margins; 48 up to 14 px text
+            gutterW = ((to_int (fontSize * 2.0)) + 20)
+            if (gutterW < 48) {
+                gutterW = 48
+            }
         } {
             gutterW = 0
         }

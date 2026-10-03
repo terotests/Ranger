@@ -213,7 +213,54 @@ class ScriptEditor {
     ; caret on screen can measure without the host threading one through.
     def measureTr@(optional):UITextRenderer
 
+    ; --- font size -------------------------------------------------------------
+    ; The text's size, zoomed by the host (Ctrl/Cmd + plus and minus) in whole
+    ; pixels between the two limits. Loading a text with `init` keeps it: a
+    ; zoom is the reader's, not the file's.
+    def defaultFontSize:double 13.0
+    def minFontSize:double 8.0
+    def maxFontSize:double 32.0
+
     Constructor () {
+        layout.fontSize = defaultFontSize
+    }
+
+    ; Sets the size, held inside the limits; true when it changed. Everything
+    ; measured at the old size (line height, gutter, the widest line) is
+    ; measured again, and a caret line that was on screen stays there.
+    fn setFontSize:boolean (size:double) {
+        def s:double (to_double (to_int (size + 0.5)))
+        if (s < minFontSize) {
+            s = minFontSize
+        }
+        if (s > maxFontSize) {
+            s = maxFontSize
+        }
+        if (s == layout.fontSize) {
+            return false
+        }
+        def cl:int sel.caret.line
+        def inView:boolean ((cl >= layout.scrollLine) && (cl < (layout.scrollLine + (layout.visibleLineCount()))))
+        layout.fontSize = s
+        contentWPx = 0
+        contentWVersion = -1
+        if (null? measureTr) {
+            return true
+        }
+        layout.syncMetrics((unwrap measureTr))
+        if inView {
+            layout.ensureCaretVisible(buf sel)
+        }
+        return true
+    }
+
+    ; One step bigger (+1) or smaller (-1) per `steps`; 0 goes back to the
+    ; default size.
+    fn zoomBy:boolean (steps:int) {
+        if (steps == 0) {
+            return (this.setFontSize(defaultFontSize))
+        }
+        return (this.setFontSize((layout.fontSize + (to_double steps))))
     }
 
     ; A file from disk may have CRLF endings, and a stray \r is a character
@@ -325,7 +372,6 @@ class ScriptEditor {
         layout.scrollX = 0
         contentWPx = 0
         contentWVersion = -1
-        layout.fontSize = 13.0
         layout.showLineNumbers = true
         tokenVersion = -1
         dirty = false
