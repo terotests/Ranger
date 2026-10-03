@@ -1,0 +1,265 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdFigureTest.rgr — ```process, ```swot and ```timeline, as geometry.
+; ============================================================================
+;
+;   npm run markdown:figure:test
+;
+; What is checked is the scene, not the picture: the items read out of the
+; fence, every shape and every line of text inside the scene's own box, the
+; theme's colours on the shapes, a figure that is not allowed left undrawn
+; with the host's note, and a theme change drawing the figure again.
+;
+; `node MdFigureTest.js <dir>` also writes each figure as SVG there, to look at.
+; ============================================================================
+
+Import "../src/MdFigure.rgr"
+Import "../src/MdEmbedKinds.rgr"
+Import "../src/MdDiagram.rgr"
+Import "../src/MdNode.rgr"
+
+class FigureCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  [" + (got + "]"))
+            print ("    want [" + (want + "]"))
+        }
+    }
+
+    ; every item inside the scene, and how many of each kind
+    fn inside:void (name:string sc:FlowScene) {
+        def bad:int 0
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def s:SceneItem (itemAt sc.items i)
+            if ((s.kind == 0) || (s.kind == 1)) {
+                if ((s.x < -0.5) || ((s.x + s.w) > (sc.worldW + 0.5))) {
+                    bad = (bad + 1)
+                }
+                if ((s.y < -0.5) || ((s.y + s.h) > (sc.worldH + 0.5))) {
+                    bad = (bad + 1)
+                }
+            }
+            if (s.kind == 2) {
+                def k:int 0
+                while (k < (array_length s.pts)) {
+                    def px:double (itemAt s.pts k)
+                    def py:double (itemAt s.pts (k + 1))
+                    if ((px < -0.5) || (px > (sc.worldW + 0.5))) {
+                        bad = (bad + 1)
+                    }
+                    if ((py < -0.5) || (py > (sc.worldH + 0.5))) {
+                        bad = (bad + 1)
+                    }
+                    k = (k + 2)
+                }
+            }
+            i = (i + 1)
+        }
+        if (bad > 0) {
+            print ("    " + name + ": " + (to_string bad) + " coordinate(s) outside " + (to_string sc.worldW) + "x" + (to_string sc.worldH))
+        }
+        this.ok((name + ": everything inside the scene") (bad == 0))
+    }
+
+    fn count:int (sc:FlowScene kind:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def s:SceneItem (itemAt sc.items i)
+            if (s.kind == kind) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn texts:string (sc:FlowScene) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def s:SceneItem (itemAt sc.items i)
+            if (s.kind == 1) {
+                out = (out + s.text + "|")
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn hasFill:boolean (sc:FlowScene fill:string) {
+        def i:int 0
+        while (i < (array_length sc.items)) {
+            def s:SceneItem (itemAt sc.items i)
+            if ((to_lowercase s.fill) == (to_lowercase fill)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}
+
+class MdFigureTest {
+    sfn main:void () {
+        def c (new FigureCheck())
+        def outDir:string ""
+        if ((shell_arg_cnt) > 0) {
+            outDir = (shell_arg 0)
+        }
+
+        ; --- the table
+        c.eqStr("process is a figure" (MdEmbedKinds.notationOf("process")) "figure")
+        c.eqStr("swot is a figure" (MdEmbedKinds.notationOf("swot")) "figure")
+        c.eqStr("timeline is a figure" (MdEmbedKinds.notationOf("timeline")) "figure")
+        c.ok("a figure is a drawing" (MdEmbedKinds.isDrawing("swot")))
+
+        ; --- items
+        def its:[MdFigureItem] (MdFigure.items("- Plan: goals and schedule\n  - kick-off\n  - budget\n- Build\n  code and tests\n3. Ship: at 12:30 sharp\n"))
+        c.ok("three items" ((array_length its) == 3))
+        if ((array_length its) == 3) {
+            def a:MdFigureItem (itemAt its 0)
+            c.eqStr("title" a.title "Plan")
+            c.eqStr("body" a.body "goals and schedule")
+            c.ok("two bullets" ((array_length a.bullets) == 2))
+            c.eqStr("text" (a.text()) "goals and schedule\n• kick-off\n• budget")
+            def b:MdFigureItem (itemAt its 1)
+            c.eqStr("indented line continues" b.body "code and tests")
+            def d:MdFigureItem (itemAt its 2)
+            c.eqStr("numbered" d.title "Ship")
+            c.eqStr("12:30 stays" d.body "at 12:30 sharp")
+        }
+        def plain:[MdFigureItem] (MdFigure.items("Strengths:\nWeaknesses: few\n"))
+        c.ok("a title alone" (((array_length plain) == 2) && ((itemAt plain 0).title == "Strengths")))
+
+        def st (new MdFigureStyle)
+        def cols:[string] ([] _:string ("#ff6600" "#0066cc"))
+        st.colors = cols
+        st.paper = "#ffffff"
+        st.ink = "#222222"
+
+        ; --- process
+        def p:FlowScene (MdFigure.sceneOf("process" "- Plan: goals and the schedule for the whole year\n- Build: code and tests\n- Test\n- Ship: in use" st 960.0 10.0))
+        c.ok("process: as wide as asked" (p.worldW == 960.0))
+        c.ok("process: has height" (p.worldH > 80.0))
+        c.ok("process: four chevrons" ((c.count(p 2)) == 4))
+        c.ok("process: titles and descriptions" ((indexOf (c.texts(p)) "Plan|") >= 0))
+        c.ok("process: last step in the theme colour" (c.hasFill(p "#ff6600")))
+        c.inside("process" p)
+        def p2:FlowScene (MdFigure.sceneOf("process" "- A\n- B\n- C" st 960.0 10.0))
+        c.ok("process: no descriptions, no room under" (p2.worldH < p.worldH))
+
+        ; --- swot
+        def s:FlowScene (MdFigure.sceneOf("swot" "Vahvuudet: vahva brändi\n  - kokenut tiimi\nHeikkoudet: pieni tiimi\nMahdollisuudet: uudet markkinat\nUhat: kilpailijat" st 960.0 10.0))
+        c.ok("swot: has height" (s.worldH > 100.0))
+        def tx:string (c.texts(s))
+        c.ok("swot: Finnish letters" (((indexOf tx "V|") >= 0) && ((indexOf tx "U|") >= 0)))
+        c.ok("swot: colours by quadrant" ((c.hasFill(s "#ff6600")) && (c.hasFill(s "#0066cc"))))
+        c.inside("swot" s)
+
+        ; --- timeline
+        def t:FlowScene (MdFigure.sceneOf("timeline" "2023: Founded\n2024: First product in the hands of customers\n2025\n2026: Abroad" st 960.0 10.0))
+        c.ok("timeline: has height" (t.worldH > 60.0))
+        c.ok("timeline: years" ((indexOf (c.texts(t)) "2024|") >= 0))
+        c.inside("timeline" t)
+        def narrow:FlowScene (MdFigure.sceneOf("timeline" "2023: Founded with a long description that wraps\n2024: First" st 300.0 10.0))
+        c.inside("timeline narrow" narrow)
+
+        ; --- fitted to a slide's room
+        def small:FlowScene (MdFigure.sceneOf("swot" "A: a\nB: b\nC: c\nD: d" st 960.0 10.0))
+        def fit:FlowScene (MdFigure.sceneFit("swot" "A: a\nB: b\nC: c\nD: d" st 960.0 10.0 500.0))
+        c.ok("fit: the grid fills the room" ((fit.worldH > (small.worldH + 50.0)) && (fit.worldH <= 426.0)))
+        def pf:FlowScene (MdFigure.sceneFit("process" "- A: a\n- B: b" st 960.0 10.0 500.0))
+        def p0:FlowScene (MdFigure.sceneOf("process" "- A: a\n- B: b" st 960.0 10.0))
+        c.ok("fit: steps set larger" ((pf.worldH > p0.worldH) && (pf.worldH <= 425.0)))
+        def none0:FlowScene (MdFigure.sceneFit("process" "- A: a" st 960.0 10.0 0.0))
+        c.ok("fit: no room given, as asked" (none0.worldH == (MdFigure.sceneOf("process" "- A: a" st 960.0 10.0)).worldH))
+
+        ; --- art
+        def w1:FlowScene (MdFigure.art("waves" st 1280.0 720.0 1))
+        c.ok("waves: a page of lines" ((c.count(w1 2)) > 40))
+        c.inside("waves" w1)
+        def w2:FlowScene (MdFigure.art("waves" st 1280.0 720.0 2))
+        def p1:SceneItem (itemAt w1.items 5)
+        def p2:SceneItem (itemAt w2.items 5)
+        c.ok("waves: the seed moves the lines" ((itemAt p1.pts 41) != (itemAt p2.pts 41)))
+        def none:FlowScene (MdFigure.art("nope" st 100.0 100.0 1))
+        c.ok("unknown art: nothing" ((array_length none.items) == 0))
+
+        ; --- an empty fence
+        def e:FlowScene (MdFigure.sceneOf("swot" "\n\n" st 960.0 10.0))
+        c.ok("empty: nothing drawn" (e.worldW <= 0.0))
+
+        ; --- through the cache
+        def cache (new MdEmbedCache())
+        def doc:MdNode (MdNode.create("document"))
+        def fence:MdNode (MdNode.create("embed"))
+        fence.info = "timeline"
+        fence.literal = "2023: Founded\n2024: Product"
+        doc.add(fence)
+        MdDiagram.prepare(doc cache 800.0 "default")
+        c.ok("cache: drawn" ((cache.heightFor("timeline" fence.literal 800.0)) > 0.0))
+        def h0:double (cache.heightFor("timeline" fence.literal 800.0))
+        cache.figure.size = 30.0
+        MdDiagram.prepare(doc cache 800.0 "default")
+        c.ok("cache: a new style draws again" ((cache.heightFor("timeline" fence.literal 800.0)) > h0))
+        cache.figure.allowed = false
+        cache.figure.lockedNote = "PRO"
+        MdDiagram.prepare(doc cache 800.0 "default")
+        c.ok("cache: not allowed, not drawn" ((cache.heightFor("timeline" fence.literal 800.0)) < 0.0))
+        c.eqStr("cache: the host's note" (cache.noteFor("timeline" fence.literal 800.0)) "PRO")
+
+        if ((strlen outDir) > 0) {
+            def dark (new MdFigureStyle)
+            def dc:[string] ([] _:string ("#ffa546" "#5ce1ff"))
+            dark.colors = dc
+            dark.paper = "#0b1030"
+            dark.ink = "#e8ecff"
+            dark.muted = "#9aa3c7"
+            MdFigureTest.save(outDir "waves" w1 "#ffffff")
+            MdFigureTest.save(outDir "waves-dark" (MdFigure.art("waves" dark 1280.0 720.0 3)) "#0b1030")
+            MdFigureTest.save(outDir "process" p "#ffffff")
+            MdFigureTest.save(outDir "swot" s "#ffffff")
+            MdFigureTest.save(outDir "timeline" t "#ffffff")
+            MdFigureTest.save(outDir "swot-dark" (MdFigure.sceneOf("swot" "Strengths: strong brand\nWeaknesses: small team\nOpportunities: new markets\n  - Nordics\n  - Germany\nThreats: competitors" dark 960.0 10.0)) "#0b1030")
+            MdFigureTest.save(outDir "process-dark" (MdFigure.sceneOf("process" "- Plan: goals and schedule\n- Build: code and tests\n- Ship: in use" dark 960.0 10.0)) "#0b1030")
+            MdFigureTest.save(outDir "timeline-dark" (MdFigure.sceneOf("timeline" "2023: Founded\n2024: First product\n2025: 10 000 users\n2026: Abroad" dark 960.0 10.0)) "#0b1030")
+        }
+
+        print ("")
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    sfn save:void (dir:string name:string sc:FlowScene bg:string) {
+        def svg:string (sc.toSvg())
+        def at:int (indexOf svg ">")
+        def body:string ((substring svg 0 (at + 1)) + "<rect width=\"100%\" height=\"100%\" fill=\"" + bg + "\"/>" + (substring svg (at + 1) (strlen svg)))
+        write_file dir (name + ".svg") body
+    }
+}

@@ -64,8 +64,60 @@ class MdEmbedEntry {
     }
 }
 
+; How the figures (```process, ```swot, ```timeline — MdFigure) are coloured
+; and set: the host fills this from its theme. A change draws them again.
+class MdFigureStyle {
+    ; the series, in order; more items than colours come round lighter
+    def colors:[string]
+    ; text on the page, the quieter text, and the page under the figure
+    def ink:string "#1f2937"
+    def muted:string "#6b7280"
+    def paper:string "#ffffff"
+    def font:string ""
+    ; the title size in layout units; descriptions are set smaller
+    def size:double 18.0
+    ; false: a host that keeps figures for some users (Sliqtly: PRO) leaves
+    ; them undrawn, and the slot says `lockedNote`
+    def allowed:boolean true
+    def lockedNote:string "this layout is not available here"
+    ; a height a grid of cards (```swot) stretches its rows to, 0: none
+    def fillH:double 0.0
+
+    Constructor () {
+        def c:[string] ([] _:string ("#1f6feb" "#0f9d8a" "#7c4dff" "#f08c00"))
+        colors = c
+    }
+
+    ; The same style at another size, for `MdFigure.sceneFit`.
+    fn sized:MdFigureStyle (sz:double) {
+        def o (new MdFigureStyle)
+        o.colors = colors
+        o.ink = ink
+        o.muted = muted
+        o.paper = paper
+        o.font = font
+        o.size = sz
+        o.allowed = allowed
+        o.lockedNote = lockedNote
+        o.fillH = fillH
+        return o
+    }
+
+    fn key:string () {
+        def k:string (ink + "|" + muted + "|" + paper + "|" + font + "|" + (to_string size) + "|" + (to_string allowed))
+        def i:int 0
+        while (i < (array_length colors)) {
+            k = (k + "|" + (itemAt colors i))
+            i = (i + 1)
+        }
+        return k
+    }
+}
+
 class MdEmbedCache {
     def entries:[MdEmbedEntry]
+    def figure:MdFigureStyle (new MdFigureStyle)
+    def figureKeyDrawn:string ""
     ; Defaults for every chart (```vega-lite), as a JSON object the chart's
     ; own spec is laid over: {"padding": 10, "config": {"title": {…}}}.
     ; `chartScopes[i]` is a heading's anchor (MdAnchor.slug) and

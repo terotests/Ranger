@@ -25,6 +25,7 @@
 ;   dot, graphviz               graphviz
 ;   d2                          d2
 ;   vega, vega-lite, vegalite   vega
+;   process, swot, timeline     figure
 ;
 ; The notation is what `MdDiagram` dispatches on, not the fence word: two
 ; spellings of the same reader should not be two branches downstream.
@@ -53,6 +54,11 @@ class MdEmbedKinds {
         if (word == "vega") { return "vega" }
         if (word == "vega-lite") { return "vega" }
         if (word == "vegalite") { return "vega" }
+        ; A slide layout computed from a list (MdFigure): steps, a SWOT
+        ; grid, a timeline.
+        if (word == "process") { return "figure" }
+        if (word == "swot") { return "figure" }
+        if (word == "timeline") { return "figure" }
         return ""
     }
 
@@ -69,6 +75,7 @@ class MdEmbedKinds {
         if (n == "graphviz") { return "Graphviz" }
         if (n == "d2") { return "D2" }
         if (n == "vega") { return "Vega" }
+        if (n == "figure") { return "Figure" }
         return "Drawing"
     }
 

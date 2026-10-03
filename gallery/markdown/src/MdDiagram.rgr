@@ -47,6 +47,7 @@ Import "MdNode.rgr"
 Import "MdEmbed.rgr"
 Import "MdEmbedKinds.rgr"
 Import "MdVegaRender.rgr"
+Import "MdFigure.rgr"
 Import "MdAnchor.rgr"
 Import "../../rangerflow/domains/mermaid/MermaidRender.rgr"
 Import "../../rangerflow/domains/plantuml/PlantUmlRender.rgr"
@@ -79,6 +80,21 @@ class MdDiagram {
                 k = (k + 1)
             }
             cache.entries = kept
+        }
+        ; figures drawn in another theme, or for another room, are drawn again
+        def fkey:string ((cache.figure.key()) + "|" + (to_string cache.chartMaxH))
+        if (fkey != cache.figureKeyDrawn) {
+            cache.figureKeyDrawn = fkey
+            def keptF:[MdEmbedEntry]
+            def kf:int 0
+            while (kf < (array_length cache.entries)) {
+                def fe:MdEmbedEntry (itemAt cache.entries kf)
+                if ((MdEmbedKinds.notationOf(fe.kind)) != "figure") {
+                    push keptF fe
+                }
+                kf = (kf + 1)
+            }
+            cache.entries = keptF
         }
         cache.resetHeadings()
         MdDiagram.walk(doc cache width styleName)
@@ -140,6 +156,27 @@ class MdDiagram {
             if (cache.chartGrow > 1.0) {
                 text = (MdVegaRender.grown(text width pad cache.chartGrow cache.chartMaxH))
             }
+        }
+        if (notation == "figure") {
+            if (cache.figure.allowed == false) {
+                e.note = cache.figure.lockedNote
+                cache.add(e)
+                return
+            }
+            ; a slide's figure fills its room (`chartMaxH`, the same limit
+            ; a grown chart has)
+            def fs:FlowScene (MdFigure.sceneFit(word text cache.figure width pad cache.chartMaxH))
+            if (fs.worldW <= 0.0) {
+                e.note = (MdFigure.refusal(word text))
+                cache.add(e)
+                return
+            }
+            e.width = fs.worldW
+            e.height = fs.worldH
+            e.root = (fs.toEvgTree())
+            e.ok = true
+            cache.add(e)
+            return
         }
         def sc:FlowScene (MdDiagram.sceneFor(notation text styleName width pad))
         if (sc.worldW <= 0.0) {
