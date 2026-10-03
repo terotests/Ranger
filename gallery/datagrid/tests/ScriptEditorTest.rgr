@@ -545,6 +545,25 @@ class ScriptEditorTest {
         hs.handleKey((UIKey.end()) false false)
         c.ok("End walks to the end of the line" (hs.sel.caret.col > 20))
 
+        print "== font size"
+        def fz:ScriptEditor (new ScriptEditor)
+        c.ok("starts at the default size" (fz.layout.fontSize == 13.0))
+        c.ok("a step up changes it" (fz.zoomBy(1)))
+        c.ok("to 14" (fz.layout.fontSize == 14.0))
+        fz.zoomBy(2)
+        c.ok("two steps more is 16" (fz.layout.fontSize == 16.0))
+        fz.init("a new text")
+        c.ok("loading a text keeps the size" (fz.layout.fontSize == 16.0))
+        fz.zoomBy(100)
+        c.ok("not over the largest size" (fz.layout.fontSize == fz.maxFontSize))
+        c.ok("a step at the limit changes nothing" ((fz.zoomBy(1)) == false))
+        fz.zoomBy(-100)
+        c.ok("nor under the smallest" (fz.layout.fontSize == fz.minFontSize))
+        c.ok("0 goes back to the default" (fz.zoomBy(0)))
+        c.ok("which is 13" (fz.layout.fontSize == 13.0))
+        fz.setFontSize(15.4)
+        c.ok("a size is whole pixels" (fz.layout.fontSize == 15.0))
+
         print ""
         print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
         if (c.failed > 0) {
