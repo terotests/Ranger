@@ -345,6 +345,22 @@ class MdVegaTest {
         def whole:SceneItem (MdVegaTest.textStarting(dl.scene "Vuosinel"))
         c.eqStr("…and the whole title is drawn" whole.text "Vuosineljännes")
         c.eqStr("a stated limit stays" (MdVegaRender.limitsByFont("{\"config\": {\"legend\": {\"titleFontSize\": 24, \"titleLimit\": 50}}}")) "{\"config\": {\"legend\": {\"titleFontSize\": 24, \"titleLimit\": 50}}}")
+        ; a long y title in a slide's large type is no longer than the plot
+        ; is high: it made the drawing as tall as the title, and fitting
+        ; that into the room squashed the plot to its floor
+        def band:string "{\"width\": 520, \"config\": {\"axis\": {\"labelFontSize\": 22, \"titleFontSize\": 24}}, \"data\": {\"values\": [{\"y\": 1970, \"m\": 18}, {\"y\": 1976, \"m\": 22}, {\"y\": 1982, \"m\": 31}]}, \"mark\": \"line\", \"encoding\": {\"x\": {\"field\": \"y\", \"type\": \"quantitative\", \"title\": \"Year (year)\"}, \"y\": {\"field\": \"m\", \"type\": \"quantitative\", \"title\": \"Mean of Miles per Gallon (95% CIs)\"}}}"
+        def gb:string (MdVegaRender.grown(band 1240.0 10.0 2.5 330.0))
+        def cb (new VlCompile())
+        cb.autoLabelAngle = true
+        def rb (new VlRuntime())
+        rb.autoLabelAngle = true
+        rb.run((cb.compileSpec(((new VlJsonParser()).parse(gb)))))
+        print ((("   long y title: plot height " + (to_string rb.chartHeight)) + ", drawing ") + (to_string (rb.viewHeight())))
+        c.ok("a long axis title leaves the plot its height" (rb.chartHeight > 180.0))
+        c.ok("…and the drawing fits the room" ((rb.viewHeight()) <= 331.0))
+        def db:MdVegaDrawing (MdVegaRender.draw(gb 1240.0 10.0))
+        def yt:SceneItem (MdVegaTest.textStarting(db.scene "Mean of"))
+        c.ok("…the title cut to the plot's height" ((indexOf yt.text (strfromcode 8230)) > 0))
         c.ok("a stated width is kept to the plot's own proportions" ((indexOf g "\"height\":750") >= 0))
     }
 
