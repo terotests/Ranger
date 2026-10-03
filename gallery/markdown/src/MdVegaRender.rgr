@@ -798,14 +798,31 @@ class MdVegaRender {
         if (fill == false) {
             fw = f
         }
-        if ((f < 1.05) && (fw < 1.05)) {
+        ; the words grow a little with it: a plot two and a half times the
+        ; size with its legend at the old size reads as a small print
+        def k:double (1.0 + ((f - 1.0) * 0.3))
+        ; A chart that states no height takes the room's height, as a
+        ; slide's figure does: Vega-Lite's 20 points a category left five
+        ; rows of ticks a strip across the top of an empty slide. No taller
+        ; than three quarters of its width (a chart in a column stays a
+        ; chart), and never lower than its own proportions grown.
+        def tallH:double (plotH * f)
+        if ((((spec.has("height")) == false) && (maxH > 1.0)) && ((indexOf text "\"arc\"") < 0)) {
+            def roomH:double (maxH - ((viewH - plotH) * k))
+            def capH:double ((plotW * fw) * 0.75)
+            if (roomH > capH) {
+                roomH = capH
+            }
+            if (roomH > tallH) {
+                tallH = roomH
+            }
+        }
+        if (((f < 1.05) && (fw < 1.05)) && (tallH < (plotH * 1.05))) {
             return text
         }
         spec.setMember("width" (VlJson.numberValue((to_double (to_int (plotW * fw))))))
-        spec.setMember("height" (VlJson.numberValue((to_double (to_int (plotH * f))))))
-        ; the words grow a little with it: a plot two and a half times the
-        ; size with its legend at the old size reads as a small print
-        MdVegaRender.growWords(spec (1.0 + ((f - 1.0) * 0.3)))
+        spec.setMember("height" (VlJson.numberValue((to_double (to_int tallH)))))
+        MdVegaRender.growWords(spec k)
         def w (new VlJsonWriter())
         return (w.write(spec))
     }
