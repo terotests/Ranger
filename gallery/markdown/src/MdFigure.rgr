@@ -34,9 +34,22 @@
 ;   Title: description         one item (`- ` or `1. ` in front is allowed)
 ;     - a point                an indented bullet belongs to the item above
 ;     more words               an indented line continues its description
+;
+; A plain Markdown list is the same figure when its style says so — the list
+; stays a list in any other reader:
+;
+;   - Strengths: strong brand
+;   - Weaknesses: small team
+;   {list-style=swot}
+;
+; or from the stylesheet, `.swot { list-style: swot }` with `{.swot}` under
+; the list, or a heading's lists (`MdEmbedCache.listScopes`). `MdDiagram`
+; turns such a list into the fence it could have been written as
+; (`listText`), so everything after it is the fence's path.
 ; ============================================================================
 
 Import "MdEmbed.rgr"
+Import "MdNode.rgr"
 Import "../../rangerflow/core/FlowScene.rgr"
 Import "../../rangerflow/core/FlowView.rgr"
 Import "pkg:evg/EVGColor.rgr"
@@ -142,6 +155,60 @@ class MdFigure {
         }
         it.title = (trim t)
         return it
+    }
+
+    ; A Markdown list as the text `items` reads: an item's first paragraph
+    ; is its line (`Title: description`), its other paragraphs continue the
+    ; description and a list inside it is its points.
+    sfn listText:string (list:MdNode) {
+        def out:string ""
+        def i:int 0
+        while (i < (list.childCount())) {
+            def item:MdNode (list.childAt(i))
+            def j:int 0
+            def first:boolean true
+            while (j < (item.childCount())) {
+                def part:MdNode (item.childAt(j))
+                if (part.kind == "list") {
+                    def k:int 0
+                    while (k < (part.childCount())) {
+                        def sub:MdNode (part.childAt(k))
+                        out = (out + "  - " + (MdFigure.oneLine((sub.plainText()))) + "\n")
+                        k = (k + 1)
+                    }
+                } {
+                    def t:string (MdFigure.oneLine((part.plainText())))
+                    if first {
+                        out = (out + t + "\n")
+                        first = false
+                    } {
+                        out = (out + "  " + t + "\n")
+                    }
+                }
+                j = (j + 1)
+            }
+            if first {
+                out = (out + "\n")
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn oneLine:string (t:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen t)
+        while (i < n) {
+            def c:int (charAt t i)
+            if ((c == 10) || (c == 13)) {
+                out = (out + " ")
+            } {
+                out = (out + (substring t i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return (trim out)
     }
 
     sfn items:[MdFigureItem] (text:string) {

@@ -109,6 +109,17 @@ class MdDiagram {
         if (node.kind == "heading") {
             cache.underHeading(node.level (MdAnchor.slug((node.plainText()))))
         }
+        ; A list whose list-style names a figure (`{list-style=swot}`) is
+        ; that figure: a slot with the list's items as its source, the same
+        ; as the fence the list could have been written as.
+        if (node.kind == "list") {
+            def ls:string (cache.listStyleOf(node))
+            if (((strlen ls) > 0) && ((MdEmbedKinds.notationOf(ls)) == "figure")) {
+                node.literal = (MdFigure.listText(node))
+                node.info = ls
+                node.kind = "embed"
+            }
+        }
         if (node.kind == "embed") {
             def word:string (MdEmbedKinds.firstWord(node.info))
             def notation:string (MdEmbedKinds.notationOf(word))
@@ -120,6 +131,9 @@ class MdDiagram {
                 def useW:double (MdEmbedKinds.widthOf(want width))
                 MdDiagram.render(node cache useW styleName word notation)
             }
+        }
+        if (node.kind == "embed") {
+            return
         }
         def i:int 0
         def n:int (node.childCount())
