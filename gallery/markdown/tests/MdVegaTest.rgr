@@ -563,6 +563,71 @@ class MdVegaTest {
         return n
     }
 
+    sfn drawnCount:int (cache:MdEmbedCache) {
+        def n:int 0
+        def i:int 0
+        while (i < (cache.count())) {
+            def e:MdEmbedEntry (cache.entryAt(i))
+            if (e.ok && (! e.deferred)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; A lazy cache draws only the charts in view; the others are laid out
+    ; with an estimate and drawn when they come into view.
+    fn inView:void (c:VegaCheck) {
+        print "-- only the charts in view are drawn --"
+        def doc:MdNode (MdBlock.parseText((MdVegaTest.fourCharts())))
+        def second:MdNode (doc.childAt(3))
+        def third:MdNode (doc.childAt(5))
+        c.eqStr("the second chart's fence" second.kind "embed")
+        c.eqStr("the third chart's fence" third.kind "embed")
+        def cache (new MdEmbedCache())
+        cache.chartMaxH = 300.0
+        cache.lazy = true
+        cache.viewFrom = second.srcStart
+        cache.viewTo = (third.srcStart + 1)
+        MdDiagram.prepare(doc cache 600.0 "default")
+        c.eqInt("four entries" (cache.count()) 4)
+        c.eqInt("two drawn" (MdVegaTest.drawnCount(cache)) 2)
+        c.eqInt("two left for later" cache.deferred 2)
+        def firstFence:MdNode (doc.childAt(1))
+        c.eqNum("an undrawn chart takes the room under its heading" (cache.heightFor("vega-lite" firstFence.literal 600.0)) 320.0)
+        c.eqInt("nothing undrawn in view" (cache.undrawnIn(second.srcStart (third.srcStart + 1))) 0)
+        c.eqInt("two undrawn in the whole document" (cache.undrawnIn(0 1000000)) 2)
+        ; the view moves on: the first chart is drawn, the drawn ones stay
+        def first:MdNode firstFence
+        cache.viewFrom = first.srcStart
+        cache.viewTo = (first.srcStart + 1)
+        MdDiagram.prepare(doc cache 600.0 "default")
+        c.eqInt("three drawn" (MdVegaTest.drawnCount(cache)) 3)
+        c.eqInt("one left" cache.deferred 1)
+        ; new defaults: out of view, the old drawing stays and nothing is pending
+        cache.chartConfig = "\"config\": {\"axis\": {\"labelFontSize\": 20}}"
+        cache.redrawBudget = 2
+        MdDiagram.prepare(doc cache 600.0 "default")
+        def firstAt:int (cache.find("vega-lite" first.literal 600.0))
+        c.ok("the chart in view is found" (firstAt >= 0))
+        if (firstAt >= 0) {
+            def fe:MdEmbedEntry (cache.entryAt(firstAt))
+            c.ok("and drawn again" (fe.stale == false))
+        }
+        c.eqInt("the two drawn out of view stay as drawn" (MdVegaTest.drawnCount(cache)) 3)
+        c.eqInt("the ones out of view are not pending" cache.pending 0)
+        c.eqInt("and are counted as undrawn" (cache.undrawnIn(0 1000000)) 3)
+        c.eqInt("with the one never drawn" cache.deferred 3)
+        ; not lazy: everything is drawn, as before
+        cache.lazy = false
+        cache.redrawBudget = -1
+        MdDiagram.prepare(doc cache 600.0 "default")
+        c.eqInt("all four drawn" (MdVegaTest.drawnCount(cache)) 4)
+        c.eqInt("none stale" (MdVegaTest.staleCount(cache)) 0)
+        c.eqInt("none deferred" cache.deferred 0)
+    }
+
     ; New chart defaults on a deck of charts: drawn again a few per pass,
     ; the slide on the screen first, the rest shown as they were meanwhile.
     fn staggered:void (c:VegaCheck) {
@@ -614,6 +679,7 @@ class MdVegaTest {
         this.fromTheSpec(c)
         this.grownToFit(c)
         this.staggered(c)
+        this.inView(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {
