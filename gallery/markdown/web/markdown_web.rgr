@@ -282,6 +282,10 @@ class MarkdownEdit {
         ; every diagram in the document came back as a labelled empty slot —
         ; "mermaid — no handler prepared this one" — until some later rebuild
         ; happened to run with the style already correct and it fixed itself.
+        ; The same goes for the room a slide's chart or figure grows to: it
+        ; is the height of THIS page, so a deck turned to landscape does not
+        ; draw its figures as tall as the portrait page was.
+        layout.embeds.fitPage(layout.style.pageHeight layout.style.margin)
         MdDiagram.prepare(doc layout.embeds (this.contentWidth()) styleName)
         diagrams = (layout.embeds.count())
         layout.setDocSource(source)
@@ -1921,6 +1925,7 @@ class MarkdownWeb {
         ; The deck's sheet is its own default, the document's front matter,
         ; or a template's `page` rule.
         def cw:double (deck.style.pageWidth - (deck.style.margin * 2.0))
+        deck.embeds.fitPage(deck.style.pageHeight deck.style.margin)
         MdDiagram.prepare(edit.doc deck.embeds cw styleName)
         deck.applySlideMeta(edit.doc)
         deck.setDocSource(edit.source)
@@ -2180,6 +2185,7 @@ class MarkdownWeb {
             print.style.pageHeight = (MdFrontMatter.pageH(wantPageSize ph pw))
         }
         def cw:double (print.style.pageWidth - (print.style.margin * 2.0))
+        print.embeds.fitPage(print.style.pageHeight print.style.margin)
         MdDiagram.prepare(edit.doc print.embeds cw styleName)
         if edit.slideMode {
             print.applySlideMeta(edit.doc)
