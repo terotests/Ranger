@@ -187,6 +187,11 @@ class MdToPptx {
     ; missing different pictures.
     def imageStore:Vfs (new Vfs())
     def haveImages:boolean false
+    ; The rules a theme draws with a block (under a heading, beside a quote)
+    ; as shapes of their own. Off by default: a deck of editable text boxes
+    ; reads one box per block, and a host that wants the slide as it was
+    ; drawn turns this on.
+    def rules:boolean false
 
     Constructor () {
     }
@@ -250,6 +255,7 @@ class MdToPptx {
             this.block(d child)
             i = (i + 1)
         }
+        this.furniture(d)
         this.pictures(doc)
         this.fonts(l)
         return d
@@ -294,6 +300,48 @@ class MdToPptx {
     ;
     ; Counted and named here so that a caller cannot mistake a deck of alt
     ; text for a deck of pictures.
+    ; The header and the footer — page furniture, which no block of the
+    ; document owns, so the walk over the blocks never met them — as the
+    ; layout drew them on each slide: their text, their band and their logo.
+    fn furniture:void (d:PptxDeck) {
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if ((b.furniture > 0) && ((b.page >= 0) && (b.page < (d.slideCount())))) {
+                def slide:PptxSlideRef (d.slideAt(b.page))
+                if ((b.kind == 0) && ((strlen (trim b.text)) > 0)) {
+                    def box:PptxShapeRef (slide.addTextBox(b.x b.y (b.w + 2.0) b.h b.text))
+                    MdToPptx.tight(box)
+                    def m:PptxShape (box.model())
+                    m.name = (? (b.furniture == 1) "Header" "Footer")
+                    def r:PptxRunRef (box.runAt(0 0))
+                    r.font(b.family b.size)
+                    r.bold(b.bold)
+                    r.color(b.color)
+                }
+                if ((b.kind == 1) && ((strlen b.fill) > 0)) {
+                    def band:PptxShapeRef (slide.addShape("rect" b.x b.y b.w b.h))
+                    band.fill(b.fill)
+                    band.noLine()
+                }
+                if ((b.kind == 4) && haveImages) {
+                    def bytes:buffer (imageStore.read(b.imagePath))
+                    if ((buffer_length bytes) > 0) {
+                        def pic:PptxShapeRef (slide.addShape("rect" b.x b.y b.w b.h))
+                        def sh:PptxShape (pic.model())
+                        sh.kind = (PptxShapeKind.picture())
+                        sh.imageBytes = bytes
+                        sh.imagePart = b.imagePath
+                        sh.imageOk = true
+                        sh.altText = b.imageAlt
+                        sh.name = "Logo"
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     fn pictures:void (doc:MdNode) {
         def n:int (MdToPptx.countImages(doc))
         if (n == 0) { return }
@@ -526,6 +574,8 @@ class MdToPptx {
         r.font(layout.style.headingFamily size)
         r.bold(true)
         r.color((layout.style.headingInk(node.level)))
+        MdToPptx.asDrawn((r.model()) (this.runBoxOf(node (this.pageOf(node)))))
+        this.blockRules(slide node)
         def m:PptxShape (box.model())
         MdDeckSync.stamp(m node)
         if (node.level <= layout.splitLevel) {
@@ -543,6 +593,25 @@ class MdToPptx {
         }
     }
 
+    ; The rule a theme draws under a heading or beside a quote (a border),
+    ; where the layout drew it: a filled box of the block's own.
+    fn blockRules:void (slide:PptxSlideRef node:MdNode) {
+        if (! rules) { return }
+        def page:int (this.pageOf(node))
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if (((b.page == page) && (b.kind == 1)) && ((strlen b.fill) > 0)) {
+                if (MdToPptx.inSpan(node b.srcStart)) {
+                    def line:PptxShapeRef (slide.addShape("rect" b.x b.y b.w b.h))
+                    line.fill(b.fill)
+                    line.noLine()
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     fn paragraph:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
         def text:string (MdToPptx.flatText(node))
         if ((strlen (trim text)) == 0) { return }
@@ -551,19 +620,37 @@ class MdToPptx {
         def r:PptxRunRef (box.runAt(0 0))
         r.font(layout.style.bodyFamily layout.style.bodySize)
         r.color(layout.style.textColor)
-        MdToPptx.withMath((box.model()) node)
+        def drawn:MdBox (this.runBoxOf(node (this.pageOf(node))))
+        MdToPptx.asDrawn((r.model()) drawn)
+        MdToPptx.lineSpacing((box.model()) drawn)
+        this.withRuns((box.model()) node)
         result.paragraphs = (result.paragraphs + 1)
     }
 
     fn quote:void (slide:PptxSlideRef node:MdNode x:double y:double w:double h:double) {
         def text:string (trim (MdToPptx.flatText(node)))
-        def box:PptxShapeRef (slide.addTextBox(x y w h text))
+        ; the bar the theme draws at its side, and the text where the layout
+        ; set it, in from the bar
+        this.blockRules(slide node)
+        def drawn:MdBox (this.runBoxOf(node (this.pageOf(node))))
+        def tx:double x
+        def tw:double w
+        if ((drawn.kind >= 0) && (drawn.x > x)) {
+            tx = drawn.x
+            tw = (w - (drawn.x - x))
+        }
+        def box:PptxShapeRef (slide.addTextBox(tx y tw h text))
         MdToPptx.tight(box)
         def r:PptxRunRef (box.runAt(0 0))
         r.font(layout.style.bodyFamily layout.style.bodySize)
         r.italic(true)
         r.color(layout.style.quoteColor)
-        MdToPptx.withMath((box.model()) node)
+        if (drawn.kind >= 0) {
+            r.italic(drawn.italic)
+        }
+        MdToPptx.asDrawn((r.model()) drawn)
+        MdToPptx.lineSpacing((box.model()) drawn)
+        this.withRuns((box.model()) node)
         result.paragraphs = (result.paragraphs + 1)
     }
 
@@ -582,20 +669,85 @@ class MdToPptx {
         if (n > 1) {
             if ((strlen (itemAt lines (n - 1))) == 0) { n = (n - 1) }
         }
+        ; The tokens as the layout coloured them, in reading order: the
+        ; theme's colours for a dark slide, which the style's are not.
+        def page:int (this.pageOf(node))
+        def tokens:[MdBox]
+        def k:int 0
+        while (k < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes k)
+            if (((b.page == page) && (b.kind == 0)) && ((MdToPptx.inSpan(node b.srcStart)) && ((strlen b.text) > 0))) {
+                push tokens b
+            }
+            k = (k + 1)
+        }
+        def next:int 0
+        def plain:string layout.style.codePlain
+        def size:double layout.style.codeSize
+        def family:string layout.style.monoFamily
+        if ((array_length tokens) > 0) {
+            def t0:MdBox (itemAt tokens 0)
+            size = t0.size
+            family = t0.family
+            ; the listing's padding inside its band
+            if ((t0.x > x) && (t0.y > y)) {
+                m.text.insetL = (t0.x - x)
+                m.text.insetT = (t0.y - y)
+            }
+        }
         while (i < n) {
             def p (new PptxParagraph)
-            def r (new PptxTextRun)
-            r.text = (itemAt lines i)
-            r.fontFamily = layout.style.monoFamily
-            r.fontSizePt = layout.style.codeSize
-            r.sizeSet = true
-            r.color = (PptxApi.colorOf(layout.style.codePlain))
-            push p.runs r
+            def line:string (itemAt lines i)
+            def at:int 0
+            ; each token of this line where it is in the line, the text
+            ; between them (spaces) in the colour before it
+            def going:boolean true
+            while (going && (next < (array_length tokens))) {
+                def t:MdBox (itemAt tokens next)
+                def rest:string (substring line at (strlen line))
+                def f:int (indexOf rest t.text)
+                if (f < 0) {
+                    going = false
+                } {
+                    if (f > 0) {
+                        push p.runs (MdToPptx.codeRun((substring rest 0 f) plain size family))
+                    }
+                    push p.runs (MdToPptx.codeRun(t.text t.color size family))
+                    plain = t.color
+                    at = ((at + f) + (strlen t.text))
+                    next = (next + 1)
+                }
+            }
+            if (at < (strlen line)) {
+                push p.runs (MdToPptx.codeRun((substring line at (strlen line)) plain size family))
+            }
+            if ((array_length p.runs) == 0) {
+                push p.runs (MdToPptx.codeRun("" plain size family))
+            }
             push m.text.paragraphs p
             i = (i + 1)
         }
-        def fill:PptxShapeRef (box.fill(layout.style.codeBackground))
+        def band:string layout.style.codeBackground
+        def bi:int 0
+        while (bi < (array_length layout.boxes)) {
+            def bb:MdBox (itemAt layout.boxes bi)
+            if ((((bb.page == page) && (bb.kind == 1)) && ((strlen bb.fill) > 0)) && (bb.srcStart == node.srcStart)) {
+                band = bb.fill
+            }
+            bi = (bi + 1)
+        }
+        def fill:PptxShapeRef (box.fill(band))
         result.paragraphs = (result.paragraphs + 1)
+    }
+
+    sfn codeRun:PptxTextRun (text:string color:string size:double family:string) {
+        def r (new PptxTextRun)
+        r.text = text
+        r.fontFamily = family
+        r.fontSizePt = size
+        r.sizeSet = true
+        r.color = (PptxApi.colorOf(color))
+        return r
     }
 
     ; ----------------------------------------------------------------------
@@ -757,6 +909,9 @@ class MdToPptx {
     fn items:void (m:PptxShape node:MdNode level:int onlyLeft:double rects:MdItemRects) {
         def ordered:boolean node.listOrdered
         def number:int node.listStart
+        def page:int (this.pageOf(node))
+        ; where the item before this one ended, for the gap the layout left
+        def prevBottom:double (0.0 - 1.0)
         def i:int 0
         def n:int (node.childCount())
         while (i < n) {
@@ -796,15 +951,49 @@ class MdToPptx {
                 } {
                     p.bulletChar = (MdToPptx.bulletFor(level))
                 }
+                ; a task's box, checked or not, as the layout drew it
+                if (item.taskState >= 0) {
+                    p.bulletAutoNum = false
+                    p.bulletChar = (? (item.taskState == 1) "☑" "☐")
+                }
                 def r (new PptxTextRun)
                 r.text = text
                 r.fontFamily = layout.style.bodyFamily
                 r.fontSizePt = layout.style.bodySize
                 r.sizeSet = true
                 r.color = (PptxApi.colorOf(layout.style.textColor))
+                ; The size, face and colour the layout drew the item in, which
+                ; a theme can make other than the body's, and the gap it left
+                ; above the item, so the list takes the room it took on the
+                ; slide instead of closing up under its first line.
+                def drawn:MdBox (this.runBoxOf(item page))
+                MdToPptx.asDrawn(r drawn)
+                if (drawn.kind >= 0) {
+                    MdToPptx.lineSpacingOf(p drawn)
+                    def mark:MdBox (this.markerBoxOf(node page drawn))
+                    if (mark.kind >= 0) {
+                        p.bulletColor = (PptxApi.colorOf(mark.color))
+                        if (mark.size > 0.0) {
+                            p.bulletSizePt = mark.size
+                        }
+                        ; the text starts where the layout started it
+                        def gapX:double (drawn.x - mark.x)
+                        if (gapX > 1.0) {
+                            p.marginLeftPt = ((to_double level) * step) + gapX
+                            p.indentPt = (0.0 - gapX)
+                        }
+                    }
+                    if (rects.has(i)) {
+                        def top:double (itemAt rects.top i)
+                        if ((prevBottom >= 0.0) && (top > prevBottom)) {
+                            p.spaceBeforePt = (top - prevBottom)
+                        }
+                        prevBottom = (itemAt rects.bottom i)
+                    }
+                }
                 push p.runs r
-                if (MdToPptx.hasMath(item)) {
-                    p.runs = (MdToPptx.mathRuns(item r))
+                if (MdToPptx.hasInline(item)) {
+                    p.runs = (this.mathRuns(item r))
                 }
                 push m.text.paragraphs p
                 result.bullets = (result.bullets + 1)
@@ -891,8 +1080,27 @@ class MdToPptx {
     }
 
     ; A text box of one paragraph, its one run split where the formulas are.
-    sfn withMath:void (m:PptxShape node:MdNode) {
-        if ((MdToPptx.hasMath(node)) == false) {
+    ; …and the same road for any text with a span of its own in it: bold,
+    ; italic, a link, inline code. Written as one run, the paragraph lost
+    ; them — "Revenue grew **7 %**" came out with the 7 % plain.
+    sfn hasInline:boolean (node:MdNode) {
+        def k:string node.kind
+        if ((((k == "math") || (k == "strong")) || ((k == "emph") || (k == "code"))) || (k == "link")) {
+            return true
+        }
+        def i:int 0
+        while (i < (node.childCount())) {
+            def c:MdNode (node.childAt(i))
+            if (c.kind != "list") {
+                if (MdToPptx.hasInline(c)) { return true }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn withRuns:void (m:PptxShape node:MdNode) {
+        if ((MdToPptx.hasInline(node)) == false) {
             return
         }
         if ((array_length m.text.paragraphs) == 0) {
@@ -903,14 +1111,14 @@ class MdToPptx {
             return
         }
         def tmpl:PptxTextRun (itemAt para.runs 0)
-        para.runs = (MdToPptx.mathRuns(node tmpl))
+        para.runs = (this.mathRuns(node tmpl))
     }
 
     ; The runs of `node`'s text in the style of `tmpl`: text, an equation,
     ; text… A list nested in an item is not its text.
-    sfn mathRuns:[PptxTextRun] (node:MdNode tmpl:PptxTextRun) {
+    fn mathRuns:[PptxTextRun] (node:MdNode tmpl:PptxTextRun) {
         def out:[PptxTextRun]
-        MdToPptx.collectRuns(node tmpl out)
+        this.collectRuns(node tmpl out)
         ; the text around a formula is trimmed at the ends of the paragraph
         ; only, as the one run it replaces was
         def n:int (array_length out)
@@ -927,7 +1135,53 @@ class MdToPptx {
         return out
     }
 
-    sfn collectRuns:void (node:MdNode tmpl:PptxTextRun out:[PptxTextRun]) {
+    fn collectRuns:void (node:MdNode tmpl:PptxTextRun out:[PptxTextRun]) {
+        ; a span: its children in the span's style
+        if (((node.kind == "strong") || (node.kind == "emph")) || (node.kind == "link")) {
+            def st (new PptxTextRun)
+            tmpl.copyStyleTo(st)
+            st.color = tmpl.color
+            if (node.kind == "strong") {
+                st.bold = true
+                st.boldSet = true
+            }
+            if (node.kind == "emph") {
+                st.italic = true
+                st.italicSet = true
+            }
+            if (node.kind == "link") {
+                st.color = (PptxApi.colorOf(layout.style.linkColor))
+            }
+            def si:int 0
+            while (si < (node.childCount())) {
+                this.collectRuns((node.childAt(si)) st out)
+                si = (si + 1)
+            }
+            return
+        }
+        ; inline code: the face and the band the layout drew it with
+        if (node.kind == "code") {
+            def cr (new PptxTextRun)
+            tmpl.copyStyleTo(cr)
+            cr.color = tmpl.color
+            cr.text = node.literal
+            cr.fontFamily = layout.style.monoFamily
+            cr.fontSizePt = (tmpl.fontSizePt * 0.92)
+            cr.sizeSet = true
+            cr.bold = false
+            cr.italic = false
+            def band:string layout.style.codeBackground
+            def cb:MdBox (this.boxAt(node.srcStart))
+            if (cb.kind >= 0) {
+                if ((strlen cb.fill) > 0) { band = cb.fill }
+                if ((strlen cb.color) > 0) { cr.color = (PptxApi.colorOf(cb.color)) }
+            }
+            if ((strlen band) > 0) {
+                cr.highlight = (PptxApi.colorOf(band))
+            }
+            push out cr
+            return
+        }
         if (node.kind == "math") {
             def r (new PptxTextRun)
             tmpl.copyStyleTo(r)
@@ -945,7 +1199,7 @@ class MdToPptx {
             def n:int (array_length out)
             if (n > 0) {
                 def last:PptxTextRun (itemAt out (n - 1))
-                if ((strlen last.math) == 0) {
+                if (((strlen last.math) == 0) && (MdToPptx.sameStyle(last tmpl))) {
                     last.text = (last.text + t)
                     return
                 }
@@ -966,13 +1220,34 @@ class MdToPptx {
                 if ((node.kind == "item") && (blocks > 0)) {
                     def sp:MdNode (MdNode.create("text"))
                     sp.literal = " "
-                    MdToPptx.collectRuns(sp tmpl out)
+                    this.collectRuns(sp tmpl out)
                 }
-                MdToPptx.collectRuns(c tmpl out)
+                this.collectRuns(c tmpl out)
                 blocks = (blocks + 1)
             }
             i = (i + 1)
         }
+    }
+
+    sfn sameStyle:boolean (a:PptxTextRun b:PptxTextRun) {
+        if (a.bold != b.bold) { return false }
+        if (a.italic != b.italic) { return false }
+        if (a.fontFamily != b.fontFamily) { return false }
+        if (a.highlight.isSet || b.highlight.isSet) { return false }
+        return ((a.color.signature()) == (b.color.signature()))
+    }
+
+    ; The layout's run that starts at `off` in the source, or kind -1.
+    fn boxAt:MdBox (off:int) {
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if ((b.kind == 0) && ((b.segSrc == off) && (off >= 0))) { return b }
+            i = (i + 1)
+        }
+        def none (new MdBox())
+        none.kind = -1
+        return none
     }
 
     sfn trimLeft:string (s:string) {
@@ -1022,6 +1297,20 @@ class MdToPptx {
         ; beside two of numbers is exactly the case equal division gets wrong,
         ; and it gets it wrong by writing the label across the next cell.
         def widths:[double] (layout.tableWidths(node w))
+        ; …or better, the cells the layout DREW: a slide fitted to its room
+        ; sets the table at another size than the style's, and the grid
+        ; asked again comes out narrower than the text it holds.
+        def drawnW:[double] (this.drawnColumns(node (this.pageOf(node))))
+        if ((array_length drawnW) == cols) {
+            widths = drawnW
+            def sum:double 0.0
+            def dw:int 0
+            while (dw < cols) {
+                sum = (sum + (itemAt drawnW dw))
+                dw = (dw + 1)
+            }
+            sh.width = sum
+        }
         def c:int 0
         while (c < cols) {
             if (c < (array_length widths)) {
@@ -1038,12 +1327,16 @@ class MdToPptx {
             r = (r + 1)
         }
         r = 0
+        def page:int (this.pageOf(node))
         while (r < rows) {
             def row:MdNode (node.childAt(r))
             def cc:int 0
             while (cc < cols) {
                 def cell (new PptxTableCell)
+                def drawn (new MdBox())
+                drawn.kind = -1
                 if (cc < (row.childCount())) {
+                    drawn = (this.runBoxOf((row.childAt(cc)) page))
                     def cn:MdNode (row.childAt(cc))
                     cell.text = (trim (MdToPptx.flatText(cn)))
                     def a:string cn.align
@@ -1073,6 +1366,15 @@ class MdToPptx {
                 cr.bold = cell.bold
                 cr.boldSet = true
                 cr.color = (PptxApi.colorOf(layout.style.textColor))
+                ; the size, colour and band the layout drew the cell with
+                MdToPptx.asDrawn(cr drawn)
+                if (drawn.kind >= 0) {
+                    cell.fontSizePt = cr.fontSizePt
+                    def band:MdBox (this.fillUnder(node page drawn))
+                    if (band.kind >= 0) {
+                        cell.fill = (PptxApi.colorOf(band.fill))
+                    }
+                }
                 push cp.runs cr
                 push cell.body.paragraphs cp
                 ; …and the grid, which markdown's table always draws.
@@ -1088,6 +1390,54 @@ class MdToPptx {
         def model:PptxSlide (slide.model())
         push model.shapes sh
         result.tables = (result.tables + 1)
+    }
+
+    ; The widths of the cells of the table's first row as the layout drew
+    ; them (their outlines, left to right); empty when it drew none.
+    fn drawnColumns:[double] (node:MdNode page:int) {
+        def out:[double]
+        def top:double -1.0
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if (((b.page == page) && (b.kind == 2)) && (MdToPptx.inSpan(node b.srcStart))) {
+                if ((top < 0.0) || (b.y < top)) { top = b.y }
+            }
+            i = (i + 1)
+        }
+        if (top < 0.0) { return out }
+        def lastX:double -1.0
+        i = 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if (((b.page == page) && (b.kind == 2)) && (MdToPptx.inSpan(node b.srcStart))) {
+                if (((fabs (b.y - top)) < 0.5) && (b.x > lastX)) {
+                    push out b.w
+                    lastX = b.x
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The filled box of `node`'s the run `text` sits in, or kind -1.
+    fn fillUnder:MdBox (node:MdNode page:int text:MdBox) {
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if (((b.page == page) && (b.kind == 1)) && ((strlen b.fill) > 0)) {
+                if (MdToPptx.inSpan(node b.srcStart)) {
+                    if (((text.x >= b.x) && (text.x < (b.x + b.w))) && ((text.y >= b.y) && (text.y < (b.y + b.h)))) {
+                        return b
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def none (new MdBox())
+        none.kind = -1
+        return none
     }
 
     sfn rule:PptxTableLine (hex:string) {
@@ -1262,6 +1612,10 @@ class MdToPptx {
         ; because they are absolute and every node's label lands in the corner
         ; — which is exactly what the first attempt at this drew.
         def root:EVGElement (unwrap e.root)
+        ; The scene is the layout's own, which a host may be drawing on screen
+        ; at the same time: its background is taken off for the build and
+        ; given back, or the next frame there is drawn without it.
+        def bg0:EVGColor root.backgroundColor
         MdToEvg.put(root 0.0 0.0 w h)
         root.backgroundColor = (EVGColor.noColor())
         def le (new EVGLayout())
@@ -1269,6 +1623,7 @@ class MdToPptx {
         le.layout(root)
         def dl (new EVGDisplayList())
         dl.build(root)
+        root.backgroundColor = bg0
         def conv (new PptxFromEvg())
         ; One unit, not three quarters of one. `PptxFromEvg` defaults to
         ; 0.75 because a display list is usually CSS pixels and a slide is
@@ -1343,6 +1698,91 @@ class MdToPptx {
     ; and a second answer here would be a second layout to keep in step.
     ; A box belongs to this block when its source offset is inside the
     ; block's span, which is true for a list's items and its bullets alike.
+    ; The first run of text the layout drew for `node` on `page`: the size,
+    ; face and colour the reader saw. A theme, a class or the slide's own
+    ; fitting can make those other than the style's defaults, and the deck
+    ; used to write the defaults — a slide's 28-point list came out at 20.
+    ; A run of the block's own text first (`segSrc`), so a list's marker is
+    ; not taken for its first item; then any box of the block, which is how
+    ; a title is drawn. A link's run is passed over: its colour is the
+    ; link's, not the text's. Kind -1 when the layout drew nothing.
+    fn runBoxOf:MdBox (node:MdNode page:int) {
+        def pass:int 0
+        while (pass < 2) {
+            def i:int 0
+            while (i < (array_length layout.boxes)) {
+                def b:MdBox (itemAt layout.boxes i)
+                if (((b.page == page) && (b.kind == 0)) && ((strlen b.link) == 0)) {
+                    def at:int (? (pass == 0) b.segSrc b.srcStart)
+                    if (MdToPptx.inSpan(node at)) {
+                        if ((strlen (trim b.text)) > 0) { return b }
+                    }
+                }
+                i = (i + 1)
+            }
+            pass = (pass + 1)
+        }
+        def none (new MdBox())
+        none.kind = -1
+        return none
+    }
+
+    ; The marker the layout drew in front of the line `text` starts: a box
+    ; of the list's with no run of its own, on the same line, to the left.
+    ; The nearest one: in a list set in columns the items of one row share a
+    ; line, and a marker of the column to the left is on it too.
+    fn markerBoxOf:MdBox (list:MdNode page:int text:MdBox) {
+        def none (new MdBox())
+        none.kind = -1
+        def best:MdBox none
+        def i:int 0
+        while (i < (array_length layout.boxes)) {
+            def b:MdBox (itemAt layout.boxes i)
+            if (((b.page == page) && (b.kind == 0)) && (b.segSrc < 0)) {
+                if ((MdToPptx.inSpan(list b.srcStart)) && (b.x < text.x)) {
+                    if ((fabs (b.y - text.y)) < 1.0) {
+                        if ((best.kind < 0) || (b.x > best.x)) { best = b }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; A run in the size, face and colour of the box the layout drew.
+    sfn asDrawn:void (r:PptxTextRun b:MdBox) {
+        if (b.kind < 0) { return }
+        if (b.size > 0.0) {
+            r.fontSizePt = b.size
+            r.sizeSet = true
+        }
+        if ((strlen b.family) > 0) {
+            r.fontFamily = b.family
+        }
+        if ((strlen b.color) > 0) {
+            r.color = (PptxApi.colorOf(b.color))
+        }
+    }
+
+    ; The layout's line height, as PowerPoint's line spacing: "single" is
+    ; about 1.2 times the size, so a 1.35 line is 112%.
+    sfn lineSpacingOf:void (p:PptxParagraph b:MdBox) {
+        if ((b.kind < 0) || (b.size <= 0.0)) { return }
+        def pct:double (((b.h / b.size) / 1.2) * 100.0)
+        if ((pct > 100.5) && (pct < 250.0)) {
+            p.lineSpacingPct = pct
+        }
+    }
+
+    sfn lineSpacing:void (m:PptxShape b:MdBox) {
+        def i:int 0
+        while (i < (array_length m.text.paragraphs)) {
+            MdToPptx.lineSpacingOf((itemAt m.text.paragraphs i) b)
+            i = (i + 1)
+        }
+    }
+
     fn pageOf:int (node:MdNode) {
         def i:int 0
         while (i < (array_length layout.boxes)) {

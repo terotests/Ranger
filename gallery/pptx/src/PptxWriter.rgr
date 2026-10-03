@@ -554,14 +554,20 @@ class PptxWriter {
                 inner = ("<a:solidFill>" + (PptxWriter.colorXml(run.color)) + "</a:solidFill>")
             }
         }
+        ; CT_TextCharacterProperties is a sequence: fill, effects, highlight,
+        ; then the faces. A highlight after `a:latin` is a file PowerPoint
+        ; repairs.
+        if (run.glowPt > 0.0) {
+            inner = (inner + "<a:effectLst><a:glow rad=\"" + (PptxWriter.emu(run.glowPt)) + "\">" + (PptxWriter.colorXml(run.glow)) + "</a:glow></a:effectLst>")
+        }
+        if run.highlight.isSet {
+            inner = (inner + "<a:highlight>" + (PptxWriter.colorXml(run.highlight)) + "</a:highlight>")
+        }
         if ((strlen run.fontFamily) > 0) {
             if (PptxWriter.stillInherited(run.resolvedFontSig run.fontFamily keepInherited)) {
             } {
                 inner = (inner + "<a:latin typeface=\"" + (PptxWriter.esc(run.fontFamily)) + "\"/>")
             }
-        }
-        if run.highlight.isSet {
-            inner = (inner + "<a:highlight>" + (PptxWriter.colorXml(run.highlight)) + "</a:highlight>")
         }
         def rPr:string ("<a:rPr" + attrs + "/>")
         if ((strlen inner) > 0) {
@@ -598,14 +604,17 @@ class PptxWriter {
             attrs = (attrs + " indent=\"" + (PptxWriter.emu(para.indentPt)) + "\"")
         }
         def inner:string ""
+        ; CT_TextParagraphProperties is a sequence: the line spacing comes
+        ; before the space above and below, and PowerPoint repairs a file
+        ; that puts it after.
+        if (para.lineSpacingPct != 100.0) {
+            inner = (inner + "<a:lnSpc><a:spcPct val=\"" + (to_string (to_int ((para.lineSpacingPct * 1000.0) + 0.5))) + "\"/></a:lnSpc>")
+        }
         if (para.spaceBeforePt > 0.0) {
             inner = (inner + "<a:spcBef><a:spcPts val=\"" + (to_string (to_int ((para.spaceBeforePt * 100.0) + 0.5))) + "\"/></a:spcBef>")
         }
         if (para.spaceAfterPt > 0.0) {
             inner = (inner + "<a:spcAft><a:spcPts val=\"" + (to_string (to_int ((para.spaceAfterPt * 100.0) + 0.5))) + "\"/></a:spcAft>")
-        }
-        if (para.lineSpacingPct != 100.0) {
-            inner = (inner + "<a:lnSpc><a:spcPct val=\"" + (to_string (to_int ((para.lineSpacingPct * 1000.0) + 0.5))) + "\"/></a:lnSpc>")
         }
         ; A paragraph that said nothing about its bullet inherits one from the
         ; list style. Writing either the resolved `buChar` or a flat `buNone`
