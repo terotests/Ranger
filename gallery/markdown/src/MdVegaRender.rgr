@@ -639,13 +639,75 @@ class MdVegaRender {
         return (w.write(spec))
     }
 
+    ; A chart drawn in a slide's room (`grownAsOne`), but a stated height
+    ; is the height drawn: the chart editor's Height slider sets it apart
+    ; from the width, and growing the two by one factor turned a lower
+    ; height into a wider chart and left the height where the room stopped
+    ; it. Only a chart taller than `maxH` is drawn shorter. With a stated
+    ; width too the chart is drawn at its size; with no width it takes the
+    ; room's width.
+    sfn grown:string (text:string width:double pad:double most:double maxH:double) {
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(text))
+        if ((p.ok == false) || ((spec.isObject()) == false)) {
+            return text
+        }
+        def h:VlJson (spec.get("height"))
+        if ((h.isNumber()) == false) {
+            return (MdVegaRender.grownAsOne(text width pad most maxH))
+        }
+        def out:string text
+        if (((spec.get("width")).isNumber()) == false) {
+            out = (MdVegaRender.grownAsOne(text width pad most maxH))
+        }
+        return (MdVegaRender.heldTo(out h.num maxH))
+    }
+
+    ; `text` with its height `stated`, or what of it fits in `maxH` with
+    ; the axes and the title under and over it. A chart of several views
+    ; is left as it is (its height is per view).
+    sfn heldTo:string (text:string stated:double maxH:double) {
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(text))
+        if ((p.ok == false) || ((spec.isObject()) == false)) {
+            return text
+        }
+        if ((((spec.has("facet")) || (spec.has("repeat"))) || ((spec.has("concat")) || (spec.has("hconcat")))) || (spec.has("vconcat"))) {
+            return text
+        }
+        def want:double stated
+        if (maxH > 1.0) {
+            def probe:VlJson ((new VlJsonParser()).parse(text))
+            probe.setMember("height" (VlJson.numberValue(stated)))
+            def compiler (new VlCompile())
+            compiler.autoLabelAngle = true
+            def rt (new VlRuntime())
+            rt.autoLabelAngle = true
+            rt.run((compiler.compileSpec(probe)))
+            def vh:double (rt.viewHeight())
+            def plotH:double rt.chartHeight
+            if ((plotH >= 1.0) && (vh > maxH)) {
+                want = (to_double (to_int (maxH - (vh - plotH))))
+                if (want < (stated * 0.3)) {
+                    want = (to_double (to_int (stated * 0.3)))
+                }
+            }
+        }
+        if ((spec.doubleOr("height" -1.0)) == want) {
+            return text
+        }
+        spec.setMember("height" (VlJson.numberValue(want)))
+        def w (new VlJsonWriter())
+        return (w.write(spec))
+    }
+
     ; A chart much narrower than its room, drawn larger: its plot's `width`
     ; and `height` asked for again, `most` times at most, so that the whole
     ; view (axes and legend included) comes to about the room's width. The
     ; words and lines keep their size — this is a bigger plot, not a zoomed
     ; picture. A chart of several views (facets, concatenation, repeat) is
     ; left as it is: its sizes are per view.
-    sfn grown:string (text:string width:double pad:double most:double maxH:double) {
+    sfn grownAsOne:string (text:string width:double pad:double most:double maxH:double) {
         def p (new VlJsonParser())
         def spec:VlJson (p.parse(text))
         if ((p.ok == false) || ((spec.isObject()) == false)) {
@@ -768,6 +830,60 @@ class MdVegaRender {
             return "end"
         }
         return ""
+    }
+
+    ; A legend's or an axis's words cut at a length in points (Vega-Lite's
+    ; `titleLimit` 180 and `labelLimit` 160 for a legend, `labelLimit` 180
+    ; for an axis) are measured at its own small type, 11 and 10 points. A
+    ; theme or a grown chart sets them larger, and the same limit then cut
+    ; a word as short as "Vuosineljännes" though the slide had the room:
+    ; a limit the chart does not state grows with its type.
+    sfn limitsByFont:string (text:string) {
+        if ((indexOf text "FontSize") < 0) {
+            return text
+        }
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(text))
+        if ((p.ok == false) || ((spec.isObject()) == false)) {
+            return text
+        }
+        def cfg:VlJson (spec.get("config"))
+        if ((cfg.isObject()) == false) {
+            return text
+        }
+        def changed:boolean false
+        def lg:VlJson (cfg.get("legend"))
+        if (lg.isObject()) {
+            if (MdVegaRender.limitByFont(lg "titleLimit" 180.0 "titleFontSize" 11.0)) {
+                changed = true
+            }
+            if (MdVegaRender.limitByFont(lg "labelLimit" 160.0 "labelFontSize" 10.0)) {
+                changed = true
+            }
+        }
+        def ax:VlJson (cfg.get("axis"))
+        if (ax.isObject()) {
+            if (MdVegaRender.limitByFont(ax "labelLimit" 180.0 "labelFontSize" 10.0)) {
+                changed = true
+            }
+        }
+        if (changed == false) {
+            return text
+        }
+        def w (new VlJsonWriter())
+        return (w.write(spec))
+    }
+
+    sfn limitByFont:boolean (g:VlJson limitKey:string limit:double fontKey:string font:double) {
+        if (g.has(limitKey)) {
+            return false
+        }
+        def size:VlJson (g.get(fontKey))
+        if (((size.isNumber()) == false) || (size.num <= font)) {
+            return false
+        }
+        g.setMember(limitKey (VlJson.numberValue((to_double (to_int (((limit * size.num) / font) + 0.5))))))
+        return true
     }
 
     sfn growWords:void (spec:VlJson k:double) {

@@ -170,6 +170,7 @@ class MdDiagram {
             if (cache.chartGrow > 1.0) {
                 text = (MdVegaRender.grown(text width pad cache.chartGrow cache.chartMaxH))
             }
+            text = (MdVegaRender.limitsByFont(text))
         }
         if (notation == "figure") {
             if (cache.figure.allowed == false) {
