@@ -24,6 +24,7 @@
 ; ============================================================================
 
 Import "pkg:evg/EVGElement.rgr"
+Import "MdCss.rgr"
 
 class MdEmbedEntry {
     def kind:string ""
@@ -140,6 +141,13 @@ class MdEmbedCache {
     ; again.
     def dataUrls:[string]
     def dataTexts:[string]
+    ; A list drawn as a figure: `{list-style=swot}` under it, or a rule of
+    ; the layout's sheet (`.swot { list-style: swot }`, `ul { … }`), or the
+    ; host's per-heading word — `listScopes[i]` an anchor (MdAnchor.slug),
+    ; `listScopeStyles[i]` the list-style of the lists under it.
+    def listSheet:MdCss (new MdCss())
+    def listScopes:[string]
+    def listScopeStyles:[string]
     ; the anchors of the headings a walk is under, by level (1..6)
     def headingSlugs:[string]
     ; The number of the pass now running. An entry that is not wanted during a
@@ -218,6 +226,46 @@ class MdEmbedCache {
                 }
             }
             lv = (lv - 1)
+        }
+        return ""
+    }
+
+    ; The list-style the lists under the walk's heading take; "" when none.
+    fn scopedListStyle:string () {
+        def lv:int ((array_length headingSlugs) - 1)
+        while (lv >= 1) {
+            def sl:string (itemAt headingSlugs lv)
+            if ((strlen sl) > 0) {
+                def i:int 0
+                while (i < (array_length listScopes)) {
+                    if ((itemAt listScopes i) == sl) {
+                        return (itemAt listScopeStyles i)
+                    }
+                    i = (i + 1)
+                }
+            }
+            lv = (lv - 1)
+        }
+        return ""
+    }
+
+    ; What a list is drawn as: its own `{list-style=…}`, then its heading's
+    ; (an anchor, as specific as an id), then the sheet's rule for it.
+    fn listStyleOf:string (node:MdNode) {
+        def own:string (trim (node.attrValue("list-style")))
+        if ((strlen own) > 0) {
+            return own
+        }
+        def scoped:string (this.scopedListStyle())
+        if ((strlen scoped) > 0) {
+            return scoped
+        }
+        def got:CssComputed (listSheet.resolve(node))
+        if (got.has("list-style")) {
+            def v:string (trim (got.get("list-style")))
+            if ((strlen v) > 0) {
+                return v
+            }
         }
         return ""
     }

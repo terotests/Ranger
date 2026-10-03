@@ -18,6 +18,7 @@ Import "../src/MdFigure.rgr"
 Import "../src/MdEmbedKinds.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../src/MdNode.rgr"
+Import "../src/MdBlock.rgr"
 
 class FigureCheck {
     def passed:int 0
@@ -229,6 +230,29 @@ class MdFigureTest {
         MdDiagram.prepare(doc cache 800.0 "default")
         c.ok("cache: not allowed, not drawn" ((cache.heightFor("timeline" fence.literal 800.0)) < 0.0))
         c.eqStr("cache: the host's note" (cache.noteFor("timeline" fence.literal 800.0)) "PRO")
+
+        ; --- a plain list with `{list-style=swot}` under it
+        def lc (new MdEmbedCache())
+        def ld:MdNode (MdBlock.parseText("- Vahvuudet: brändi\n- Heikkoudet: tiimi\n  - pieni\n  - uusi\n{list-style=swot}\n\n- Tavallinen lista\n"))
+        MdDiagram.prepare(ld lc 800.0 "default")
+        def l0:MdNode (ld.childAt(0))
+        c.eqStr("list-style: the list is a figure" l0.kind "embed")
+        c.eqStr("list-style: its word" l0.info "swot")
+        c.eqStr("list-style: the items as the fence's text" l0.literal "Vahvuudet: brändi\nHeikkoudet: tiimi\n  - pieni\n  - uusi\n")
+        c.ok("list-style: drawn" ((lc.heightFor("swot" l0.literal 800.0)) > 0.0))
+        def l1:MdNode (ld.childAt(1))
+        c.eqStr("list-style: a list without one stays a list" l1.kind "list")
+        ; …and from the sheet: a class, then a heading's anchor
+        def sc2 (new MdEmbedCache())
+        sc2.listSheet.addStyleSheet(".vaiheet { list-style: process } ul { list-style: disc }")
+        def ld2:MdNode (MdBlock.parseText("- A\n- B\n{.vaiheet}\n\n## Aikajana\n\n- 2024: X\n- 2025: Y\n"))
+        push sc2.listScopes "aikajana"
+        push sc2.listScopeStyles "timeline"
+        MdDiagram.prepare(ld2 sc2 800.0 "default")
+        def m0:MdNode (ld2.childAt(0))
+        def m2:MdNode (ld2.childAt(2))
+        c.eqStr("sheet: a class's list-style" m0.info "process")
+        c.eqStr("sheet: a heading's list-style" m2.info "timeline")
 
         if ((strlen outDir) > 0) {
             def dark (new MdFigureStyle)

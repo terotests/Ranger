@@ -581,6 +581,8 @@ class MdLayout {
         sheetText = css
         sheet = (new MdCss())
         sheet.addStyleSheet(css)
+        ; the same sheet says which lists are figures (`list-style: swot`)
+        embeds.listSheet = sheet
         this.dropCache()
     }
 
