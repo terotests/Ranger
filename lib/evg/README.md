@@ -517,7 +517,8 @@ Seven ship with the painter:
 | `starfield` | source | stars and dust on the element's own background |
 | `liquid-glass` | backdrop | refraction at the rim, with a sweep that crosses it |
 | `plasma-wave` | source | drifting ribbons of light |
-| `raindrop` | backdrop | drops on the pane, each one a small lens over the page |
+| `bubbles` | backdrop | round drops on the pane, each one a small lens over the page (`raindrop` is its old name) |
+| `drops` | backdrop | rain on a window: drops land, merge and run down leaving trails; a deterministic model of time drives the shader |
 | `ambient-light` | source | a slow wash of colour with soft orbs in it |
 | `smoke` | source | a bank of smoke rising through the box, or a cloud filling it |
 

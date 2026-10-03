@@ -73,7 +73,7 @@ A plugin declares which it is, and the difference decides when it is drawn:
 | | drawn | reads | example |
 | --- | --- | --- | --- |
 | `source` | in paint order, at the element's own background | nothing | `starfield`, `plasma-wave`, `ambient-light`, `smoke` |
-| `backdrop` | in paint order, at the same point | the surface so far | `liquid-glass`, `raindrop` |
+| `backdrop` | in paint order, at the same point | the surface so far | `liquid-glass`, `bubbles`, `drops` |
 | `filter` | after the frame, over the box's region | the finished surface | `ripple` |
 
 A source is under the element's content, which is what makes a starfield a
@@ -143,7 +143,7 @@ can put text on and still read it.
   sine paths through a value-noise field, each one drawn as a thin core with a
   wide glow, plus a `sheet` of colour behind them and sub-cell `grain` motes in
   it.
-* **`raindrop`** (backdrop). One drop per cell of a hash grid, mostly small and
+* **`bubbles`** (backdrop; `raindrop` until `drops` came). One drop per cell of a hash grid, mostly small and
   a few large, each a sphere's lens over what is behind: strongest bend at the
   rim and none in the middle, so the page stays legible through the centre and
   smears at the edge, with a transmitted crescent, a small specular dot and a
@@ -247,7 +247,7 @@ the flat middle as it is at the bevel).
 | `grain` | 0.35 | the motes in the sheet |
 | `seed` | 1 | a different set of paths |
 
-**`raindrop`** (backdrop) — drops on the pane.
+**`bubbles`** (backdrop) — round drops on the pane. `raindrop` is the same effect under its old name.
 
 | | default | |
 | --- | --- | --- |
@@ -259,6 +259,32 @@ the flat middle as it is at the bevel).
 | `rim` | 0.55 | how dark the drop's edge is |
 | `speed` | 0 | how fast the field drifts down; 0 is still |
 | `seed` | 1 | a different scatter |
+
+**`drops`** (backdrop) — rain on a window, with a model behind it.
+
+| | default | |
+| --- | --- | --- |
+| `rain` | 1 | how many drops land |
+| `size` | 1 | how big they are; at 1 they land 2.5…16 px and run from 9 px |
+| `mist` | 1 | the fine droplets between them; 0 is none |
+| `speed` | 1 | how fast a drop runs once it is heavy enough; 0 is none run |
+| `seed` | 1 | a different shower |
+| `refract` | 1.1 | how hard a drop bends what is behind it; 2 or more turns a big drop's picture over |
+| `shine` | 0.8 | the glint and the caustic opposite it |
+| `angle` | -55 | where the light is, degrees |
+| `rim` | 0.55 | how dark a drop's edge is |
+| `tint` | 0.06 | how much a drop darkens what it shows |
+
+Unlike every other effect here `drops` has HISTORY: whether a drop runs now
+depends on what landed on it a second ago. So its plugin carries a `model`
+(`rainModel` in `evg-webgl.js`), plain JavaScript that the painter asks for
+the state at the instance's time and hands to the shader as a float texture
+(`uData`): the drops, and a grid saying which drops can reach which cell. The
+state at `t` is the empty pane stepped `floor(t * 60)` times, deterministically,
+so a replay, a seek and a still for the PDF draw the same thing. Checkpoints
+every five seconds make a seek back cheap; past ten minutes the clock folds
+back to two. `npm run evg:drops:test` holds the model to all of that and
+times it.
 
 **`smoke`** (source) — a bank of it rising through the box.
 
@@ -295,15 +321,15 @@ the flat middle as it is at the bevel).
 
 ### Presets
 
-`lib/evg/gl/effect-presets.css` is fourteen blocks of ordinary CSS, one
-element's worth each: five skies, two plasma fields, two rains, two washes and
+`lib/evg/gl/effect-presets.css` is sixteen blocks of ordinary CSS, one
+element's worth each: five skies, two plasma fields, two of bubbles, two of rain, two washes and
 three of smoke. They exist to
 be pasted — into the live editor under the gallery's effects demo, or into a
 stylesheet — and nothing but numbers comes with them.
 
 ```
 npm run evg:fx:shots                       every preset, one picture
-npm run evg:fx:shots -- out.png --only raindrop --tile 520x300
+npm run evg:fx:shots -- out.png --only drops --tile 520x300
 ```
 
 The gallery's effects demo has them in its rail: picking one types the block
