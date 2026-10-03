@@ -361,6 +361,18 @@ class MdVegaTest {
         def db:MdVegaDrawing (MdVegaRender.draw(gb 1240.0 10.0))
         def yt:SceneItem (MdVegaTest.textStarting(db.scene "Mean of"))
         c.ok("…the title cut to the plot's height" ((indexOf yt.text (strfromcode 8230)) > 0))
+        ; no height stated: the room's height, not Vega-Lite's 20 points a
+        ; category (the strip plot was a band across the top of its slide)
+        def strip:string "{\"width\": 520, \"data\": {\"values\": [{\"h\": 60, \"c\": 3}, {\"h\": 90, \"c\": 4}, {\"h\": 70, \"c\": 5}, {\"h\": 120, \"c\": 6}, {\"h\": 200, \"c\": 8}]}, \"mark\": \"tick\", \"encoding\": {\"x\": {\"field\": \"h\", \"type\": \"quantitative\"}, \"y\": {\"field\": \"c\", \"type\": \"ordinal\"}}}"
+        def gt:string (MdVegaRender.grown(strip 1240.0 10.0 2.5 420.0))
+        def ct (new VlCompile())
+        ct.autoLabelAngle = true
+        def rtt (new VlRuntime())
+        rtt.autoLabelAngle = true
+        rtt.run((ct.compileSpec(((new VlJsonParser()).parse(gt)))))
+        print ((("   strip: plot height " + (to_string rtt.chartHeight)) + ", drawing ") + (to_string (rtt.viewHeight())))
+        c.ok("no height stated: the room's height" (rtt.chartHeight > 300.0))
+        c.ok("…and no taller than the room" ((rtt.viewHeight()) <= 425.0))
         c.ok("a stated width is kept to the plot's own proportions" ((indexOf g "\"height\":750") >= 0))
     }
 
