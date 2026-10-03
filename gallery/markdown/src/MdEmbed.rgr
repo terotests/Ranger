@@ -44,6 +44,11 @@ class MdEmbedEntry {
     ; changed since: still shown, and drawn again when a pass gets to it
     ; (`MdEmbedCache.redrawBudget`)
     def stale:boolean false
+    ; not drawn yet: its slide is out of view (`MdEmbedCache.lazy`). The
+    ; layout gives it `height`, an estimate, and nothing is painted in it.
+    def deferred:boolean false
+    ; where its fence starts in the source, as of the last pass
+    def at:int -1
     ; Where in its column a drawing narrower than the column sits: "" (the
     ; start), "center" or "end". A chart says it in its spec
     ; (`"usermeta": {"presAlign": "center"}`), so a host's chart rule and a
@@ -171,6 +176,18 @@ class MdEmbedCache {
     def focusTo:int -1
     ; The stale drawings the last pass left for a later one.
     def pending:int 0
+    ; Drawing only what is in view. With `lazy` set, a pass draws a chart
+    ; or figure only when its fence starts inside the focus or inside
+    ; viewFrom..viewTo (the slides on screen and the next ones); the others
+    ; get an entry with an estimated height and no drawing, and a stale
+    ; drawing out of view is kept as it is. A deck of 200 slides then opens
+    ; at the cost of the slides shown, and the host lays out again when
+    ; `undrawnIn` says a slide coming into view has something to draw.
+    def lazy:boolean false
+    def viewFrom:int -1
+    def viewTo:int -1
+    ; entries the last pass left undrawn because they were out of view
+    def deferred:int 0
 
     Constructor () {
     }
@@ -292,6 +309,31 @@ class MdEmbedCache {
         pass = (pass + 1)
         redrawLeft = redrawBudget
         pending = 0
+        deferred = 0
+    }
+
+    ; Whether a fence starting at `at` is drawn in this pass: always, unless
+    ; the cache is lazy and it is neither in the focus nor in view.
+    fn wanted:boolean (at:int) {
+        if (! lazy) { return true }
+        if ((focusFrom >= 0) && ((at >= focusFrom) && (at < focusTo))) { return true }
+        if ((viewFrom >= 0) && ((at >= viewFrom) && (at < viewTo))) { return true }
+        return false
+    }
+
+    ; The entries starting in from..to that a pass would draw if they were
+    ; wanted: not drawn yet, or drawn under old defaults.
+    fn undrawnIn:int (from:int to:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:MdEmbedEntry (itemAt entries i)
+            if ((e.deferred || e.stale) && ((e.at >= from) && (e.at < to))) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
     }
 
     ; Every drawing of a notation ("vega", "figure") is stale: its defaults
@@ -309,8 +351,11 @@ class MdEmbedCache {
 
     ; Whether this pass draws again a stale drawing whose fence starts at
     ; `at`: always inside the focus, otherwise while the budget lasts. A
-    ; drawing left stale is counted in `pending`.
+    ; drawing left stale is counted in `pending`, unless it is out of view
+    ; (`lazy`).
     fn mayRedraw:boolean (at:int) {
+        ; out of view: kept as drawn until it comes into view
+        if (! (this.wanted(at))) { return false }
         if (redrawBudget < 0) { return true }
         if ((focusFrom >= 0) && ((at >= focusFrom) && (at < focusTo))) { return true }
         if (redrawLeft > 0) {
@@ -385,6 +430,7 @@ class MdEmbedCache {
         def i:int (this.find(kind source width))
         if (i < 0) { return (0.0 - 1.0) }
         def e:MdEmbedEntry (itemAt entries i)
+        if e.deferred { return e.height }
         if (! e.ok) { return (0.0 - 1.0) }
         return e.height
     }

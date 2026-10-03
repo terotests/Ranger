@@ -61,6 +61,21 @@ class MdDiagram {
         return 10.0
     }
 
+    ; The height a drawing not made yet is laid out with. On a slide
+    ; (`maxH` > 0) a chart or figure grows to the room under its heading, so
+    ; the room is what most of them take; a diagram, about three quarters of
+    ; it. In a document, a 4:3 box. The layout cuts any of these to the room
+    ; that is left, and the pass that draws it lays out with the real one.
+    sfn estimate:double (notation:string width:double pad:double maxH:double) {
+        if (maxH > 0.0) {
+            if ((notation == "vega") || (notation == "figure")) {
+                return (maxH + (pad * 2.0))
+            }
+            return (maxH * 0.75)
+        }
+        return (width * 0.75)
+    }
+
     ; Render every drawable fence in the document at `width`, into the cache
     ; the layout will ask. Called before layout, because a page cannot be
     ; broken around a diagram whose height nobody has asked for yet.
@@ -131,11 +146,21 @@ class MdDiagram {
     ; has in its hand when it asks — it reads the info string, not this table.
     sfn render:void (node:MdNode cache:MdEmbedCache width:double styleName:string word:string notation:string) {
         def already:int (cache.find(word node.literal width))
+        def wanted:boolean (cache.wanted(node.srcStart))
         if (already >= 0) {
             def was:MdEmbedEntry (cache.entryAt(already))
-            if ((! was.stale) || (! (cache.mayRedraw(node.srcStart)))) {
-                cache.touch(already)
-                return
+            was.at = node.srcStart
+            if was.deferred {
+                if (! wanted) {
+                    cache.deferred = (cache.deferred + 1)
+                    cache.touch(already)
+                    return
+                }
+            } {
+                if ((! was.stale) || (! (cache.mayRedraw(node.srcStart)))) {
+                    cache.touch(already)
+                    return
+                }
             }
             cache.removeAt(already)
         }
@@ -144,8 +169,17 @@ class MdDiagram {
         e.kind = word
         e.source = node.literal
         e.atWidth = width
+        e.at = node.srcStart
 
         def pad:double (MdDiagram.padding())
+        ; out of view: the room it will most likely take, and no drawing
+        if (! wanted) {
+            e.deferred = true
+            e.height = (MdDiagram.estimate(notation width pad cache.chartMaxH))
+            cache.deferred = (cache.deferred + 1)
+            cache.add(e)
+            return
+        }
         ; a chart is drawn over the host's defaults (the entry keeps the
         ; fence's own text: that is what the layout asks the cache by)
         def text:string node.literal
