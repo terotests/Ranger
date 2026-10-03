@@ -1003,6 +1003,62 @@ class DataGrid {
         return -1
     }
 
+    ; --- the row header's (+) ---------------------------------------------------
+    ; Hovering a row number offers an insert on the nearer edge of that row:
+    ; the upper half means "above this row", the lower half "below it". The
+    ; answer is the MODEL row the new one would take, or -1 off the header.
+    ; Callers keep it off a sorted or filtered view, where the row below on
+    ; screen is not the next row of the sheet.
+    def plusR:int 7
+
+    fn rowPlusAt:int (model:SpreadsheetModel px:int py:int) {
+        def headerTop:int (this.headerTop())
+        def bodyTop:int (headerTop + colHeaderH)
+        if ((px < x) || (px >= (x + rowHeaderW))) {
+            return -1
+        }
+        if ((py < bodyTop) || (py >= (y + h))) {
+            return -1
+        }
+        def p:CellPos (this.hitTest(model px py))
+        if ((p.row < 0) || (p.col != -2)) {
+            return -1
+        }
+        if (p.row >= model.rowCount) {
+            return -1
+        }
+        def top:int (this.rowScreenY(model p.row))
+        def rh:int (model.rowHeight(p.row))
+        if (py < (top + (idiv rh 2))) {
+            return p.row
+        }
+        return (p.row + 1)
+    }
+
+    ; Screen y of the line the (+) at `at` sits on: the top of row `at`, or
+    ; the bottom of the last row when it is appended.
+    fn rowPlusY:int (model:SpreadsheetModel at:int) {
+        if (at < model.rowCount) {
+            return (this.rowScreenY(model at))
+        }
+        def last:int (model.rowCount - 1)
+        return ((this.rowScreenY(model last)) + (model.rowHeight(last)))
+    }
+
+    fn rowPlusX:int () {
+        return ((x + plusR) + 5)
+    }
+
+    fn hitRowPlus:boolean (model:SpreadsheetModel px:int py:int at:int) {
+        if (at < 0) {
+            return false
+        }
+        def dx:int (px - (this.rowPlusX()))
+        def dy:int (py - (this.rowPlusY(model at)))
+        def reach:int (plusR + 2)
+        return (((dx * dx) + (dy * dy)) <= (reach * reach))
+    }
+
     ; Column resize hit: near right edge of a column header.
     fn hitColResize:int (model:SpreadsheetModel px:int py:int) {
         def headerTop:int (this.headerTop())

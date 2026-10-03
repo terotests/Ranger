@@ -2796,6 +2796,10 @@ class GridApp {
         }
         if (op.structKind == (SheetStructKind.insertRow())) {
             this.adjustFormulasForRows(op.structAt 1)
+            ; `structTo` 1 marks the (+) insert, which also grew the totals.
+            if (op.structTo == 1) {
+                this.extendTotalsOverRow(op.structAt)
+            }
         }
         if (op.structKind == (SheetStructKind.deleteRow())) {
             this.adjustFormulasForRows(op.structAt -1)
@@ -2945,6 +2949,79 @@ class GridApp {
         model.endTx()
         this.adjustFormulasForRows(at 1)
         this.afterStructuralChange()
+    }
+
+    ; The row header's (+): insert a row at `at` and let a total right below
+    ; it take the new row in (see `FormulaParser.extendRowsEdge`), so typing a
+    ; figure into the new row is all it takes. One undo step, like any insert;
+    ; `structTo` 1 tells redo to grow the totals again.
+    fn insertRowExtending:void (at:int) {
+        if (at < 0) {
+            return
+        }
+        model.beginTx()
+        model.pushStructOp((SheetStructKind.insertRow()) at 1)
+        this.snapshotOtherSheetFormulas()
+        model.insertRowRaw(at)
+        model.endTx()
+        this.adjustFormulasForRows(at 1)
+        this.extendTotalsOverRow(at)
+        this.afterStructuralChange()
+    }
+
+    ; Same sheet only: a total on another sheet is not "the row below".
+    fn extendTotalsOverRow:void (at:int) {
+        def keys:[string]
+        def texts:[string]
+        model.snapshotFormulas(keys texts)
+        def i:int 0
+        while (i < (array_length keys)) {
+            def key:string (itemAt keys i)
+            def parts:[string] (strsplit key ",")
+            if ((array_length parts) >= 2) {
+                def fRow:int (SpreadsheetModel.parseInt0((itemAt parts 0)))
+                def fCol:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
+                def grown:string (FormulaParser.extendRowsEdge((itemAt texts i) model.name at fRow fCol true))
+                if ((strlen grown) > 0) {
+                    set model.formulas key grown
+                }
+            }
+            i = (i + 1)
+        }
+        model.version = (model.version + 1)
+    }
+
+    ; Where the (+) shows, or -1: not on a sheet that cannot be edited, not
+    ; over an open menu, and not on a sorted or filtered view, whose rows on
+    ; screen are not the sheet's rows in order.
+    fn rowPlusHover:int (px:int py:int) {
+        if readOnly {
+            return -1
+        }
+        if view.menuOpen {
+            return -1
+        }
+        if ((model.sortCol >= 0) || model.filterEnabled) {
+            return -1
+        }
+        return (grid.rowPlusAt(model px py))
+    }
+
+    ; Insert, and put the cursor in the new row so the next keystroke fills it.
+    fn pressRowPlus:void (at:int) {
+        if editing {
+            this.commitEdit()
+        }
+        view.focused = true
+        def col:int sel.active.col
+        if (col < 0) {
+            col = 0
+        }
+        this.insertRowExtending(at)
+        sel.setActive(at col)
+        sel.collapseToActive()
+        view.rowPlusAt = -1
+        view.status = ("Inserted row " + (to_string (at + 1)))
     }
 
     fn deleteRow:void (at:int) {
@@ -8364,7 +8441,18 @@ class GridApp {
         if ((strlen tip) > 0) {
             view.status = tip
         }
+        ; The row header's (+) follows the pointer while no button is held;
+        ; held, it stays where it was so the press below can hit it.
+        if (input.pointerDown == false) {
+            view.rowPlusAt = (this.rowPlusHover(input.pointerX input.pointerY))
+        }
         if input.pointerPressed {
+            if (view.rowPlusAt >= 0) {
+                if (grid.hitRowPlus(model input.pointerX input.pointerY view.rowPlusAt)) {
+                    this.pressRowPlus(view.rowPlusAt)
+                    return
+                }
+            }
             ; Every popup owns clicks inside it and closes on the first click
             ; outside — before toolbar/header/sheet hit tests can consume it.
             if view.menuOpen {

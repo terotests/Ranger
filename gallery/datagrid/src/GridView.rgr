@@ -50,6 +50,9 @@ class GridView {
     def themedRevision:int 0
     def themedWindows:int 0
     def status:string ""
+    ; The row the header's (+) would insert at, or -1 when it is not shown.
+    ; GridApp sets it from the hover each frame.
+    def rowPlusAt:int -1
     def editCaret:int 0
     ; When true the blinking caret belongs in the formula bar, not only in the
     ; active cell — clicking the bar focuses editing there.
@@ -219,6 +222,27 @@ class GridView {
     ; the list" is one copy too many.
     fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
         dl.addRect(x y w h col)
+    }
+
+    ; The insert marker: an accent line along the row edge and a round (+)
+    ; at the header's left end, clear of the right-aligned number.
+    fn paintRowPlus:void (dl:EVGDisplayList model:SpreadsheetModel grid:DataGrid) {
+        def ly:double (to_double (grid.rowPlusY(model rowPlusAt)))
+        def cx:double (to_double (grid.rowPlusX()))
+        def r:double (to_double grid.plusR)
+        this.pushRect(dl (to_double grid.x) (ly - 1.0) (to_double grid.rowHeaderW) 2.0 theme.activeBorder)
+        def pts:[double]
+        def i:int 0
+        while (i < 16) {
+            def a:double ((6.283185307179586 * (to_double i)) / 16.0)
+            push pts (cx + (r * (cos a)))
+            push pts (ly + (r * (sin a)))
+            i = (i + 1)
+        }
+        dl.addPolygon(pts theme.activeBorder)
+        def arm:double (r - 3.0)
+        this.pushRect(dl (cx - arm) (ly - 1.0) (arm * 2.0) 2.0 theme.formulaBg)
+        this.pushRect(dl (cx - 1.0) (ly - arm) 2.0 (arm * 2.0) theme.formulaBg)
     }
 
     fn pushBorder:void (dl:EVGDisplayList x:double y:double w:double h:double thickness:double col:EVGColor) {
@@ -1419,6 +1443,9 @@ class GridView {
                 }
             }
             hr2 = (hr2 + 1)
+        }
+        if (rowPlusAt >= 0) {
+            this.paintRowPlus(dl model grid)
         }
         this.popClip(dl)
 

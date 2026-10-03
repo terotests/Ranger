@@ -1341,6 +1341,59 @@ class FormulaParser {
         return (FormulaParser.serializeNode(ast))
     }
 
+    ; --- growing a total over an inserted row ---------------------------------
+    ; A row inserted directly under a block, above the row that totals it,
+    ; lands OUTSIDE `SUM(B2:B20)`: the plain shift only moves what is at or
+    ; past the insert, and B20 is not. Excel fixes the obvious case for you, so
+    ; this does too, and only that case: run after `adjustRows`, on a formula
+    ; that sits below the new row, a range ending on the row just above it
+    ; and covering the formula's own column grows by one to take the new row
+    ; in. Everything else — a single-cell ref, a range elsewhere, a total in
+    ; another column — is left as the shift wrote it.
+    sfn extendRowsEdgeNode:boolean (n:FormulaNode sheetName:string at:int fRow:int fCol:int allowUnprefixed:boolean) {
+        def touched:boolean false
+        if (n.kind == 4) {
+            def applies:boolean false
+            if ((strlen n.sheet) == 0) {
+                applies = allowUnprefixed
+            } {
+                if (n.sheet == sheetName) {
+                    applies = true
+                }
+            }
+            if applies {
+                if ((n.row2 == (at - 1)) && (fRow > at)) {
+                    if ((fCol >= n.col) && (fCol <= n.col2)) {
+                        n.row2 = at
+                        touched = true
+                    }
+                }
+            }
+        }
+        def i:int 0
+        def kn:int (array_length n.kids)
+        while (i < kn) {
+            if (FormulaParser.extendRowsEdgeNode((itemAt n.kids i) sheetName at fRow fCol allowUnprefixed)) {
+                touched = true
+            }
+            i = (i + 1)
+        }
+        return touched
+    }
+
+    ; The rewritten formula, or "" when nothing grew or it could not be parsed.
+    sfn extendRowsEdge:string (expr:string sheetName:string at:int fRow:int fCol:int allowUnprefixed:boolean) {
+        def p:FormulaParser (new FormulaParser)
+        def ast:FormulaNode (p.parse(expr))
+        if (p.ok == false) {
+            return ""
+        }
+        if ((FormulaParser.extendRowsEdgeNode(ast sheetName at fRow fCol allowUnprefixed)) == false) {
+            return ""
+        }
+        return (FormulaParser.serializeNode(ast))
+    }
+
     ; Returns the rewritten formula, or "#REF!" when a reference was destroyed.
     ; "" means the expression could not be parsed and should be left alone.
     sfn adjustColumns:string (expr:string sheetName:string at:int delta:int allowUnprefixed:boolean) {
