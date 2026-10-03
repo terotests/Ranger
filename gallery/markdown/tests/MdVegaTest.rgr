@@ -407,6 +407,18 @@ class MdVegaTest {
         print ((("   heatmap, large legend: drawing " + (to_string dh.scene.worldW)) + " x ") + (to_string dh.scene.worldH))
         c.ok("a chart with a large legend fits its column" (dh.scene.worldW <= 859.5))
         c.ok("…and its drawing is the room's height" (dh.scene.worldH >= 335.0))
+        ; a large title set well above the plot (a slide's own
+        ; `chart { title-font-size: 44px; title-gap: 40px }`) is part of
+        ; the drawing the room holds: sized by Vela's view, which leaves the
+        ; title's gap out, the chart came out taller than the room and was
+        ; drawn smaller, title and all
+        def titled:string "{\"title\": \"Otsikko\", \"config\": {\"title\": {\"fontSize\": 44, \"offset\": 40}, \"axis\": {\"labelFontSize\": 15, \"titleFontSize\": 16}}, \"padding\": 14, \"data\": {\"values\": [{\"a\": \"x\", \"b\": 1}, {\"a\": \"y\", \"b\": 2}]}, \"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"nominal\"}, \"y\": {\"field\": \"b\", \"type\": \"quantitative\"}}}"
+        def gtt:string (MdVegaRender.limitsByFont((MdVegaRender.grown(titled 859.0 10.0 2.5 319.0))))
+        def dtt:MdVegaDrawing (MdVegaRender.draw(gtt 859.0 10.0))
+        def ttl:SceneItem (MdVegaTest.textStarting(dtt.scene "Otsikko"))
+        print ((((("   big title: drawing " + (to_string dtt.scene.worldW)) + " x ") + (to_string dtt.scene.worldH)) + ", title ") + (to_string ttl.fontSize))
+        c.ok("a chart with a big title is the room's height" ((dtt.scene.worldH <= 339.5) && (dtt.scene.worldH >= 335.0)))
+        c.ok("…and its title is drawn at its own size" (ttl.fontSize > 43.5))
         ; two views one over the other, each at its own size, came out
         ; taller than the slide's room: drawn again narrower, to the room
         def two:string "{\"data\": {\"values\": [{\"a\": 1, \"b\": 3}, {\"a\": 2, \"b\": 5}]}, \"vconcat\": [{\"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"quantitative\"}, \"y\": {\"field\": \"b\", \"type\": \"quantitative\"}}}, {\"mark\": \"point\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"quantitative\"}, \"y\": {\"field\": \"b\", \"type\": \"quantitative\"}}}]}"
