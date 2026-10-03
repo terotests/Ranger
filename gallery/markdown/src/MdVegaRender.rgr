@@ -682,7 +682,7 @@ class MdVegaRender {
         def rt (new VlRuntime())
         rt.autoLabelAngle = true
         rt.run((compiler.compileSpec(probe)))
-        def viewH:double (rt.viewHeight())
+        def viewH:double ((MdVegaRender.drawnScene((MdVegaRender.limitsByFont(text)))).worldH)
         if (viewH < 1.0) {
             return text
         }
@@ -739,7 +739,7 @@ class MdVegaRender {
         def rt (new VlRuntime())
         rt.autoLabelAngle = true
         rt.run((compiler.compileSpec(probe)))
-        def viewW:double (rt.viewWidth())
+        def viewW:double ((MdVegaRender.drawnScene((MdVegaRender.limitsByFont(text)))).worldW)
         def plotW:double rt.chartWidth
         if ((plotW < 1.0) || (viewW <= room)) {
             return text
@@ -794,16 +794,20 @@ class MdVegaRender {
     sfn extraHeight:double (text:string h:double) {
         def probe:VlJson ((new VlJsonParser()).parse(text))
         probe.setMember("height" (VlJson.numberValue(h)))
-        def compiler (new VlCompile())
-        compiler.autoLabelAngle = true
-        def rt (new VlRuntime())
-        rt.autoLabelAngle = true
-        rt.run((compiler.compileSpec(probe)))
-        def e:double ((rt.viewHeight()) - h)
+        def e:double (((MdVegaRender.drawnScene(((new VlJsonWriter()).write(probe)))).worldH) - h)
         if (e < 0.0) {
             return 0.0
         }
         return e
+    }
+
+    ; The chart as it is drawn, at its own size and with no padding: what
+    ; it takes on the page. Vela's view size leaves out a title set above
+    ; the view (`offset`), and a chart sized by it came out taller than its
+    ; room by the title's gap, and was then drawn smaller to fit.
+    sfn drawnScene:FlowScene (text:string) {
+        def d:MdVegaDrawing (MdVegaRender.draw(text 100000.0 0.0))
+        return d.scene
     }
 
     ; `text` with its height `stated`, or what of it fits in `maxH` with
