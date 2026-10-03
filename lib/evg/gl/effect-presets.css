@@ -212,6 +212,18 @@
   evg-fx-seed: 4;
 }
 
+/* STREAKS. The same rain, where a running drop leaves a line of water and
+ * waits at its lower end until another drop brings it enough to go on. */
+.fx-streaks {
+  background-color: rgb(12, 16, 24);
+  evg-surface-effect: raindrops2;
+  evg-effect-on: always;
+  evg-fx-rain: 1.2;
+  evg-fx-size: 1.2;
+  evg-fx-mist: 1;
+  evg-fx-seed: 2;
+}
+
 /* ======================================================== ambient light =====
  *
  * A wash of colour with soft lights adrift in it. Nothing in it is sharp,
