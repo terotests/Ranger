@@ -66,35 +66,18 @@ class MdDiagram {
     ; broken around a diagram whose height nobody has asked for yet.
     sfn prepare:void (doc:MdNode cache:MdEmbedCache width:double styleName:string) {
         cache.beginPass()
-        ; charts drawn under other defaults are drawn again
+        ; charts drawn under other defaults are drawn again (all of them in
+        ; this pass, or as many as `redrawBudget` lets it)
         def key:string (cache.chartKey())
         if (key != cache.chartKeyDrawn) {
             cache.chartKeyDrawn = key
-            def kept:[MdEmbedEntry]
-            def k:int 0
-            while (k < (array_length cache.entries)) {
-                def ce:MdEmbedEntry (itemAt cache.entries k)
-                if ((MdEmbedKinds.notationOf(ce.kind)) != "vega") {
-                    push kept ce
-                }
-                k = (k + 1)
-            }
-            cache.entries = kept
+            cache.markStale("vega")
         }
         ; figures drawn in another theme, or for another room, are drawn again
         def fkey:string ((cache.figure.key()) + "|" + (to_string cache.chartMaxH))
         if (fkey != cache.figureKeyDrawn) {
             cache.figureKeyDrawn = fkey
-            def keptF:[MdEmbedEntry]
-            def kf:int 0
-            while (kf < (array_length cache.entries)) {
-                def fe:MdEmbedEntry (itemAt cache.entries kf)
-                if ((MdEmbedKinds.notationOf(fe.kind)) != "figure") {
-                    push keptF fe
-                }
-                kf = (kf + 1)
-            }
-            cache.entries = keptF
+            cache.markStale("figure")
         }
         cache.resetHeadings()
         MdDiagram.walk(doc cache width styleName)
@@ -149,8 +132,12 @@ class MdDiagram {
     sfn render:void (node:MdNode cache:MdEmbedCache width:double styleName:string word:string notation:string) {
         def already:int (cache.find(word node.literal width))
         if (already >= 0) {
-            cache.touch(already)
-            return
+            def was:MdEmbedEntry (cache.entryAt(already))
+            if ((! was.stale) || (! (cache.mayRedraw(node.srcStart)))) {
+                cache.touch(already)
+                return
+            }
+            cache.removeAt(already)
         }
 
         def e:MdEmbedEntry (new MdEmbedEntry())
