@@ -145,6 +145,11 @@ class MdEmbedCache {
     ; and the tallest a grown chart may get (0: no limit) — a slide's page
     ; clips what runs over its bottom edge
     def chartMaxH:double 0.0
+    ; What a slide keeps over and under a grown chart or figure (its heading
+    ; and the gaps); -1: nothing, and `chartMaxH` is the host's own number.
+    ; Set, the room comes from the page being laid out (`fitPage`), so a
+    ; turned or resized page is not drawn with the room of the page before.
+    def chartRoomKept:double -1.0
     ; Files the charts read (`"data": {"url": "data/cars.json"}`): the host
     ; fetches them and hands them over, url and text, and a chart's url data
     ; is its rows (MdVegaRender.withFiles). A file arriving draws the charts
@@ -209,6 +214,20 @@ class MdEmbedCache {
     ; during it, and what was not touched is dropped at the end. A pass in
     ; which nothing changed touches everything and drops nothing, which is
     ; the case that has to stay free.
+    ; The tallest a grown chart or figure may be on a page `pageHeight`
+    ; high with `margin` on each edge — the page the layout is about to use,
+    ; which only the layout knows after the front matter and the reader's
+    ; page size (or `orientation:`) have been applied.
+    fn fitPage:void (pageHeight:double margin:double) {
+        if (chartRoomKept < 0.0) {
+            return
+        }
+        chartMaxH = ((pageHeight - (margin * 2.0)) - chartRoomKept)
+        if (chartMaxH < 1.0) {
+            chartMaxH = 1.0
+        }
+    }
+
     fn chartKey:string () {
         def k:string (chartConfig + "|grow:" + (to_string chartGrow) + "/" + (to_string chartMaxH))
         def f:int 0

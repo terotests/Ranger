@@ -231,6 +231,34 @@ class MdFigureTest {
         c.ok("cache: not allowed, not drawn" ((cache.heightFor("timeline" fence.literal 800.0)) < 0.0))
         c.eqStr("cache: the host's note" (cache.noteFor("timeline" fence.literal 800.0)) "PRO")
 
+        ; --- the room comes from the page: a turned page draws the figure
+        ; again for its own height (a portrait room kept on a landscape page
+        ; ran the swot over the slide's bottom edge)
+        def rc (new MdEmbedCache())
+        rc.chartRoomKept = 120.0
+        def rd:MdNode (MdNode.create("document"))
+        def rf:MdNode (MdNode.create("embed"))
+        rf.info = "swot"
+        rf.literal = "Strengths: strong brand\nWeaknesses: small team\nOpportunities: new markets\nThreats: competitors"
+        rd.add(rf)
+        rc.fitPage(960.0 40.0)
+        c.ok("room: from the tall page" ((fabs (rc.chartMaxH - 760.0)) < 0.01))
+        MdDiagram.prepare(rd rc 460.0 "default")
+        def tallH:double (rc.heightFor("swot" rf.literal 460.0))
+        rc.fitPage(540.0 40.0)
+        c.ok("room: from the turned page" ((fabs (rc.chartMaxH - 340.0)) < 0.01))
+        MdDiagram.prepare(rd rc 880.0 "default")
+        def wideH:double (rc.heightFor("swot" rf.literal 880.0))
+        c.ok("room: tall page, tall swot" (tallH > 500.0))
+        c.ok("room: the turned page's swot fits it" ((wideH > 0.0) && (wideH <= (340.0 + 20.0 + 0.5))))
+        ; the same width, a shorter page: drawn again, not kept
+        MdDiagram.prepare(rd rc 460.0 "default")
+        c.ok("room: same width, shorter page, drawn again" ((rc.heightFor("swot" rf.literal 460.0)) < tallH))
+        def hc (new MdEmbedCache())
+        hc.chartMaxH = 300.0
+        hc.fitPage(960.0 40.0)
+        c.ok("room: none kept, the host's number stays" ((fabs (hc.chartMaxH - 300.0)) < 0.01))
+
         ; --- a plain list with `{list-style=swot}` under it
         def lc (new MdEmbedCache())
         def ld:MdNode (MdBlock.parseText("- Vahvuudet: brändi\n- Heikkoudet: tiimi\n  - pieni\n  - uusi\n{list-style=swot}\n\n- Tavallinen lista\n"))
