@@ -2369,6 +2369,17 @@ class VlRuntime {
                         axis.labelAngleAuto = true
                     }
                 }
+                ; A title is no longer than the side it is drawn along (a
+                ; document's axis only; Vega lets it run on). Turned up a
+                ; short plot, "Mean of Miles per Gallon (95% CIs)" ran past
+                ; both ends: the drawing's height was the title's, and a slide
+                ; fitting that height into its room squashed the plot instead.
+                if (autoLabelAngle && (axis.titleLimit <= 0.0)) {
+                    def side:double (fabs (sc.rangeMax - sc.rangeMin))
+                    if (side >= 1.0) {
+                        axis.titleLimit = side
+                    }
+                }
                 def tickCount:int (this.axisTickCount(adef))
                 def ticks:[VlAxisTickValue] (VlAxis.tickValues(sc tickCount (axis.bandPosition) axis.labelFormat axis.labelFormatType axis.tickBand (this.axisTickMinStep(adef))))
                 ; A TIME axis whose labels cannot all fit asks for fewer ticks
