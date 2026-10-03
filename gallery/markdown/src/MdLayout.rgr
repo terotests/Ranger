@@ -42,6 +42,7 @@ Import "../../vfs/src/Vfs.rgr"
 Import "MdCodeHighlight.rgr"
 Import "MdFrontMatter.rgr"
 Import "MdCss.rgr"
+Import "MdCssLimits.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
 Import "../../math/src/MathLayout.rgr"
 Import "MdHtml.rgr"
@@ -597,6 +598,10 @@ class MdLayout {
     ; columns to is different boxes from the same list under a sheet that
     ; does not.
     fn checkStyle:void () {
+        ; Every number the sheet, the front matter and the reader gave, into
+        ; its safety range: this is the one place they have all arrived by,
+        ; and the last before anything is measured (`MdCssLimits`).
+        MdCssLimits.clampStyle(style)
         def key:string ((style.fingerprint()) + sheetText)
         if (key != cacheStyleKey) {
             this.dropCache()
@@ -1760,7 +1765,9 @@ class MdLayout {
     ; Room for `h` more, or a new sheet. Returns the y to draw at.
     fn reserve:double (h:double) {
         if paginate {
-            if ((cursorY + h) > contentBottom) {
+            ; past the budget the rest stays on the last page: a block taller
+            ; than any page is drawn cut, not spread over thousands
+            if (((cursorY + h) > contentBottom) && (page < (MdCssLimits.pageBudget()))) {
                 page = (page + 1)
                 pageCount = (page + 1)
                 cursorY = contentTop
@@ -1843,7 +1850,7 @@ class MdLayout {
         if (((strlen sheetText) > 0) && (((node.classCount()) > 0) || ((strlen node.nodeId) > 0))) {
             def got:CssComputed (this.styleOf(node))
             if (got.has("font-size")) {
-                def r:double (this.sizeRatio(node (got.get("font-size"))))
+                def r:double (this.safeRatio(node (this.sizeRatio(node (got.get("font-size"))))))
                 if ((r > 0.0) && ((fabs (r - 1.0)) > 0.001)) {
                     saved = (this.styleNumbers())
                     this.scaleStyle(saved r)
@@ -1869,6 +1876,26 @@ class MdLayout {
     ; and `130%` say so directly, `26pt` against the sheet's size for the
     ; block's kind (the document's, or the heading level's) — a ratio, so a
     ; slide that was shrunk to fit shrinks the block with it.
+    ; The multiple, cut where it would take a size out of the font range.
+    ; `scaleStyle` scales every size, not only the block's own — a title said
+    ; again on the slide the block spills onto is set in the scaled heading
+    ; size — so the largest of them is the one that is held to the range.
+    fn safeRatio:double (node:MdNode r:double) {
+        def base:double style.bodySize
+        def sizes:[double] ([] _:double (style.h1Size style.h2Size style.h3Size style.h4Size style.h5Size style.h6Size style.codeSize))
+        def i:int 0
+        while (i < (array_length sizes)) {
+            if ((itemAt sizes i) > base) {
+                base = (itemAt sizes i)
+            }
+            i = (i + 1)
+        }
+        if (r <= 1.0) {
+            return (MdCssLimits.ratio(r style.bodySize style.pageWidth style.pageHeight))
+        }
+        return (MdCssLimits.ratio(r base style.pageWidth style.pageHeight))
+    }
+
     fn sizeRatio:double (node:MdNode value:string) {
         def t:string (CssSheet.lower((CssSheet.tidy(value))))
         def n:int (strlen t)
@@ -1948,7 +1975,8 @@ class MdLayout {
     fn columnGap:double (node:MdNode) {
         def got:CssComputed (this.styleOf(node))
         if (! (got.has("column-gap"))) { return 18.0 }
-        return (CssValue.fontPoints((got.get("column-gap")) 18.0))
+        def g:double (CssValue.fontPoints((got.get("column-gap")) 18.0))
+        return (MdCssLimits.clampKind("space" g style.pageWidth style.pageHeight))
     }
 
     fn columnFlow:void (node:MdNode x:double w:double cols:int gap:double) {
