@@ -296,6 +296,9 @@ times it.
 | `speed` | 1 | how fast a drop runs once it is heavy enough; 0 is none run |
 | `seed` | 1 | a different shower |
 | `streak` | 1 | a running drop leaves a line of water; 0 is `drops` |
+| `text` | 1 | the text on the page is in the way: rain does not stay on it, a drop runs round it; 0 lets it fall over the text |
+| `spread` | 1 | what lands is mostly very fine and a big drop is rare; 0 is `drops`'s 2.5…16 px |
+| `dry` | 1 | drops evaporate, the smallest fastest; 0 keeps them |
 | `refract` | 1.1 | how hard a drop bends what is behind it |
 | `shine` | 0.8 | the glint and the caustic opposite it |
 | `angle` | -55 | where the light is, degrees |
@@ -311,6 +314,17 @@ glass) it stops at the line's lower end and waits there, wet. A drop that
 lands on a line runs down it to that end and joins it; the end, heavier now
 and on glass that has let go of it once, runs on. A line beads up after 5…14 s:
 a piece goes, sometimes leaving a small drop where it was.
+
+The text is given to the model as boxes (`obstacles`, the plugin's
+`obstacles: "text"`): the painter measures every run of text the effect's box
+touches, cap height to a little below the baseline, once per display list.
+A drop coming down onto one rests on its top and runs along it to the nearer
+end, where it drops off; it goes down a gap between two that it fits through;
+boxed in, it pools until another drop brings it more. Rain that lands on text
+does not stay. What lands follows a power law from 0.8 px (`spread`), so
+about one landing in two hundred is a drop that can run, and it all
+evaporates at a steady rate of area (`dry`): a 1 px droplet lasts 4 s, a 4 px
+drop a minute.
 
 **`smoke`** (source) — a bank of it rising through the box.
 
