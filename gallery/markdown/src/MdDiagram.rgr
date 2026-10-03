@@ -194,6 +194,17 @@ class MdDiagram {
             return
         }
         def sc:FlowScene (MdDiagram.sceneFor(notation text styleName width pad))
+        ; A chart of several views keeps the sizes it gives each view, and
+        ; scaled down to the column it can still come out taller than a
+        ; slide's room (two views side by side, each 200 high): it is drawn
+        ; again in the width that makes it the room's height.
+        if (((notation == "vega") && (cache.chartGrow > 1.0)) && (cache.chartMaxH > 1.0)) {
+            def roomH:double (cache.chartMaxH + (pad * 2.0))
+            if ((sc.worldH > (roomH + 1.0)) && (sc.worldW > 1.0)) {
+                def narrower:double (((sc.worldW - (pad * 2.0)) * (cache.chartMaxH / (sc.worldH - (pad * 2.0)))) + (pad * 2.0))
+                sc = (MdDiagram.sceneFor(notation text styleName narrower pad))
+            }
+        }
         if (sc.worldW <= 0.0) {
             e.note = (MdDiagram.refusal(notation text))
             cache.add(e)

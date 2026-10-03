@@ -383,7 +383,44 @@ class MdVegaTest {
         c.ok("a donut fits the room's height" (dd.scene.worldH <= 345.0))
         def sd:VlJson ((new VlJsonParser()).parse(gd))
         c.ok("…and stays square" ((sd.doubleOr("width" 0.0)) == (sd.doubleOr("height" 1.0))))
+        ; a legend of thirty series, taller than the plot beside it, is not
+        ; height under the plot: the chart still takes the room's height
+        def tallLegend:string "{\"width\": 400, \"data\": {\"values\": [{\"x\": 1, \"y\": 7, \"s\": \"series 0\"}, {\"x\": 2, \"y\": 14, \"s\": \"series 0\"}, {\"x\": 1, \"y\": 10, \"s\": \"series 1\"}, {\"x\": 2, \"y\": 17, \"s\": \"series 1\"}, {\"x\": 1, \"y\": 13, \"s\": \"series 2\"}, {\"x\": 2, \"y\": 0, \"s\": \"series 2\"}, {\"x\": 1, \"y\": 16, \"s\": \"series 3\"}, {\"x\": 2, \"y\": 3, \"s\": \"series 3\"}, {\"x\": 1, \"y\": 19, \"s\": \"series 4\"}, {\"x\": 2, \"y\": 6, \"s\": \"series 4\"}, {\"x\": 1, \"y\": 2, \"s\": \"series 5\"}, {\"x\": 2, \"y\": 9, \"s\": \"series 5\"}, {\"x\": 1, \"y\": 5, \"s\": \"series 6\"}, {\"x\": 2, \"y\": 12, \"s\": \"series 6\"}, {\"x\": 1, \"y\": 8, \"s\": \"series 7\"}, {\"x\": 2, \"y\": 15, \"s\": \"series 7\"}, {\"x\": 1, \"y\": 11, \"s\": \"series 8\"}, {\"x\": 2, \"y\": 18, \"s\": \"series 8\"}, {\"x\": 1, \"y\": 14, \"s\": \"series 9\"}, {\"x\": 2, \"y\": 1, \"s\": \"series 9\"}, {\"x\": 1, \"y\": 17, \"s\": \"series 10\"}, {\"x\": 2, \"y\": 4, \"s\": \"series 10\"}, {\"x\": 1, \"y\": 0, \"s\": \"series 11\"}, {\"x\": 2, \"y\": 7, \"s\": \"series 11\"}, {\"x\": 1, \"y\": 3, \"s\": \"series 12\"}, {\"x\": 2, \"y\": 10, \"s\": \"series 12\"}, {\"x\": 1, \"y\": 6, \"s\": \"series 13\"}, {\"x\": 2, \"y\": 13, \"s\": \"series 13\"}, {\"x\": 1, \"y\": 9, \"s\": \"series 14\"}, {\"x\": 2, \"y\": 16, \"s\": \"series 14\"}, {\"x\": 1, \"y\": 12, \"s\": \"series 15\"}, {\"x\": 2, \"y\": 19, \"s\": \"series 15\"}, {\"x\": 1, \"y\": 15, \"s\": \"series 16\"}, {\"x\": 2, \"y\": 2, \"s\": \"series 16\"}, {\"x\": 1, \"y\": 18, \"s\": \"series 17\"}, {\"x\": 2, \"y\": 5, \"s\": \"series 17\"}, {\"x\": 1, \"y\": 1, \"s\": \"series 18\"}, {\"x\": 2, \"y\": 8, \"s\": \"series 18\"}, {\"x\": 1, \"y\": 4, \"s\": \"series 19\"}, {\"x\": 2, \"y\": 11, \"s\": \"series 19\"}, {\"x\": 1, \"y\": 7, \"s\": \"series 20\"}, {\"x\": 2, \"y\": 14, \"s\": \"series 20\"}, {\"x\": 1, \"y\": 10, \"s\": \"series 21\"}, {\"x\": 2, \"y\": 17, \"s\": \"series 21\"}, {\"x\": 1, \"y\": 13, \"s\": \"series 22\"}, {\"x\": 2, \"y\": 0, \"s\": \"series 22\"}, {\"x\": 1, \"y\": 16, \"s\": \"series 23\"}, {\"x\": 2, \"y\": 3, \"s\": \"series 23\"}, {\"x\": 1, \"y\": 19, \"s\": \"series 24\"}, {\"x\": 2, \"y\": 6, \"s\": \"series 24\"}, {\"x\": 1, \"y\": 2, \"s\": \"series 25\"}, {\"x\": 2, \"y\": 9, \"s\": \"series 25\"}, {\"x\": 1, \"y\": 5, \"s\": \"series 26\"}, {\"x\": 2, \"y\": 12, \"s\": \"series 26\"}, {\"x\": 1, \"y\": 8, \"s\": \"series 27\"}, {\"x\": 2, \"y\": 15, \"s\": \"series 27\"}, {\"x\": 1, \"y\": 11, \"s\": \"series 28\"}, {\"x\": 2, \"y\": 18, \"s\": \"series 28\"}, {\"x\": 1, \"y\": 14, \"s\": \"series 29\"}, {\"x\": 2, \"y\": 1, \"s\": \"series 29\"}]}, \"mark\": \"area\", \"encoding\": {\"x\": {\"field\": \"x\", \"type\": \"quantitative\"}, \"y\": {\"aggregate\": \"sum\", \"field\": \"y\"}, \"color\": {\"field\": \"s\", \"type\": \"nominal\"}}}"
+        def gl:string (MdVegaRender.grown(tallLegend 1240.0 10.0 2.5 420.0))
+        def cl (new VlCompile())
+        cl.autoLabelAngle = true
+        def rl (new VlRuntime())
+        rl.autoLabelAngle = true
+        rl.run((cl.compileSpec(((new VlJsonParser()).parse(gl)))))
+        print ((("   tall legend: plot height " + (to_string rl.chartHeight)) + ", drawing ") + (to_string (rl.viewHeight())))
+        c.ok("a tall legend leaves the plot the room's height" (rl.chartHeight > 330.0))
+        c.ok("…and the drawing fits the room" ((rl.viewHeight()) <= 425.0))
         c.ok("a stated width is kept to the plot's own proportions" ((indexOf g "\"height\":750") >= 0))
+        ; a legend whose limits grow with its type (`limitsByFont`) made the
+        ; drawing wider than its column, and the whole picture was scaled
+        ; down to it, a third lower than its room: the plot is narrowed
+        ; instead
+        def heat:string "{\"data\": {\"values\": [{\"Origin\": \"Europe\", \"Cylinders\": 3, \"num_cars\": 21}, {\"Origin\": \"Europe\", \"Cylinders\": 4, \"num_cars\": 28}, {\"Origin\": \"Europe\", \"Cylinders\": 5, \"num_cars\": 35}, {\"Origin\": \"Europe\", \"Cylinders\": 6, \"num_cars\": 42}, {\"Origin\": \"Europe\", \"Cylinders\": 8, \"num_cars\": 56}, {\"Origin\": \"Japan\", \"Cylinders\": 3, \"num_cars\": 21}, {\"Origin\": \"Japan\", \"Cylinders\": 4, \"num_cars\": 28}, {\"Origin\": \"Japan\", \"Cylinders\": 5, \"num_cars\": 35}, {\"Origin\": \"Japan\", \"Cylinders\": 6, \"num_cars\": 42}, {\"Origin\": \"Japan\", \"Cylinders\": 8, \"num_cars\": 56}, {\"Origin\": \"USA\", \"Cylinders\": 3, \"num_cars\": 21}, {\"Origin\": \"USA\", \"Cylinders\": 4, \"num_cars\": 28}, {\"Origin\": \"USA\", \"Cylinders\": 5, \"num_cars\": 35}, {\"Origin\": \"USA\", \"Cylinders\": 6, \"num_cars\": 42}, {\"Origin\": \"USA\", \"Cylinders\": 8, \"num_cars\": 56}]}, \"encoding\": {\"y\": {\"field\": \"Origin\", \"type\": \"ordinal\"}, \"x\": {\"field\": \"Cylinders\", \"type\": \"ordinal\"}}, \"layer\": [{\"mark\": \"rect\", \"encoding\": {\"color\": {\"field\": \"num_cars\", \"type\": \"quantitative\", \"title\": \"Count of Records\"}}}, {\"mark\": \"text\", \"encoding\": {\"text\": {\"field\": \"num_cars\", \"type\": \"quantitative\"}}}], \"config\": {\"axis\": {\"labelFontSize\": 15, \"titleFontSize\": 16}, \"legend\": {\"labelFontSize\": 15, \"titleFontSize\": 16}}, \"padding\": 14}"
+        def gh:string (MdVegaRender.limitsByFont((MdVegaRender.grown(heat 859.0 10.0 2.5 319.0))))
+        def dh:MdVegaDrawing (MdVegaRender.draw(gh 859.0 10.0))
+        print ((("   heatmap, large legend: drawing " + (to_string dh.scene.worldW)) + " x ") + (to_string dh.scene.worldH))
+        c.ok("a chart with a large legend fits its column" (dh.scene.worldW <= 859.5))
+        c.ok("…and its drawing is the room's height" (dh.scene.worldH >= 335.0))
+        ; two views one over the other, each at its own size, came out
+        ; taller than the slide's room: drawn again narrower, to the room
+        def two:string "{\"data\": {\"values\": [{\"a\": 1, \"b\": 3}, {\"a\": 2, \"b\": 5}]}, \"vconcat\": [{\"mark\": \"bar\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"quantitative\"}, \"y\": {\"field\": \"b\", \"type\": \"quantitative\"}}}, {\"mark\": \"point\", \"encoding\": {\"x\": {\"field\": \"a\", \"type\": \"quantitative\"}, \"y\": {\"field\": \"b\", \"type\": \"quantitative\"}}}]}"
+        def tn (new MdNode())
+        tn.kind = "embed"
+        tn.info = "vega-lite"
+        tn.literal = two
+        def tc (new MdEmbedCache())
+        tc.chartGrow = 2.5
+        tc.chartMaxH = 319.0
+        MdDiagram.render(tn tc 859.0 "default" "vega-lite" "vega")
+        def te:MdEmbedEntry (itemAt tc.entries 0)
+        print ((("   two views: drawing " + (to_string te.width)) + " x ") + (to_string te.height))
+        c.ok("views one over the other fit the room's height" (te.height <= 339.5))
+        c.ok("…and are drawn, not refused" (te.ok && (te.height > 300.0)))
     }
 
     sfn hasStroke:boolean (sc:FlowScene want:string) {

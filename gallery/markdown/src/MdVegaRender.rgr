@@ -647,6 +647,113 @@ class MdVegaRender {
     ; width too the chart is drawn at its size; with no width it takes the
     ; room's width.
     sfn grown:string (text:string width:double pad:double most:double maxH:double) {
+        def out:string (MdVegaRender.narrowedTo((MdVegaRender.grownIn(text width pad most maxH)) width pad))
+        if ((maxH > 1.0) && ((indexOf text "\"height\"") < 0)) {
+            out = (MdVegaRender.filledTo(out maxH))
+        }
+        return out
+    }
+
+    ; A chart that states no height, measured again as it will be drawn
+    ; (its words grown, its limits by its type, its plot narrowed) and its
+    ; height set so that the drawing is the room's: what the axes and the
+    ; legend take was read at the chart's own type, and grown words took
+    ; more of it, so the chart stopped short of its room. No taller than
+    ; three quarters of its width (see `grownAsOne`).
+    sfn filledTo:string (text:string maxH:double) {
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(text))
+        if ((p.ok == false) || ((spec.isObject()) == false)) {
+            return text
+        }
+        if (MdVegaRender.manyViews(spec)) {
+            return text
+        }
+        if ((indexOf text "\"arc\"") >= 0) {
+            return text
+        }
+        def h:double (spec.doubleOr("height" -1.0))
+        if (h < 1.0) {
+            return text
+        }
+        def probe:VlJson ((new VlJsonParser()).parse((MdVegaRender.limitsByFont(text))))
+        def compiler (new VlCompile())
+        compiler.autoLabelAngle = true
+        def rt (new VlRuntime())
+        rt.autoLabelAngle = true
+        rt.run((compiler.compileSpec(probe)))
+        def viewH:double (rt.viewHeight())
+        if (viewH < 1.0) {
+            return text
+        }
+        def want:double (to_double (to_int (h + (maxH - viewH))))
+        def cap:double (rt.chartWidth * 0.75)
+        if ((want > cap) && (want > h)) {
+            want = cap
+            if (want < h) {
+                want = h
+            }
+        }
+        if ((want < (h * 0.5)) || ((fabs (want - h)) < 2.0)) {
+            return text
+        }
+        spec.setMember("height" (VlJson.numberValue(want)))
+        def w (new VlJsonWriter())
+        return (w.write(spec))
+    }
+
+    ; facets, concatenations, repeats: sizes are per view
+    sfn manyViews:boolean (spec:VlJson) {
+        if ((((spec.has("facet")) || (spec.has("repeat"))) || ((spec.has("concat")) || (spec.has("hconcat")))) || (spec.has("vconcat"))) {
+            return true
+        }
+        def enc:VlJson (spec.get("encoding"))
+        if ((enc.isObject()) && (((enc.has("row")) || (enc.has("column"))) || (enc.has("facet")))) {
+            return true
+        }
+        return false
+    }
+
+    ; A chart whose drawing, with its legend's and axes' limits grown to the
+    ; type (`limitsByFont`), is wider than its column has its PLOT narrowed
+    ; by the difference. Left wider, the whole picture was scaled down to
+    ; the column, words and height with it: a heatmap with a 16-point legend
+    ; came out a third shorter than the room it had been given. A chart of
+    ; several views is left as it is (its sizes are per view).
+    sfn narrowedTo:string (text:string width:double pad:double) {
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(text))
+        if ((p.ok == false) || ((spec.isObject()) == false)) {
+            return text
+        }
+        if (MdVegaRender.manyViews(spec)) {
+            return text
+        }
+        if ((indexOf text "\"arc\"") >= 0) {
+            return text
+        }
+        def room:double (width - (pad * 2.0))
+        def probe:VlJson ((new VlJsonParser()).parse((MdVegaRender.limitsByFont(text))))
+        def compiler (new VlCompile())
+        compiler.autoLabelAngle = true
+        def rt (new VlRuntime())
+        rt.autoLabelAngle = true
+        rt.run((compiler.compileSpec(probe)))
+        def viewW:double (rt.viewWidth())
+        def plotW:double rt.chartWidth
+        if ((plotW < 1.0) || (viewW <= room)) {
+            return text
+        }
+        def want:double (to_double (to_int (plotW - (viewW - room))))
+        if (want < (plotW * 0.4)) {
+            return text
+        }
+        spec.setMember("width" (VlJson.numberValue(want)))
+        def w (new VlJsonWriter())
+        return (w.write(spec))
+    }
+
+    sfn grownIn:string (text:string width:double pad:double most:double maxH:double) {
         ; A pie with no size is set square in its column (`sized`), and no
         ; taller than the room: the 360 it was given, with the chart's
         ; padding, ran out of a slide's 324 under its box.
@@ -679,6 +786,26 @@ class MdVegaRender {
         return (MdVegaRender.heldTo(out h.num maxH))
     }
 
+    ; What the drawing adds to a plot's height (axes, titles, padding), read
+    ; with the plot `h` high. Read at the chart's own small height it was the
+    ; LEGEND's: a legend of fourteen series beside a 200-high plot is taller
+    ; than it, and the difference counted as if it sat under the plot, so the
+    ; chart was held to a strip of the room it had.
+    sfn extraHeight:double (text:string h:double) {
+        def probe:VlJson ((new VlJsonParser()).parse(text))
+        probe.setMember("height" (VlJson.numberValue(h)))
+        def compiler (new VlCompile())
+        compiler.autoLabelAngle = true
+        def rt (new VlRuntime())
+        rt.autoLabelAngle = true
+        rt.run((compiler.compileSpec(probe)))
+        def e:double ((rt.viewHeight()) - h)
+        if (e < 0.0) {
+            return 0.0
+        }
+        return e
+    }
+
     ; `text` with its height `stated`, or what of it fits in `maxH` with
     ; the axes and the title under and over it. A chart of several views
     ; is left as it is (its height is per view).
@@ -693,21 +820,13 @@ class MdVegaRender {
         }
         def want:double stated
         if (maxH > 1.0) {
-            def probe:VlJson ((new VlJsonParser()).parse(text))
-            probe.setMember("height" (VlJson.numberValue(stated)))
-            def compiler (new VlCompile())
-            compiler.autoLabelAngle = true
-            def rt (new VlRuntime())
-            rt.autoLabelAngle = true
-            rt.run((compiler.compileSpec(probe)))
-            def vh:double (rt.viewHeight())
-            def plotH:double rt.chartHeight
-            ; a pie has no plot of axes: its height is the stated one
-            if (plotH < 1.0) {
-                plotH = stated
+            def probeH:double stated
+            if (probeH < maxH) {
+                probeH = maxH
             }
-            if ((plotH >= 1.0) && (vh > maxH)) {
-                want = (to_double (to_int (maxH - (vh - plotH))))
+            def extra:double (MdVegaRender.extraHeight(text probeH))
+            if ((stated + extra) > maxH) {
+                want = (to_double (to_int (maxH - extra)))
                 if (want < (stated * 0.3)) {
                     want = (to_double (to_int (stated * 0.3)))
                 }
@@ -794,8 +913,16 @@ class MdVegaRender {
         ; and no taller than `maxH`, axes and title included: a chart taller
         ; than that (a long list of categories) is drawn shorter
         def viewH:double (rt.viewHeight())
+        def extra:double (viewH - plotH)
+        if (maxH > 1.0) {
+            def probeH:double plotH
+            if (probeH < maxH) {
+                probeH = maxH
+            }
+            extra = (MdVegaRender.extraHeight(text probeH))
+        }
         if ((maxH > 1.0) && (viewH > 1.0)) {
-            def fh:double ((maxH - (viewH - plotH)) / plotH)
+            def fh:double ((maxH - extra) / plotH)
             if (fh < f) {
                 if (fh < 1.0) {
                     ; only the height gives
@@ -828,7 +955,7 @@ class MdVegaRender {
         ; chart), and never lower than its own proportions grown.
         def tallH:double (plotH * f)
         if ((((spec.has("height")) == false) && (maxH > 1.0)) && ((indexOf text "\"arc\"") < 0)) {
-            def roomH:double (maxH - ((viewH - plotH) * k))
+            def roomH:double (maxH - (extra * k))
             def capH:double ((plotW * fw) * 0.75)
             if (roomH > capH) {
                 roomH = capH
