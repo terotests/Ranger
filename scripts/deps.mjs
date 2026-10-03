@@ -6,7 +6,8 @@
 //
 // EVG (lib/evg) and the image codecs (lib/image) live in terotests/evg;
 // ComponentEngine (gallery/componentengine) and CEr (gallery/cer) in
-// terotests/componentengine; Vela (gallery/vela) in terotests/VelaCharts.
+// terotests/componentengine; Vela (gallery/vela) in terotests/VelaCharts; the
+// datagrid core (gallery/datagrid) in terotests/EVGSheets.
 // The root ranger.json pins each repository at one commit; this runs
 // `rgrc install` against it (the cache and ranger.lock, as for any project)
 // and copies every git package of the lock to its place in PLACES. Those directories are not in git: they are what
@@ -19,6 +20,14 @@
 // Changing EVG (or ComponentEngine, or Vela): commit to its repository, put
 // the new commit in ranger.json ("rev"), npm run deps, commit ranger.json and
 // ranger.lock.
+//
+// The datagrid core (gallery/datagrid) lives in terotests/EVGSheets. It is not
+// a package `rgrc install` can fetch: it imports its gallery siblings (office,
+// ooxml, game_engine, ...) by relative path and names ../../lib/evg as a path
+// dependency, which only resolve once it sits at gallery/datagrid. So it is
+// pinned under "sources" in ranger.json, not "dependencies", and this script
+// fetches it with git. Changing it: commit to EVGSheets, put the commit in
+// ranger.json "sources", npm run deps.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -39,6 +48,7 @@ const PLACES = {
   componentengine: "gallery/componentengine",
   cer: "gallery/cer",
   vela: "gallery/vela",
+  datagrid: "gallery/datagrid",
 };
 // What --from=<checkout> copies: the packages whose repository that
 // checkout is, found by the subdirectories the lock names.
@@ -134,6 +144,36 @@ function gitPackages() {
     .map(([name, e]) => ({ name, ...e }));
 }
 
+function sources(man) {
+  return Object.entries(man.sources || {}).map(([name, e]) => ({ name, ...e }));
+}
+
+// A source tree at its pinned commit: one shallow fetch into the cache, kept
+// per commit.
+function fetchSource(s) {
+  const dir = path.join(cacheRoot(), "sources", `${s.name}-${s.rev}`);
+  if (!fs.existsSync(path.join(dir, ".ranger-fetched"))) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+    git(["init", "-q"], dir);
+    git(["fetch", "-q", "--depth", "1", s.git, s.rev], dir);
+    git(["checkout", "-q", "FETCH_HEAD", "--", s.subdir], dir);
+    fs.writeFileSync(path.join(dir, ".ranger-fetched"), s.rev + "\n");
+  }
+  return path.join(dir, s.subdir);
+}
+
+function placeSources(man) {
+  for (const s of sources(man)) {
+    const had = readStamp(path.join(ROOT, PLACES[s.name]));
+    if (had && had.from === "git" && had.sha256 === s.rev) {
+      log(`${s.name}  ${PLACES[s.name]} is ${s.rev.slice(0, 12)} already`);
+      continue;
+    }
+    place(s.name, fetchSource(s), { name: s.name, from: "git", git: s.git, rev: s.rev, subdir: s.subdir, sha256: s.rev });
+  }
+}
+
 function main() {
   const man = readJson(path.join(ROOT, "ranger.json"));
   if (checkOnly) {
@@ -142,6 +182,13 @@ function main() {
       const had = readStamp(path.join(ROOT, PLACES[p.name] || "lib/" + p.name));
       if (!had || had.sha256 !== p.sha256) {
         log(`${PLACES[p.name]} is not ${p.git} ${p.rev} (${p.subdir}); run npm run deps`);
+        bad++;
+      }
+    }
+    for (const s of sources(man)) {
+      const had = readStamp(path.join(ROOT, PLACES[s.name]));
+      if (!had || had.sha256 !== s.rev) {
+        log(`${PLACES[s.name]} is not ${s.git} ${s.rev} (${s.subdir}); run npm run deps`);
         bad++;
       }
     }
@@ -159,7 +206,12 @@ function main() {
       place(p.name, src, { name: p.name, from, subdir: p.subdir, rev: "working tree", sha256: "" });
       n++;
     }
-    if (!n) throw new Error(`no package in ranger.lock comes from ${origin}`);
+    for (const s of sources(man)) {
+      if (s.git.replace(/\.git$/, "").toLowerCase() !== origin) continue;
+      place(s.name, path.join(from, s.subdir), { name: s.name, from, subdir: s.subdir, rev: "working tree", sha256: "" });
+      n++;
+    }
+    if (!n) throw new Error(`no package in ranger.json comes from ${origin}`);
     log("those now hold a working tree; npm run deps puts the pinned commit back");
     return;
   }
@@ -173,6 +225,7 @@ function main() {
     const lockMatches = pinned.every((p) => man.dependencies[p.name].rev === p.rev);
     if (current && lockMatches && pinned.length === want.length) {
       log("every package matches ranger.lock");
+      placeSources(man);
       return;
     }
   }
@@ -182,6 +235,7 @@ function main() {
     const src = path.join(cacheRoot(), p.sha256);
     place(p.name, src, { name: p.name, from: "git", git: p.git, rev: p.rev, subdir: p.subdir, sha256: p.sha256 });
   }
+  placeSources(man);
 }
 
 try {

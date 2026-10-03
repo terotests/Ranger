@@ -180,9 +180,9 @@ on:
       # rangerflow's Mermaid reader, which is why that path is above this one.
       - "gallery/markdown/**"
       # r5 at /r5/ is the markdown engine under a Ranger chrome, typed into
-      # the code editor from gallery/datagrid.
+      # the code editor from gallery/datagrid (fetched from terotests/EVGSheets
+      # at the commit ranger.json pins, so a change to it is a ranger.json change).
       - "gallery/r5/**"
-      - "gallery/datagrid/src/script/**"
       - "gallery/text_editor/src/**"
       - "gallery/zip/**"
       - ".github/workflows/deploy-pages.yml"

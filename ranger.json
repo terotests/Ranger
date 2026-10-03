@@ -2,7 +2,7 @@
   "name": "ranger",
   "version": "4.0.1",
   "license": "MIT",
-  "description": "The packages this tree takes from other repositories. npm run deps fetches them (rgrc install) and puts each where scripts/deps.mjs says: lib/evg, lib/image, gallery/componentengine, gallery/cer, gallery/vela.",
+  "description": "The packages this tree takes from other repositories. npm run deps fetches them (rgrc install) and puts each where scripts/deps.mjs says: lib/evg, lib/image, gallery/componentengine, gallery/cer, gallery/vela. \"sources\" are source trees it fetches with git rather than rgrc install: gallery/datagrid.",
   "dependencies": {
     "evg": {
       "git": "https://github.com/terotests/evg.git",
@@ -29,6 +29,13 @@
     },
     "ts_parser": {
       "path": "gallery/ts_parser"
+    }
+  },
+  "sources": {
+    "datagrid": {
+      "git": "https://github.com/terotests/EVGSheets.git",
+      "rev": "68e4fd803e753a5f110cd70afe464f664580b101",
+      "subdir": "datagrid"
     }
   }
 }

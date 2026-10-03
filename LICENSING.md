@@ -220,7 +220,7 @@ examples/           MIT
         │
 gallery/evg_window/ AGPL  package "evg_window" → pkg:evg, pkg:image, game_engine, pdf_writer
 gallery/ui/         AGPL
-gallery/datagrid/   AGPL
+gallery/datagrid/   AGPL  fetched from terotests/EVGSheets by npm run deps
 gallery/pptx/       AGPL
 gallery/docx_viewer/ AGPL
 ```
