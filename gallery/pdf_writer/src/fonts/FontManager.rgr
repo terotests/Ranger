@@ -32,6 +32,26 @@ class FontManager {
     ; fallback only ever searches faces that are already loaded.
     def autoFallbackTried:boolean false
     def autoFallbackPaths:[string]
+
+    ; --- clusters the platform draws --------------------------------------
+    ;
+    ; A host that paints text with its own engine — a browser's canvas, above
+    ; all — draws some clusters from faces this manager has never seen: every
+    ; emoji comes from the platform's colour emoji face, and a character no
+    ; loaded face has comes from whatever the system substitutes. Their width
+    ; is the platform's to know, so the platform is asked, through this one
+    ; function: the advance of `text` set in `family` at `size` pixels.
+    ;
+    ; It is asked once per cluster (at 100 px, scaled from there; an advance
+    ; is linear in the size), never per run, so a caret walk over a long line
+    ; costs table lookups. Unset — Node, the PDF writer, the software
+    ; painter, which draw with the faces loaded here — every cluster is
+    ; measured from the faces, as before.
+    def platformFn@(optional):(fn:double (text:string family:string size:double))
+    def platformEm:[string:double]
+    ; Bumped when the platform function changes, so a text engine caching by
+    ; `TTFTextMeasurer.measureKey` measures again.
+    def platformGen:int 0
     
     Constructor () {
         def f:[TrueTypeFont]
@@ -42,6 +62,50 @@ class FontManager {
         fontsDirectories = fd
     }
     
+    fn setPlatformMeasure:void (f:(fn:double (text:string family:string size:double))) {
+        platformFn = f
+        def fresh:[string:double]
+        platformEm = fresh
+        platformGen = (platformGen + 1)
+    }
+
+    ; Does the platform, not a face loaded here, draw this cluster? Only a
+    ; host that measures (`setPlatformMeasure`) has such clusters: emoji, and
+    ; clusters no loaded face covers.
+    fn platformDraws:boolean (found:TrueTypeFont cps:[int] start:int end:int) {
+        if (null? platformFn) {
+            return false
+        }
+        if (EVGGrapheme.presentsAsEmoji(cps start end)) {
+            return true
+        }
+        return ((found.isLoaded()) == false)
+    }
+
+    ; The platform's advance for one cluster, in points at `fontSize`.
+    fn platformWidth:double (cps:[int] start:int end:int fontFamily:string fontSize:double) {
+        def text:string ""
+        def k:int start
+        while (k < end) {
+            text = text + (EVGCodepoint.toStr((itemAt cps k)))
+            k = (k + 1)
+        }
+        def key:string (fontFamily + "|" + text)
+        if (has platformEm key) {
+            return ((unwrap (get platformEm key)) * fontSize)
+        }
+        def em:double 0.0
+        if (!null? platformFn) {
+            def f:(fn:double (text:string family:string size:double)) (unwrap platformFn)
+            em = ((f(text fontFamily 100.0)) / 100.0)
+        }
+        if (em < 0.0) {
+            em = 0.0
+        }
+        set platformEm key em
+        return (em * fontSize)
+    }
+
     fn setFontsDirectory:void (path:string) {
         fontsDirectory = path
     }
@@ -585,6 +649,17 @@ class FontManager {
             }
             def isPrimary:boolean (face.fontPath == font.fontPath)
 
+            if (this.platformDraws(found cps i end)) {
+                ; One advance for the whole cluster, from the face that draws
+                ; it — not a text face's guess at its parts, which is what
+                ; made ♨️ a `.notdef` narrower than it is drawn.
+                width = (width + (this.platformWidth(cps i end fontFamily fontSize)))
+                prev = (itemAt cps i)
+                prevWasPrimary = false
+                first = false
+                i = end
+                continue
+            }
             if isPrimary {
                 def c:int i
                 while (c < end) {
@@ -685,7 +760,7 @@ class TTFTextMeasurer {
     ; measures, so the number of loaded faces is what the engine's cache is
     ; keyed on: load one and every cached wrap is a miss again.
     fn measureKey:string () {
-        return ("ttf:" + (to_string (fontManager.getFontCount())))
+        return ("ttf:" + (to_string (fontManager.getFontCount())) + ":" + (to_string fontManager.platformGen))
     }
 
     fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {

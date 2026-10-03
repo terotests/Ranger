@@ -13,6 +13,7 @@ Import "EditorSelection.rgr"
 Import "EditorStyle.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
 Import "pkg:evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGGrapheme.rgr"
 
 class EditorLayout {
     def x:int 0
@@ -243,30 +244,23 @@ class EditorLayout {
         if (localX <= 0) {
             return (EditorPos.create(line 0))
         }
+        ; The caret can only stand between clusters — ♨️ is two codepoints and
+        ; one picture — so the search is over cluster boundaries: the first
+        ; one whose prefix reaches the click.
+        def stops:[int] (EVGGrapheme.offsetStops(s))
         def lo:int 0
-        def hi:int len
+        def hi:int ((array_length stops) - 1)
         while (lo < hi) {
             def mid:int (to_int ((lo + hi) / 2))
-            ; advance mid to a codepoint boundary
-            def m2:int mid
-            if (m2 > 0) {
-                if (m2 < len) {
-                    if (EVGCodepoint.isLowSurrogate((charAt s m2))) {
-                        m2 = (m2 - 1)
-                    }
-                }
-            }
-            def pre:string (substring s 0 m2)
+            def pre:string (substring s 0 (itemAt stops mid))
             def mw:int (to_int (tr.measureWidth(pre fontSize)))
             if (mw < localX) {
-                lo = (m2 + (EVGCodepoint.unitsAt(s m2)))
-                if (lo > len) {
-                    lo = len
-                }
+                lo = (mid + 1)
             } {
-                hi = m2
+                hi = mid
             }
         }
+        lo = (itemAt stops lo)
         return (EditorPos.create(line lo))
     }
 }

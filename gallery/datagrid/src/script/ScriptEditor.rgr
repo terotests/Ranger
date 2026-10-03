@@ -36,6 +36,7 @@ Import "../../../text_editor/src/EditorStyle.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
 Import "pkg:evg/EVGColor.rgr"
 Import "pkg:evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGGrapheme.rgr"
 Import "../../../game_engine/ui/UIContext.rgr"
 Import "../../../game_engine/ui/UIInput.rgr"
 
@@ -2016,6 +2017,9 @@ class ScriptEditor {
     fn moveCaret:void (line:int col:int extend:boolean) {
         def p:EditorPos (EditorPos.create(line col))
         buf.clampPos(p)
+        ; A column carried over from another line (up, down) can fall inside
+        ; a cluster on this one; the caret goes to the cluster's start.
+        p.col = (EVGGrapheme.snapOffset((buf.lineAt(p.line)) p.col))
         sel.setCaret(p.line p.col)
         if (extend == false) {
             sel.collapseToCaret()

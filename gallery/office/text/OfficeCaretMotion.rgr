@@ -32,27 +32,21 @@
 ; ==============================================================================
 
 Import "pkg:evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGGrapheme.rgr"
 
 class OfficeCaretMotion {
     ; --- one character -------------------------------------------------------
 
-    ; The offset one character before `col`, never inside a surrogate pair.
+    ; The offset one character before `col`. A character is what a reader
+    ; calls one — a grapheme cluster — so the caret never stops inside a
+    ; surrogate pair, between ♨ and the U+FE0F that makes it an emoji, or
+    ; between the people of 👨‍👩‍👧.
     sfn stepBack:int (s:string col:int) {
-        if (col <= 1) {
-            return 0
-        }
         def n:int (strlen s)
         def at:int col
         if (at > n) { at = n }
-        if (at <= 1) { return 0 }
-        def lo:int (charAt s (at - 1))
-        if (EVGCodepoint.isLowSurrogate(lo)) {
-            def hi:int (charAt s (at - 2))
-            if (EVGCodepoint.isHighSurrogate(hi)) {
-                return (at - 2)
-            }
-        }
-        return (at - 1)
+        if (at <= 0) { return 0 }
+        return (EVGGrapheme.prevOffset(s at))
     }
 
     ; …and one after.
@@ -63,15 +57,7 @@ class OfficeCaretMotion {
         }
         def at:int col
         if (at < 0) { at = 0 }
-        def units:int (EVGCodepoint.unitsAt(s at))
-        if (units < 1) {
-            units = 1
-        }
-        def next:int (at + units)
-        if (next > n) {
-            return n
-        }
-        return next
+        return (EVGGrapheme.nextOffset(s at))
     }
 
     ; --- one word ------------------------------------------------------------
