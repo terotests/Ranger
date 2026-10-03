@@ -7304,8 +7304,16 @@ class GridApp {
             this.clearSelection()
             return
         }
+        ; Backspace over one cell opens it empty, as Excel does. Over a range
+        ; it clears the whole range, as Delete does: on a Mac keyboard the key
+        ; marked "delete" is Backspace, and Google Sheets and Excel for Mac both
+        ; clear the selection with it.
         if (key == (UIKey.backspace())) {
-            this.beginEdit("" true)
+            if ((sel.isSingle()) && ((sel.rangeCount()) == 1)) {
+                this.beginEdit("" true)
+            } {
+                this.clearSelection()
+            }
             return
         }
         if (key == (UIKey.home())) {

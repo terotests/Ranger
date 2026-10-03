@@ -220,6 +220,28 @@ class GridEditTest {
         c.eqStr("delete undone" (app.model.getFormula(22 1)) "A23+1")
         c.eqStr("delete undo recalcs" (app.model.getCell(22 1)) "5")
 
+        print "== backspace over a range clears it, over one cell edits it =="
+        GridEditTest.typeInto(app 24 0 "1")
+        GridEditTest.typeInto(app 24 1 "2")
+        GridEditTest.typeInto(app 25 0 "3")
+        GridEditTest.typeInto(app 25 1 "=A26+1")
+        def bsIn:UIInput (new UIInput)
+        GridEditTest.selectRange(app 24 0 25 1)
+        GridEditTest.pressKey(app bsIn (UIKey.backspace()) false false)
+        c.ok("no edit opened" (app.editing == false))
+        c.eqStr("A25 cleared" (app.model.getCell(24 0)) "")
+        c.eqStr("B26 cleared" (app.model.getCell(25 1)) "")
+        c.ok("B26 formula cleared" ((app.model.hasFormula(25 1)) == false))
+        app.undoEdit()
+        c.eqStr("one undo restores A25" (app.model.getCell(24 0)) "1")
+        c.eqStr("and B26's formula" (app.model.getFormula(25 1)) "A26+1")
+        GridEditTest.select(app 24 0)
+        GridEditTest.pressKey(app bsIn (UIKey.backspace()) false false)
+        c.ok("one cell opens for editing" app.editing)
+        c.eqStr("empty" app.editBuf "")
+        app.cancelEdit()
+        c.eqStr("escape keeps the value" (app.model.getCell(24 0)) "1")
+
         print "== copy / paste translates relative refs =="
         GridEditTest.typeInto(app 29 0 "5")
         GridEditTest.typeInto(app 30 0 "7")
