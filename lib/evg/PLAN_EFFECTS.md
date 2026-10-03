@@ -274,6 +274,7 @@ the flat middle as it is at the bevel).
 | `angle` | -55 | where the light is, degrees |
 | `rim` | 0.55 | how dark a drop's edge is |
 | `tint` | 0.06 | how much a drop darkens what it shows |
+| `matte` | 0 | 1 keeps drops a few px across from glinting, as `raindrops2` does |
 
 Unlike every other effect here `drops` has HISTORY: whether a drop runs now
 depends on what landed on it a second ago. So its plugin carries a `model`
@@ -304,6 +305,7 @@ times it.
 | `angle` | -55 | where the light is, degrees |
 | `rim` | 0.55 | how dark a drop's edge is |
 | `tint` | 0.06 | how much a drop darkens what it shows |
+| `matte` | 1 | drops a few px across do not glint; 0 lights them all as `drops` does |
 
 The same model with `streak` on. A running drop lays its water on the glass
 as a continuous line behind it (pieces from its last anchor to its tail, kept
@@ -328,7 +330,13 @@ out underneath, where its line goes on. What lands follows a power law from
 run, and it all evaporates at a steady rate of area (`dry`): a 1 px droplet
 lasts 4 s, a 4 px drop a minute. Some of what dries stays as specks of
 condensation that do not dry, up to 700 per 100 000 px², and a running drop
-wipes a path through them and takes them up.
+wipes a path through them and takes them up. The specks are drawn as a
+matte haze, no lens and no glint: what is behind them a little softer and
+paler.
+
+No drop gets bigger than 1.15 × the biggest that lands (18.4 px at size 1),
+whatever it takes in: water over that stays behind it as drops at the cap or
+less. A drop of 1.3 × the running size or more runs on the next step.
 
 **`smoke`** (source) — a bank of it rising through the box.
 
