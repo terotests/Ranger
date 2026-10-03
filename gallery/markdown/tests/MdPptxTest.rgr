@@ -1379,6 +1379,62 @@ prose
         c.ok("the body stayed" ((indexOf next "A line.") >= 0))
     }
 
+    ; The deck reads the layout's own boxes: a task list keeps its boxes,
+    ; an item its drawn size and the gap above it, a word in bold its weight.
+    fn asDrawn:void (c:DeckCheck) {
+        print "-- the slide as the layout drew it --"
+        def src:string "# Title\n\n- [x] done\n- [ ] open\n- [ ] also open\n\nSome **bold** text.\n"
+        def css:string "page { width: 720pt; height: 405pt; padding: 36pt } document { font-size: 22pt }"
+        def back:PptxDeck (this.reopened((this.build(src css))))
+        def sl:PptxSlideRef (back.slideAt(0))
+        def list:PptxShape (new PptxShape())
+        def para:PptxShape (new PptxShape())
+        def k:int 0
+        while (k < (sl.shapeCount())) {
+            def m:PptxShape ((sl.shapeAt(k)).model())
+            if ((array_length m.text.paragraphs) == 3) { list = m }
+            if ((MdPptxTest.firstText(m)) == "Some ") { para = m }
+            k = (k + 1)
+        }
+        c.eqInt("the task list is one shape of three items" (array_length list.text.paragraphs) 3)
+        if ((array_length list.text.paragraphs) == 3) {
+            def p0:PptxParagraph (itemAt list.text.paragraphs 0)
+            def p1:PptxParagraph (itemAt list.text.paragraphs 1)
+            c.eqStr("a done task is a checked box" p0.bulletChar "☑")
+            c.eqStr("…an open one an empty box" p1.bulletChar "☐")
+            c.ok("…and the gap the layout left above an item is kept" (p1.spaceBeforePt > 0.0))
+            def drawn:double 0.0
+            def bi:int 0
+            while (bi < (array_length maker.layout.boxes)) {
+                def b:MdBox (itemAt maker.layout.boxes bi)
+                if (b.text == "open") { drawn = b.size }
+                bi = (bi + 1)
+            }
+            c.ok("an item is the size the layout drew it" ((fabs ((MdPptxTest.firstSize(list)) - drawn)) < 0.01))
+        }
+        c.eqInt("bold is a run of its own" (array_length (MdPptxTest.paraRuns(para))) 3)
+        if ((array_length (MdPptxTest.paraRuns(para))) == 3) {
+            def r1:PptxTextRun (itemAt (MdPptxTest.paraRuns(para)) 1)
+            c.eqStr("…holding the bold word" r1.text "bold")
+            c.ok("…in bold" r1.bold)
+        }
+    }
+
+    sfn firstText:string (m:PptxShape) {
+        if ((array_length m.text.paragraphs) == 0) { return "" }
+        def p:PptxParagraph (itemAt m.text.paragraphs 0)
+        if ((array_length p.runs) == 0) { return "" }
+        def r:PptxTextRun (itemAt p.runs 0)
+        return r.text
+    }
+
+    sfn paraRuns:[PptxTextRun] (m:PptxShape) {
+        def none:[PptxTextRun]
+        if ((array_length m.text.paragraphs) == 0) { return none }
+        def p:PptxParagraph (itemAt m.text.paragraphs 0)
+        return p.runs
+    }
+
     fn run:void () {
         def c:DeckCheck (new DeckCheck())
         print "== MdPptxTest =="
@@ -1398,6 +1454,7 @@ prose
         this.drawingEdit(c)
         this.headingWriteback(c)
         this.inlineMath(c)
+        this.asDrawn(c)
         print ""
         print (("passed=" + (to_string c.passed)) + (" failed=" + (to_string c.failed)))
         if (c.failed == 0) {

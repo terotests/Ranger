@@ -241,6 +241,10 @@ class PptxTextRun {
     def italicSet:boolean false
     def italic:boolean false
     def color:PptxColor (new PptxColor())
+    ; A soft edge round the letters (`a:glow`), radius in points; zero for
+    ; none. What keeps a heading readable over a busy picture.
+    def glow:PptxColor (new PptxColor())
+    def glowPt:double 0.0
     ; Every style property of this run, onto another one — the whole of it,
     ; and neither the text nor the field.
     ;
@@ -268,6 +272,8 @@ class PptxTextRun {
         o.resolvedFontSig = resolvedFontSig
         o.resolvedColorSig = resolvedColorSig
         o.resolvedSizeSig = resolvedSizeSig
+        o.glow = glow
+        o.glowPt = glowPt
     }
 
     Constructor () {
