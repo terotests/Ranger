@@ -373,6 +373,16 @@ class MdVegaTest {
         print ((("   strip: plot height " + (to_string rtt.chartHeight)) + ", drawing ") + (to_string (rtt.viewHeight())))
         c.ok("no height stated: the room's height" (rtt.chartHeight > 300.0))
         c.ok("…and no taller than the room" ((rtt.viewHeight()) <= 425.0))
+        ; a donut with no size, in a slide's room: square, and the whole
+        ; drawing (padding included) no taller than the room
+        def donut:string "{\"padding\": 14, \"data\": {\"values\": [{\"category\": 1, \"value\": 4}, {\"category\": 2, \"value\": 6}]}, \"mark\": {\"type\": \"arc\", \"innerRadius\": 50}, \"encoding\": {\"theta\": {\"field\": \"value\", \"type\": \"quantitative\"}, \"color\": {\"field\": \"category\", \"type\": \"nominal\"}}}"
+        def gd:string (MdVegaRender.grown(donut 880.0 10.0 2.5 324.0))
+        def dd:MdVegaDrawing (MdVegaRender.draw(gd 880.0 10.0))
+        print ((("   donut: drawing " + (to_string dd.scene.worldW)) + " x ") + (to_string dd.scene.worldH))
+        ; (the scene adds the page's `pad` round the chart, as for every chart)
+        c.ok("a donut fits the room's height" (dd.scene.worldH <= 345.0))
+        def sd:VlJson ((new VlJsonParser()).parse(gd))
+        c.ok("…and stays square" ((sd.doubleOr("width" 0.0)) == (sd.doubleOr("height" 1.0))))
         c.ok("a stated width is kept to the plot's own proportions" ((indexOf g "\"height\":750") >= 0))
     }
 
