@@ -143,17 +143,18 @@
   evg-fx-seed: 9;
 }
 
-/* ============================================================ raindrop ======
+/* ============================================================= bubbles ======
  *
- * Water on the surface. A BACKDROP effect: each drop is a lens over whatever
- * is behind the element, so a drop over a photograph shows the photograph and
- * a drop over a flat card shows the card and its own highlight. */
+ * Round drops on the surface (the effect was called `raindrop` and still
+ * answers to it). A BACKDROP effect: each drop is a lens over whatever is
+ * behind the element, so a drop over a photograph shows the photograph and a
+ * drop over a flat card shows the card and its own highlight. */
 
 /* GLASS. Rain on a dark pane: many small drops, a few large, light from the
  * upper left. */
 .fx-rain {
   background-color: rgb(14, 14, 16);
-  evg-surface-effect: raindrop;
+  evg-surface-effect: bubbles;
   evg-fx-density: 1.1;
   evg-fx-size: 0.5;
   evg-fx-refract: 14;
@@ -167,7 +168,7 @@
  * still picture of rain never does. */
 .fx-downpour {
   background-color: rgb(10, 12, 18);
-  evg-surface-effect: raindrop;
+  evg-surface-effect: bubbles;
   evg-effect-on: always;
   evg-fx-density: 0.6;
   evg-fx-size: 0.7;
@@ -177,6 +178,38 @@
   evg-fx-rim: 0.5;
   evg-fx-speed: 7;
   evg-fx-seed: 6;
+}
+
+/* =============================================================== drops ======
+ *
+ * Rain on a window. Drops land, the ones that touch become one, and a drop
+ * heavy enough runs down the glass and leaves a trail of droplets through the
+ * mist. The pane starts dry at the effect's time 0, so it rains in. */
+
+/* WINDOW. A steady rain on a dark pane. */
+.fx-window {
+  background-color: rgb(14, 18, 26);
+  evg-surface-effect: drops;
+  evg-effect-on: always;
+  evg-fx-rain: 1;
+  evg-fx-size: 1;
+  evg-fx-mist: 1;
+  evg-fx-refract: 1.1;
+  evg-fx-shine: 0.8;
+  evg-fx-seed: 1;
+}
+
+/* SHOWER. More of it, bigger, and running sooner. */
+.fx-shower {
+  background-color: rgb(10, 14, 22);
+  evg-surface-effect: drops;
+  evg-effect-on: always;
+  evg-fx-rain: 2.2;
+  evg-fx-size: 1.3;
+  evg-fx-mist: 1.5;
+  evg-fx-speed: 1.4;
+  evg-fx-refract: 1.4;
+  evg-fx-seed: 4;
 }
 
 /* ======================================================== ambient light =====

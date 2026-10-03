@@ -378,6 +378,7 @@
     "evg:flexrules:test": "node dist/rgrc.js -es6 ./lib/evg/EVGFlexRulesTest.rgr -d=./lib/evg/bin -o=EVGFlexRulesTest.js -nodecli && node ./lib/evg/bin/EVGFlexRulesTest.js",
     "evg:flexwrap:test": "node dist/rgrc.js -es6 ./lib/evg/EVGFlexWrapTest.rgr -d=./lib/evg/bin -o=EVGFlexWrapTest.js -nodecli && node ./lib/evg/bin/EVGFlexWrapTest.js",
     "evg:focus:test": "node dist/rgrc.js -es6 ./lib/evg/EVGFocusTest.rgr -d=./lib/evg/bin -o=EVGFocusTest.js -nodecli && node ./lib/evg/bin/EVGFocusTest.js",
+    "evg:drops:test": "node lib/evg/gl/drops-model-test.mjs",
     "evg:fx:check": "npm run evg:fx:doc --silent && npm run evg:fx:module --silent && node lib/evg/gl/fx-check.mjs",
     "evg:fx:demo": "npm run evg:fx:doc --silent && node lib/evg/gl/fx-serve.mjs",
     "evg:fx:doc": "node dist/rgrc.js -es6 ./lib/evg/FxDemoDoc.rgr -d=./lib/evg/bin -o=FxDemoDoc.js -nodecli && node ./lib/evg/bin/FxDemoDoc.js > lib/evg/gl/fx-demo.js",
