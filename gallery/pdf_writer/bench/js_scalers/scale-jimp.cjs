@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // jimp: pure-JS decode / resize / encode (uses jpeg-js internally).
-const Jimp = require("jimp");
+const { Jimp, ResizeStrategy } = require("jimp");
 
 async function main() {
   const width = parseInt(process.argv[2], 10);
@@ -11,9 +11,8 @@ async function main() {
     process.exit(2);
   }
   const img = await Jimp.read(input);
-  img.resize(width, Jimp.AUTO, Jimp.RESIZE_BILINEAR);
-  img.quality(85);
-  await img.writeAsync(output);
+  img.resize({ w: width, mode: ResizeStrategy.BILINEAR });
+  await img.write(output, { quality: 85 });
 }
 
 main().catch((err) => {
