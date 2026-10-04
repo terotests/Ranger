@@ -1,4 +1,0 @@
-graph friends {
-  alice -- bob -- carol;
-  alice -- carol;
-}

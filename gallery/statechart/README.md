@@ -1,5 +1,11 @@
 # gallery/statechart — a machine as data
 
+> The diagram (`viz/StatechartGraph.rgr`, `demo/statechart_viz.rgr`, the
+> `statechart:viz*` scripts) draws through RangerFlow, which moved to
+> [terotests/RangerFlow](https://github.com/terotests/RangerFlow); it is archived
+> in [terotests/GalleryArchive](https://github.com/terotests/GalleryArchive). The
+> runtime and its parity checks stay here.
+
 A small statechart runtime in Ranger: a machine is a **definition** and the
 runner walks it. Written for porting RealTrainer's XState machines
 (see [`../../PLAN_REALTRAINER_STATE_PARITY.md`](../realtrainer/PLAN_REALTRAINER_STATE_PARITY.md)),
