@@ -1,0 +1,24 @@
+; `buffer_from_string` of a temporary: a literal, a call, a concatenation.
+; The C++ expansion read `.begin()` and `.end()` off the expression written
+; twice, so each was taken from a different temporary string: garbage for "",
+; and a vector of absurd length (std::length_error) for a call's result.
+class BufferFromTemp {
+    sfn make:string (n:int) {
+        def s:string ""
+        def i:int 0
+        while (i < n) {
+            s = (s + "ab")
+            i = (i + 1)
+        }
+        return s
+    }
+
+    sfn m@(main):void () {
+        print (to_string (buffer_length (buffer_from_string "")))
+        print (to_string (buffer_length (buffer_from_string "xyz")))
+        print (to_string (buffer_length (buffer_from_string (BufferFromTemp.make(500)))))
+        def b:buffer (buffer_from_string ("a" + "b"))
+        print (to_string (buffer_length b))
+        print (to_string (buffer_get b 1))
+    }
+}

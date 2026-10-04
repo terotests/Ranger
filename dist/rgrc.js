@@ -3374,6 +3374,7 @@ class RangerAppParamDesc  {
     this.needs_cpp_reference = false;
     this.rust_borrow_type = 0;
     this.needs_swift_inout = false;
+    this.go_slice_ptr = false;
     this.rust_static_str = false;
     this.rust_interior_cell = false;
     this.rust_assigned_to_weak = false;
@@ -8336,6 +8337,15 @@ class RangerAppWriterContext  {
     }
     return false;
   };
+  goBuiltinLocal (name) {
+    if ( this.getTargetLangName() == "go" ) {
+      const builtins = ["append", "cap", "copy", "delete", "make", "panic"];
+      if ( builtins.indexOf(name) >= 0 ) {
+        return "_" + name;
+      }
+    }
+    return "";
+  };
   assignParamCompiledName (p) {
     switch (p.name ) { 
       case "self" : 
@@ -8349,6 +8359,10 @@ class RangerAppWriterContext  {
         break;
       default: 
         p.compiledName = this.transformBindingWord(p.name);
+        const gb = this.goBuiltinLocal(p.name);
+        if ( gb.length > 0 ) {
+          p.compiledName = gb;
+        }
         break;
     };
   };
@@ -8374,6 +8388,10 @@ class RangerAppWriterContext  {
             desc.compiledName = this.transformMemberWord(name);
           } else {
             desc.compiledName = this.transformBindingWord(name);
+            const gb = this.goBuiltinLocal(name);
+            if ( gb.length > 0 ) {
+              desc.compiledName = gb;
+            }
           }
           break;
       };
@@ -50446,6 +50464,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     this.goTraits = new TraitInterfaceAnalysis();
     this.goLoops = new ForLoopShape();
     this.did_write_nullable = false;
+    this.go_slice_ptr_ready = false;
+    this.goSliceKeys = {};
     this.did_write_sseclient = false;     /* note: unused */
     this.go_unions_written = false;
     this.goEnums = new EnumNativeAnalysis();
@@ -51122,13 +51142,17 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             }
           }
         }
-        if ( p.compiledName.length > 0 ) {
-          wr.out(this.adjustType(p.compiledName), false);
+        if ( i == 0 && p.go_slice_ptr ) {
+          wr.out(("(*" + p.compiledName) + ")", false);
         } else {
-          if ( p.name.length > 0 ) {
-            wr.out(this.adjustType(p.name), false);
+          if ( p.compiledName.length > 0 ) {
+            wr.out(this.adjustType(p.compiledName), false);
           } else {
-            wr.out(this.adjustType(node.ns[i]), false);
+            if ( p.name.length > 0 ) {
+              wr.out(this.adjustType(p.name), false);
+            } else {
+              wr.out(this.adjustType(node.ns[i]), false);
+            }
           }
         }
         if ( needs_par ) {
@@ -51159,6 +51183,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
       }
       const p_1 = node.paramDesc;
+      if ( p_1.go_slice_ptr ) {
+        wr.out(("(*" + p_1.compiledName) + ")", false);
+        return;
+      }
       wr.out(p_1.compiledName, false);
       return;
     }
@@ -51272,13 +51300,17 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             }
           }
         }
-        if ( p.compiledName.length > 0 ) {
-          wr.out(this.adjustType(p.compiledName), false);
+        if ( i == 0 && p.go_slice_ptr ) {
+          wr.out(("(*" + p.compiledName) + ")", false);
         } else {
-          if ( p.name.length > 0 ) {
-            wr.out(this.adjustType(p.name), false);
+          if ( p.compiledName.length > 0 ) {
+            wr.out(this.adjustType(p.compiledName), false);
           } else {
-            wr.out(this.adjustType(node.ns[i]), false);
+            if ( p.name.length > 0 ) {
+              wr.out(this.adjustType(p.name), false);
+            } else {
+              wr.out(this.adjustType(node.ns[i]), false);
+            }
           }
         }
         if ( needs_par ) {
@@ -51311,6 +51343,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
       }
       const p_1 = node.paramDesc;
+      if ( p_1.go_slice_ptr ) {
+        wr.out(("(*" + p_1.compiledName) + ")", false);
+        return;
+      }
       wr.out(p_1.compiledName, false);
       return;
     }
@@ -51515,7 +51551,11 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       let obj_type_name = "";
       if ( obj.hasParamDesc ) {
         const p = obj.paramDesc;
-        if ( p.is_optional ) {
+        let optName = false;
+        if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
+          optName = p.nameNode.hasFlag("optional");
+        }
+        if ( p.is_optional || optName ) {
           if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
             const parameterName = p.nameNode;
             needs_unwrap = true;
@@ -51544,20 +51584,35 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
         return true;
       }));
-      // Loop start
-      for ( let i = 0; i < pms.length; i++) {
-        var arg = pms[i];
-        if ( i > 0 ) {
-          wr.out(", ", false);
-        }
-        this.WalkNode(arg, ctx, wr);
-      }
+      this.goWriteMethodArgs(method.vref, pms, ctx, wr);
       ctx.unsetInExpr();
       wr.out(")", false);
       if ( ctx.expressionLevel() == 0 ) {
         wr.out(";", true);
       }
     }
+  };
+  CreateMethodCall (node, ctx, wr) {
+    const obj = node.getFirst();
+    const args = node.getSecond();
+    ctx.setInExpr();
+    this.WalkNode(obj, ctx, wr);
+    ctx.unsetInExpr();
+    wr.out("(", false);
+    ctx.setInExpr();
+    const pms = operatorsOf.filter_31(args.children, ((item, index) => { 
+      if ( item.hasFlag("keyword") ) {
+        return false;
+      }
+      return true;
+    }));
+    let mname = "";
+    if ( obj.ns.length > 0 ) {
+      mname = obj.ns[(obj.ns.length - 1)];
+    }
+    this.goWriteMethodArgs(mname, pms, ctx, wr);
+    ctx.unsetInExpr();
+    wr.out(")", false);
   };
   writeVarDef (node, ctx, wr) {
     if ( node.hasParamDesc ) {
@@ -51739,6 +51794,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         wr.out(", ", false);
       }
       wr.out(arg.compiledName + " ", false);
+      if ( arg.go_slice_ptr ) {
+        wr.out("*", false);
+      }
       if ( arg.nameNode.hasFlag("optional") ) {
         wr.out("*GoNullable", false);
       } else {
@@ -51778,6 +51836,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
         const n = givenArgs.children[i];
         if ( this.goWriteUnionArg(arg, n, ctx, wr) ) {
+          continue;
+        }
+        if ( arg.go_slice_ptr ) {
+          this.goWriteSliceArg(n, ctx, wr);
           continue;
         }
         this.WalkNode(n, ctx, wr);
@@ -51847,6 +51909,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         if ( i < positional.length ) {
           const ctorParam = positional[i];
           wroteUnion = this.goWriteUnionArg(ctorParam, n, ctx, wr);
+          if ( false == wroteUnion && ctorParam.go_slice_ptr ) {
+            this.goWriteSliceArg(n, ctx, wr);
+            wroteUnion = true;
+          }
         }
         if ( false == wroteUnion ) {
           this.WalkNode(n, ctx, wr);
@@ -52222,11 +52288,19 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           }
           if ( left.nsp.length > 0 ) {
             const p = left.nsp[i];
-            wr.out(this.adjustType(p.compiledName), false);
+            if ( i == 0 && p.go_slice_ptr ) {
+              wr.out(("(*" + p.compiledName) + ")", false);
+            } else {
+              wr.out(this.adjustType(p.compiledName), false);
+            }
           } else {
             if ( left.hasParamDesc ) {
               const leftDesc = left.paramDesc;
-              wr.out(leftDesc.compiledName, false);
+              if ( leftDesc.go_slice_ptr ) {
+                wr.out(("(*" + leftDesc.compiledName) + ")", false);
+              } else {
+                wr.out(leftDesc.compiledName, false);
+              }
             } else {
               wr.out(this.adjustType(part), false);
             }
@@ -52565,6 +52639,103 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       wr.out("}", true);
     }
   };
+  goSlicePtrKey (cl, fnDesc, kind, i) {
+    if ( kind == "m" ) {
+      return (("m:" + fnDesc.name) + ":") + i;
+    }
+    return (((((kind + ":") + cl.name) + ".") + fnDesc.name) + ":") + i;
+  };
+  goSlicePtrScan (cl, fns, kind, keys, mark) {
+    // Loop start
+    for ( const fnDesc of fns) {
+      // Loop start
+      for ( let i = 0; i < fnDesc.params.length; i++) {
+        var p = fnDesc.params[i];
+        if ( typeof(p.nameNode) === "undefined" ) {
+          continue;
+        }
+        const nn = p.nameNode;
+        if ( nn.array_type.length == 0 ) {
+          continue;
+        }
+        if ( nn.hasFlag("optional") ) {
+          continue;
+        }
+        const key = this.goSlicePtrKey(cl, fnDesc, kind, i);
+        if ( mark ) {
+          if ( ( typeof(keys[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(keys, key) ) ) {
+            p.go_slice_ptr = true;
+          }
+        } else {
+          if ( p.needs_swift_inout ) {
+            keys[key] = true;
+          }
+        }
+      }
+    }
+  };
+  goSlicePtrPrepare (ctx) {
+    if ( this.go_slice_ptr_ready ) {
+      return;
+    }
+    this.go_slice_ptr_ready = true;
+    const root = ctx.getRoot();
+    const keys = this.goSliceKeys;
+    for( var ci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.definedClasses[ci] 
+        this.goSlicePtrScan(cl, cl.methods, "m", keys, false);
+        this.goSlicePtrScan(cl, cl.static_methods, "s", keys, false);
+        if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
+          let cfs = [];
+          cfs.push(cl.constructor_fn);
+          this.goSlicePtrScan(cl, cfs, "c", keys, false);
+        }
+      }
+    };
+    for( var ci_1 in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci_1)) {
+        var cl_1 = root.definedClasses[ci_1] 
+        this.goSlicePtrScan(cl_1, cl_1.methods, "m", keys, true);
+        this.goSlicePtrScan(cl_1, cl_1.static_methods, "s", keys, true);
+        if ( (typeof(cl_1.constructor_fn) !== "undefined" && cl_1.constructor_fn != null )  ) {
+          let cfs_1 = [];
+          cfs_1.push(cl_1.constructor_fn);
+          this.goSlicePtrScan(cl_1, cfs_1, "c", keys, true);
+        }
+      }
+    };
+  };
+  goWriteSliceArg (n, ctx, wr) {
+    let addressable = false;
+    if ( n.expression == false && n.ns.length > 0 ) {
+      if ( n.hasParamDesc && false == n.hasFlag("optional") ) {
+        addressable = true;
+      }
+    }
+    if ( addressable ) {
+      wr.out("&", false);
+      this.WalkNode(n, ctx, wr);
+      return;
+    }
+    wr.out("r_slice_ptr(", false);
+    this.WalkNode(n, ctx, wr);
+    wr.out(")", false);
+  };
+  goWriteMethodArgs (methodName, args, ctx, wr) {
+    // Loop start
+    for ( let i = 0; i < args.length; i++) {
+      var arg = args[i];
+      if ( i > 0 ) {
+        wr.out(", ", false);
+      }
+      if ( ( typeof(this.goSliceKeys[((("m:" + methodName) + ":") + i)] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.goSliceKeys, (("m:" + methodName) + ":") + i) ) ) {
+        this.goWriteSliceArg(arg, ctx, wr);
+      } else {
+        this.WalkNode(arg, ctx, wr);
+      }
+    }
+  };
   writeClass (node, ctx, orig_wr) {
     const cl = node.clDesc;
     if ( typeof(cl) === "undefined" ) {
@@ -52572,6 +52743,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     }
     const wr = orig_wr;
     if ( this.did_write_nullable == false ) {
+      this.goSlicePtrPrepare(ctx);
+      if ( Object.keys(this.goSliceKeys).length > 0 ) {
+        wr.raw("\r\nfunc r_slice_ptr[T any](v T) *T { return &v }\r\n", true);
+      }
       if ( this.goProgramUsesOptional(ctx) ) {
         wr.raw("\r\ntype GoNullable struct { \r\n  value interface{}\r\n  has_value bool\r\n}\r\n", true);
       }
@@ -97579,7 +97754,7 @@ class VirtualCompiler  {
         res.ctx = appCtx;
         return res;
       }
-      if ( (appCtx.targetLangName == "cpp" || appCtx.targetLangName == "rust") || appCtx.targetLangName == "swift6" ) {
+      if ( ((appCtx.targetLangName == "cpp" || appCtx.targetLangName == "rust") || appCtx.targetLangName == "swift6") || appCtx.targetLangName == "go" ) {
         cli.stepWithDetail(
           3,
           "Static analysis",

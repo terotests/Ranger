@@ -249,9 +249,9 @@ class OpcPackageTest {
         OpcPackageTest.checkExternal(c)
         OpcPackageTest.checkFormat(c "gallery/docx_viewer/fixtures" "13-images-mixed.docx" "word/document.xml" ".docx" true)
         OpcPackageTest.checkFormat(c "gallery/datagrid/fixtures" "images.xlsx" "xl/workbook.xml" ".xlsx" true)
-        OpcPackageTest.checkFormat(c "gallery/pptx/fixtures" "16-image-png.pptx" "ppt/presentation.xml" ".pptx" true)
+        OpcPackageTest.checkFormat(c "gallery/ooxml/fixtures" "16-image-png.pptx" "ppt/presentation.xml" ".pptx" true)
         ; A deck with everything in it: layouts, masters, themes, notes.
-        OpcPackageTest.checkFormat(c "gallery/pptx/fixtures" "20-business-deck.pptx" "ppt/presentation.xml" ".pptx (business deck)" true)
+        OpcPackageTest.checkFormat(c "gallery/ooxml/fixtures" "20-business-deck.pptx" "ppt/presentation.xml" ".pptx (business deck)" true)
         OpcPackageTest.checkFormat(c "gallery/datagrid/fixtures" "tables.xlsx" "xl/workbook.xml" ".xlsx (tables)" false)
         OpcPackageTest.checkFormat(c "gallery/docx_viewer/fixtures" "12-header-footer.docx" "word/document.xml" ".docx (header/footer)" false)
 

@@ -15,6 +15,8 @@ class RangerGolangClassWriter {
   ; can a `for` be a `range`? target-neutral question, one place
   def goLoops:ForLoopShape (new ForLoopShape())
   def did_write_nullable:boolean false
+  def go_slice_ptr_ready:boolean false
+  def goSliceKeys:[string:boolean]
   def did_write_sseclient:boolean false
   ; S5 (PLAN_SHAPES.md): a sealable union is a tagged struct with one pointer
   ; field per variant. Construction wraps a case into the handle; narrowing
@@ -815,6 +817,9 @@ class RangerGolangClassWriter {
             }
           }
         }
+        if ((i == 0) && p.go_slice_ptr) {
+          wr.out((("(*" + p.compiledName) + ")") false)
+        } {
         if ((strlen p.compiledName) > 0) {
           wr.out((this.adjustType(p.compiledName)) false)
         } {
@@ -823,6 +828,7 @@ class RangerGolangClassWriter {
           } {
             wr.out((this.adjustType( (itemAt node.ns i))) false)
           }
+        }
         }
 
         if needs_par {
@@ -858,6 +864,10 @@ class RangerGolangClassWriter {
           }
       }
       def p:RangerAppParamDesc node.paramDesc
+      if p.go_slice_ptr {
+        wr.out((("(*" + p.compiledName) + ")") false)
+        return
+      }
       wr.out(p.compiledName false)
       return
     }
@@ -990,6 +1000,9 @@ class RangerGolangClassWriter {
             }
           }
         }
+        if ((i == 0) && p.go_slice_ptr) {
+          wr.out((("(*" + p.compiledName) + ")") false)
+        } {
         if ((strlen p.compiledName) > 0) {
           wr.out((this.adjustType(p.compiledName)) false)
         } {
@@ -998,6 +1011,7 @@ class RangerGolangClassWriter {
           } {
             wr.out((this.adjustType( (itemAt node.ns i))) false)
           }
+        }
         }
 
         if needs_par {
@@ -1034,7 +1048,11 @@ class RangerGolangClassWriter {
         }
       }
       def p:RangerAppParamDesc node.paramDesc
-      wr.out(p.compiledName false) 
+      if p.go_slice_ptr {
+        wr.out((("(*" + p.compiledName) + ")") false)
+        return
+      }
+      wr.out(p.compiledName false)
       return
     }
     def b_was_static:boolean false
@@ -1283,7 +1301,13 @@ class RangerGolangClassWriter {
       ; Check if obj has paramDesc and it's optional
       if obj.hasParamDesc {
         def p:RangerAppParamDesc (unwrap obj.paramDesc)
-        if (p.is_optional) {
+        ; a local initialised from an optional (`def previous:T board`) is a
+        ; *GoNullable as well, though only its name node says so
+        def optName:boolean false
+        if (!null? p.nameNode) {
+          optName = (p.nameNode.hasFlag("optional"))
+        }
+        if (p.is_optional || optName) {
           if (!null? p.nameNode) {
             def parameterName:CodeNode (unwrap p.nameNode)
             needs_unwrap = true
@@ -1317,18 +1341,38 @@ class RangerGolangClassWriter {
         return true
       })
       
-      for pms arg:CodeNode i {
-        if (i > 0) {
-          wr.out(", " false)
-        }
-        this.WalkNode(arg ctx wr)
-      }
+      this.goWriteMethodArgs(method.vref pms ctx wr)
       ctx.unsetInExpr()
       wr.out(")" false)
       if ((ctx.expressionLevel()) == 0) {
         wr.out(";" true)
       }
     }
+  }
+
+  ; `obj.method(args)` written as one call node (the generic writer's
+  ; CreateMethodCall), with the arguments a *[]T parameter takes by address
+  fn CreateMethodCall(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def obj:CodeNode (node.getFirst())
+    def args:CodeNode (node.getSecond())
+    ctx.setInExpr()
+    this.WalkNode(obj ctx wr)
+    ctx.unsetInExpr()
+    wr.out("(" false)
+    ctx.setInExpr()
+    def pms (filter (args.children) {
+      if (item.hasFlag("keyword")) {
+        return false
+      }
+      return true
+    })
+    def mname:string ""
+    if ((array_length obj.ns) > 0) {
+      mname = (itemAt obj.ns ((array_length obj.ns) - 1))
+    }
+    this.goWriteMethodArgs(mname pms ctx wr)
+    ctx.unsetInExpr()
+    wr.out(")" false)
   }
 
   fn writeVarDef:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -1548,6 +1592,9 @@ class RangerGolangClassWriter {
         wr.out(", " false)
       }
       wr.out((arg.compiledName + " ") false)
+      if arg.go_slice_ptr {
+        wr.out("*" false)
+      }
 
       if (arg.nameNode.hasFlag("optional")) {
         wr.out("*GoNullable" false)
@@ -1588,6 +1635,10 @@ class RangerGolangClassWriter {
         }
         def n:CodeNode (itemAt givenArgs.children i)
         if (this.goWriteUnionArg(arg n ctx wr)) {
+          continue
+        }
+        if arg.go_slice_ptr {
+          this.goWriteSliceArg(n ctx wr)
           continue
         }
         this.WalkNode(n ctx wr)
@@ -1655,6 +1706,10 @@ class RangerGolangClassWriter {
         if (i < (array_length positional)) {
           def ctorParam:RangerAppParamDesc (itemAt positional i)
           wroteUnion = (this.goWriteUnionArg(ctorParam n ctx wr))
+          if ((false == wroteUnion) && ctorParam.go_slice_ptr) {
+            this.goWriteSliceArg(n ctx wr)
+            wroteUnion = true
+          }
         }
         if (false == wroteUnion) {
           this.WalkNode(n ctx wr)
@@ -2106,11 +2161,19 @@ class RangerGolangClassWriter {
 
           if( (array_length left.nsp ) > 0) {
             def p:RangerAppParamDesc (itemAt left.nsp i)
-            wr.out((this.adjustType(p.compiledName)) false)    
+            if ((i == 0) && p.go_slice_ptr) {
+              wr.out((("(*" + p.compiledName) + ")") false)
+            } {
+              wr.out((this.adjustType(p.compiledName)) false)
+            }
           } {
             if(left.hasParamDesc) {
               def leftDesc:RangerAppParamDesc (unwrap left.paramDesc)
-              wr.out(leftDesc.compiledName false)
+              if leftDesc.go_slice_ptr {
+                wr.out((("(*" + leftDesc.compiledName) + ")") false)
+              } {
+                wr.out(leftDesc.compiledName false)
+              }
             } {
               wr.out((this.adjustType(part)) false)
             }
@@ -2454,6 +2517,105 @@ class RangerGolangClassWriter {
     }
   }
 
+  ; ISSUES.md #58: a slice is passed by value, so `push out x` in a function
+  ; was lost to the caller -- `(new MfJ).toJson()` came out as "" and a deck's
+  ; timeline indexed an empty list. An array parameter the body grows or
+  ; empties (StaticAnalyzer's needs_swift_inout, which also travels up
+  ; through calls) is a *[]T. A method decides it by NAME across every class,
+  ; so an override and the interface it satisfies keep one signature.
+  fn goSlicePtrKey:string (cl:RangerAppClassDesc fnDesc:RangerAppFunctionDesc kind:string i:int) {
+    if (kind == "m") {
+      return ((("m:" + fnDesc.name) + ":") + i)
+    }
+    return ((((kind + ":") + cl.name) + "." + fnDesc.name + ":") + i)
+  }
+  fn goSlicePtrScan:void (cl:RangerAppClassDesc fns:[RangerAppFunctionDesc] kind:string keys:[string:boolean] mark:boolean) {
+    for fns fnDesc:RangerAppFunctionDesc fi {
+      for fnDesc.params p:RangerAppParamDesc i {
+        if (null? p.nameNode) {
+          continue
+        }
+        def nn:CodeNode (unwrap p.nameNode)
+        if ((strlen nn.array_type) == 0) {
+          continue
+        }
+        if (nn.hasFlag("optional")) {
+          continue
+        }
+        def key:string (this.goSlicePtrKey(cl fnDesc kind i))
+        if mark {
+          if (has keys key) {
+            p.go_slice_ptr = true
+          }
+        } {
+          if p.needs_swift_inout {
+            set keys key true
+          }
+        }
+      }
+    }
+  }
+  fn goSlicePtrPrepare:void (ctx:RangerAppWriterContext) {
+    if go_slice_ptr_ready {
+      return
+    }
+    go_slice_ptr_ready = true
+    def root:RangerAppWriterContext (ctx.getRoot())
+    def keys:[string:boolean] goSliceKeys
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      this.goSlicePtrScan(cl cl.methods "m" keys false)
+      this.goSlicePtrScan(cl cl.static_methods "s" keys false)
+      if (!null? cl.constructor_fn) {
+        def cfs:[RangerAppFunctionDesc]
+        push cfs (unwrap cl.constructor_fn)
+        this.goSlicePtrScan(cl cfs "c" keys false)
+      }
+    }
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      this.goSlicePtrScan(cl cl.methods "m" keys true)
+      this.goSlicePtrScan(cl cl.static_methods "s" keys true)
+      if (!null? cl.constructor_fn) {
+        def cfs:[RangerAppFunctionDesc]
+        push cfs (unwrap cl.constructor_fn)
+        this.goSlicePtrScan(cl cfs "c" keys true)
+      }
+    }
+  }
+  ; An argument for a *[]T parameter: the address of what the caller holds,
+  ; so the callee's appends land there. Something with no address (a call,
+  ; a literal) goes through a temporary nobody else sees.
+  fn goWriteSliceArg:void (n:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def addressable:boolean false
+    if ((n.expression == false) && ((array_length n.ns) > 0)) {
+      if (n.hasParamDesc && (false == (n.hasFlag("optional")))) {
+        addressable = true
+      }
+    }
+    if addressable {
+      wr.out("&" false)
+      this.WalkNode(n ctx wr)
+      return
+    }
+    wr.out("r_slice_ptr(" false)
+    this.WalkNode(n ctx wr)
+    wr.out(")" false)
+  }
+  ; the arguments of a method call, a *[]T parameter taking an address. A
+  ; method's parameters are decided by name (goSlicePtrPrepare), so the call
+  ; needs no function description.
+  fn goWriteMethodArgs:void (methodName:string args:[CodeNode] ctx:RangerAppWriterContext wr:CodeWriter) {
+    for args arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      if (has goSliceKeys ((("m:" + methodName) + ":") + i)) {
+        this.goWriteSliceArg(arg ctx wr)
+      } {
+        this.WalkNode(arg ctx wr)
+      }
+    }
+  }
+
   fn writeClass:void  (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
@@ -2461,6 +2623,10 @@ class RangerGolangClassWriter {
     }
     def wr:CodeWriter orig_wr
     if (did_write_nullable == false) {
+      this.goSlicePtrPrepare(ctx)
+      if ((array_length (keys goSliceKeys)) > 0) {
+        wr.raw("\r\nfunc r_slice_ptr[T any](v T) *T { return &v }\r\n" true)
+      }
       if (this.goProgramUsesOptional(ctx)) {
         wr.raw("\r\ntype GoNullable struct { \r\n  value interface{}\r\n  has_value bool\r\n}\r\n" true)
       }

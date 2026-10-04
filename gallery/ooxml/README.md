@@ -6,7 +6,7 @@ There are three OOXML editors in this gallery:
 | --- | --- | --- |
 | [`docx_viewer`](../docx_viewer/README.md) | `.docx` | WordprocessingML → `RichDocument` → paginated layout → EVG |
 | [`datagrid`](../datagrid/README.md) | `.xlsx` | SpreadsheetML → `WorkbookModel` → virtualized grid → EVG |
-| [`pptx`](../pptx/README.md) | `.pptx` | PresentationML → `PptxModel` → theme resolve → EVG |
+| [`pptx`](https://github.com/terotests/RangerPPTX) (moved to terotests/RangerPPTX; clone it to `gallery/pptx`) | `.pptx` | PresentationML → `PptxModel` → theme resolve → EVG |
 
 They are three different applications and they should stay that way. Word
 pagination, Excel formulas and PowerPoint's master/layout inheritance have
@@ -28,7 +28,8 @@ gallery/ooxml/
                        back unchanged
     tests/
         OpcPackageTest.rgr    one package reader, three formats
-        OoxmlPackageTest.rgr  one sentence, read identically out of all three
+        OoxmlPackageTest.rgr  one sentence, read identically out of .docx and .xlsx
+                              (the .pptx third: RangerPPTX interop/OoxmlPptxTextTest.rgr)
         OoxmlTextTest.rgr     the entity decoder, on both string models
     tools/             the runners the npm scripts call
 ```
@@ -39,7 +40,7 @@ DrawingML and identity — is next door in
 
 ```bash
 npm run ooxml:opc:test      # the container
-npm run ooxml:package:test  # the three format readers agree about text
+npm run ooxml:package:test  # the .docx and .xlsx readers agree about text
 npm run ooxml:text:test     # the entity decoder
 ```
 

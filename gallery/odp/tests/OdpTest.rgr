@@ -1,29 +1,20 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ==============================================================================
-; OdpTest — the OpenDocument presentation reader, and its .pptx twin
+; OdpTest — the OpenDocument presentation reader
 ; ==============================================================================
 ;
-; Every fixture here is LibreOffice's own conversion of a `.pptx` fixture that
-; is already in this repository, and that is the design of the test rather
-; than a convenience. The last section opens BOTH files with BOTH readers and
-; requires them to agree: same page count, same title, same box to a tenth of
-; a point, same text.
-;
-; That is the assertion PLAN_FORMATS.md Phase 1 turns on. Two models that
-; never meet, two readers that share nothing above the XML layer, and one
-; answer — because it is one document. A parity test between formats is the
-; only kind that can fail when a reader is confidently wrong, which a
-; golden-file test cannot: a golden file pins what changed, not what was
-; right.
+; Every fixture here is LibreOffice's own conversion of a `.pptx` fixture of
+; the deck editor. The parity half — BOTH files opened with BOTH readers and
+; required to agree on page count, title, box and text — needs the .pptx
+; reader, so it moved with it to terotests/RangerPPTX
+; (interop/OdpPptxParityTest.rgr, `npm run pptx:odp:parity:test` there).
 ;
 ;   npm run odp:test
 ; ==============================================================================
 
 Import "../OdpParser.rgr"
 Import "../OdpToEvg.rgr"
-Import "../../pptx/src/PptxParser.rgr"
-Import "../../pptx/src/PptxResolver.rgr"
 
 class OdpCheck {
     def passed:int 0
@@ -313,75 +304,6 @@ class OdpTest {
         p.close()
     }
 
-    ; ------------------------------------------------------------------
-    ; The same document, both formats, both readers
-    ; ------------------------------------------------------------------
-
-    sfn testParity:void (c:OdpCheck) {
-        print "--- one document, two formats, two readers ---"
-        def op (new OdpParser())
-        def ook:boolean (op.openParts("gallery/odp/fixtures" "01-text.odp"))
-        def pp (new PptxParser())
-        def pok:boolean (pp.openParts("gallery/pptx/fixtures" "01-text.pptx"))
-        c.ok("the .odp opens" ook)
-        c.ok("the .pptx opens" pok)
-        if ((ook && pok) == false) {
-            return
-        }
-        def odp:OdpPresentation (op.parsePresentation())
-        def raw:PptxPresentation (pp.parsePresentation())
-        def resolver (new PptxResolver())
-        def deck:PptxPresentation (resolver.resolvePresentation(raw))
-
-        c.eqInt("the same number of pages" (odp.pageCount()) (deck.slideCount()))
-        def slide:PptxSlide (itemAt deck.slides 0)
-        def page:OdpPage (itemAt odp.pages 0)
-        ; The page box, to a tenth of a point. ODF states it in centimetres and
-        ; OOXML in EMU, so this is also the check that both unit readers are
-        ; right — the numbers are not each other's rounding.
-        c.near("the same page width" odp.widthPt slide.width 0.5)
-        c.near("the same page height" odp.heightPt slide.height 0.5)
-
-        c.eqStr("the same first sentence" (OdpTest.firstText(page)) (OdpTest.firstPptxText(slide)) )
-        ; And the same box for the shape that holds it. A reader that had the
-        ; units wrong would still get the text right, which is why the sentence
-        ; alone is not enough.
-        def oShape:OdpShape (itemAt page.shapes 0)
-        def pShape:PptxShape (itemAt slide.shapes 0)
-        c.near("the same left edge" oShape.x pShape.x 0.1)
-        c.near("the same top edge" oShape.y pShape.y 0.1)
-        c.near("the same width" oShape.width pShape.width 0.1)
-        c.near("the same height" oShape.height pShape.height 0.1)
-        op.close()
-        pp.close()
-    }
-
-    sfn firstText:string (page:OdpPage) {
-        def i:int 0
-        while (i < (array_length page.shapes)) {
-            def s:OdpShape (itemAt page.shapes i)
-            def t:string (s.plainText())
-            if ((strlen t) > 0) {
-                return t
-            }
-            i = (i + 1)
-        }
-        return ""
-    }
-
-    sfn firstPptxText:string (slide:PptxSlide) {
-        def i:int 0
-        while (i < (array_length slide.shapes)) {
-            def s:PptxShape (itemAt slide.shapes i)
-            def t:string (s.text.plainText())
-            if ((strlen t) > 0) {
-                return t
-            }
-            i = (i + 1)
-        }
-        return ""
-    }
-
     sfn main:void () {
         print "== OdpTest =="
         def c (new OdpCheck())
@@ -390,7 +312,6 @@ class OdpTest {
         OdpTest.testReadDeck(c)
         OdpTest.testStyles(c)
         OdpTest.testDisplayList(c)
-        OdpTest.testParity(c)
         print ""
         print ("passed = " + (to_string c.passed) + "  failed = " + (to_string c.failed))
         if (c.failed == 0) {

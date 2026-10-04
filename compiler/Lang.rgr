@@ -6810,7 +6810,7 @@ function r_buf_slice($buf, $start, $end) {
                 es6 ( "(function(s){ var b = new ArrayBuffer(s.length); var v = new Uint8Array(b); for(var i=0;i<s.length;i++)v[i]=s.charCodeAt(i); return Object.assign(b, { _view: new DataView(b) }); })(" (e 1) ")" )
                 go ( "[]byte(" (e 1) ")" )
                 rust ( (e 1) ".as_bytes().to_vec()" )
-                cpp ( "std::vector<uint8_t>(" (e 1) ".begin(), " (e 1) ".end())" )
+                cpp ( "[](const std::string& __s) { return std::vector<uint8_t>(__s.begin(), __s.end()); }(" (e 1) ")" )
                 java7 ( (e 1) ".getBytes(java.nio.charset.StandardCharsets.UTF_8)" )
                 python ( "bytearray(" (e 1) ", 'utf-8')" )
                 dart ( (imp "dart:convert") (imp "dart:typed_data") "Uint8List.fromList(utf8.encode(" (e 1) "))" )
@@ -7000,7 +7000,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 ranger ( "(buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 es6 ( "(function(b,v,s,e){ var arr = new Uint8Array(b); for(var i=s;i<e;i++) arr[i]=v; })(" (e 1) "," (e 2) "," (e 3) "," (e 4) ")" )
                 dart ( (e 1) ".fillRange(" (e 3) ", " (e 4) ", " (e 2) ");" )
-                go ( "for i := " (e 3) "; i < " (e 4) "; i++ { " (e 1) "[i] = byte(" (e 2) ") }" )
+                go ( "for __i, __n := " (e 3) ", " (e 4) "; __i < __n; __i++ { " (e 1) "[__i] = byte(" (e 2) ") }" )
                 rust ( (e 1) "[" (idx 3) ".." (idx 4) "].fill(" (u8v 2) ")" )
                 cpp ( "std::fill(" (e 1) ".begin()+" (e 3) ", " (e 1) ".begin()+" (e 4) ", static_cast<uint8_t>(" (e 2) "))" (imp "<algorithm>") )
                 java7 ( "java.util.Arrays.fill(" (e 1) ", (int)" (e 3) ", (int)" (e 4) ", (byte)" (e 2) ");" )
@@ -7116,7 +7116,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 ranger ( "(int_buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 es6 ( (e 1) ".fill(" (e 2) ", " (e 3) ", " (e 4) ")" )
                 dart ( (e 1) ".fillRange(" (e 3) ", " (e 4) ", " (e 2) ");" )
-                go ( "for i := " (e 3) "; i < " (e 4) "; i++ { " (e 1) "[i] = " (e 2) " }" )
+                go ( "for __i, __n := " (e 3) ", " (e 4) "; __i < __n; __i++ { " (e 1) "[__i] = " (e 2) " }" )
                 rust ( (e 1) "[" (idx 3) ".." (idx 4) "].fill(" (e 2) ")" )
                 cpp ( "std::fill(" (e 1) ".begin()+" (e 3) ", " (e 1) ".begin()+" (e 4) ", " (e 2) ")" (imp "<algorithm>") )
                 java7 ( "java.util.Arrays.fill(" (e 1) ", (int)" (e 3) ", (int)" (e 4) ", " (e 2) ")" )
@@ -7243,7 +7243,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 ranger ( "(double_buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 es6 ( (e 1) ".fill(" (e 2) ", " (e 3) ", " (e 4) ")" )
                 dart ( (e 1) ".fillRange(" (e 3) ", " (e 4) ", " (e 2) ");" )
-                go ( "for i := " (e 3) "; i < " (e 4) "; i++ { " (e 1) "[i] = " (e 2) " }" )
+                go ( "for __i, __n := " (e 3) ", " (e 4) "; __i < __n; __i++ { " (e 1) "[__i] = " (e 2) " }" )
                 rust ( (e 1) "[" (idx 3) ".." (idx 4) "].fill(" (e 2) ")" )
                 cpp ( "std::fill(" (e 1) ".begin()+" (e 3) ", " (e 1) ".begin()+" (e 4) ", " (e 2) ")" (imp "<algorithm>") )
                 java7 ( "java.util.Arrays.fill(" (e 1) ", (int)" (e 3) ", (int)" (e 4) ", " (e 2) ")" )
@@ -8977,6 +8977,26 @@ std::optional<double> cpp_get_map_string_double_value( const M & m , const K & k
                 python ( (e 1) ".get(" (e 2) ")" )
                 rust ( (e 1) ".get(" (kref 2) ").cloned()" )
                 csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? (double?)" (e 1) "[" (e 2) "] : null)" )
+                ; an optional is a *GoNullable on Go, and `unwrap` reads it
+                ; with .value.(float64): the `*` form below gave a bare
+                ; float64 and `unwrap (get m k)` did not compile
+                go ( 
+
+(macro (nl "func r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "( a " (typeof 1) ", key " (r_ktype 1) " ) *GoNullable  { " nl I 
+    "res := new(GoNullable)" nl  
+    "v, ok := a[key]" nl 
+    "if ok { " nl
+        I 
+          "res.has_value = true" nl
+          "res.value = v" nl
+          "return res" nl
+        i
+    "}" nl
+    "res.has_value = false" nl
+    "return res" nl
+i "}" nl ))                   
+                    "r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
+                )
                 * ( (e 1) "[" (e 2) "]" )
             }
         }
@@ -9244,7 +9264,7 @@ int r_string_index_of( const std::string& str, const std::string& key )  {
                 php( "(($p = strpos(" (e 1) ", " (e 2) ", " (e 3) ")) !== false ? $p : -1)")
                 csharp ( (e 1) ".IndexOf(" (e 2) ", (int)(" (e 3) "))" )
                 scala ( (e 1) ".indexOf(" (e 2) ", (" (e 3) ").toInt)" )
-                go ( "func() int64 { idx := strings.Index(" (e 1) "[" (e 3) ":], " (e 2) "); if idx == -1 { return -1 }; return int64(idx) + " (e 3) " }()" (imp "strings"))
+                go ( "func() int64 { __at := strings.Index(" (e 1) "[" (e 3) ":], " (e 2) "); if __at == -1 { return -1 }; return int64(__at) + " (e 3) " }()" (imp "strings"))
                 es6 ( (e 1) ".indexOf(" (e 2 ) ", " (e 3) ")" )
                 java7 ( (e 1) ".indexOf(" (e 2 ) ", (int)" (e 3) ")" )
                 python ( (e 1) ".find(" (e 2) ", " (e 3) ")" )

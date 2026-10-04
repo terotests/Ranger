@@ -4,11 +4,14 @@ A `.odp` opens in the deck viewer, beside the `.pptx`, drawn by the same
 backend in the same window.
 
 ```bash
-npm run odp:test          # 65 assertions, JavaScript and C++
+npm run odp:test          # the reader, JavaScript and C++
 npm run odf:package:test  # the container underneath it
-npm run pptx:web:serve    # the viewer — press "Open the .odp sample"
-npm run pptx:web:test     # …and 113 assertions in a real browser, 15 of them here
 ```
+
+The deck viewer, and the test that opens the same document as `.odp` and as
+`.pptx` and requires the two readers to agree, are in
+[terotests/RangerPPTX](https://github.com/terotests/RangerPPTX) (cloned to
+`gallery/pptx`): `npm run pptx:web:serve`, `npm run pptx:odp:parity:test`.
 
 ![the same deck as a .odp, in the deck viewer](artifacts/01_odp_in_the_viewer.png)
 
