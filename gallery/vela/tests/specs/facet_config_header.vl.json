@@ -1,0 +1,94 @@
+{
+  "data": {
+    "values": [
+      {
+        "kuukausi": "2026-01-01",
+        "alue": "Pohjoinen",
+        "myynti": 75
+      },
+      {
+        "kuukausi": "2026-01-01",
+        "alue": "Etelä",
+        "myynti": 142
+      },
+      {
+        "kuukausi": "2026-01-01",
+        "alue": "Itä",
+        "myynti": 86
+      },
+      {
+        "kuukausi": "2026-01-01",
+        "alue": "Länsi",
+        "myynti": 132
+      },
+      {
+        "kuukausi": "2026-02-01",
+        "alue": "Pohjoinen",
+        "myynti": 94
+      },
+      {
+        "kuukausi": "2026-02-01",
+        "alue": "Etelä",
+        "myynti": 152
+      },
+      {
+        "kuukausi": "2026-02-01",
+        "alue": "Itä",
+        "myynti": 93
+      },
+      {
+        "kuukausi": "2026-02-01",
+        "alue": "Länsi",
+        "myynti": 116
+      },
+      {
+        "kuukausi": "2026-03-01",
+        "alue": "Pohjoinen",
+        "myynti": 99
+      },
+      {
+        "kuukausi": "2026-03-01",
+        "alue": "Etelä",
+        "myynti": 166
+      },
+      {
+        "kuukausi": "2026-03-01",
+        "alue": "Itä",
+        "myynti": 101
+      },
+      {
+        "kuukausi": "2026-03-01",
+        "alue": "Länsi",
+        "myynti": 136
+      }
+    ]
+  },
+  "config": {
+    "header": {
+      "labelColor": "#e8ecff",
+      "labelFontSize": 14
+    }
+  },
+  "facet": {
+    "column": {
+      "field": "alue",
+      "type": "nominal"
+    }
+  },
+  "spec": {
+    "width": 100,
+    "height": 80,
+    "mark": "bar",
+    "encoding": {
+      "x": {
+        "field": "kuukausi",
+        "type": "ordinal",
+        "timeUnit": "month"
+      },
+      "y": {
+        "field": "myynti",
+        "type": "quantitative"
+      }
+    }
+  }
+}
