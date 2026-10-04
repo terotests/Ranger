@@ -6810,7 +6810,7 @@ function r_buf_slice($buf, $start, $end) {
                 es6 ( "(function(s){ var b = new ArrayBuffer(s.length); var v = new Uint8Array(b); for(var i=0;i<s.length;i++)v[i]=s.charCodeAt(i); return Object.assign(b, { _view: new DataView(b) }); })(" (e 1) ")" )
                 go ( "[]byte(" (e 1) ")" )
                 rust ( (e 1) ".as_bytes().to_vec()" )
-                cpp ( "std::vector<uint8_t>(" (e 1) ".begin(), " (e 1) ".end())" )
+                cpp ( "[](const std::string& __s) { return std::vector<uint8_t>(__s.begin(), __s.end()); }(" (e 1) ")" )
                 java7 ( (e 1) ".getBytes(java.nio.charset.StandardCharsets.UTF_8)" )
                 python ( "bytearray(" (e 1) ", 'utf-8')" )
                 dart ( (imp "dart:convert") (imp "dart:typed_data") "Uint8List.fromList(utf8.encode(" (e 1) "))" )
