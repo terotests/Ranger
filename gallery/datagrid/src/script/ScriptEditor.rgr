@@ -130,6 +130,21 @@ class ScriptEditorTheme {
     }
 }
 
+; Someone else in the same text (real-time editing): where their caret and
+; selection are, in their colour, with their name on a flag over the caret.
+; The host keeps these in step with the text; the editor only paints them.
+class EditorPeer {
+    def line:int 0
+    def col:int 0
+    def anchorLine:int 0
+    def anchorCol:int 0
+    def color:EVGColor (EVGColor.rgb(234 88 12))
+    def name:string ""
+
+    Constructor () {
+    }
+}
+
 class ScriptEditor {
     def buf:EditorBuffer (new EditorBuffer)
     def sel:EditorSelection (new EditorSelection)
@@ -212,6 +227,8 @@ class ScriptEditor {
     ; Last renderer that painted or hit-tested, so a key that must keep the
     ; caret on screen can measure without the host threading one through.
     def measureTr@(optional):UITextRenderer
+    ; Other people in this text (see EditorPeer).
+    def peers:[EditorPeer]
 
     ; --- font size -------------------------------------------------------------
     ; The text's size, zoomed by the host (Ctrl/Cmd + plus and minus) in whole
@@ -1349,6 +1366,11 @@ class ScriptEditor {
             this.paintSelection(dl tr first last)
             this.popClip(dl)
         }
+        if ((array_length peers) > 0) {
+            this.pushClip(dl textX y0 textW textH)
+            this.paintPeerSelections(dl tr first last)
+            this.popClip(dl)
+        }
 
         ; Diff bands under the text, over the current-line band: the change
         ; is what this view is for.
@@ -1411,6 +1433,7 @@ class ScriptEditor {
                 }
             }
         }
+        this.paintPeerCarets(dl tr first last y0)
         ; The completion list, over the text and inside the panel's clip: a
         ; popup that could be drawn outside the editor would be drawn over the
         ; status bar the first time someone typed on the last line.
@@ -2058,6 +2081,149 @@ class ScriptEditor {
         layout.ensureCaretVisible(buf sel)
         this.ensureCaretX()
         dirty = true
+    }
+
+    ; --- other people's edits and carets ---------------------------------------
+
+    ; A colleague's replace of [start, end) with `text`: the caret, the
+    ; selection and the first line shown stay on the text they were on, and
+    ; the undo steps stay this person's (EditorBuffer.applyRemote).
+    fn applyRemote:void (startLine:int startCol:int endLine:int endCol:int text:string) {
+        def x0:EditorPos (EditorPos.create(startLine startCol))
+        def x1:EditorPos (EditorPos.create(endLine endCol))
+        buf.clampPos(x0)
+        buf.clampPos(x1)
+        if ((EditorBuffer.order(x0.line x0.col x1.line x1.col)) > 0) {
+            def t:EditorPos x0
+            x0 = x1
+            x1 = t
+        }
+        def c:EditorPos (EditorBuffer.mapPos(sel.caret x0 x1 text false))
+        def a:EditorPos (EditorBuffer.mapPos(sel.anchor x0 x1 text false))
+        def top:EditorPos (EditorBuffer.mapPos((EditorPos.create(layout.scrollLine 0)) x0 x1 text true))
+        if (completionOpen && ((x0.line <= sel.caret.line) && (x1.line >= sel.caret.line))) {
+            this.closeCompletions()
+        }
+        buf.applyRemote(x0.line x0.col x1.line x1.col text)
+        sel.setAnchor(a.line a.col)
+        sel.setCaret(c.line c.col)
+        buf.clampPos(sel.anchor)
+        buf.clampPos(sel.caret)
+        if (x0.line < layout.scrollLine) {
+            layout.scrollLine = top.line
+        }
+        dirty = true
+    }
+
+    ; the same with string offsets (UTF-16 units)
+    fn applyRemoteAt:void (offset:int removed:int text:string) {
+        def a:EditorPos (buf.posAt(offset))
+        def b:EditorPos (buf.posAt((offset + removed)))
+        this.applyRemote(a.line a.col b.line b.col text)
+    }
+
+    fn caretOffset:int () {
+        return (buf.offsetOf(sel.caret.line sel.caret.col))
+    }
+
+    fn anchorOffset:int () {
+        return (buf.offsetOf(sel.anchor.line sel.anchor.col))
+    }
+
+    fn clearPeers:void () {
+        clear peers
+    }
+
+    ; a person at text offsets (caret, anchor)
+    fn addPeer:void (name:string r:int g:int b:int caret:int anchor:int) {
+        def p:EditorPeer (new EditorPeer())
+        def c:EditorPos (buf.posAt(caret))
+        def a:EditorPos (buf.posAt(anchor))
+        p.line = c.line
+        p.col = c.col
+        p.anchorLine = a.line
+        p.anchorCol = a.col
+        p.color = (EVGColor.rgb(r g b))
+        p.name = name
+        push peers p
+    }
+
+    fn paintPeerSelections:void (dl:EVGDisplayList tr:UITextRenderer first:int last:int) {
+        for peers p:EditorPeer i {
+            def c:int (EditorBuffer.order(p.anchorLine p.anchorCol p.line p.col))
+            if (c == 0) {
+                continue
+            }
+            def aL:int p.anchorLine
+            def aC:int p.anchorCol
+            def bL:int p.line
+            def bC:int p.col
+            if (c > 0) {
+                aL = p.line
+                aC = p.col
+                bL = p.anchorLine
+                bC = p.anchorCol
+            }
+            def band:EVGColor (EVGColor.rgba((p.color.red()) (p.color.green()) (p.color.blue()) 0.28))
+            def line:int aL
+            if (line < first) {
+                line = first
+            }
+            while ((line <= bL) && (line <= last)) {
+                def len:int (strlen (buf.lineAt(line)))
+                def c0:int 0
+                def c1:int len
+                if (line == aL) {
+                    c0 = aC
+                }
+                if (line == bL) {
+                    c1 = bC
+                }
+                if (c0 > len) {
+                    c0 = len
+                }
+                if (c1 > len) {
+                    c1 = len
+                }
+                def px0:int (this.caretViewX(tr line c0))
+                def px1:int (this.caretViewX(tr line c1))
+                if (line < bL) {
+                    px1 = (px1 + 6)
+                }
+                if ((px1 - px0) < 2) {
+                    px1 = (px0 + 2)
+                }
+                this.pushRect(dl (to_double px0) (to_double (layout.caretPixelY(line))) (to_double (px1 - px0)) (to_double layout.lineHeight) band)
+                line = (line + 1)
+            }
+        }
+    }
+
+    ; each colleague's caret, always on (a blinking stranger's caret reads
+    ; as one's own), with their name on a flag above it, or below it on the
+    ; first line shown
+    fn paintPeerCarets:void (dl:EVGDisplayList tr:UITextRenderer first:int last:int top:double) {
+        for peers p:EditorPeer i {
+            if ((p.line < first) || (p.line > last)) {
+                continue
+            }
+            def cx:double (to_double (this.caretViewX(tr p.line p.col)))
+            def cy:double (to_double (layout.caretPixelY(p.line)))
+            def lh:double (to_double layout.lineHeight)
+            this.pushRect(dl cx cy 2.0 lh p.color)
+            if ((strlen p.name) == 0) {
+                continue
+            }
+            def size:double (layout.fontSize * 0.75)
+            def tw:double (tr.measureWidth(p.name size))
+            def fh:double ((tr.lineHeight(size)) + 2.0)
+            def fy:double (cy - fh)
+            if (fy < top) {
+                fy = (cy + lh)
+            }
+            this.pushRect(dl cx fy (tw + 8.0) fh p.color)
+            this.pushText(dl tr p.name (cx + 4.0) (fy + 1.0) size (EVGColor.rgb(255 255 255)))
+        }
     }
 
     fn moveCaret:void (line:int col:int extend:boolean) {

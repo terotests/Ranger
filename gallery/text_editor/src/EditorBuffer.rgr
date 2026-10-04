@@ -663,4 +663,195 @@ class EditorBuffer {
         }
         return n
     }
+
+    ; --- edits made elsewhere ---------------------------------------------------
+    ; In real-time editing a colleague's edit arrives while this buffer is
+    ; being typed in. It goes in as a replace that is not an undo step of this
+    ; person's, and the undo and redo steps are moved over it, so Ctrl+Z still
+    ; takes back this person's own last edit and nobody else's. A step the
+    ; colleague edited inside (their edit overlaps the text the step would
+    ; change) cannot be taken back exactly any more: it and the steps older
+    ; than it are dropped, never applied wrong.
+
+    ; the text as one string offset (UTF-16 units, a newline counts one)
+    fn offsetOf:int (line:int col:int) {
+        def p:EditorPos (EditorPos.create(line col))
+        this.clampPos(p)
+        def off:int 0
+        def i:int 0
+        while (i < p.line) {
+            off = ((off + (strlen (itemAt lines i))) + 1)
+            i = (i + 1)
+        }
+        return (off + p.col)
+    }
+
+    ; the position of a text offset (held inside the text)
+    fn posAt:EditorPos (offset:int) {
+        def left:int offset
+        if (left < 0) {
+            left = 0
+        }
+        def n:int (array_length lines)
+        def i:int 0
+        while (i < n) {
+            def len:int (strlen (itemAt lines i))
+            if ((left <= len) || (i == (n - 1))) {
+                if (left > len) {
+                    left = len
+                }
+                return (EditorPos.create(i left))
+            }
+            left = (left - (len + 1))
+            i = (i + 1)
+        }
+        return (EditorPos.create(0 0))
+    }
+
+    sfn order:int (aLine:int aCol:int bLine:int bCol:int) {
+        if (aLine != bLine) {
+            if (aLine < bLine) {
+                return -1
+            }
+            return 1
+        }
+        if (aCol < bCol) {
+            return -1
+        }
+        if (aCol > bCol) {
+            return 1
+        }
+        return 0
+    }
+
+    ; where `text` ends when written from (line, col)
+    sfn walk:EditorPos (line:int col:int text:string) {
+        def l:int line
+        def c:int col
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            if ((charAt text i) == 10) {
+                l = (l + 1)
+                c = 0
+            } {
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return (EditorPos.create(l c))
+    }
+
+    ; where position p is after [x0, x1) was replaced by `text`. A position
+    ; inside the replaced text goes to its start. `tieAfter`: at the place of
+    ; a pure insert, the position goes after the inserted text.
+    sfn mapPos:EditorPos (p:EditorPos x0:EditorPos x1:EditorPos text:string tieAfter:boolean) {
+        def c0:int (EditorBuffer.order(p.line p.col x0.line x0.col))
+        if (c0 < 0) {
+            return (EditorPos.create(p.line p.col))
+        }
+        def empty:boolean ((EditorBuffer.order(x0.line x0.col x1.line x1.col)) == 0)
+        if (c0 == 0) {
+            if ((empty == false) || (tieAfter == false)) {
+                return (EditorPos.create(p.line p.col))
+            }
+        }
+        if ((EditorBuffer.order(p.line p.col x1.line x1.col)) < 0) {
+            return (EditorPos.create(x0.line x0.col))
+        }
+        def end:EditorPos (EditorBuffer.walk(x0.line x0.col text))
+        if (p.line == x1.line) {
+            return (EditorPos.create(end.line (end.col + (p.col - x1.col))))
+        }
+        return (EditorPos.create((p.line + (end.line - x1.line)) p.col))
+    }
+
+    ; do [a0, a1) and [x0, x1) touch text both would change
+    sfn overlaps:boolean (a0:EditorPos a1:EditorPos x0:EditorPos x1:EditorPos) {
+        def aEmpty:boolean ((EditorBuffer.order(a0.line a0.col a1.line a1.col)) == 0)
+        def xEmpty:boolean ((EditorBuffer.order(x0.line x0.col x1.line x1.col)) == 0)
+        def xa1:int (EditorBuffer.order(x0.line x0.col a1.line a1.col))
+        def ax1:int (EditorBuffer.order(a0.line a0.col x1.line x1.col))
+        def ax0:int (EditorBuffer.order(a0.line a0.col x0.line x0.col))
+        if (aEmpty && xEmpty) {
+            return false
+        }
+        if (xEmpty) {
+            return ((ax0 < 0) && (xa1 < 0))
+        }
+        if (aEmpty) {
+            return ((ax0 > 0) && (ax1 < 0))
+        }
+        return ((xa1 < 0) && (ax1 < 0))
+    }
+
+    ; the steps of one stack (top last) moved over the replace [x0, x1) ->
+    ; text, made on the text the top step applies to
+    fn rebaseStack:void (stack:[EditorUndoOp] isUndo:boolean x0In:EditorPos x1In:EditorPos textIn:string) {
+        def x0:EditorPos (EditorPos.create(x0In.line x0In.col))
+        def x1:EditorPos (EditorPos.create(x1In.line x1In.col))
+        def text:string textIn
+        def k:int ((array_length stack) - 1)
+        while (k >= 0) {
+            def e:EditorUndoOp (itemAt stack k)
+            ; the step as a replace: undo puts `deleted` over what it
+            ; inserted, redo puts `inserted` back over `deleted`
+            def a0:EditorPos (EditorPos.create(e.startLine e.startCol))
+            def a1:EditorPos (EditorPos.create(e.endLine e.endCol))
+            def put:string e.deleted
+            if (isUndo == false) {
+                a1 = (EditorBuffer.walk(e.startLine e.startCol e.deleted))
+                put = e.inserted
+            }
+            if (EditorBuffer.overlaps(a0 a1 x0 x1)) {
+                ; this step and the older ones go
+                def j:int 0
+                while (j <= k) {
+                    remove_index stack 0
+                    j = (j + 1)
+                }
+                return
+            }
+            def aEmpty:boolean ((EditorBuffer.order(a0.line a0.col a1.line a1.col)) == 0)
+            def xEmpty:boolean ((EditorBuffer.order(x0.line x0.col x1.line x1.col)) == 0)
+            ; the step after the colleague's edit
+            def na0:EditorPos (EditorBuffer.mapPos(a0 x0 x1 text true))
+            def na1:EditorPos na0
+            if (aEmpty == false) {
+                na1 = (EditorBuffer.mapPos(a1 x0 x1 text false))
+            }
+            ; the colleague's edit after the step (for the steps below it)
+            def tie:boolean ((aEmpty && (xEmpty == false)) && ((EditorBuffer.order(a0.line a0.col x0.line x0.col)) == 0))
+            def nx0:EditorPos (EditorBuffer.mapPos(x0 a0 a1 put tie))
+            def nx1:EditorPos nx0
+            if (xEmpty == false) {
+                nx1 = (EditorBuffer.mapPos(x1 a0 a1 put false))
+            }
+            e.startLine = na0.line
+            e.startCol = na0.col
+            if isUndo {
+                e.endLine = na1.line
+                e.endCol = na1.col
+            }
+            x0 = nx0
+            x1 = nx1
+            k = (k - 1)
+        }
+    }
+
+    ; a colleague's replace of [start, end) with `text`
+    fn applyRemote:void (startLine:int startCol:int endLine:int endCol:int text:string) {
+        def sp:EditorPos (EditorPos.create(startLine startCol))
+        def ep:EditorPos (EditorPos.create(endLine endCol))
+        this.clampPos(sp)
+        this.clampPos(ep)
+        if ((EditorBuffer.order(sp.line sp.col ep.line ep.col)) > 0) {
+            def t:EditorPos sp
+            sp = ep
+            ep = t
+        }
+        this.rebaseStack(undoStack true sp ep text)
+        this.rebaseStack(redoStack false sp ep text)
+        this.replaceRange(sp.line sp.col ep.line ep.col text false)
+    }
 }
