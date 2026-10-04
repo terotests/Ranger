@@ -43,31 +43,6 @@
       ]
     },
     {
-      "id": "markdown",
-      "title": "Markdown to PDF, with diagrams",
-      "does": "A Markdown document with ```mermaid, ```plantuml, ```dot, ```d2 and ```vega-lite fences, laid out and printed. The diagrams are geometry, not pictures.",
-      "needs": "repo",
-      "run": "npm run markdown:demo",
-      "where": "gallery/markdown",
-      "teaches": [
-        "document pipeline",
-        "diagrams as vectors",
-        "charts from a spec"
-      ]
-    },
-    {
-      "id": "deck",
-      "title": "Markdown to PowerPoint",
-      "does": "The same document as a .pptx whose shapes are real shapes — selectable, movable, not a picture of a slide.",
-      "needs": "repo",
-      "run": "npm run deck -- <in.md> <out.pptx>",
-      "where": "gallery/markdown/src/md_deck_tool.rgr",
-      "teaches": [
-        "OOXML writing",
-        "a deck from a document"
-      ]
-    },
-    {
       "id": "figma",
       "title": "A Figma file, written and read",
       "does": "Reads a .fig (Kiwi + zstd) and writes one: frames, text, vector networks, a thumbnail. Round-trips a running app's screens into a design file.",
@@ -94,18 +69,6 @@
       ]
     },
     {
-      "id": "flow",
-      "title": "Diagrams from text",
-      "does": "Mermaid, PlantUML, Graphviz and D2 parsed and laid out by RangerFlow — a graph engine with its own routing.",
-      "needs": "repo",
-      "run": "npm run rangerflow:demo",
-      "where": "gallery/rangerflow",
-      "teaches": [
-        "graph layout",
-        "four notations, one scene"
-      ]
-    },
-    {
       "id": "rave",
       "title": "An application, not a picture of one",
       "does": "A routed, responsive, accessible app written as HTML-shaped markup and checked without a browser.",
@@ -116,18 +79,6 @@
       "teaches": [
         "app structure",
         "checking accessibility without a browser"
-      ]
-    },
-    {
-      "id": "codegraph",
-      "title": "Reading a codebase",
-      "does": "Analyses a JavaScript or C++ project and draws its classes, dependencies and sources as a navigable graph.",
-      "needs": "repo",
-      "run": "npm run codegraph:web",
-      "where": "gallery/codegraph",
-      "teaches": [
-        "parsers over real code",
-        "a tool that reads a tree"
       ]
     },
     {
