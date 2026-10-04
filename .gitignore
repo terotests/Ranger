@@ -214,7 +214,7 @@ gallery/vfs/bin/
 # …except the markdown editor's own picture fixture, which is an INPUT rather
 # than an output: `picture.md` names it, the page's self test reads its size
 # out of the PNG header, and the deployed sample needs it beside the document.
-!gallery/markdown/fixtures/logo.png
+
 
 # Screens exported for inspection — regenerate with `npm run rt:evg`.
 gallery/realtrainer/out/
@@ -269,3 +269,8 @@ compiler/bin/api.ts
 # https://github.com/terotests/EVGUI, which is cloned (or copied by its
 # scripts) to gallery/evgui to build against this checkout.
 gallery/evgui/
+
+# Moved out of Ranger, cloned here to build what imports them:
+# https://github.com/terotests/RangerFlow and https://github.com/terotests/RangerMarkdown
+gallery/rangerflow/
+gallery/markdown/

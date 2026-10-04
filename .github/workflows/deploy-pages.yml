@@ -55,17 +55,6 @@
 #                the bundle is on its way.
 #                /evg/responsive/?painter=dom is the same painter on the
 #                responsive page.
-#   /rangerflow/ -> the node-graph editor: a database schema parsed from a .sql
-#                file in the tab, a UML class diagram, a swimlane process — and
-#                a box you paste Mermaid into, rendered by RangerFlow's own
-#                reader, laid out by its own layered layout and drawn on the
-#                GPU. Every demo in the dropdown is checked on every push by
-#                `rangerflow:web:test`, which drives this same page in headless
-#                Chrome.
-#   /codegraph/ -> a call-graph explorer of Ranger source. VirtualCompiler in
-#                the tab walks example .rgr files (Order/LineItem, animals);
-#                class list, history, paged windows of ≤ 24 boxes. RangerFlow
-#                draws the window; the chrome is this app.
 #   /figma/   -> the Figma .fig / .deck reader: it opens on a real Figma
 #                export (fixtures/health.fig) and takes any other file you
 #                upload or paste in the tab, parsing it (ZIP → kiwi → node
@@ -81,18 +70,6 @@
 #                against.
 #                Timed against OpenFig on the same bytes when that library
 #                is present; the sample deck is built from Ranger.
-#   /markdown/ -> the markdown viewer: a CommonMark parser written in Ranger,
-#                laid out by its own line breaker and drawn on the GPU. Type in
-#                the left pane and the right one redraws; ```mermaid fences are
-#                read by RangerFlow's reader and land on the page as geometry,
-#                not as pictures. **Download PDF** builds the file in the tab —
-#                sheets, page breaks and embedded fonts — with no server.
-#   /r5/      -> the same markdown engine under a chrome that is itself a
-#                Ranger program: one EVG tree, a stylesheet whose @media blocks
-#                fold the rail into a bottom bar at 768px, the choices behind
-#                sheets, and the source typed into the code editor from
-#                gallery/datagrid — full-screen tabs on a phone, panes side by
-#                side on a desk. Same exports, same views, one canvas.
 #   /ui/      -> redirects only. The EVG controller gallery (/ui/demo/ and
 #                /ui/web/) moved to https://github.com/terotests/EVGUI and is
 #                published at https://terotests.github.io/EVGUI/; /ui/,
@@ -167,18 +144,6 @@ on:
       # already; without this line a merge that touches only Rave left the
       # site showing the editor as it was.
       - "gallery/rave/**"
-      # The graph editor at /rangerflow/ is built from these — the domains it
-      # reads (SQL, UML, Mermaid), the layout and the exporters included.
-      - "gallery/rangerflow/**"
-      # Call-graph explorer at /codegraph/. Uses RangerFlow as a drawing
-      # library; its chrome is not the RangerFlow editor.
-      - "gallery/codegraph/**"
-      # The markdown viewer at /markdown/. It draws its diagrams through
-      # rangerflow's Mermaid reader, which is why that path is above this one.
-      - "gallery/markdown/**"
-      # r5 at /r5/ is the markdown engine under a Ranger chrome, typed into
-      # the code editor from gallery/datagrid.
-      - "gallery/r5/**"
       - "gallery/datagrid/src/script/**"
       - "gallery/text_editor/src/**"
       - "gallery/zip/**"
@@ -551,141 +516,6 @@ jobs:
 
       - name: Check Rave draws its editor
         run: node gallery/rave/web/smoke.mjs
-
-      # ---- The markdown viewer at /markdown/ -------------------------------
-      # A CommonMark parser in Ranger, its own line breaker, and the same WebGL
-      # painter every other page here uses. The build script compiles the
-      # facade and checks the bundle defines its class with `require` undefined
-      # — which is what a browser looks like, and which is also the only proof
-      # that the PDF writer on this page never reaches for a file.
-      - name: Build the markdown viewer
-        run: bash gallery/markdown/web/standalone/build.sh --out "$GITHUB_WORKSPACE/_site/markdown"
-
-      - name: Check the markdown page has an engine
-        run: |
-          test -s "$GITHUB_WORKSPACE/_site/markdown/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
-          test -s "$GITHUB_WORKSPACE/_site/markdown/standalone.mjs"
-          test -s "$GITHUB_WORKSPACE/_site/markdown/gl/evg-webgl.js"
-          test -s "$GITHUB_WORKSPACE/_site/markdown/host/pptx-host.mjs"
-          test -s "$GITHUB_WORKSPACE/_site/markdown/host/docx-host.mjs"
-          test -s "$GITHUB_WORKSPACE/_site/markdown/presets.txt"
-          # The page fetches these itself on load, so a missing one is a blank
-          # canvas rather than a 404 anyone would notice.
-          test -s "$GITHUB_WORKSPACE/_site/markdown/fonts/OpenSans-Regular.ttf"
-          test -s "$GITHUB_WORKSPACE/_site/markdown/fonts/OpenSans-Bold.ttf"
-          test -s "$GITHUB_WORKSPACE/_site/markdown/samples/mermaid.md"
-          test -s "$GITHUB_WORKSPACE/_site/markdown/samples/diagrams.md"
-          test -s "$GITHUB_WORKSPACE/_site/markdown/samples/deck.md"
-          test -s "$GITHUB_WORKSPACE/_site/markdown/themes/corporate.css"
-          test -s "$GITHUB_WORKSPACE/_site/markdown/themes/editorial.css"
-          grep -q "MarkdownWeb" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
-          # Without a reader in the bundle every fence in that notation
-          # renders as a code block, which no screenshot would flag.
-          grep -q "MermaidRender" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
-          grep -q "PlantUmlRender" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
-          grep -q "DotRender" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
-          grep -q "D2Render" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
-          # …and the deck export, which is a different module again: without
-          # it the PPTX button is a button that throws.
-          grep -q "MdToPptx" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
-          grep -q "MdThemes" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
-
-      # ---- r5 at /r5/ ------------------------------------------------------
-      # The markdown engine again, under a chrome drawn by EVG from a Ranger
-      # program rather than an HTML form. The build script compiles the app
-      # and checks the bundle defines its class with `require` undefined.
-      - name: Build r5
-        run: bash gallery/r5/web/build.sh --out "$GITHUB_WORKSPACE/_site/r5"
-
-      - name: Check the r5 page has an engine
-        run: |
-          test -s "$GITHUB_WORKSPACE/_site/r5/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/r5/r5_app.js"
-          test -s "$GITHUB_WORKSPACE/_site/r5/main.js"
-          test -s "$GITHUB_WORKSPACE/_site/r5/r5.css"
-          test -s "$GITHUB_WORKSPACE/_site/r5/gl/evg-webgl.js"
-          test -s "$GITHUB_WORKSPACE/_site/r5/gl/evg-a11y.js"
-          test -s "$GITHUB_WORKSPACE/_site/r5/host/pptx-host.mjs"
-          test -s "$GITHUB_WORKSPACE/_site/r5/host/docx-host.mjs"
-          test -s "$GITHUB_WORKSPACE/_site/r5/presets.txt"
-          test -s "$GITHUB_WORKSPACE/_site/r5/fonts/OpenSans-Regular.ttf"
-          test -s "$GITHUB_WORKSPACE/_site/r5/samples/mermaid.md"
-          test -s "$GITHUB_WORKSPACE/_site/r5/samples/deck.md"
-          test -s "$GITHUB_WORKSPACE/_site/r5/themes/corporate.css"
-          grep -q "R5App" "$GITHUB_WORKSPACE/_site/r5/r5_app.js"
-          # The chrome's tokenizer and the editor it feeds; without them the
-          # page is the old viewer with a bar under it.
-          grep -q "R5MdLanguage" "$GITHUB_WORKSPACE/_site/r5/r5_app.js"
-          grep -q "ScriptEditor" "$GITHUB_WORKSPACE/_site/r5/r5_app.js"
-          grep -q "MarkdownWeb" "$GITHUB_WORKSPACE/_site/r5/r5_app.js"
-
-      # The steps above only prove the files are there. This one opens the
-      # page in headless Chrome and lets it check itself: the rail, the
-      # editor, a keystroke crossing to the markdown, a sheet, a PDF, and
-      # the chrome folded to a phone's width.
-      - name: Check the r5 page works in a browser
-        run: node gallery/r5/web/smoke.mjs --dist "$GITHUB_WORKSPACE/_site/r5"
-
-      # ---- RangerFlow at /rangerflow/ --------------------------------------
-      # The graph editor with no host process: the schema is parsed in the tab,
-      # the Mermaid box is read by the same reader the tests drive, and the
-      # scene is drawn by the shared WebGL painter. The build script compiles
-      # the facade and checks that the bundle defines its class with `require`
-      # undefined — which is what a browser looks like.
-      - name: Build the RangerFlow editor
-        run: bash gallery/rangerflow/web/standalone/build.sh --out "$GITHUB_WORKSPACE/_site/rangerflow"
-
-      - name: Check the RangerFlow page has an engine
-        run: |
-          test -s "$GITHUB_WORKSPACE/_site/rangerflow/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/rangerflow/rangerflow_web.js"
-          test -s "$GITHUB_WORKSPACE/_site/rangerflow/standalone.mjs"
-          test -s "$GITHUB_WORKSPACE/_site/rangerflow/gl/evg-webgl.js"
-          # The page fetches this by itself on load, so a missing fixture is an
-          # empty canvas rather than a 404 anyone would notice.
-          test -s "$GITHUB_WORKSPACE/_site/rangerflow/ecommerce.sql"
-          test -s "$GITHUB_WORKSPACE/_site/rangerflow/fonts/NotoSans-Regular.ttf"
-          grep -q "RangerFlowWeb" "$GITHUB_WORKSPACE/_site/rangerflow/rangerflow_web.js"
-          # The Mermaid box is part of the page rather than a separate demo;
-          # without the reader in the bundle the dropdown has an entry that
-          # renders nothing. The bundle is minified, so a class name is gone --
-          # `framed-rectangle` is a shape alias only MermaidReader spells out.
-          grep -q "framed-rectangle" "$GITHUB_WORKSPACE/_site/rangerflow/rangerflow_web.js"
-
-      # ---- CodeGraph at /codegraph/ ----------------------------------------
-      # A call-graph explorer with its own chrome (class list, breadcrumb,
-      # history, example source). VirtualCompiler in the tab walks .rgr
-      # files; RangerFlow is the drawing library, not the UI.
-      - name: Build the CodeGraph explorer
-        run: bash gallery/codegraph/web/standalone/build.sh --out "$GITHUB_WORKSPACE/_site/codegraph"
-
-      - name: Check the CodeGraph page has an engine
-        run: |
-          test -s "$GITHUB_WORKSPACE/_site/codegraph/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/codegraph/codegraph_web.js"
-          test -s "$GITHUB_WORKSPACE/_site/codegraph/standalone.mjs"
-          test -s "$GITHUB_WORKSPACE/_site/codegraph/node-shim.js"
-          test -s "$GITHUB_WORKSPACE/_site/codegraph/compileEnv.json"
-          test -s "$GITHUB_WORKSPACE/_site/codegraph/examples/calls.rgr"
-          test -s "$GITHUB_WORKSPACE/_site/codegraph/examples/animals.rgr"
-          test -s "$GITHUB_WORKSPACE/_site/codegraph/compilerSources.json"
-          grep -q "VirtualCompiler.rgr" "$GITHUB_WORKSPACE/_site/codegraph/compilerSources.json"
-          test -s "$GITHUB_WORKSPACE/_site/codegraph/gl/evg-webgl.js"
-          test -s "$GITHUB_WORKSPACE/_site/codegraph/fonts/NotoSans-Regular.ttf"
-          grep -q "CodeGraphWeb" "$GITHUB_WORKSPACE/_site/codegraph/codegraph_web.js"
-          grep -q "VirtualCompiler" "$GITHUB_WORKSPACE/_site/codegraph/codegraph_web.js"
-
-      # Does the engine agree with ITSELF? The frame is published twice — as
-      # JSON, where every field arrives with its name, and as packed
-      # Int32Arrays, which are positional and can be misread in silence. This
-      # needs no toolchain and takes a second, so it runs here rather than
-      # after the Emscripten install below: a decoder that has the record's
-      # shape wrong fails the parity step at the end of this job with a
-      # RangeError a hundred fields downstream of the cause, which is exactly
-      # how the 24-to-26 stride change was found, the hard way.
-      - name: Check the frame survives being packed
-        run: node gallery/pptx/web/host/scene-binary-check.mjs
 
       # ---- The same editor, as WebAssembly, at /pptx-wasm/ ----------------
       # Ranger -> C++ -> Emscripten -> WASM. This is the only route that
