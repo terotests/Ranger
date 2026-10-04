@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 class ZipBuffer  {
   constructor() {
-    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.data = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.pos = 0;
     this.length = 0;
   }
@@ -11,7 +11,7 @@ class ZipBuffer  {
     this.pos = 0;
   };
   initWithSize (size) {
-    this.data = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    this.data = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(size));
     this.length = size;
     this.pos = 0;
   };
@@ -44,17 +44,17 @@ class ZipBuffer  {
   readUint16LE () {
     const b0 = this.readUint8();
     const b1 = this.readUint8();
-    return b0 + (b1 * 256);
+    return b0 + b1 * 256;
   };
   readUint32LE () {
     const b0 = this.readUint8();
     const b1 = this.readUint8();
     const b2 = this.readUint8();
     const b3 = this.readUint8();
-    return ((b0 + (b1 * 256)) + (b2 * 65536)) + (b3 * 16777216);
+    return ((b0 + b1 * 256) + b2 * 65536) + b3 * 16777216;
   };
   readBytes (count) {
-    let result = (function(){ var b = new ArrayBuffer(count); b._view = new DataView(b); return b; })();
+    let result = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(count));
     let i = 0;
     while (i < count) {
       if ( this.pos < this.length ) {
@@ -72,7 +72,7 @@ class ZipBuffer  {
     while (i < count) {
       if ( this.pos < this.length ) {
         const ch = this.data._view.getUint8(this.pos);
-        result = result + (String.fromCharCode(ch));
+        result = result + String.fromCharCode(ch);
         this.pos = this.pos + 1;
       }
       i = i + 1;
@@ -99,15 +99,15 @@ class ZipBuffer  {
   };
   writeUint16LE (value) {
     const b0 = (value & 255);
-    const b1 = (((value >>> 8)) & 255);
+    const b1 = ((value >>> 8) & 255);
     this.writeUint8(b0);
     this.writeUint8(b1);
   };
   writeUint32LE (value) {
     const b0 = (value & 255);
-    const b1 = (((value >>> 8)) & 255);
-    const b2 = (((value >>> 16)) & 255);
-    const b3 = (((value >>> 24)) & 255);
+    const b1 = ((value >>> 8) & 255);
+    const b2 = ((value >>> 16) & 255);
+    const b3 = ((value >>> 24) & 255);
     this.writeUint8(b0);
     this.writeUint8(b1);
     this.writeUint8(b2);
@@ -116,7 +116,7 @@ class ZipBuffer  {
   writeBytes (src, srcOffset, count) {
     let i = 0;
     while (i < count) {
-      const b = src._view.getUint8((srcOffset + i));
+      const b = src._view.getUint8(srcOffset + i);
       this.writeUint8(b);
       i = i + 1;
     };
@@ -160,13 +160,13 @@ class GrowableZipBuffer  {
     this.chunks = [];
     this.chunkLens = [];
     this.chunkSize = 65536;
-    this.currentChunk = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.currentChunk = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.currentPos = 0;
     this.totalSize = 0;
     this.currentPos = 0;
     this.totalSize = 0;
     const initSize = this.chunkSize;
-    this.currentChunk = (function(){ var b = new ArrayBuffer(initSize); b._view = new DataView(b); return b; })();
+    this.currentChunk = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(initSize));
   }
   setChunkSize (size) {
     if ( size < 1 ) {
@@ -176,14 +176,14 @@ class GrowableZipBuffer  {
       return;
     }
     this.chunkSize = size;
-    this.currentChunk = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    this.currentChunk = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(size));
     this.currentPos = 0;
   };
   allocateNewChunk () {
     this.chunks.push(this.currentChunk);
     this.chunkLens.push(this.currentPos);
     const size = this.chunkSize;
-    this.currentChunk = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    this.currentChunk = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(size));
     this.currentPos = 0;
   };
   writeUint8 (value) {
@@ -196,20 +196,20 @@ class GrowableZipBuffer  {
   };
   writeUint16LE (value) {
     const b0 = value % 256;
-    const b1D = (value) / 256.0;
-    const b1 = (Math.floor( b1D)) % 256;
+    const b1D = value / 256.0;
+    const b1 = Math.floor( b1D) % 256;
     this.writeUint8(b0);
     this.writeUint8(b1);
   };
   writeUint32LE (value) {
     const b0 = value % 256;
-    const rem1D = (value) / 256.0;
+    const rem1D = value / 256.0;
     const rem1 = Math.floor( rem1D);
     const b1 = rem1 % 256;
-    const rem2D = (rem1) / 256.0;
+    const rem2D = rem1 / 256.0;
     const rem2 = Math.floor( rem2D);
     const b2 = rem2 % 256;
-    const rem3D = (rem2) / 256.0;
+    const rem3D = rem2 / 256.0;
     const b3 = Math.floor( rem3D);
     this.writeUint8(b0);
     this.writeUint8(b1);
@@ -228,7 +228,13 @@ class GrowableZipBuffer  {
       if ( take > room ) {
         take = room;
       }
-      (function(d,dOff,s,sOff,len){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(this.currentChunk,this.currentPos,src,at,take);
+      (function(
+        d,
+        dOff,
+        s,
+        sOff,
+        len
+      ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(this.currentChunk,this.currentPos,src,at,take);
       this.currentPos = this.currentPos + take;
       this.totalSize = this.totalSize + take;
       at = at + take;
@@ -253,7 +259,7 @@ class GrowableZipBuffer  {
   };
   toBuffer () {
     const size = this.totalSize;
-    let result = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
+    let result = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(size));
     let destPos = 0;
     const numChunks = this.chunks.length;
     let i = 0;
@@ -261,7 +267,13 @@ class GrowableZipBuffer  {
       const chunk = this.chunks[i];
       const used = this.chunkLens[i];
       if ( used > 0 ) {
-        (function(d,dOff,s,sOff,len){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(result,destPos,chunk,0,used);
+        (function(
+          d,
+          dOff,
+          s,
+          sOff,
+          len
+        ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(result,destPos,chunk,0,used);
         destPos = destPos + used;
       }
       i = i + 1;
@@ -269,7 +281,13 @@ class GrowableZipBuffer  {
     const curPos = this.currentPos;
     if ( curPos > 0 ) {
       const curChunk = this.currentChunk;
-      (function(d,dOff,s,sOff,len){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(result,destPos,curChunk,0,curPos);
+      (function(
+        d,
+        dOff,
+        s,
+        sOff,
+        len
+      ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(result,destPos,curChunk,0,curPos);
       destPos = destPos + curPos;
     }
     return result;
@@ -291,14 +309,15 @@ class ZipEntry  {
     this.localHeaderOffset = 0;
     this.internalAttributes = 0;
     this.externalAttributes = 0;
-    this.extraField = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.extraField = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.comment = "";
+    this.data = undefined;     /* note: unused */
   }
   setFileName (name) {
     this.fileName = name;
     const __len = name.length;
     if ( __len > 0 ) {
-      const lastChar = name.charCodeAt((__len - 1) );
+      const lastChar = name.charCodeAt(__len - 1 );
       this.isDirectory = lastChar == 47;
     }
   };
@@ -319,55 +338,53 @@ class ZipEntry  {
     if ( yearOffset < 0 ) {
       yearOffset = 0;
     }
-    this.lastModDate = (day + (month * 32)) + (yearOffset * 512);
-    const sec2D = (second) / 2.0;
+    this.lastModDate = (day + month * 32) + yearOffset * 512;
+    const sec2D = second / 2.0;
     const sec2 = Math.floor( sec2D);
-    this.lastModTime = (sec2 + (minute * 32)) + (hour * 2048);
+    this.lastModTime = (sec2 + minute * 32) + hour * 2048;
   };
   getModYear () {
-    const yearOffsetD = (this.lastModDate) / 512.0;
-    return (Math.floor( yearOffsetD)) + 1980;
+    const yearOffsetD = this.lastModDate / 512.0;
+    return Math.floor( yearOffsetD) + 1980;
   };
   getModMonth () {
     const rem = this.lastModDate % 512;
-    const monthD = (rem) / 32.0;
+    const monthD = rem / 32.0;
     return Math.floor( monthD);
   };
   getModDay () {
     return this.lastModDate % 32;
   };
   getModHour () {
-    const hourD = (this.lastModTime) / 2048.0;
+    const hourD = this.lastModTime / 2048.0;
     return Math.floor( hourD);
   };
   getModMinute () {
     const rem = this.lastModTime % 2048;
-    const minD = (rem) / 32.0;
+    const minD = rem / 32.0;
     return Math.floor( minD);
   };
   getModSecond () {
     return (this.lastModTime % 32) * 2;
   };
   getInfoString () {
-    const sizeStr = (this.uncompressedSize.toString());
-    const compStr = (this.compressedSize.toString());
+    const sizeStr = ((this.uncompressedSize).toString());
+    const compStr = ((this.compressedSize).toString());
     let method = "stored";
     if ( this.compressionMethod == 8 ) {
       method = "deflate";
     }
-    const dateStr = (((((this.getModYear().toString())) + "-") + ((this.getModMonth().toString()))) + "-") + ((this.getModDay().toString()));
+    const dateStr = (((((this.getModYear()).toString()) + "-") + ((this.getModMonth()).toString())) + "-") + ((this.getModDay()).toString());
     return ((((((this.fileName + " (") + sizeStr) + " bytes, ") + method) + ", ") + dateStr) + ")";
   };
   getLocalHeaderSize () {
-    return (30 + (this.fileName.length)) + (this.extraField.byteLength);
+    return (30 + this.fileName.length) + this.extraField.byteLength;
   };
   getCentralHeaderSize () {
-    return ((46 + (this.fileName.length)) + (this.extraField.byteLength)) + (this.comment.length);
+    return ((46 + this.fileName.length) + this.extraField.byteLength) + this.comment.length;
   };
 }
 class ZipCompressionMethod  {
-  constructor() {
-  }
 }
 ZipCompressionMethod.STORED = function() {
   return 0;
@@ -376,8 +393,6 @@ ZipCompressionMethod.DEFLATE = function() {
   return 8;
 };
 class ZipSignature  {
-  constructor() {
-  }
 }
 ZipSignature.LOCAL_FILE_HEADER = function() {
   return 67324752;
@@ -402,8 +417,8 @@ class CRC32  {
       let crc = i;
       let j = 0;
       while (j < 8) {
-        if ( ((crc & 1)) == 1 ) {
-          crc = (((crc >>> 1)) ^ 3988292384);
+        if ( (crc & 1) == 1 ) {
+          crc = ((crc >>> 1) ^ 3988292384);
         } else {
           crc = (crc >>> 1);
         }
@@ -420,10 +435,10 @@ class CRC32  {
     }
     let i = 0;
     while (i < length) {
-      const b = data._view.getUint8((offset + i));
-      const index = (((crc ^ b)) & 255);
+      const b = data._view.getUint8(offset + i);
+      const index = ((crc ^ b) & 255);
       const tableValue = this.table[index];
-      crc = (((crc >>> 8)) ^ tableValue);
+      crc = ((crc >>> 8) ^ tableValue);
       i = i + 1;
     };
     return crc;
@@ -436,7 +451,7 @@ class CRC32  {
   };
   computeString (s) {
     const __len = s.length;
-    let data = (function(){ var b = new ArrayBuffer(__len); b._view = new DataView(b); return b; })();
+    let data = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(__len));
     let i = 0;
     while (i < __len) {
       const ch = s.charCodeAt(i );
@@ -455,6 +470,7 @@ CRC32.u32 = function(v) {
 };
 class CRC32Util  {
   constructor() {
+    this.instance = undefined;
   }
 }
 CRC32Util.getInstance = function() {
@@ -533,9 +549,9 @@ class InflateHuffmanTable  {
     let __len = 1;
     while (__len <= this.maxBits) {
       const bit = reader.readBit();
-      code = (code * 2) + bit;
+      code = code * 2 + bit;
       const count = this.counts[__len];
-      if ( (code - first) < count ) {
+      if ( code - first < count ) {
         return this.symbols[((index + code) - first)];
       }
       index = index + count;
@@ -547,7 +563,7 @@ class InflateHuffmanTable  {
 }
 class InflateBitReader  {
   constructor() {
-    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.data = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.bytePos = 0;
     this.bitPos = 0;
     this.currentByte = 0;
@@ -580,7 +596,7 @@ class InflateBitReader  {
     let i = 0;
     while (i < count) {
       const bit = this.readBit();
-      result = result + (bit * multiplier);
+      result = result + bit * multiplier;
       multiplier = multiplier * 2;
       i = i + 1;
     };
@@ -601,20 +617,20 @@ class InflateBitReader  {
   readUint16LE () {
     const b0 = this.readByte();
     const b1 = this.readByte();
-    return b0 + (b1 * 256);
+    return b0 + b1 * 256;
   };
   getBytePosition () {
     return this.bytePos;
   };
   isEOF () {
-    return (this.bytePos >= this.dataLength) && (this.bitPos == 0);
+    return this.bytePos >= this.dataLength && this.bitPos == 0;
   };
 }
 class Inflate  {
   constructor() {
-    this.input = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.input = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.reader = new InflateBitReader();
-    this.outBuf = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.outBuf = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.outLen = 0;
     this.outCap = 0;
     this.fixedLitLen = new InflateHuffmanTable();
@@ -631,7 +647,7 @@ class Inflate  {
     if ( cap < 4096 ) {
       cap = 4096;
     }
-    this.outBuf = (function(){ var b = new ArrayBuffer(cap); b._view = new DataView(b); return b; })();
+    this.outBuf = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(cap));
     this.outCap = cap;
     this.outLen = 0;
   };
@@ -644,8 +660,14 @@ class Inflate  {
     if ( newCap < need ) {
       newCap = need;
     }
-    let grown = (function(){ var b = new ArrayBuffer(newCap); b._view = new DataView(b); return b; })();
-    (function(d,dOff,s,sOff,len){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(grown,0,this.outBuf,0,this.outLen);
+    let grown = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(newCap));
+    (function(
+      d,
+      dOff,
+      s,
+      sOff,
+      len
+    ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(grown,0,this.outBuf,0,this.outLen);
     this.outBuf = grown;
     this.outCap = newCap;
   };
@@ -656,8 +678,14 @@ class Inflate  {
   };
   finalOutput () {
     const size = this.outLen;
-    let result = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
-    (function(d,dOff,s,sOff,len){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(result,0,this.outBuf,0,size);
+    let result = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(size));
+    (function(
+      d,
+      dOff,
+      s,
+      sOff,
+      len
+    ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(result,0,this.outBuf,0,size);
     return result;
   };
   buildLengthDistTables () {
@@ -821,10 +849,21 @@ class Inflate  {
     this.fixedTablesBuilt = true;
   };
   decompress (data) {
+    return this.decompressFrom(data, 0);
+  };
+  decompressFrom (data, offset) {
     this.input = data;
     const dataLen = data.byteLength;
-    this.resetOutput(dataLen * 4);
-    this.reader.init(data, 0, dataLen);
+    let from = offset;
+    if ( from < 0 ) {
+      from = 0;
+    }
+    if ( from > dataLen ) {
+      from = dataLen;
+    }
+    const rest = dataLen - from;
+    this.resetOutput(rest * 4);
+    this.reader.init(data, from, rest);
     this.buildFixedTables();
     let finalBlock = false;
     while (false == finalBlock) {
@@ -843,11 +882,14 @@ class Inflate  {
     };
     return this.finalOutput();
   };
+  inputPos () {
+    return this.reader.getBytePosition();
+  };
   decompressStored () {
     this.reader.alignToByte();
     const __len = this.reader.readUint16LE();
     const nlen = this.reader.readUint16LE();
-    if ( (__len + nlen) != 65535 ) {
+    if ( __len + nlen != 65535 ) {
     }
     this.ensureCapacity(__len);
     let i = 0;
@@ -1004,7 +1046,7 @@ class ZipReader  {
   constructor() {
     this.entries = [];
     this.entryMap = {};
-    this.data = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    this.data = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.reader = new ZipBuffer();
     this.comment = "";
     this.isOpen = false;
@@ -1013,7 +1055,7 @@ class ZipReader  {
     this.totalEntries = 0;
   }
   open (path, filename) {
-    return this.openBytes(((function(){ var b = require('fs').readFileSync(path + '/' + filename); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })()));
+    return this.openBytes(((function(){ var b = require('fs').readFileSync( require('path').join(path, filename) ); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; return Object.assign(ab, { _view: new DataView(ab) }); })()));
   };
   openBytes (bytes) {
     this.data = bytes;
@@ -1022,7 +1064,7 @@ class ZipReader  {
       console.log("Error: File too small to be a valid ZIP archive");
       return false;
     }
-    if ( ((((dataLen >= 8) && ((this.data._view.getUint8(0)) == 208)) && ((this.data._view.getUint8(1)) == 207)) && ((this.data._view.getUint8(2)) == 17)) && ((this.data._view.getUint8(3)) == 224) ) {
+    if ( (((dataLen >= 8 && this.data._view.getUint8(0) == 208) && this.data._view.getUint8(1) == 207) && this.data._view.getUint8(2) == 17) && this.data._view.getUint8(3) == 224 ) {
       console.log("Error: password-protected Office file (OLE compound); decrypt before opening as ZIP");
       return false;
     }
@@ -1051,7 +1093,7 @@ class ZipReader  {
     }
     let pos = searchStart;
     let found = false;
-    while ((pos >= searchEnd) && (false == found)) {
+    while (pos >= searchEnd && false == found) {
       this.reader.seek(pos);
       const sig = this.reader.readUint32LE();
       if ( sig == 101010256 ) {
@@ -1077,7 +1119,7 @@ class ZipReader  {
     while (i < this.totalEntries) {
       const sig = this.reader.readUint32LE();
       if ( sig != 33639248 ) {
-        console.log("Error: Invalid Central Directory signature at entry " + ((i.toString())));
+        console.log("Error: Invalid Central Directory signature at entry " + ((i).toString()));
         return false;
       }
       const entry = new ZipEntry();
@@ -1136,7 +1178,7 @@ class ZipReader  {
     const sig = this.reader.readUint32LE();
     if ( sig != 67324752 ) {
       console.log("Error: Invalid local file header signature");
-      return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+      return (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     }
     this.reader.skip(22);
     const localFileNameLen = this.reader.readUint16LE();
@@ -1144,7 +1186,7 @@ class ZipReader  {
     this.reader.skip(localFileNameLen);
     this.reader.skip(localExtraLen);
     const compressedData = this.reader.readBytes(entry.compressedSize);
-    let result = (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+    let result = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     if ( entry.compressionMethod == 0 ) {
       result = compressedData;
     }
@@ -1159,7 +1201,7 @@ class ZipReader  {
     const dataLen = fileData.byteLength;
     if ( dataLen == 0 ) {
       if ( entry.isDirectory ) {
-        require("fs").mkdirSync( outputPath);
+        require("fs").mkdirSync( outputPath, { recursive: true });
         return true;
       }
       return false;
@@ -1172,21 +1214,21 @@ class ZipReader  {
     let i = 0;
     while (i < pathLen) {
       const ch = fullPath.charCodeAt(i );
-      if ( (ch == 47) || (ch == 92) ) {
+      if ( ch == 47 || ch == 92 ) {
         lastSlash = i;
       }
       i = i + 1;
     };
     if ( lastSlash >= 0 ) {
       dir = fullPath.substring(0, lastSlash );
-      name = fullPath.substring((lastSlash + 1), pathLen );
+      name = fullPath.substring(lastSlash + 1, pathLen );
     }
-    if ( (dir.length) > 0 ) {
-      if ( false == (require("fs").existsSync( dir )) ) {
-        require("fs").mkdirSync( dir);
+    if ( dir.length > 0 ) {
+      if ( false == require("fs").existsSync( dir ) ) {
+        require("fs").mkdirSync( dir, { recursive: true });
       }
     }
-    require('fs').writeFileSync(dir + '/' + name, Buffer.from(fileData));
+    require('fs').writeFileSync(require('path').join(dir, name), Buffer.from(fileData));
     return true;
   };
   extractAll (outputPath) {
@@ -1207,10 +1249,10 @@ class ZipReader  {
   };
   printInfo () {
     console.log("ZIP Archive Info:");
-    console.log("  Total entries: " + ((this.totalEntries.toString())));
-    console.log("  Central dir offset: " + ((this.centralDirOffset.toString())));
-    console.log("  Central dir size: " + ((this.centralDirSize.toString())));
-    if ( (this.comment.length) > 0 ) {
+    console.log("  Total entries: " + ((this.totalEntries).toString()));
+    console.log("  Central dir offset: " + ((this.centralDirOffset).toString()));
+    console.log("  Central dir size: " + ((this.centralDirSize).toString()));
+    if ( this.comment.length > 0 ) {
       console.log("  Archive comment: " + this.comment);
     }
     console.log("");
@@ -1225,14 +1267,12 @@ class ZipReader  {
   };
 }
 class EVGCodepoint  {
-  constructor() {
-  }
 }
 EVGCodepoint.breaksAfter = function(c) {
-  if ( (c == 45) || (c == 8208) ) {
+  if ( c == 45 || c == 8208 ) {
     return true;
   }
-  if ( (c == 8211) || (c == 8212) ) {
+  if ( c == 8211 || c == 8212 ) {
     return true;
   }
   if ( c == 47 ) {
@@ -1253,10 +1293,10 @@ EVGCodepoint.stringIsBytes = function() {
   return ("ä".length) > 1;
 };
 EVGCodepoint.isHighSurrogate = function(u) {
-  return (u >= 55296) && (u <= 56319);
+  return u >= 55296 && u <= 56319;
 };
 EVGCodepoint.isLowSurrogate = function(u) {
-  return (u >= 56320) && (u <= 57343);
+  return u >= 56320 && u <= 57343;
 };
 EVGCodepoint.codeAt = function(s, i) {
   const u = s.charCodeAt(i );
@@ -1264,10 +1304,10 @@ EVGCodepoint.codeAt = function(s, i) {
     return EVGCodepoint.utf8CodeAt(s, i, u);
   }
   if ( EVGCodepoint.isHighSurrogate(u) ) {
-    if ( (i + 1) < (s.length) ) {
-      const lo = s.charCodeAt((i + 1) );
+    if ( i + 1 < s.length ) {
+      const lo = s.charCodeAt(i + 1 );
       if ( EVGCodepoint.isLowSurrogate(lo) ) {
-        return (((u - 55296) * 1024) + (lo - 56320)) + 65536;
+        return ((u - 55296) * 1024 + (lo - 56320)) + 65536;
       }
     }
   }
@@ -1278,32 +1318,32 @@ EVGCodepoint.utf8CodeAt = function(s, i, u) {
   if ( u < 128 ) {
     return u;
   }
-  if ( (u >= 192) && (u < 224) ) {
-    if ( (i + 1) < n ) {
-      const b1 = s.charCodeAt((i + 1) );
+  if ( u >= 192 && u < 224 ) {
+    if ( i + 1 < n ) {
+      const b1 = s.charCodeAt(i + 1 );
       if ( EVGCodepoint.isUtf8Cont(b1) ) {
-        return ((u - 192) * 64) + (b1 - 128);
+        return (u - 192) * 64 + (b1 - 128);
       }
     }
     return u;
   }
-  if ( (u >= 224) && (u < 240) ) {
-    if ( (i + 2) < n ) {
-      const c1 = s.charCodeAt((i + 1) );
-      const c2 = s.charCodeAt((i + 2) );
+  if ( u >= 224 && u < 240 ) {
+    if ( i + 2 < n ) {
+      const c1 = s.charCodeAt(i + 1 );
+      const c2 = s.charCodeAt(i + 2 );
       if ( EVGCodepoint.isUtf8Cont(c1) && EVGCodepoint.isUtf8Cont(c2) ) {
-        return (((u - 224) * 4096) + ((c1 - 128) * 64)) + (c2 - 128);
+        return ((u - 224) * 4096 + (c1 - 128) * 64) + (c2 - 128);
       }
     }
     return u;
   }
-  if ( (u >= 240) && (u < 248) ) {
-    if ( (i + 3) < n ) {
-      const d1 = s.charCodeAt((i + 1) );
-      const d2 = s.charCodeAt((i + 2) );
-      const d3 = s.charCodeAt((i + 3) );
+  if ( u >= 240 && u < 248 ) {
+    if ( i + 3 < n ) {
+      const d1 = s.charCodeAt(i + 1 );
+      const d2 = s.charCodeAt(i + 2 );
+      const d3 = s.charCodeAt(i + 3 );
       if ( (EVGCodepoint.isUtf8Cont(d1) && EVGCodepoint.isUtf8Cont(d2)) && EVGCodepoint.isUtf8Cont(d3) ) {
-        return ((((u - 240) * 262144) + ((d1 - 128) * 4096)) + ((d2 - 128) * 64)) + (d3 - 128);
+        return (((u - 240) * 262144 + (d1 - 128) * 4096) + (d2 - 128) * 64) + (d3 - 128);
       }
     }
     return u;
@@ -1311,7 +1351,7 @@ EVGCodepoint.utf8CodeAt = function(s, i, u) {
   return u;
 };
 EVGCodepoint.isUtf8Cont = function(b) {
-  return (b >= 128) && (b < 192);
+  return b >= 128 && b < 192;
 };
 EVGCodepoint.utf8UnitsAt = function(s, i) {
   const u = s.charCodeAt(i );
@@ -1319,27 +1359,27 @@ EVGCodepoint.utf8UnitsAt = function(s, i) {
   if ( u < 128 ) {
     return 1;
   }
-  if ( (u >= 192) && (u < 224) ) {
-    if ( (i + 1) < n ) {
-      if ( EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 1) ))) ) {
+  if ( u >= 192 && u < 224 ) {
+    if ( i + 1 < n ) {
+      if ( EVGCodepoint.isUtf8Cont(s.charCodeAt(i + 1 )) ) {
         return 2;
       }
     }
     return 1;
   }
-  if ( (u >= 224) && (u < 240) ) {
-    if ( (i + 2) < n ) {
-      if ( EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 1) ))) && EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 2) ))) ) {
+  if ( u >= 224 && u < 240 ) {
+    if ( i + 2 < n ) {
+      if ( EVGCodepoint.isUtf8Cont(s.charCodeAt(i + 1 )) && EVGCodepoint.isUtf8Cont(s.charCodeAt(i + 2 )) ) {
         return 3;
       }
     }
     return 1;
   }
-  if ( (u >= 240) && (u < 248) ) {
-    if ( (i + 3) < n ) {
-      const e1 = EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 1) )));
-      const e2 = EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 2) )));
-      const e3 = EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 3) )));
+  if ( u >= 240 && u < 248 ) {
+    if ( i + 3 < n ) {
+      const e1 = EVGCodepoint.isUtf8Cont(s.charCodeAt(i + 1 ));
+      const e2 = EVGCodepoint.isUtf8Cont(s.charCodeAt(i + 2 ));
+      const e3 = EVGCodepoint.isUtf8Cont(s.charCodeAt(i + 3 ));
       if ( (e1 && e2) && e3 ) {
         return 4;
       }
@@ -1354,8 +1394,8 @@ EVGCodepoint.unitsAt = function(s, i) {
   }
   const u = s.charCodeAt(i );
   if ( EVGCodepoint.isHighSurrogate(u) ) {
-    if ( (i + 1) < (s.length) ) {
-      if ( EVGCodepoint.isLowSurrogate((s.charCodeAt((i + 1) ))) ) {
+    if ( i + 1 < s.length ) {
+      if ( EVGCodepoint.isLowSurrogate(s.charCodeAt(i + 1 )) ) {
         return 2;
       }
     }
@@ -1363,31 +1403,13 @@ EVGCodepoint.unitsAt = function(s, i) {
   return 1;
 };
 EVGCodepoint.charCount = function(s) {
-  let n = 0;
-  let i = 0;
-  while (i < (s.length)) {
-    i = i + EVGCodepoint.unitsAt(s, i);
-    n = n + 1;
-  };
-  return n;
+  return Array.from(s, (rg_c) => rg_c.codePointAt(0)).length;
 };
 EVGCodepoint.count = function(s) {
-  let n = 0;
-  let i = 0;
-  while (i < (s.length)) {
-    i = i + EVGCodepoint.unitsAt(s, i);
-    n = n + 1;
-  };
-  return n;
+  return Array.from(s, (rg_c) => rg_c.codePointAt(0)).length;
 };
 EVGCodepoint.toArray = function(s) {
-  let out = [];
-  let i = 0;
-  while (i < (s.length)) {
-    out.push(EVGCodepoint.codeAt(s, i));
-    i = i + EVGCodepoint.unitsAt(s, i);
-  };
-  return out;
+  return Array.from(s, (rg_c) => rg_c.codePointAt(0));
 };
 EVGCodepoint.toStr = function(cp) {
   if ( EVGCodepoint.stringIsBytes() ) {
@@ -1397,9 +1419,9 @@ EVGCodepoint.toStr = function(cp) {
     return String.fromCharCode(cp);
   }
   const rel = cp - 65536;
-  const hi = 55296 + (Math.floor( (rel / 1024)));
-  const lo = 56320 + (rel % 1024);
-  return (String.fromCharCode(hi)) + (String.fromCharCode(lo));
+  const hi = 55296 + Math.floor( rel / 1024);
+  const lo = 56320 + rel % 1024;
+  return String.fromCharCode(hi) + String.fromCharCode(lo);
 };
 EVGCodepoint.encodeUtf8 = function(s) {
   if ( EVGCodepoint.stringIsBytes() ) {
@@ -1407,25 +1429,25 @@ EVGCodepoint.encodeUtf8 = function(s) {
   }
   let out = "";
   let i = 0;
-  while (i < (s.length)) {
+  while (i < s.length) {
     const cp = EVGCodepoint.codeAt(s, i);
     i = i + EVGCodepoint.unitsAt(s, i);
     if ( cp < 128 ) {
-      out = out + (String.fromCharCode(cp));
+      out = out + String.fromCharCode(cp);
     } else {
       if ( cp < 2048 ) {
-        out = out + (String.fromCharCode((192 + (Math.floor( (cp / 64))))));
-        out = out + (String.fromCharCode((128 + (cp % 64))));
+        out = out + String.fromCharCode(192 + Math.floor( cp / 64));
+        out = out + String.fromCharCode(128 + cp % 64);
       } else {
         if ( cp < 65536 ) {
-          out = out + (String.fromCharCode((224 + (Math.floor( (cp / 4096))))));
-          out = out + (String.fromCharCode((128 + ((Math.floor( (cp / 64))) % 64))));
-          out = out + (String.fromCharCode((128 + (cp % 64))));
+          out = out + String.fromCharCode(224 + Math.floor( cp / 4096));
+          out = out + String.fromCharCode(128 + Math.floor( cp / 64) % 64);
+          out = out + String.fromCharCode(128 + cp % 64);
         } else {
-          out = out + (String.fromCharCode((240 + (Math.floor( (cp / 262144))))));
-          out = out + (String.fromCharCode((128 + ((Math.floor( (cp / 4096))) % 64))));
-          out = out + (String.fromCharCode((128 + ((Math.floor( (cp / 64))) % 64))));
-          out = out + (String.fromCharCode((128 + (cp % 64))));
+          out = out + String.fromCharCode(240 + Math.floor( cp / 262144));
+          out = out + String.fromCharCode(128 + Math.floor( cp / 4096) % 64);
+          out = out + String.fromCharCode(128 + Math.floor( cp / 64) % 64);
+          out = out + String.fromCharCode(128 + cp % 64);
         }
       }
     }
@@ -1434,8 +1456,6 @@ EVGCodepoint.encodeUtf8 = function(s) {
   return out;
 };
 class Utf8  {
-  constructor() {
-  }
 }
 Utf8.stringIsBytes = function() {
   return EVGCodepoint.stringIsBytes();
@@ -1454,7 +1474,7 @@ Utf8.decode = function(raw) {
   let scan = 0;
   let asciiOnly = true;
   while (scan < __len) {
-    if ( (raw.charCodeAt(scan )) > 127 ) {
+    if ( raw.charCodeAt(scan ) > 127 ) {
       asciiOnly = false;
       break;
     }
@@ -1468,68 +1488,98 @@ Utf8.decode = function(raw) {
   while (i < __len) {
     const b0 = raw.charCodeAt(i );
     if ( b0 > 255 ) {
-      out = out + (String.fromCharCode(b0));
+      out = out + String.fromCharCode(b0);
       i = i + 1;
       continue;
     }
     if ( b0 < 128 ) {
-      out = out + (String.fromCharCode(b0));
+      out = out + String.fromCharCode(b0);
       i = i + 1;
       continue;
     }
-    if ( (b0 >= 192) && (b0 < 224) ) {
-      if ( (i + 1) < __len ) {
-        const b1 = raw.charCodeAt((i + 1) );
+    if ( b0 >= 192 && b0 < 224 ) {
+      if ( i + 1 < __len ) {
+        const b1 = raw.charCodeAt(i + 1 );
         if ( Utf8.isCont(b1) ) {
-          const cp = ((b0 - 192) * 64) + (b1 - 128);
-          out = out + (String.fromCharCode(cp));
+          const cp = (b0 - 192) * 64 + (b1 - 128);
+          out = out + String.fromCharCode(cp);
           i = i + 2;
           continue;
         }
       }
     }
-    if ( (b0 >= 224) && (b0 < 240) ) {
-      if ( (i + 2) < __len ) {
-        const b1b = raw.charCodeAt((i + 1) );
-        const b2 = raw.charCodeAt((i + 2) );
+    if ( b0 >= 224 && b0 < 240 ) {
+      if ( i + 2 < __len ) {
+        const b1b = raw.charCodeAt(i + 1 );
+        const b2 = raw.charCodeAt(i + 2 );
         if ( Utf8.isCont(b1b) && Utf8.isCont(b2) ) {
-          const cp3 = (((b0 - 224) * 4096) + ((b1b - 128) * 64)) + (b2 - 128);
-          out = out + (String.fromCharCode(cp3));
+          const cp3 = ((b0 - 224) * 4096 + (b1b - 128) * 64) + (b2 - 128);
+          out = out + String.fromCharCode(cp3);
           i = i + 3;
           continue;
         }
       }
     }
-    if ( (b0 >= 240) && (b0 < 248) ) {
-      if ( (i + 3) < __len ) {
-        const c1 = raw.charCodeAt((i + 1) );
-        const c2 = raw.charCodeAt((i + 2) );
-        const c3 = raw.charCodeAt((i + 3) );
+    if ( b0 >= 240 && b0 < 248 ) {
+      if ( i + 3 < __len ) {
+        const c1 = raw.charCodeAt(i + 1 );
+        const c2 = raw.charCodeAt(i + 2 );
+        const c3 = raw.charCodeAt(i + 3 );
         if ( (Utf8.isCont(c1) && Utf8.isCont(c2)) && Utf8.isCont(c3) ) {
-          const cp4 = ((((b0 - 240) * 262144) + ((c1 - 128) * 4096)) + ((c2 - 128) * 64)) + (c3 - 128);
+          const cp4 = (((b0 - 240) * 262144 + (c1 - 128) * 4096) + (c2 - 128) * 64) + (c3 - 128);
           const rel = cp4 - 65536;
-          const hi = 55296 + (Math.floor( (rel / 1024)));
-          const lo = 56320 + (rel % 1024);
-          out = out + (String.fromCharCode(hi));
-          out = out + (String.fromCharCode(lo));
+          const hi = 55296 + Math.floor( rel / 1024);
+          const lo = 56320 + rel % 1024;
+          out = out + String.fromCharCode(hi);
+          out = out + String.fromCharCode(lo);
           i = i + 4;
           continue;
         }
       }
     }
-    out = out + (String.fromCharCode(b0));
+    out = out + String.fromCharCode(b0);
     i = i + 1;
   };
   return out;
 };
 Utf8.isCont = function(b) {
-  return (b >= 128) && (b < 192);
+  return b >= 128 && b < 192;
+};
+Utf8.winAnsiStandIn = function(cp) {
+  if ( cp == 8722 ) {
+    return 8211;
+  }
+  if ( cp == 8209 ) {
+    return 45;
+  }
+  if ( cp == 8208 ) {
+    return 45;
+  }
+  if ( cp == 8239 ) {
+    return 160;
+  }
+  if ( cp == 8201 ) {
+    return 32;
+  }
+  if ( cp == 8200 ) {
+    return 32;
+  }
+  if ( cp == 8199 ) {
+    return 160;
+  }
+  if ( cp == 8198 ) {
+    return 32;
+  }
+  if ( cp == 8202 ) {
+    return 32;
+  }
+  return cp;
 };
 Utf8.toWinAnsi = function(cp) {
-  if ( (cp >= 32) && (cp <= 126) ) {
+  if ( cp >= 32 && cp <= 126 ) {
     return cp;
   }
-  if ( (cp >= 160) && (cp <= 255) ) {
+  if ( cp >= 160 && cp <= 255 ) {
     return cp;
   }
   if ( cp == 8364 ) {
@@ -1616,10 +1666,10 @@ Utf8.toWinAnsi = function(cp) {
   return 0 - 1;
 };
 Utf8.fromWinAnsi = function(b) {
-  if ( (b >= 32) && (b <= 126) ) {
+  if ( b >= 32 && b <= 126 ) {
     return b;
   }
-  if ( (b >= 160) && (b <= 255) ) {
+  if ( b >= 160 && b <= 255 ) {
     return b;
   }
   if ( b == 128 ) {
@@ -1707,7 +1757,7 @@ Utf8.fromWinAnsi = function(b) {
 };
 Utf8.hasNonWinAnsi = function(s) {
   let i = 0;
-  while (i < (s.length)) {
+  while (i < s.length) {
     const cp = EVGCodepoint.codeAt(s, i);
     const step = EVGCodepoint.unitsAt(s, i);
     if ( cp >= 32 ) {
@@ -1733,7 +1783,7 @@ class OdfPackage  {
     let dirs = [];
     let names = [];
     OdfPackage.splitPath(fullPath, dirs, names);
-    return this.openParts((dirs[0]), (names[0]));
+    return this.openParts(dirs[0], names[0]);
   };
   openParts (path, name) {
     this.resetState();
@@ -1762,17 +1812,17 @@ class OdfPackage  {
   readIdentity () {
     this.mediaType = "";
     const raw = this.readBinary("mimetype");
-    if ( (raw.byteLength) > 0 ) {
+    if ( raw.byteLength > 0 ) {
       this.mediaType = Utf8.decode(((function(b){ var v = (b instanceof Uint8Array) ? b : new Uint8Array(b); var s = ""; var i = 0; var n = v.length; var c = 32768; while (i < n) { var e = i + c; if (e > n) { e = n; } s += String.fromCharCode.apply(null, v.subarray(i, e)); i = e; } return s; })(raw)));
       this.mediaType = OdfPackage.trimText(this.mediaType);
     }
-    if ( (this.mediaType.length) == 0 ) {
+    if ( this.mediaType.length == 0 ) {
       this.loadManifest();
       if ( ( typeof(this.mediaTypes["/"] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.mediaTypes, "/") ) ) {
-        this.mediaType = (( Object.prototype.hasOwnProperty.call(this.mediaTypes, "/") ? this.mediaTypes["/"] : undefined ));
+        this.mediaType = ( Object.prototype.hasOwnProperty.call(this.mediaTypes, "/") ? this.mediaTypes["/"] : undefined );
       }
     }
-    if ( (OdfPackage.kindOfMediaType(this.mediaType).length) == 0 ) {
+    if ( OdfPackage.kindOfMediaType(this.mediaType).length == 0 ) {
       this.isOpen = false;
       return false;
     }
@@ -1810,18 +1860,18 @@ class OdfPackage  {
   };
   readBinary (name) {
     if ( this.isOpen == false ) {
-      return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+      return (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     }
     const e = this.reader.getEntry(name);
     if ( typeof(e) === "undefined" ) {
-      return (function(){ var b = new ArrayBuffer(0); b._view = new DataView(b); return b; })();
+      return (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     }
     const entry = e;
     return this.reader.extract(entry);
   };
   readXml (name) {
     const data = this.readBinary(name);
-    if ( (data.byteLength) == 0 ) {
+    if ( data.byteLength == 0 ) {
       return "";
     }
     return Utf8.decode(((function(b){ var v = (b instanceof Uint8Array) ? b : new Uint8Array(b); var s = ""; var i = 0; var n = v.length; var c = 32768; while (i < n) { var e = i + c; if (e > n) { e = n; } s += String.fromCharCode.apply(null, v.subarray(i, e)); i = e; } return s; })(data)));
@@ -1832,7 +1882,7 @@ class OdfPackage  {
     }
     this.manifestLoaded = true;
     const xml = this.readXml("META-INF/manifest.xml");
-    if ( (xml.length) == 0 ) {
+    if ( xml.length == 0 ) {
       return;
     }
     let pos = 0;
@@ -1846,11 +1896,11 @@ class OdfPackage  {
       if ( gt < 0 ) {
         break;
       }
-      const tag = xml.substring(lt, (gt + 1) );
-      if ( (tag.indexOf("file-entry")) > 0 ) {
+      const tag = xml.substring(lt, gt + 1 );
+      if ( tag.indexOf("file-entry") > 0 ) {
         const path = OdfPackage.attrBySuffix(tag, "full-path");
         const mt = OdfPackage.attrBySuffix(tag, "media-type");
-        if ( (path.length) > 0 ) {
+        if ( path.length > 0 ) {
           this.mediaTypes[path] = mt;
         }
       }
@@ -1860,7 +1910,7 @@ class OdfPackage  {
   mediaTypeFor (path) {
     this.loadManifest();
     if ( ( typeof(this.mediaTypes[path] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.mediaTypes, path) ) ) {
-      return (( Object.prototype.hasOwnProperty.call(this.mediaTypes, path) ? this.mediaTypes[path] : undefined ));
+      return ( Object.prototype.hasOwnProperty.call(this.mediaTypes, path) ? this.mediaTypes[path] : undefined );
     }
     return "";
   };
@@ -1869,7 +1919,7 @@ class OdfPackage  {
     let out = [];
     const keys = Object.keys(this.mediaTypes);
     let i = 0;
-    while (i < (keys.length)) {
+    while (i < keys.length) {
       out.push(keys[i]);
       i = i + 1;
     };
@@ -1884,7 +1934,7 @@ OdfPackage.splitPath = function(fullPath, dirOut, nameOut) {
   let i = 0;
   while (i < __len) {
     const ch = fullPath.charCodeAt(i );
-    if ( (ch == 47) || (ch == 92) ) {
+    if ( ch == 47 || ch == 92 ) {
       lastSlash = i;
     }
     i = i + 1;
@@ -1895,67 +1945,67 @@ OdfPackage.splitPath = function(fullPath, dirOut, nameOut) {
     } else {
       dir = fullPath.substring(0, lastSlash );
     }
-    name = fullPath.substring((lastSlash + 1), __len );
+    name = fullPath.substring(lastSlash + 1, __len );
   }
   dirOut.push(dir);
   nameOut.push(name);
 };
 OdfPackage.kindOfMediaType = function(mt) {
   const base = "application/vnd.oasis.opendocument.";
-  if ( (mt.indexOf(base)) != 0 ) {
+  if ( mt.indexOf(base) != 0 ) {
     return "";
   }
-  const tail = mt.substring((base.length), (mt.length) );
-  if ( (tail == "presentation") || (tail == "presentation-template") ) {
+  const tail = mt.substring(base.length, mt.length );
+  if ( tail == "presentation" || tail == "presentation-template" ) {
     return "presentation";
   }
-  if ( (tail == "text") || (tail == "text-template") ) {
+  if ( tail == "text" || tail == "text-template" ) {
     return "text";
   }
-  if ( (tail == "spreadsheet") || (tail == "spreadsheet-template") ) {
+  if ( tail == "spreadsheet" || tail == "spreadsheet-template" ) {
     return "spreadsheet";
   }
-  if ( (tail == "graphics") || (tail == "graphics-template") ) {
+  if ( tail == "graphics" || tail == "graphics-template" ) {
     return "graphics";
   }
   return "";
 };
 OdfPackage.sniffKind = function(bytes) {
-  if ( (bytes.byteLength) < 80 ) {
+  if ( bytes.byteLength < 80 ) {
     return "";
   }
-  if ( (bytes._view.getUint8(0)) != 80 ) {
+  if ( bytes._view.getUint8(0) != 80 ) {
     return "";
   }
-  if ( (bytes._view.getUint8(1)) != 75 ) {
+  if ( bytes._view.getUint8(1) != 75 ) {
     return "";
   }
-  if ( (bytes._view.getUint8(2)) != 3 ) {
+  if ( bytes._view.getUint8(2) != 3 ) {
     return "";
   }
-  if ( (bytes._view.getUint8(3)) != 4 ) {
+  if ( bytes._view.getUint8(3) != 4 ) {
     return "";
   }
   const name = "mimetype";
   let i = 0;
   while (i < 8) {
-    if ( (bytes._view.getUint8((30 + i))) != (name.charCodeAt(i )) ) {
+    if ( bytes._view.getUint8(30 + i) != name.charCodeAt(i ) ) {
       return "";
     }
     i = i + 1;
   };
   let n = bytes._view.getUint8(22);
-  n = n + ((bytes._view.getUint8(23)) * 256);
-  if ( (n <= 0) || (n > 128) ) {
+  n = n + bytes._view.getUint8(23) * 256;
+  if ( n <= 0 || n > 128 ) {
     return "";
   }
-  if ( (bytes.byteLength) < (38 + n) ) {
+  if ( bytes.byteLength < 38 + n ) {
     return "";
   }
   let mt = "";
   let k = 0;
   while (k < n) {
-    mt = mt + (String.fromCharCode((bytes._view.getUint8((38 + k)))));
+    mt = mt + String.fromCharCode(bytes._view.getUint8(38 + k));
     k = k + 1;
   };
   return OdfPackage.kindOfMediaType(mt);
@@ -1966,7 +2016,7 @@ OdfPackage.attrBySuffix = function(tag, localName) {
   if ( i < 0 ) {
     return "";
   }
-  const a = i + (key.length);
+  const a = i + key.length;
   const b = tag.indexOf("\"", a);
   if ( b < 0 ) {
     return "";
@@ -1974,34 +2024,34 @@ OdfPackage.attrBySuffix = function(tag, localName) {
   return tag.substring(a, b );
 };
 OdfPackage.isExternalHref = function(href) {
-  if ( (href.indexOf("://")) > 0 ) {
+  if ( href.indexOf("://") > 0 ) {
     return true;
   }
-  if ( (href.indexOf("mailto:")) == 0 ) {
+  if ( href.indexOf("mailto:") == 0 ) {
     return true;
   }
   return false;
 };
 OdfPackage.joinHref = function(base, href) {
-  if ( (href.length) == 0 ) {
+  if ( href.length == 0 ) {
     return base;
   }
   const h0 = href.charCodeAt(0 );
   if ( h0 == 47 ) {
-    return href.substring(1, (href.length) );
+    return href.substring(1, href.length );
   }
   let segs = [];
   const baseDir = OdfPackage.dirOf(base);
-  if ( (baseDir.length) > 0 ) {
+  if ( baseDir.length > 0 ) {
     OdfPackage.splitSegments(baseDir, segs);
   }
   let hrefSegs = [];
   OdfPackage.splitSegments(href, hrefSegs);
   let i = 0;
-  while (i < (hrefSegs.length)) {
+  while (i < hrefSegs.length) {
     const seg = hrefSegs[i];
     if ( seg == ".." ) {
-      if ( (segs.length) > 0 ) {
+      if ( segs.length > 0 ) {
         segs.pop();
       }
     } else {
@@ -2016,8 +2066,8 @@ OdfPackage.joinHref = function(base, href) {
 OdfPackage.dirOf = function(path) {
   let last = -1;
   let i = 0;
-  while (i < (path.length)) {
-    if ( (path.charCodeAt(i )) == 47 ) {
+  while (i < path.length) {
+    if ( path.charCodeAt(i ) == 47 ) {
       last = i;
     }
     i = i + 1;
@@ -2035,7 +2085,7 @@ OdfPackage.splitSegments = function(s, out) {
     const atEnd = i == __len;
     let isSep = false;
     if ( atEnd == false ) {
-      if ( (s.charCodeAt(i )) == 47 ) {
+      if ( s.charCodeAt(i ) == 47 ) {
         isSep = true;
       }
     }
@@ -2053,15 +2103,15 @@ OdfPackage.trimText = function(s) {
   let b = s.length;
   while (a < b) {
     const c = s.charCodeAt(a );
-    if ( (((c == 32) || (c == 9)) || (c == 10)) || (c == 13) ) {
+    if ( ((c == 32 || c == 9) || c == 10) || c == 13 ) {
       a = a + 1;
     } else {
       break;
     }
   };
   while (b > a) {
-    const c2 = s.charCodeAt((b - 1) );
-    if ( (((c2 == 32) || (c2 == 9)) || (c2 == 10)) || (c2 == 13) ) {
+    const c2 = s.charCodeAt(b - 1 );
+    if ( ((c2 == 32 || c2 == 9) || c2 == 10) || c2 == 13 ) {
       b = b - 1;
     } else {
       break;
@@ -2087,40 +2137,98 @@ class OdfCheck  {
     this.ok(((((name + " (got '") + got) + "' want '") + want) + "')", got == want);
   };
   eqInt (name, got, want) {
-    this.ok(((((name + " (got ") + ((got.toString()))) + " want ") + ((want.toString()))) + ")", got == want);
+    this.ok(((((name + " (got ") + ((got).toString())) + " want ") + ((want).toString())) + ")", got == want);
   };
 }
 class OdfPackageTest  {
-  constructor() {
-  }
 }
 OdfPackageTest.testPaths = function(c) {
   console.log("--- href resolution ---");
-  c.eqStr("a picture from content.xml", OdfPackage.joinHref("content.xml", "Pictures/x.png"), "Pictures/x.png");
-  c.eqStr("a sibling of a sub-document", OdfPackage.joinHref("Object 1/content.xml", "styles.xml"), "Object 1/styles.xml");
-  c.eqStr("out of a sub-document", OdfPackage.joinHref("Object 1/content.xml", "../Pictures/x.png"), "Pictures/x.png");
-  c.eqStr("two levels out", OdfPackage.joinHref("a/b/content.xml", "../../Pictures/x.png"), "Pictures/x.png");
-  c.eqStr("a leading slash is the package root", OdfPackage.joinHref("Object 1/content.xml", "/styles.xml"), "styles.xml");
-  c.eqStr("`.` is a no-op", OdfPackage.joinHref("content.xml", "./Pictures/x.png"), "Pictures/x.png");
+  c.eqStr(
+    "a picture from content.xml",
+    OdfPackage.joinHref("content.xml", "Pictures/x.png"),
+    "Pictures/x.png"
+  );
+  c.eqStr(
+    "a sibling of a sub-document",
+    OdfPackage.joinHref("Object 1/content.xml", "styles.xml"),
+    "Object 1/styles.xml"
+  );
+  c.eqStr(
+    "out of a sub-document",
+    OdfPackage.joinHref("Object 1/content.xml", "../Pictures/x.png"),
+    "Pictures/x.png"
+  );
+  c.eqStr(
+    "two levels out",
+    OdfPackage.joinHref("a/b/content.xml", "../../Pictures/x.png"),
+    "Pictures/x.png"
+  );
+  c.eqStr(
+    "a leading slash is the package root",
+    OdfPackage.joinHref("Object 1/content.xml", "/styles.xml"),
+    "styles.xml"
+  );
+  c.eqStr(
+    "`.` is a no-op",
+    OdfPackage.joinHref("content.xml", "./Pictures/x.png"),
+    "Pictures/x.png"
+  );
   c.ok("http is external", OdfPackage.isExternalHref("https://example.org/x.png"));
   c.ok("a member is not", OdfPackage.isExternalHref("Pictures/x.png") == false);
   console.log("--- what a media type means ---");
-  c.eqStr("presentation", OdfPackage.kindOfMediaType("application/vnd.oasis.opendocument.presentation"), "presentation");
-  c.eqStr("text", OdfPackage.kindOfMediaType("application/vnd.oasis.opendocument.text"), "text");
-  c.eqStr("spreadsheet", OdfPackage.kindOfMediaType("application/vnd.oasis.opendocument.spreadsheet"), "spreadsheet");
-  c.eqStr("a template is a presentation", OdfPackage.kindOfMediaType("application/vnd.oasis.opendocument.presentation-template"), "presentation");
-  c.eqStr("OOXML is not ODF", OdfPackage.kindOfMediaType("application/vnd.openxmlformats-officedocument.presentationml.presentation"), "");
+  c.eqStr(
+    "presentation",
+    OdfPackage.kindOfMediaType("application/vnd.oasis.opendocument.presentation"),
+    "presentation"
+  );
+  c.eqStr(
+    "text",
+    OdfPackage.kindOfMediaType("application/vnd.oasis.opendocument.text"),
+    "text"
+  );
+  c.eqStr(
+    "spreadsheet",
+    OdfPackage.kindOfMediaType("application/vnd.oasis.opendocument.spreadsheet"),
+    "spreadsheet"
+  );
+  c.eqStr(
+    "a template is a presentation",
+    OdfPackage.kindOfMediaType("application/vnd.oasis.opendocument.presentation-template"),
+    "presentation"
+  );
+  c.eqStr(
+    "OOXML is not ODF",
+    OdfPackage.kindOfMediaType("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+    ""
+  );
   c.eqStr("nothing is not ODF", OdfPackage.kindOfMediaType(""), "");
 };
 OdfPackageTest.testSniff = function(c) {
   console.log("--- sniffKind, without a ZIP library ---");
-  c.eqStr("an .odp is a presentation", OdfPackageTest.sniffFile("gallery/odf/fixtures", "01-text.odp"), "presentation");
-  c.eqStr("an .odt is text", OdfPackageTest.sniffFile("gallery/odf/fixtures", "13-images-mixed.odt"), "text");
-  c.eqStr("an .ods is a spreadsheet", OdfPackageTest.sniffFile("gallery/odf/fixtures", "images.ods"), "spreadsheet");
-  c.eqStr("a .pptx is not ODF", OdfPackageTest.sniffFile("gallery/pptx/fixtures", "01-text.pptx"), "");
+  c.eqStr(
+    "an .odp is a presentation",
+    OdfPackageTest.sniffFile("gallery/odf/fixtures", "01-text.odp"),
+    "presentation"
+  );
+  c.eqStr(
+    "an .odt is text",
+    OdfPackageTest.sniffFile("gallery/odf/fixtures", "13-images-mixed.odt"),
+    "text"
+  );
+  c.eqStr(
+    "an .ods is a spreadsheet",
+    OdfPackageTest.sniffFile("gallery/odf/fixtures", "images.ods"),
+    "spreadsheet"
+  );
+  c.eqStr(
+    "a .pptx is not ODF",
+    OdfPackageTest.sniffFile("gallery/odf/fixtures", "01-text.pptx"),
+    ""
+  );
 };
 OdfPackageTest.sniffFile = function(dir, name) {
-  const bytes = (function(){ var b = require('fs').readFileSync(dir + '/' + name); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+  const bytes = (function(){ var b = require('fs').readFileSync( require('path').join(dir, name) ); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; return Object.assign(ab, { _view: new DataView(ab) }); })();
   return OdfPackage.sniffKind(bytes);
 };
 OdfPackageTest.testThreeFormats = function(c) {
@@ -2140,10 +2248,14 @@ OdfPackageTest.checkPackage = function(c, name, wantKind) {
   c.ok(name + " has content.xml", pkg.hasPart("content.xml"));
   c.ok(name + " has styles.xml", pkg.hasPart("styles.xml"));
   c.ok(name + " has a manifest", pkg.hasPart("META-INF/manifest.xml"));
-  c.eqStr(name + " manifest calls content.xml XML", pkg.mediaTypeFor("content.xml"), "text/xml");
+  c.eqStr(
+    name + " manifest calls content.xml XML",
+    pkg.mediaTypeFor("content.xml"),
+    "text/xml"
+  );
   const xml = pkg.readXml("content.xml");
-  c.ok(name + " content.xml decodes", (xml.length) > 100);
-  c.ok(name + " and is a document", (xml.indexOf("office:document-content")) > 0);
+  c.ok(name + " content.xml decodes", xml.length > 100);
+  c.ok(name + " and is a document", xml.indexOf("office:document-content") > 0);
   pkg.close();
 };
 OdfPackageTest.testEveryHrefResolves = function(c) {
@@ -2166,21 +2278,21 @@ OdfPackageTest.checkHrefs = function(c, dir, name) {
   let missing = 0;
   let firstMissing = "";
   let pi = 0;
-  while (pi < (parts.length)) {
+  while (pi < parts.length) {
     const part = parts[pi];
     const xml = pkg.readXml(part);
     let hrefs = [];
     OdfPackageTest.collectHrefs(xml, hrefs);
     let i = 0;
-    while (i < (hrefs.length)) {
+    while (i < hrefs.length) {
       const href = hrefs[i];
       if ( OdfPackage.isExternalHref(href) == false ) {
         const target = OdfPackage.joinHref(part, href);
-        if ( (target.length) > 0 ) {
+        if ( target.length > 0 ) {
           checked = checked + 1;
           if ( pkg.hasPart(target) == false ) {
             missing = missing + 1;
-            if ( (firstMissing.length) == 0 ) {
+            if ( firstMissing.length == 0 ) {
               firstMissing = (href + " -> ") + target;
             }
           }
@@ -2190,25 +2302,25 @@ OdfPackageTest.checkHrefs = function(c, dir, name) {
     };
     pi = pi + 1;
   };
-  c.ok(((name + " has internal hrefs to check (") + ((checked.toString()))) + ")", checked > 0);
+  c.ok(((name + " has internal hrefs to check (") + ((checked).toString())) + ")", checked > 0);
   c.ok(((name + " every one resolves to a member [") + firstMissing) + "]", missing == 0);
   pkg.close();
 };
 OdfPackageTest.collectHrefs = function(xml, out) {
   const key = "xlink:href=\"";
   let pos = 0;
-  while (pos < (xml.length)) {
+  while (pos < xml.length) {
     const i = xml.indexOf(key, pos);
     if ( i < 0 ) {
       break;
     }
-    const a = i + (key.length);
+    const a = i + key.length;
     const b = xml.indexOf("\"", a);
     if ( b < 0 ) {
       break;
     }
     const href = xml.substring(a, b );
-    if ( (href.length) > 0 ) {
+    if ( href.length > 0 ) {
       out.push(href);
     }
     pos = b + 1;
@@ -2217,7 +2329,7 @@ OdfPackageTest.collectHrefs = function(xml, out) {
 OdfPackageTest.testNotOdf = function(c) {
   console.log("--- a package that is not ODF ---");
   const pkg = new OdfPackage();
-  const ok = pkg.openParts("gallery/pptx/fixtures", "01-text.pptx");
+  const ok = pkg.openParts("gallery/odf/fixtures", "01-text.pptx");
   c.ok("a .pptx does not open as ODF", ok == false);
   pkg.close();
 };
@@ -2231,7 +2343,7 @@ function __js_main() {
   OdfPackageTest.testEveryHrefResolves(c);
   OdfPackageTest.testNotOdf(c);
   console.log("");
-  console.log((("passed = " + ((c.passed.toString()))) + "  failed = ") + ((c.failed.toString())));
+  console.log((("passed = " + ((c.passed).toString())) + "  failed = ") + ((c.failed).toString()));
   if ( c.failed == 0 ) {
     console.log("ALL PASS");
   } else {

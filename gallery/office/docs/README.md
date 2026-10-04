@@ -1,5 +1,11 @@
 # Office documentation
 
+> **Needs terotests/RangerPPTX.** The PowerPoint API this site documents, and
+> the playground it embeds, are in the private
+> [terotests/RangerPPTX](https://github.com/terotests/RangerPPTX). Clone it to
+> `gallery/pptx` before `npm run office:docs*`. Ranger's Pages workflow no
+> longer builds `/office/` or `/office/reference/`.
+
 This is the Office reference, published at
 [`/office/reference/`](https://terotests.github.io/Ranger/office/reference/).
 It is an Astro + Starlight site, the same system as the Ranger language

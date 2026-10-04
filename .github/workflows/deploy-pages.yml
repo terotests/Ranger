@@ -17,29 +17,14 @@
 #                source tree and one stylesheet. Live pages in the same tree:
 #                /evg/tracer/ (bitmap → paths), /evg/responsive/,
 #                /evg/chart-api/.
-#   /pptx/    -> the PowerPoint viewer and editor, running with no server: the
-#                deck is parsed and drawn in the page (OPC/ZIP →
-#                PresentationML → EVGDisplayList → WebGL 2), and it opens
-#                ready to edit. Works on a phone — the chrome folds at
-#                breakpoints the app's own stylesheet states.
-#   /pptx-wasm/ -> the SAME editor as /pptx/, compiled the other way: Ranger →
-#                C++ → WebAssembly (Emscripten) rather than Ranger →
-#                JavaScript. One source file, two backends, and the page —
-#                standalone.mjs — is the same file in both, so the two URLs
-#                differ in exactly one thing and can be compared. It is a path
-#                in THIS artifact and not a workflow of its own because GitHub
-#                Pages allows one deployment per repository: a second
-#                deployer would clobber the site rather than sit beside it.
+#   (/pptx/, /pptx-wasm/ and /office/ — the deck editor, its WebAssembly build
+#    and the .pptx API playground with its reference — were built from
+#    gallery/pptx, which moved to the private terotests/RangerPPTX. They are
+#    no longer built here.)
 #   /vela/    -> paste a Vega or Vega-Lite specification and see what the
 #                Ranger runtime draws. The compiler and the SVG renderer it
 #                loads are built from gallery/vela/src, so the page shows this
 #                commit's own output rather than a recorded one.
-#   /office/  -> the .pptx API playground: code on the left writing a deck, the
-#                editor on the right opening the bytes it produced. Its
-#                reference is at /office/reference/ (Astro + Starlight: EVG,
-#                PowerPoint, charts, Word, Excel, diagrams, and the generated
-#                API pages). It is built HERE rather than into /docs/ because
-#                it quotes AGPL comments and the language documentation is MIT.
 #   /realtrainer/ -> the RealTrainer port: a phone app drawn by EVG's WebGL
 #                painter, measured screen by screen against the original. The
 #                page is the window — one tree, and the stylesheet's @media
@@ -122,17 +107,8 @@ on:
       - "gallery/mfiles/**"
       # The controllers RealTrainer, Firesim and Rave are drawn with.
       - "gallery/ui/**"
-      # These carry the deck editor, the API playground, and the Office
-      # reference at /office/reference/ — so a change to a facade republishes
-      # the docs without docs/ (the MIT language site) being touched.
-      - "gallery/pptx/**"
+      # Rave takes its undo history from gallery/office.
       - "gallery/office/**"
-      # The deck viewer opens a .odp too, and the reader under it lives in
-      # three directories of its own. Without these a change to the ODF side
-      # would leave /pptx/ on the site describing a viewer it no longer is.
-      - "gallery/odp/**"
-      - "gallery/odf/**"
-      - "gallery/xml/**"
       - "gallery/pdf_writer/src/**"
       - "gallery/figma/**"
       # The .fig reader decodes zstd in Ranger, so the decoder is part of
@@ -153,15 +129,6 @@ on:
   release:
     types: [published]
   workflow_dispatch:
-
-# The Emscripten release the WebAssembly editor is built with. Pinned rather
-# than `latest` so a site deploy cannot change the engine's compiler under it,
-# and so the cache key means something. This is the release the two engines
-# were checked against — `node gallery/pptx/web/wasm/parity.mjs`, 61 236
-# display-list commands identical — so moving it is a change to verify, not a
-# number to bump.
-env:
-  EMSDK_VERSION: "6.0.8"
 
 permissions:
   contents: read
@@ -323,63 +290,6 @@ jobs:
           grep -q "MfilesApp" "$GITHUB_WORKSPACE/_site/mfiles/generated-host.js"
           grep -q "OnNewShellUI" "$GITHUB_WORKSPACE/_site/mfiles/generated.js"
 
-      # ---- .pptx API playground at /office/ -------------------------------
-      # The published API and the slide editor in one page: the code writes a
-      # deck, the editor opens the BYTES it produced. A build here proves the
-      # writer and the reader agree, which no unit test on either alone does.
-      - name: Build the Office API playground
-        run: bash gallery/pptx/web/playground/build.sh --out "$GITHUB_WORKSPACE/_site/office"
-
-      # ---- Office reference at /office/reference/ --------------------------
-      # Astro + Starlight, beside the playground it documents and under the
-      # same licence as the code it quotes. `npm run docs:generate` does not
-      # build this — see gallery/office/docs/README.md.
-      - name: Generate the Office API pages
-        run: bash gallery/office/docs/build.sh
-
-      - name: Copy the playground into the Office docs
-        run: OFFICE_PLAYGROUND_DIST="$GITHUB_WORKSPACE/_site/office" node gallery/office/docs/tools/sync-playground.mjs
-
-      - name: Copy the Chart API page into the Office docs
-        run: OFFICE_CHART_API_DIST="$GITHUB_WORKSPACE/_site/evg/chart-api" node gallery/office/docs/tools/sync-chart-api.mjs
-
-      - name: Install Office documentation dependencies
-        working-directory: gallery/office/docs/site
-        run: npm ci
-
-      - name: Build the Office documentation site
-        working-directory: gallery/office/docs/site
-        run: npm run build
-        env:
-          RANGER_COMMIT: ${{ github.sha }}
-
-      - name: Copy the Office documentation into the site
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/_site/office/reference"
-          cp -r gallery/office/docs/site/dist/. "$GITHUB_WORKSPACE/_site/office/reference/"
-          test -s "$GITHUB_WORKSPACE/_site/office/reference/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/office/reference/pptx/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/office/reference/evg/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/office/reference/playground/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/office/reference/playground/playground.mjs"
-          test -s "$GITHUB_WORKSPACE/_site/office/reference/chart-api/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/office/reference/chart-api/vela_chart_api.js"
-          grep -q "AGPL" "$GITHUB_WORKSPACE/_site/office/reference/index.html"
-
-      # The same check the deck editor gets below, for the same reason: a page
-      # whose engine failed to copy looks exactly like one whose engine failed
-      # to compile, and both look fine until someone opens them.
-      - name: Check the Office API playground has an engine
-        run: |
-          test -s "$GITHUB_WORKSPACE/_site/office/reference/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/office/reference/pptx/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/office/pptx_playground.js"
-          test -s "$GITHUB_WORKSPACE/_site/office/playground.mjs"
-          test -s "$GITHUB_WORKSPACE/_site/office/gl/evg-webgl.js"
-          test -s "$GITHUB_WORKSPACE/_site/office/presets.txt"
-          grep -q "PptxApi" "$GITHUB_WORKSPACE/_site/office/pptx_playground.js"
-          grep -q "PptxWeb" "$GITHUB_WORKSPACE/_site/office/pptx_playground.js"
-
       # ---- Vela playground at /vela/ --------------------------------------
       # Paste a Vega or Vega-Lite specification and see what the Ranger
       # runtime draws. The script it loads is compiled from the same sources
@@ -421,31 +331,6 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/vela/api/python/vela_chart.html"
           test -s "$GITHUB_WORKSPACE/_site/vela/api/kotlin/index.html"
           test -s "$GITHUB_WORKSPACE/_site/vela/api/dart/index.html"
-
-      # ---- PPTX playground at /pptx/ --------------------------------------
-      # The viewer and editor with no server behind them: the page fetches a
-      # deck, parses the package and draws it, and everything after that —
-      # editing, undo, the show, saving a .pptx back out — happens in the tab.
-      # Nothing is uploaded, which is the point of shipping it as a static
-      # page rather than as a service.
-      - name: Build the PPTX playground
-        run: bash gallery/pptx/web/standalone/build.sh --out "$GITHUB_WORKSPACE/_site/pptx"
-
-      # A page whose engine failed to copy looks exactly like a page whose
-      # engine failed to compile, and both look fine until someone opens
-      # them. The build script checks its own output; this checks that what
-      # the artifact will actually carry is there.
-      - name: Check the PPTX playground has an engine
-        run: |
-          test -s "$GITHUB_WORKSPACE/_site/pptx/pptx_web.js"
-          test -s "$GITHUB_WORKSPACE/_site/pptx/standalone.mjs"
-          test -s "$GITHUB_WORKSPACE/_site/pptx/gl/evg-webgl.js"
-          test -s "$GITHUB_WORKSPACE/_site/pptx/deck.pptx"
-          # The .odp the page's own button fetches. A missing file here is a
-          # button that does nothing, and the page looks fine until it is
-          # pressed — which is the failure mode this whole step exists for.
-          test -s "$GITHUB_WORKSPACE/_site/pptx/sample.odp"
-          grep -q "PptxWeb" "$GITHUB_WORKSPACE/_site/pptx/pptx_web.js"
 
       # ---- Fig reader at /figma/ ------------------------------------------
       # Upload a .fig / .deck in the tab. ZIP + kiwi + EVG, no server.
@@ -516,70 +401,6 @@ jobs:
 
       - name: Check Rave draws its editor
         run: node gallery/rave/web/smoke.mjs
-
-      # ---- The same editor, as WebAssembly, at /pptx-wasm/ ----------------
-      # Ranger -> C++ -> Emscripten -> WASM. This is the only route that
-      # carries a program this size today: the direct LLVM/WAT backend is
-      # freestanding (primitives, no strings or objects), and the Rust backend
-      # gets through the Ranger frontend but emits Rust that does not yet
-      # compile — see RUST_ISSUES.md for the taxonomy.
-      #
-      # emsdk is installed rather than pulled from a third-party action, and
-      # cached on the SDK version so a site deploy does not re-download 300 MB
-      # of toolchain every time.
-      - name: Cache the Emscripten SDK
-        id: emsdk-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/emsdk
-          key: emsdk-${{ env.EMSDK_VERSION }}-${{ runner.os }}
-
-      - name: Install the Emscripten SDK
-        if: steps.emsdk-cache.outputs.cache-hit != 'true'
-        run: |
-          git clone --depth 1 https://github.com/emscripten-core/emsdk.git ~/emsdk
-          ~/emsdk/emsdk install "$EMSDK_VERSION"
-          ~/emsdk/emsdk activate "$EMSDK_VERSION"
-
-      - name: Build the WebAssembly editor
-        run: |
-          # shellcheck disable=SC1091
-          source ~/emsdk/emsdk_env.sh
-          bash gallery/pptx/web/wasm/build.sh --out "$GITHUB_WORKSPACE/_site/pptx-wasm"
-
-      # Does the WebAssembly engine draw the same picture as the JavaScript
-      # one? Every fixture, every slide, command by command and field by
-      # field. This is the check that caught `-fno-exceptions` turning a
-      # `catch (...)` in the Ranger runtime into an abort on one deck — a
-      # fault no amount of looking at the page would have found, because the
-      # page it broke was not the one anybody opens.
-      - name: Check the two engines agree
-        run: |
-          # shellcheck disable=SC1091
-          source ~/emsdk/emsdk_env.sh
-          # The chart deck the comparison is really about is built from the
-          # playground's preset through the published JavaScript API, and that
-          # package is generated rather than checked in. Nothing earlier in
-          # this job builds it.
-          bash gallery/pptx/api/js/build.sh
-          node gallery/pptx/web/wasm/parity.mjs
-
-      # And that what the artifact will actually carry is there. A page whose
-      # engine failed to copy looks exactly like one whose engine failed to
-      # compile, and both look fine until someone opens them.
-      - name: Check the WebAssembly page has an engine
-        run: |
-          test -s "$GITHUB_WORKSPACE/_site/pptx-wasm/pptx_wasm.wasm"
-          test -s "$GITHUB_WORKSPACE/_site/pptx-wasm/pptx_wasm.mjs"
-          test -s "$GITHUB_WORKSPACE/_site/pptx-wasm/wasm-host.mjs"
-          test -s "$GITHUB_WORKSPACE/_site/pptx-wasm/standalone.mjs"
-          test -s "$GITHUB_WORKSPACE/_site/pptx-wasm/gl/evg-webgl.js"
-          test -s "$GITHUB_WORKSPACE/_site/pptx-wasm/deck.pptx"
-          # The page must NOT have picked up the JavaScript engine as well —
-          # that would publish a page that looks like it runs on WebAssembly
-          # and does not.
-          test ! -e "$GITHUB_WORKSPACE/_site/pptx-wasm/pptx_web.js"
-          grep -q "installPptxWeb" "$GITHUB_WORKSPACE/_site/pptx-wasm/index.html"
 
       # ---- Playground at /playground/ -------------------------------------
       - name: Install playground dependencies

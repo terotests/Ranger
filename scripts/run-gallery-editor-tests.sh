@@ -47,31 +47,9 @@ SUITES=(
   vfs:test
   book:test
   book:editor:test
-  book:slides:test
-  pptx:test
-  pptx:editor:test
-  pptx:text:test
-  pptx:scene:check
-  # The editor's shell and the strip that sits on top of it. These five ran
-  # only when somebody remembered to run them, which meant the 84 assertions
-  # holding the chrome's layout to the arithmetic it replaced were never a
-  # gate at all — and `pptx:chrome:test` was added by the same work it was
-  # meant to protect. Wired in here rather than anywhere else precisely
-  # because of the note at the top of this file: run by hand through npm, a
-  # `[FAIL]` from the compiler exits 0 and the stale build passes. That is not
-  # hypothetical either; it happened while the icons were being converted, and
-  # a suite reported ALL PASS against a build that had not compiled.
-  pptx:chrome:test
-  # A shape and its own outline must touch. The rasteriser used to put a
-  # rectangle on the grid by truncating its position and its size separately,
-  # which loses up to two pixels off the right and the bottom and none off the
-  # left — a hairline of desk between a box and its border.
-  pptx:seam:test
-  pptx:seam:scan
-  pptx:frame:test
-  pptx:css:test
-  pptx:a11y:test
-  pptx:editor:host:test
+  # The deck editor's suites (pptx:*, and book:slides:test, office:shapes:test
+  # and office:rtl:editors:test, which import it) moved with it to
+  # terotests/RangerPPTX; its ranger-scripts.json lists them.
   docx_viewer:test
   docx_viewer:app:test
   # TeX math: the typesetter on its own, then $…$ / $$…$$ through the parser,
@@ -93,17 +71,16 @@ SUITES=(
   # replaces its measurer each time a face arrives, so a caller that captured
   # one measures with the estimate tables for the life of the document — and
   # says it has fonts while doing it. Only the .pptx WebAssembly parity check
-  # saw that, and only because its two engines attach at different moments.
+  # (now in terotests/RangerPPTX) saw that, because its two engines attach at
+  # different moments.
   office:measure:targets
   office:font:test
   office:style:test
   office:bidi:test
   office:geom:test
-  office:shapes:test
   office:shapes:native
   office:color:test
   office:asset:test
-  office:rtl:editors:test
   ui:test
   evg:trace:test
   # The toolbar's model, its metrics, and every outline in the icon catalogue.

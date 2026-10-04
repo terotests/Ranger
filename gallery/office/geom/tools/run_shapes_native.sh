@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The shape catalogue, on JavaScript and on C++.
 #
-# The full suite (`npm run office:shapes:test`) imports both editors and is a
+# The full suite (`npm run pptx:office:shapes:test`, terotests/RangerPPTX) imports both editors and is a
 # JavaScript test for that reason. This is the small half that has to run
 # natively, because the defect it exists for only appears there: a constructor
 # that hands `this` to anything compiles clean on every target and aborts on

@@ -59,7 +59,7 @@ npm run office:metrics:test    # likewise
 npm run office:style:test      # likewise
 npm run office:color:test      # likewise
 npm run office:geom:test       # the guide evaluator and the presets
-npm run office:shapes:test     # the catalogue, and that both editors call it
+npm run pptx:office:shapes:test  # the catalogue, and that both editors call it (RangerPPTX)
 npm run office:history:test    # likewise
 npm run office:asset:test      # likewise
 ```
@@ -107,7 +107,7 @@ grid of `EVGControl`s: a picker is a lot of little pictures, `EVGControl` has
 no picture kind, and adding one would push shape drawing down into
 `lib/evg`, which has no business knowing what a preset is.
 
-`OfficeShapeCatalogTest.testSharedPicker` is the proof — the same command id
+`OfficeShapeCatalogTest.testSharedPicker` (now in terotests/RangerPPTX, `interop/office/`, because it imports the deck editor) is the proof — the same command id
 opens it in both, the same press at the same place in the grid picks the same
 entry, and the book ends up with an outline while the deck ends up with a
 preset name.
