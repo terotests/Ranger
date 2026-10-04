@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # The OpenDocument presentation reader — compiled twice.
 #
-# The load-bearing section is the last one: the same document is opened as a
-# .odp and as the .pptx it was converted from, by two readers that share
-# nothing above the XML layer, and the two have to agree — same page count,
-# same sentence, same box to a tenth of a point.
+# The parity section — the same document opened as a .odp and as the .pptx
+# it was converted from, and the two readers required to agree — moved with
+# the .pptx reader to terotests/RangerPPTX (npm run pptx:odp:parity:test).
 #
 # The C++ half is not redundant. ODF states a length as a STRING and the
 # reader takes it apart a character at a time; a string is code units on one
 # target and bytes on the other, so a unit parser can be right on one and
-# wrong on the other. The .pptx side reads integers and cannot see that.
+# wrong on the other.
 #
 #   npm run odp:test
 set -euo pipefail
@@ -59,4 +58,4 @@ cp gallery/invaders/variant.hpp "$OUT/variant.hpp"
 grep -q "ALL PASS" "$OUT/cpp.out" || { echo "C++ run failed" >&2; exit 1; }
 
 echo
-echo "the .odp reader agrees with the .pptx reader about the same document, on both targets"
+echo "the .odp reader, on both targets"

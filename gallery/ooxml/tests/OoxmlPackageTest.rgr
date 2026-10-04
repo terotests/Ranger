@@ -1,12 +1,12 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ==============================================================================
-; OoxmlPackageTest — one string, three formats, two string models.
+; OoxmlPackageTest — one string, two formats, two string models.
 ; ==============================================================================
 ;
 ; `OoxmlTextTest` checks the decoder. This checks the whole way in: a real
-; .xlsx, a real .docx and a real .pptx are opened with their own readers, and
-; the text that comes out has to be the same string in all three — and the
+; .xlsx and a real .docx are opened with their own readers, and
+; the text that comes out has to be the same string in both — and the
 ; same string on both targets.
 ;
 ; Each fixture carries ONE sentence written TWICE: once as real UTF-8 bytes,
@@ -20,6 +20,9 @@
 ;   * Word and PowerPoint knew only the five named entities, so the escaped
 ;     line came through as digits.
 ;
+; The .pptx third moved with the .pptx reader to terotests/RangerPPTX
+; (interop/OoxmlPptxTextTest.rgr, `npm run pptx:ooxml:text:test` there).
+;
 ; Characters are counted with `EVGCodepoint.charCount`, not `strlen`: the two
 ; targets legitimately disagree about how many UNITS a string has (21 code
 ; units, 27 bytes) and must agree about how many CHARACTERS it has.
@@ -30,7 +33,6 @@
 Import "../../datagrid/src/xlsx/XlsxLoader.rgr"
 Import "../../docx_viewer/src/DocxPackage.rgr"
 Import "../../docx_viewer/src/WordMlParser.rgr"
-Import "../../pptx/src/PptxParser.rgr"
 Import "pkg:evg/EVGCodepoint.rgr"
 
 class PkgCheck {
@@ -57,7 +59,7 @@ class PkgCheck {
 }
 
 class OoxmlPackageTest {
-    ; The sentence the three fixtures carry, built from code points so this
+    ; The sentence the fixtures carry, built from code points so this
     ; file stays ASCII: two-byte letters, a three-byte dash, and a Greek
     ; capital — every width a UTF-8 walk has to handle.
     sfn sentence:string () {
@@ -98,34 +100,6 @@ class OoxmlPackageTest {
                 c.eqStr("written as entities" (p1.plainText()) want)
                 c.eqInt("and both are 21 characters" (EVGCodepoint.charCount((p0.plainText()))) wantGlyphs)
             }
-        }
-
-        print "-- .pptx --"
-        def pp:PptxParser (new PptxParser)
-        def pok:boolean (pp.openParts("gallery/pptx/fixtures" "27-accented-text.pptx"))
-        c.ok("the deck opened" pok)
-        if pok {
-            def deck:PptxPresentation (pp.parsePresentation())
-            c.ok("one slide" ((deck.slideCount()) == 1))
-            if ((deck.slideCount()) > 0) {
-                def slide:PptxSlide (itemAt deck.slides 0)
-                def texts:[string]
-                def i:int 0
-                while (i < (array_length slide.shapes)) {
-                    def sh:PptxShape (itemAt slide.shapes i)
-                    if sh.hasText {
-                        push texts (sh.text.plainText())
-                    }
-                    i = (i + 1)
-                }
-                c.ok("two text shapes" ((array_length texts) >= 2))
-                if ((array_length texts) >= 2) {
-                    c.eqStr("written as bytes" (itemAt texts 0) want)
-                    c.eqStr("written as entities" (itemAt texts 1) want)
-                    c.eqInt("and both are 21 characters" (EVGCodepoint.charCount((itemAt texts 0))) wantGlyphs)
-                }
-            }
-            pp.close()
         }
 
         print "-- .xlsx, which already worked, as the control --"
