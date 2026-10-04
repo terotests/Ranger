@@ -2181,7 +2181,7 @@ class VlCompile {
         }
         def titleText:VlJson (VlJson.stringValue((VlCompile.facetTitle(src facetKey titleField))))
         if wrapped {
-            push marks.arr (VlCompile.titleGroup("facet-title" "column-title" titleText "" (VlCompile.facetHeaderOf(src facetKey))))
+            push marks.arr (VlCompile.titleGroup("facet-title" "column-title" titleText "" (this.headerOf(src facetKey))))
             push marks.arr (VlCompile.headerGroup("row_header" "row-header" "facet_domain_row" "" "child_height" yAxes false "" (VlJson.objectValue()) "ascending"))
             push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "facet_domain_column" "" "child_width" xAxes true "" (VlJson.objectValue()) "ascending"))
         } {
@@ -2191,20 +2191,20 @@ class VlCompile {
                 def rowTitleText:VlJson (VlJson.stringValue((VlCompile.facetTitle(src "row" rowTitleField))))
                 def columnTitleText:VlJson (VlJson.stringValue((VlCompile.facetTitle(src "column" columnTitleField))))
                 if ((strlen (rowTitleText.asString())) > 0) {
-                    push marks.arr (VlCompile.titleGroup("row-title" "row-title" rowTitleText "left" (VlCompile.facetHeaderOf(src "row"))))
+                    push marks.arr (VlCompile.titleGroup("row-title" "row-title" rowTitleText "left" (this.headerOf(src "row"))))
                 }
                 if ((strlen (columnTitleText.asString())) > 0) {
-                    push marks.arr (VlCompile.titleGroup("column-title" "column-title" columnTitleText "" (VlCompile.facetHeaderOf(src "column"))))
+                    push marks.arr (VlCompile.titleGroup("column-title" "column-title" columnTitleText "" (this.headerOf(src "column"))))
                 }
-                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "row_domain" rowField "child_height" yAxes false rowField (VlCompile.facetHeaderOf(src "row")) "ascending"))
-                push marks.arr (VlCompile.headerGroup("column_header" "column-header" "column_domain" columnField "child_width" (VlJson.arrayValue()) true columnField (VlCompile.facetHeaderOf(src "column")) "ascending"))
+                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "row_domain" rowField "child_height" yAxes false rowField (this.headerOf(src "row")) "ascending"))
+                push marks.arr (VlCompile.headerGroup("column_header" "column-header" "column_domain" columnField "child_width" (VlJson.arrayValue()) true columnField (this.headerOf(src "column")) "ascending"))
                 push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "column_domain" "" "child_width" xAxes true columnField (VlJson.objectValue()) "ascending"))
             } {
             if ((strlen rowField) > 0) {
                 if ((strlen (titleText.asString())) > 0) {
-                    push marks.arr (VlCompile.titleGroup("row-title" "row-title" titleText "left" (VlCompile.facetHeaderOf(src facetKey))))
+                    push marks.arr (VlCompile.titleGroup("row-title" "row-title" titleText "left" (this.headerOf(src facetKey))))
                 }
-                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "row_domain" rowField "child_height" yAxes false orderField (VlCompile.facetHeaderOf(src "row")) sortDir))
+                push marks.arr (VlCompile.headerGroup("row_header" "row-header" "row_domain" rowField "child_height" yAxes false orderField (this.headerOf(src "row")) sortDir))
                 ; A row of panels only needs a strip under it if there is an
                 ; axis to put there. A trellis whose panels have no x axis had
                 ; an empty strip reserving a pixel of page.
@@ -2212,9 +2212,9 @@ class VlCompile {
                     push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "" "" "child_width" xAxes true "" (VlJson.objectValue()) "ascending"))
                 }
             } {
-                push marks.arr (VlCompile.titleGroup("column-title" "column-title" titleText "" (VlCompile.facetHeaderOf(src facetKey))))
+                push marks.arr (VlCompile.titleGroup("column-title" "column-title" titleText "" (this.headerOf(src facetKey))))
                 push marks.arr (VlCompile.headerGroup("row_header" "row-header" "" "" "child_height" yAxes false "" (VlJson.objectValue()) "ascending"))
-                push marks.arr (VlCompile.headerGroup("column_header" "column-header" "column_domain" columnField "child_width" (VlJson.arrayValue()) true orderField (VlCompile.facetHeaderOf(src "column")) sortDir))
+                push marks.arr (VlCompile.headerGroup("column_header" "column-header" "column_domain" columnField "child_width" (VlJson.arrayValue()) true orderField (this.headerOf(src "column")) sortDir))
                 push marks.arr (VlCompile.headerGroup("column_footer" "column-footer" "column_domain" "" "child_width" xAxes true orderField (VlJson.objectValue()) sortDir))
             }
             }
@@ -2227,7 +2227,7 @@ class VlCompile {
         if panelScales {
             cellFrom = "source_0"
         }
-        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused()) cellFrom (VlCompile.facetHeaderOf(src facetKey)) sortField sortOp sortDir crossField orderKey cellData cellScales))
+        push marks.arr (VlCompile.cellGroup(facetField panelMarks gridAxes wrapped (this.viewStrokeRefused()) cellFrom (this.headerOf(src facetKey)) sortField sortOp sortDir crossField orderKey cellData cellScales))
         out.setMember("marks" marks)
 
         ; Where the panels go, and how far the title stands clear of them.
@@ -2430,6 +2430,35 @@ class VlCompile {
     ; A header, a footer or a row header: a group drawn once per column or row,
     ; carrying the axis that column or row shares and, when it names its own
     ; value, a title read from the row it was drawn for.
+    ; Everything that says how a strip of panel names looks, in the order the
+    ; reference applies it: `config.header`, then the block for this kind of
+    ; strip (`config.headerFacet`, `headerColumn`, `headerRow`), then the
+    ; channel's own `header`. Read from the channel alone, a deck that set its
+    ; header colour once in the config got black names on a dark slide.
+    fn headerOf:VlJson (src:VlJson key:string) {
+        def out (VlJson.objectValue())
+        def kind:string "Facet"
+        if (key == "column") {
+            kind = "Column"
+        }
+        if (key == "row") {
+            kind = "Row"
+        }
+        VlCompile.copyInto(out (this.configBlock("header")))
+        VlCompile.copyInto(out (this.configBlock(("header" + kind))))
+        VlCompile.copyInto(out (VlCompile.facetHeaderOf(src key)))
+        return out
+    }
+
+    sfn copyInto:void (out:VlJson from:VlJson) {
+        if (! (from.isObject())) {
+            return
+        }
+        for from.keys k:string ki {
+            out.setMember(k (from.get(k)))
+        }
+    }
+
     ; What a facet channel said about the strip that labels it: the block a
     ; specification writes as `"header": {…}`.
     sfn facetHeaderOf:VlJson (src:VlJson key:string) {
@@ -2515,6 +2544,18 @@ class VlCompile {
         }
         if (header.has("labelFont")) {
             title.setMember("font" (header.get("labelFont")))
+        }
+        if (header.has("labelColor")) {
+            title.setMember("color" (header.get("labelColor")))
+        }
+        if (header.has("labelFontWeight")) {
+            title.setMember("fontWeight" (header.get("labelFontWeight")))
+        }
+        if (header.has("labelFontStyle")) {
+            title.setMember("fontStyle" (header.get("labelFontStyle")))
+        }
+        if (header.has("labelLimit")) {
+            title.setMember("limit" (header.get("labelLimit")))
         }
         if (header.has("labelAlign")) {
             title.setMember("align" (header.get("labelAlign")))
@@ -8017,6 +8058,88 @@ class VlCompile {
         this.pushOneOffsetScale(out "y")
     }
 
+    ; Whether the bars on this axis are grouped INSIDE a unit of time: a
+    ; bar or rect on a continuous time axis whose channel names a time unit
+    ; with a duration (a month, a year, an hour), and a sub-scale beside it.
+    fn groupsInsideUnit:boolean (ch:VlChannel axis:string) {
+        def off:VlChannel (this.channel((axis + "Offset")))
+        if (! off.defined) {
+            return false
+        }
+        if ((! off.hasDatum) && ((strlen (off.outField())) == 0)) {
+            return false
+        }
+        if ((strlen (this.unitEndFieldPlain(ch))) == 0) {
+            return false
+        }
+        return ((strlen (VlCompile.unitDuration(ch.timeUnits (this.sname(axis))))) > 0)
+    }
+
+    ; One unit of time in pixels, as an expression over the position scale:
+    ; the distance from the first of January 2001 to one unit later. A day
+    ; is not a fixed span (the reference leaves it out too), so a unit whose
+    ; smallest part is the day has none and the bars span the unit instead.
+    sfn unitDuration:string (units:[string] scaleName:string) {
+        def order:[string] ([] _:string ("year" "quarter" "month" "week" "day" "dayofyear" "date" "hours" "minutes" "seconds" "milliseconds"))
+        def smallest:string ""
+        for order part:string pi {
+            for units u:string ui {
+                if (u == part) {
+                    smallest = part
+                }
+            }
+        }
+        if (((strlen smallest) == 0) || (smallest == "day")) {
+            return ""
+        }
+        ; year, month, date, hours, minutes, seconds, milliseconds: the
+        ; place in datetime(); a quarter is three months, a week seven days
+        def startParts:[int] ([] _:int (2001 0 1 0 0 0 0))
+        def endParts:[int] ([] _:int (2001 0 1 0 0 0 0))
+        def place:int 0
+        def step:int 1
+        if (smallest == "quarter") {
+            place = 1
+            step = 3
+        }
+        if (smallest == "month") {
+            place = 1
+        }
+        if (smallest == "week") {
+            place = 2
+            step = 7
+        }
+        if ((smallest == "date") || (smallest == "dayofyear")) {
+            place = 2
+        }
+        if (smallest == "hours") {
+            place = 3
+        }
+        if (smallest == "minutes") {
+            place = 4
+        }
+        if (smallest == "seconds") {
+            place = 5
+        }
+        if (smallest == "milliseconds") {
+            place = 6
+        }
+        set_at endParts place ((itemAt endParts place) + step)
+        def a:string ""
+        def b:string ""
+        def k:int 0
+        while (k < 7) {
+            if (k > 0) {
+                a = (a + ", ")
+                b = (b + ", ")
+            }
+            a = (a + (to_string (itemAt startParts k)))
+            b = (b + (to_string (itemAt endParts k)))
+            k = (k + 1)
+        }
+        return (((((("scale('" + scaleName) + "', datetime(") + b) + ")) - scale('") + scaleName) + "', datetime(" + a + "))")
+    }
+
     ; A sub-scale over CATEGORIES is a band of its own — one sub-band per
     ; series, which is what a grouped bar chart is. A sub-scale over NUMBERS
     ; spreads across the band it sits in instead: that is a jitter, and its
@@ -8032,6 +8155,30 @@ class VlCompile {
         sc.setMember("domain" (this.domainFor(ch)))
         if (ch.isDiscrete()) {
             sc.setMember("type" (VlJson.stringValue("band")))
+            ; Inside a unit of TIME the sub-bands share the unit's width, less
+            ; the padding either side that keeps one month's group off the
+            ; next (`bandWithNestedOffsetPaddingInner`, a fifth by default).
+            def parent:VlChannel (this.channel(axis))
+            if parent.defined {
+                def unitSpan:string ""
+                if (this.continuousScale(parent)) {
+                    unitSpan = (VlCompile.unitDuration(parent.timeUnits (this.sname(axis))))
+                }
+                if ((strlen unitSpan) > 0) {
+                    def pad:double (this.configNumber("scale" "bandWithNestedOffsetPaddingInner" 0.2))
+                    def shift:double ((parent.def0.doubleOr("bandPosition" 0.5)) - 0.5)
+                    def span0 (VlJson.arrayValue())
+                    def lo (VlJson.objectValue())
+                    lo.setMember("signal" (VlJson.stringValue((((VlJson.formatNumber(((pad / 2.0) + shift) 6)) + " * (") + unitSpan + ")"))))
+                    push span0.arr lo
+                    def hi (VlJson.objectValue())
+                    hi.setMember("signal" (VlJson.stringValue((((VlJson.formatNumber(((1.0 - (pad / 2.0)) + shift) 6)) + " * (") + unitSpan + ")"))))
+                    push span0.arr hi
+                    sc.setMember("range" span0)
+                    push out.arr sc
+                    return
+                }
+            }
             ; Which way round the two bands are sized depends on who decided
             ; the plot's size. Nobody having said, the sub-band is twenty
             ; pixels and the band above it is as wide as its sub-bands need —
@@ -11955,10 +12102,19 @@ class VlCompile {
         ; A time unit's value is an instant however the channel declared its
         ; type, so it is named as a date and in the unit's own format — "Jan",
         ; not thirteen digits.
+        ; A date the chart said how to write — `"axis": {"format": "%b"}` —
+        ; is described in those words, as the axis writes it.
+        def stated:string (this.guideFormat(ch))
         if ((strlen ch.timeUnit) > 0) {
+            if ((strlen stated) > 0) {
+                return (VlCompile.describeUnit((ch.outField()) stated))
+            }
             return (VlCompile.describeUnit((ch.outField()) (VlTime.unitFormat(ch.timeUnits))))
         }
         if (ch.kind == "temporal") {
+            if ((strlen stated) > 0) {
+                return (VlCompile.describeUnit((ch.outField()) stated))
+            }
             return (VlCompile.describeDate((ch.outField())))
         }
         ; A normalised stack is a SHARE, so what is described is the segment's
@@ -11967,6 +12123,30 @@ class VlCompile {
             return (VlCompile.describeShare(stackField))
         }
         return (VlCompile.describeOneJoined((ch.outField()) (ch.isDiscrete()) separator))
+    }
+
+    ; The format a channel's values are written in where the chart said so:
+    ; a text or tooltip channel's own `format`, a position channel's axis's,
+    ; any other channel's legend's. "" when it said nothing (or gave a
+    ; format of another type than plain text).
+    fn guideFormat:string (ch:VlChannel) {
+        def own:VlJson (ch.def0)
+        def where:VlJson own
+        if ((ch.name == "x") || (ch.name == "y")) {
+            where = (own.get("axis"))
+        } {
+            if ((ch.name != "text") && (ch.name != "tooltip")) {
+                where = (own.get("legend"))
+            }
+        }
+        if (! (where.isObject())) {
+            return ""
+        }
+        def f:VlJson (where.get("format"))
+        if (f.isString()) {
+            return (where.stringOr("format" ""))
+        }
+        return ""
     }
 
     ; The same expression without the brackets the description wraps it in — a
@@ -12535,6 +12715,28 @@ class VlCompile {
             def width (VlJson.objectValue())
             width.setMember("signal" (VlJson.stringValue((("max(0.25, bandwidth('" + (this.sname(band))) + "'))"))))
             update.setMember(dimension width)
+            return
+        }
+        ; A grouped bar over TIME: the bars of one month stand side by side
+        ; inside it, along the sub-scale, instead of each spanning the whole
+        ; month. Drawn from the unit's start to its end like a lone bar, the
+        ; four regions of a month were four bars on top of one another.
+        if (this.groupsInsideUnit(ch axis)) {
+            def at:VlJson (this.scaled(axis (ch.outField())))
+            def off:VlChannel (this.channel((axis + "Offset")))
+            def spot (VlJson.objectValue())
+            spot.setMember("scale" (VlJson.stringValue((this.sname((axis + "Offset"))))))
+            if off.hasDatum {
+                spot.setMember("value" off.value)
+            } {
+                spot.setMember("field" (VlJson.stringValue((off.outField()))))
+            }
+            spot.setMember("band" (VlJson.numberValue(0.5)))
+            at.setMember("offset" spot)
+            update.setMember((axis + "c") at)
+            def across (VlJson.objectValue())
+            across.setMember("signal" (VlJson.stringValue((("max(0.25, bandwidth('" + (this.sname((axis + "Offset")))) + "'))"))))
+            update.setMember(dimension across)
             return
         }
         ; A binned bar spans its bin, and the pair of half-pixel nudges keeps a
