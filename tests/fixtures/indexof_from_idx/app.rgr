@@ -1,0 +1,23 @@
+; `indexOfFrom`, a start position, where the start is a local named `idx`.
+; The Go expansion used to declare its own `idx` inside a closure, so the start
+; read the closure's int instead of this int64 and Go refused to build it.
+class IndexOfFromIdx {
+    sfn m@(main):void () {
+        def xml:string "<a x=\"1\"><b/><c y=\"2\"/>"
+        def idx:int (indexOf xml "<b")
+        def end:int (indexOfFrom xml ">" idx)
+        print (to_string end)
+        def from:int 0
+        def count:int 0
+        def at:int (indexOfFrom xml "<" from)
+        while (at >= 0) {
+            count = (count + 1)
+            from = (at + 1)
+            at = (indexOfFrom xml "<" from)
+        }
+        print (to_string count)
+        print (to_string (indexOfFrom xml "zz" idx))
+        def __from:int 3
+        print (to_string (indexOfFrom xml "\"" __from))
+    }
+}
