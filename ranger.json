@@ -1,6 +1,6 @@
 {
   "name": "ranger",
-  "version": "4.0.1",
+  "version": "4.0.2",
   "license": "MIT",
   "description": "The packages this tree takes from other repositories. npm run deps fetches them (rgrc install) and puts each where scripts/deps.mjs says: lib/evg, lib/image, gallery/componentengine, gallery/cer, gallery/vela. \"sources\" are source trees it fetches with git rather than rgrc install: gallery/datagrid.",
   "dependencies": {
