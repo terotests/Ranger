@@ -6,7 +6,8 @@
 ;
 ;   npm run office:shapes:native
 ;
-; `OfficeShapeCatalogTest` is the real suite and it imports both editors, which
+; `OfficeShapeCatalogTest` (terotests/RangerPPTX, interop/office/) is the real
+; suite and it imports both editors, which
 ; makes it a JavaScript test: the whole book and the whole deck is more C++
 ; than a check like this is worth compiling.
 ;

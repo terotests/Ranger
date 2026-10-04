@@ -96,7 +96,7 @@ class OdfPackageTest {
         ; The one that matters for the shell: a .pptx is a ZIP too, and its
         ; first member is not called `mimetype`. Answering anything but "" here
         ; would send every deck to the wrong reader.
-        c.eqStr("a .pptx is not ODF" (OdfPackageTest.sniffFile("gallery/pptx/fixtures" "01-text.pptx")) "")
+        c.eqStr("a .pptx is not ODF" (OdfPackageTest.sniffFile("gallery/odf/fixtures" "01-text.pptx")) "")
     }
 
     sfn sniffFile:string (dir:string name:string) {
@@ -223,7 +223,7 @@ class OdfPackageTest {
         ; The ZIP opens fine. `openParts` still has to answer false, because
         ; the shell asks it "is this yours?" and a true here sends a deck into
         ; the wrong reader.
-        def ok:boolean (pkg.openParts("gallery/pptx/fixtures" "01-text.pptx"))
+        def ok:boolean (pkg.openParts("gallery/odf/fixtures" "01-text.pptx"))
         c.ok("a .pptx does not open as ODF" (ok == false))
         pkg.close()
     }

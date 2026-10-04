@@ -163,9 +163,6 @@ lib/evg/bin/evg_trace_cli.rs
 lib/evg/bin/evg_trace_cli
 lib/evg/bin/evg_trace_cli_rust
 
-# Built JavaScript API bundles — compiled from the Ranger sources beside them.
-gallery/pptx/api/js/dist/
-
 # The Office API reference, generated from the Ranger facades by
 # gallery/office/docs/tools. It is built under gallery/ rather than under
 # docs/ because it quotes AGPL comments and the documentation site is MIT.
@@ -181,15 +178,6 @@ gallery/office/docs/site/src/content/docs/vela.mdx
 # Copied from the playground / chart-api builds so live examples can iframe them.
 gallery/office/docs/site/public/playground/
 gallery/office/docs/site/public/chart-api/
-
-# The playground build output.
-gallery/pptx/web/playground/dist/
-gallery/pptx/web/playground/.stage/
-
-# The WebAssembly build: the generated C++, the Emscripten output and the
-# assembled page. All three come out of gallery/pptx/web/wasm/build.sh.
-gallery/pptx/web/wasm/build/
-gallery/pptx/web/wasm/dist/
 
 # Compiled CSS core tests.
 gallery/css/bin/
@@ -271,6 +259,8 @@ compiler/bin/api.ts
 gallery/evgui/
 
 # Moved out of Ranger, cloned here to build what imports them:
-# https://github.com/terotests/RangerFlow and https://github.com/terotests/RangerMarkdown
+# https://github.com/terotests/RangerFlow, https://github.com/terotests/RangerMarkdown
+# and https://github.com/terotests/RangerPPTX
 gallery/rangerflow/
 gallery/markdown/
+gallery/pptx/

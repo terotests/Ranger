@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One sentence, three formats, two string models.
+# One sentence, two formats, two string models (the .pptx third is in
+# terotests/RangerPPTX: npm run pptx:ooxml:text:test).
 #
 # Each fixture carries the same line twice — as real UTF-8 bytes and as numeric
 # character references — because a reader can get either spelling wrong on its
@@ -57,4 +58,4 @@ cp gallery/invaders/variant.hpp "$OUT/variant.hpp"
 grep -q "ALL PASS" "$OUT/cpp.out" || { echo "C++ run failed" >&2; exit 1; }
 
 echo
-echo "one sentence, read identically out of .xlsx, .docx and .pptx, on both targets"
+echo "one sentence, read identically out of .xlsx and .docx, on both targets"

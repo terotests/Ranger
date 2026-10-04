@@ -1,9 +1,0 @@
-*.js
-!web/*.mjs
-!harness/**/*.mjs
-bin/
-*.png
-!artifacts/
-!artifacts/**
-demo_*.png
-harness/out/
