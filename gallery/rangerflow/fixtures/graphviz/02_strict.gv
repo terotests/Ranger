@@ -1,5 +1,0 @@
-strict digraph dedup {
-  a -> b;
-  a -> b;
-  b -> a;
-}

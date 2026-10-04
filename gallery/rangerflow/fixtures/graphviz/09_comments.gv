@@ -1,8 +1,0 @@
-# a preprocessor-style comment line
-digraph comments {
-  // line comment
-  /* block
-     comment */
-  a -> b; // trailing
-  c -> d  /* inline */ -> e
-}

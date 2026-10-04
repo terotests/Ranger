@@ -118,20 +118,5 @@ const browser = await chromium.launch({
   console.log("  game.png");
 }
 
-// ---- the markdown reader, with the mermaid document open -----------------
-{
-  const dir = path.join(ROOT, ".landing_tmp/r5");
-  if (build) run("bash", ["gallery/r5/web/build.sh", "--out", dir]);
-  const s = await serve(dir);
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
-  await page.goto(`http://localhost:${s.port}/`, { waitUntil: "networkidle" });
-  // The document is parsed, laid out and painted in the tab; give the GPU
-  // path time to put the diagrams on the page before the shutter.
-  await page.waitForTimeout(9000);
-  await page.screenshot({ path: path.join(OUT, "r5.png") });
-  await page.close(); s.close();
-  console.log("  r5.png");
-}
-
 await browser.close();
 console.log(`captured into ${path.relative(ROOT, OUT)} — now: node landing/tools/shots.mjs`);

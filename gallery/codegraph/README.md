@@ -1,5 +1,11 @@
 # CodeGraph — Ranger source as a paged call graph
 
+> The explorer app (`src/CodeGraphApp`, `CodeGraphFlow`, `CodeGraphGit`), its web,
+> desktop, CLI and bench builds and its tests draw through RangerFlow, which
+> moved to [terotests/RangerFlow](https://github.com/terotests/RangerFlow); they
+> are archived in [terotests/GalleryArchive](https://github.com/terotests/GalleryArchive).
+> What stays here is the model `gallery/uast` builds on.
+
 A **gallery app** of its own, not a RangerFlow demo. RangerFlow draws one
 window of the graph on the EVG WebGL canvas; The chrome around it is **Full EVG** (`gallery/ui` toolbar, example select, class tree) so the same `CodeGraphApp` paints in a tab and in an SDL2 desktop window. RangerFlow still draws the current window of the graph on the canvas region.
 
