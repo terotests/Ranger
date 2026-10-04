@@ -564,6 +564,41 @@ class ScriptEditorTest {
         fz.setFontSize(15.4)
         c.ok("a size is whole pixels" (fz.layout.fontSize == 15.0))
 
+
+        print "== a colleague's edits and carets"
+        def co:ScriptEditor (new ScriptEditor)
+        co.init("# Title\n\nSome text\n")
+        co.moveCaret(2 4 false)
+        co.applyRemoteAt(0 0 "intro\n")
+        c.eqStr("their line is in" (co.text()) "intro\n# Title\n\nSome text\n")
+        c.eqInt("my caret moved down with my text" co.sel.caret.line 3)
+        c.eqInt("and kept its column" co.sel.caret.col 4)
+        co.insert("X")
+        c.eqStr("I type where I was" (co.text()) "intro\n# Title\n\nSomeX text\n")
+        co.applyRemoteAt(co.caretOffset() 0 "yy")
+        c.eqInt("their insert at my caret: mine stays before it" (co.caretOffset()) 20)
+        co.undo()
+        c.eqStr("my undo takes my X only" (co.text()) "intro\n# Title\n\nSomeyy text\n")
+        co.selectAll()
+        c.eqInt("anchor offset" (co.anchorOffset()) 0)
+        co.addPeer("Anonymous Zebra" 234 88 12 3 0)
+        c.eqInt("a peer" (array_length co.peers) 1)
+        def pz:EditorPeer (itemAt co.peers 0)
+        c.eqInt("peer caret column" pz.col 3)
+        def tr0:UITextRenderer (new UITextRenderer)
+        def dl0:EVGDisplayList (new EVGDisplayList)
+        co.setBounds(0 0 600 300)
+        co.paint(dl0 tr0 0)
+        def flags:int 0
+        for dl0.cmds cmd:EVGDrawCmd k {
+            if (cmd.text == "Anonymous Zebra") {
+                flags = (flags + 1)
+            }
+        }
+        c.eqInt("the peer's name is painted" flags 1)
+        co.clearPeers()
+        c.eqInt("peers cleared" (array_length co.peers) 0)
+
         print ""
         print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
         if (c.failed > 0) {
