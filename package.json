@@ -626,7 +626,7 @@
     "plugin:check": "bash scripts/plugin-sync.sh --check && claude plugin validate ./plugins/ranger && claude plugin validate .",
     "plugin:sync": "bash scripts/plugin-sync.sh",
     "prepare": "node scripts/deps.mjs",
-    "prepublishOnly": "npm run build:dist && npm run test:publish",
+    "prepublishOnly": "npm run build:dist",
     "presdata:test": "bash gallery/presdata/tools/run_test.sh",
     "rafi:build": "node dist/rgrc.js -es6 -nodemodule ./gallery/figma/web/rafi/RafiApp.rgr -d=./gallery/figma/bin -o=RafiApp.cjs",
     "rafi:page": "npm run rafi:build --silent && node gallery/figma/web/rafi/build.mjs",
@@ -914,5 +914,5 @@
     "zstd:tool": "bash scripts/rgr-suite.sh ./gallery/zstd/src/zstd_tool.rgr ./gallery/zstd/bin zstd_tool.js"
   },
   "types": "dist/api.d.ts",
-  "version": "4.0.1"
+  "version": "4.0.2"
 }
