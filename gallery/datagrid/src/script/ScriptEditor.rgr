@@ -2252,10 +2252,19 @@ class ScriptEditor {
         return true
     }
 
+    ; Typed or pasted over a selection: one edit, so one Ctrl+Z puts the
+    ; selection back (not a removal and an insertion undone one at a time).
     fn insert:void (s:string) {
-        this.deleteSelection()
-        def p:EditorPos (buf.insertText(sel.caret.line sel.caret.col s))
-        this.markEdited(p)
+        if (sel.isCollapsed()) {
+            def p:EditorPos (buf.insertText(sel.caret.line sel.caret.col s))
+            this.markEdited(p)
+            return
+        }
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        def q:EditorPos (buf.replaceRange(a.line a.col b.line b.col s true))
+        this.markEdited(q)
     }
 
     ; Enter keeps the indent it found, and opens one more level after a line
