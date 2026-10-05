@@ -24,6 +24,11 @@ class TextSpan {
     def fontFamily:string "Open Sans"
     def colorHex:string "000000"
     def hyperlink:string ""
+    ; An equation in the line: its TeX source, which a writer turns into an
+    ; Office Math run (`m:oMath`). The span's own text is the formula as one
+    ; line of Unicode, which is what a painter without equations draws and
+    ; what the plain text holds.
+    def math:string ""
 
     Constructor () {
     }
@@ -44,6 +49,7 @@ class TextSpan {
         s.fontFamily = fontFamily
         s.colorHex = colorHex
         s.hyperlink = hyperlink
+        s.math = math
         return s
     }
 
@@ -67,6 +73,10 @@ class TextSpan {
             return false
         }
         if (hyperlink != other.hyperlink) {
+            return false
+        }
+        ; two formulas side by side stay two formulas
+        if (((strlen math) > 0) || ((strlen other.math) > 0)) {
             return false
         }
         return true
