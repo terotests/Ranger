@@ -1411,6 +1411,14 @@ class EVGLayout {
                         fixedWidth = ((fixedWidth + baseW) + c.box.marginLeftPx) + c.box.marginRightPx
                     } {
                     if c.width.isSet {
+                        ; A width on an item that grows is where it grows
+                        ; FROM (CSS: `flex-basis: auto` is the width), not
+                        ; a size it keeps. This counted it fixed, so
+                        ; `width: 0; flex-grow: 1` — a field beside a
+                        ; button — stayed 0 wide and was never drawn.
+                        if (c.flex > 0.0) {
+                            totalFlex = totalFlex + c.flex
+                        }
                         fixedWidth = fixedWidth + c.width.pixels + c.box.marginLeftPx + c.box.marginRightPx
                     } {
                         if (c.flex > 0.0) {
@@ -1465,16 +1473,16 @@ class EVGLayout {
                     j = 0
                     while (j < childCount) {
                         def c:EVGElement (parent.getChild(j))
-                        def isFlexItem:boolean false
-                        if (c.flex > 0.0) {
-                            if (c.flexBasis.isSet || (c.width.isSet == false)) {
-                                isFlexItem = true
-                            }
-                        }
+                        def isFlexItem:boolean (c.flex > 0.0)
                         if (isFlexItem && ((itemAt frozen j) == false)) {
+                            ; the basis: flex-basis, else the width, else 0
                             def basisW:double 0.0
                             if c.flexBasis.isSet {
                                 basisW = c.flexBasis.pixels
+                            } {
+                                if c.width.isSet {
+                                    basisW = c.width.pixels
+                                }
                             }
                             def sizeW:double basisW
                             if (poolFlex > 0.0) {

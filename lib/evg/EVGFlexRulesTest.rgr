@@ -27,6 +27,9 @@
 ;   4. `align-self` exists. An item may opt out of its container's
 ;      `align-items`; the property parsed nowhere and did nothing.
 ;
+;   1b. A width on an item that grows is its basis (CSS `flex-basis: auto`).
+;      It was counted a fixed size, so `width: 0; flex-grow: 1` stayed 0.
+;
 ;   5. `row-gap` / `column-gap` are the axes, and lines have a gap too. Both
 ;      longhands parsed and neither was ever read, and the shorthand spaced the
 ;      items on a wrapped row without spacing the rows.
@@ -145,6 +148,23 @@ class FlexRulesCheck {
         def l3 (this.lay(r3))
         this.near("a basis that DOES grow still grows from it" (this.widthOf(r3 0)) 250.0)
         this.near("both of them" (this.widthOf(r3 1)) 350.0)
+
+        ; a width on an item that grows is its basis (flex-basis: auto)
+        def wg:[string]
+        push wg "width:0px;min-width:0px;flex-grow:1;height:30px"
+        push wg "width:54px;height:30px"
+        def r3b (this.row("600px" wg))
+        def l3b (this.lay(r3b))
+        this.near("`width: 0; flex-grow: 1` grows into the row" (this.widthOf(r3b 0)) 546.0)
+        this.near("beside a fixed sibling" (this.widthOf(r3b 1)) 54.0)
+
+        def wg2:[string]
+        push wg2 "width:100px;flex-grow:1;height:30px"
+        push wg2 "width:200px;flex-grow:1;height:30px"
+        def r3c (this.row("600px" wg2))
+        def l3c (this.lay(r3c))
+        this.near("growing from its width" (this.widthOf(r3c 0)) 250.0)
+        this.near("each from its own" (this.widthOf(r3c 1)) 350.0)
 
         ; --- 2. min beats max --------------------------------------------------
         print ""
