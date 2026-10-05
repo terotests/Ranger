@@ -88954,7 +88954,7 @@ class RustLower  {
       lines.push(((head + " (") + ps.join(" ")) + ") {");
       const hasRet = m.ret.kind != "unit" && m.ret.kind != "never";
       if ( hasRet ) {
-        lines.push("    def r:" + this.tempDecl2(m.ret));
+        lines.push("    def " + this.tempDecl("r", m.ret));
       }
       let ci = 0;
       // Loop start
@@ -88988,10 +88988,6 @@ class RustLower  {
     }
     lines.push("}");
     return lines.join("\n");
-  };
-  tempDecl2 (t) {
-    const d = this.tempDecl("r", t);
-    return d.substring(2, d.length );
   };
   resultClass (t) {
     const vt = t.arg(0);

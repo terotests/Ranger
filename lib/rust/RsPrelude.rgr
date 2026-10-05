@@ -1678,7 +1678,12 @@ class RsStr {
     if (i >= n) {
       return none
     }
-    if ((n - i) > 19) {
+    ; leading zeros do not count toward i64's 19 digits, as in Rust
+    def z:int i
+    while ((z < (n - 1)) && ((itemAt cs z) == 48)) {
+      z = z + 1
+    }
+    if ((n - z) > 19) {
       return none
     }
     while (i < n) {

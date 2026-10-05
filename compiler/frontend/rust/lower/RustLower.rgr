@@ -2156,7 +2156,7 @@ class RustLower {
       push lines (((head + " (") + (join ps " ")) + ") {")
       def hasRet:boolean ((m.ret.kind != "unit") && (m.ret.kind != "never"))
       if (hasRet) {
-        push lines ("    def r:" + ((this.tempDecl2(m.ret))))
+        push lines ("    def " + (this.tempDecl("r" m.ret)))
       }
       def ci:int 0
       for tr.implementors impl:string mk {
@@ -2192,11 +2192,6 @@ class RustLower {
   }
 
   ; `r:T <zero>` without the `def`.
-  fn tempDecl2:string (t:RsType) {
-    def d:string (this.tempDecl("r" t))
-    return (substring d 2 (strlen d))
-  }
-
 
 
   ; `Result<T, E>` is a generated class per instantiation: `ok`, the value

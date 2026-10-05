@@ -58,6 +58,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Rust syntax: `str::parse::<i64>()` with leading zeros.** The runtime
+  refused a string of more than 19 digits before parsing, so
+  `"00000000000000000301"` was an error on every non-Rust target while
+  rustc parses it as 301. Leading zeros no longer count toward the limit
+  (`lib/rust/RsPrelude.rgr`, fixture `ex_results`).
+- **Rust syntax: a `dyn Trait` method returning `Option`.** The generated
+  dispatch class declared its result as `def r:(optional):T`, which failed
+  to parse ("Cannot read properties of undefined"); it is now
+  `def r@(optional):T` (fixture `r2_dyn_option`).
+
 - **`npm run test:publish` depended on the machine it ran on.** The
   interpreter's local time is UTC, and `runtime-conformance` compared it with
   Node formatting in the host's zone, so the `Intl` date probes failed

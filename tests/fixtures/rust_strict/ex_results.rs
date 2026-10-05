@@ -70,6 +70,8 @@ fn main() {
     println!("halves of the even ones {:?}", halves);
     let parsed: Vec<i64> = ["1", "two", "3"].iter().filter_map(|s| s.parse::<i64>().ok()).collect();
     println!("numbers {:?}", parsed);
+    let padded: Vec<i64> = ["00000000000000000301", "000000000000000000000", "12345678901234567890"].iter().filter_map(|s| s.parse::<i64>().ok()).collect();
+    println!("leading zeros {:?}", padded);
     let label = parse_int("n", "42").map(|n| n * 2).map_or("none".to_string(), |n| format!("got {}", n));
     println!("{}", label);
 }
