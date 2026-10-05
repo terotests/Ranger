@@ -118,6 +118,17 @@ class ScriptEditorTest {
         ed.undo()
         c.ok("undo puts it back" ((ed.buf.lineAt(1)) == "  const x = 1;"))
 
+        ; Typed over a selection: one undo puts the selection back whole.
+        ed.moveCaret(1 8 false)
+        ed.moveCaret(1 9 true)
+        ed.insert("total")
+        c.eqStr("typed over the selection" (ed.buf.lineAt(1)) "  const total = 1;")
+        ed.undo()
+        c.eqStr("one undo puts the word back" (ed.buf.lineAt(1)) "  const x = 1;")
+        ed.redo()
+        c.eqStr("and redo types it again" (ed.buf.lineAt(1)) "  const total = 1;")
+        ed.undo()
+
         ed.selectAll()
         c.ok("select all reaches the end" ((ed.sel.isCollapsed()) == false))
         ed.insert("x")
