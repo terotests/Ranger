@@ -19,8 +19,8 @@ class RangerDocCommentWriter {
   ; descriptor with an empty name when there is none.
   sfn lookupFn:RangerAppFunctionDesc (ctx:RangerAppWriterContext name:string) {
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.definedClassList cname:string ci {
-      def cl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
+    for root.tables.definedClassList cname:string ci {
+      def cl:RangerAppClassDesc (unwrap (get root.tables.definedClasses cname))
       def m@(optional):RangerAppFunctionDesc (cl.findStaticMethod(name))
       if ((null? m) == false) {
         return (unwrap m)

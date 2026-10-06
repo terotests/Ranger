@@ -181,7 +181,7 @@ class RangerRustClassWriter {
     }
     rustIdentNamesDone = true
     def inRoot:RangerAppWriterContext (ctx.getRoot())
-    for inRoot.definedClasses icl:RangerAppClassDesc ici {
+    for inRoot.tables.definedClasses icl:RangerAppClassDesc ici {
       for icl.variables iv:RangerAppParamDesc ivi {
         set rustIdentNames iv.name true
       }
@@ -1648,7 +1648,7 @@ class RangerRustClassWriter {
         def dotDecl:int 0
         def dotShared:int 0
         def dotRoot:RangerAppWriterContext (ctx.getRoot())
-        for dotRoot.definedClasses dcl:RangerAppClassDesc dci {
+        for dotRoot.tables.definedClasses dcl:RangerAppClassDesc dci {
           def dfv@(optional):RangerAppParamDesc (dcl.findVariable(node.vref))
           if (!null? dfv) {
             dotDecl = dotDecl + 1

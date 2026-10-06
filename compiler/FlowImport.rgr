@@ -109,7 +109,7 @@ extension RangerFlowParser {
 
   fn finalizeRecordClasses:void (ctx:RangerAppWriterContext wr:CodeWriter) {
     def rootCtx (ctx.getRoot())
-    for rootCtx.definedClassList cname:string i {
+    for rootCtx.tables.definedClassList cname:string i {
       def cl:RangerAppClassDesc (rootCtx.findClass(cname))
       if (cl.is_record) {
         if (cl.has_constructor == false) {
@@ -229,11 +229,11 @@ extension RangerFlowParser {
     def env (unwrap envOpt)
     def rootCtx (ctx.getRoot())
     def startDir:string "."
-    def lp:int (array_length rootCtx.libraryPaths)
+    def lp:int (array_length rootCtx.tables.libraryPaths)
     if (lp > 0) {
-      startDir = (itemAt rootCtx.libraryPaths (lp - 1))
+      startDir = (itemAt rootCtx.tables.libraryPaths (lp - 1))
     }
-    return (PkgImport.resolve(env startDir spec rootCtx.libraryPaths))
+    return (PkgImport.resolve(env startDir spec rootCtx.tables.libraryPaths))
   }
 
   fn mergeImports:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -249,13 +249,13 @@ extension RangerFlowParser {
       def fNameNode:CodeNode (at node.children 1)
       def import_file:string fNameNode.string_value
 
-      if (has ctx.already_imported import_file) {
+      if (has ctx.tables.already_imported import_file) {
         return
       }
 
       def source_code ""
 
-      set ctx.already_imported import_file true
+      set ctx.tables.already_imported import_file true
       def rootCtx (ctx.getRoot())
       
       ; Calculate the full path and directory of the imported file
@@ -276,8 +276,8 @@ extension RangerFlowParser {
           }
         }
         def pi:int 0
-        while (pi < (array_length rootCtx.libraryPaths)) {
-          push searchPaths (itemAt rootCtx.libraryPaths pi)
+        while (pi < (array_length rootCtx.tables.libraryPaths)) {
+          push searchPaths (itemAt rootCtx.tables.libraryPaths pi)
           pi = (pi + 1)
         }
         def filePathIs (TFiles.searchEnv( env searchPaths searchName ))
@@ -297,10 +297,10 @@ extension RangerFlowParser {
         ; in it is defined twice, so a tree cannot move to `pkg:` one file at
         ; a time. Key the folded path as well.
         def seenKey:string ("@" + (PkgImport.foldPath((filePathIs + "/" + searchName))))
-        if (has ctx.already_imported seenKey) {
+        if (has ctx.tables.already_imported seenKey) {
           return
         }
-        set ctx.already_imported seenKey true
+        set ctx.tables.already_imported seenKey true
         def c:string (read_file env filePathIs searchName)
         source_code = (unwrap c)
         
@@ -365,7 +365,7 @@ extension RangerFlowParser {
       
       ; Add the imported file's directory to library paths for recursive imports
       if ((strlen importFileDir) > 0) {
-        push rootCtx.libraryPaths importFileDir
+        push rootCtx.tables.libraryPaths importFileDir
         if(ctx.hasCompilerFlag("verbose")) {
           print "  -> pushed importFileDir to libraryPaths: " + importFileDir
         }
@@ -375,7 +375,7 @@ extension RangerFlowParser {
       
       ; Remove the directory after processing (restore original paths)
       if ((strlen importFileDir) > 0) {
-        removeLast rootCtx.libraryPaths
+        removeLast rootCtx.tables.libraryPaths
       }
       
       push node.children rn

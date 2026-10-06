@@ -192,8 +192,8 @@ class RangerApiBuilder {
     def root:RangerAppWriterContext (ctx.getRoot())
     ; pass one: which declared classes are API. A method can name a class the
     ; registry lists after it, so the answer has to exist before the check.
-    for root.definedClassList cname:string pi {
-      def pcl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
+    for root.tables.definedClassList cname:string pi {
+      def pcl:RangerAppClassDesc (unwrap (get root.tables.definedClasses cname))
       if ((pcl.isNormalClass()) == false) {
         continue
       }
@@ -215,8 +215,8 @@ class RangerApiBuilder {
         set internalClassNames pcl.name true
       }
     }
-    for root.definedClassList cname:string ci {
-      def cl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
+    for root.tables.definedClassList cname:string ci {
+      def cl:RangerAppClassDesc (unwrap (get root.tables.definedClasses cname))
       if (cl.is_system) {
         continue
       }

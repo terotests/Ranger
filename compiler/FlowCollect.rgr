@@ -416,9 +416,9 @@ extension RangerFlowParser {
     }
 
     ;       ctx.hadValidType( (unwrap v.nameNode) )
-    for ctx.definedClassList cname:string i {
+    for ctx.tables.definedClassList cname:string i {
       push allTypes cname
-      def c (unwrap (get ctx.definedClasses cname))
+      def c (unwrap (get ctx.tables.definedClasses cname))
       if( c.is_system || c.is_interface || c.is_template || c.is_trait) {
         continue
       }
@@ -438,7 +438,7 @@ extension RangerFlowParser {
 
     }
 
-    for ctx.definedClassList cname:string i {
+    for ctx.tables.definedClassList cname:string i {
       push allTypes cname
     }
 
@@ -1160,14 +1160,14 @@ extension RangerFlowParser {
         ctx.addError(node "import expects a file name string")
         return
       }
-      if (has ctx.already_imported import_file) {
+      if (has ctx.tables.already_imported import_file) {
         ; Already imported - walk any merged children
         for node.children item:CodeNode i {
           this.WalkCollectMethods(item ctx wr)
         }
         return
       } {
-        set ctx.already_imported import_file true
+        set ctx.tables.already_imported import_file true
       }
       def envOpt (ctx.getEnv())
       if(null? envOpt) {
@@ -1190,8 +1190,8 @@ extension RangerFlowParser {
         }
       }
       def wi:int 0
-      while (wi < (array_length rootCtx.libraryPaths)) {
-        push searchPaths (itemAt rootCtx.libraryPaths wi)
+      while (wi < (array_length rootCtx.tables.libraryPaths)) {
+        push searchPaths (itemAt rootCtx.tables.libraryPaths wi)
         wi = (wi + 1)
       }
       def filePathIs (TFiles.searchEnv( env searchPaths searchName ))
@@ -1201,13 +1201,13 @@ extension RangerFlowParser {
         return
       }
       def seenKey2:string ("@" + (PkgImport.foldPath((filePathIs + "/" + searchName))))
-      if (has ctx.already_imported seenKey2) {
+      if (has ctx.tables.already_imported seenKey2) {
         for node.children item2:CodeNode i2 {
           this.WalkCollectMethods(item2 ctx wr)
         }
         return
       }
-      set ctx.already_imported seenKey2 true
+      set ctx.tables.already_imported seenKey2 true
       def c:string (read_file env filePathIs searchName)
       def code:SourceCode (new SourceCode ( (unwrap c)))
       code.filename = import_file
@@ -1219,14 +1219,14 @@ extension RangerFlowParser {
       def fullPath:string (filePathIs + "/" + searchName)
       def importFileDir:string (path_dirname fullPath)
       if ((strlen importFileDir) > 0) {
-        push rootCtx.libraryPaths importFileDir
+        push rootCtx.tables.libraryPaths importFileDir
       }
       
       this.WalkCollectMethods( (unwrap rnode) ctx wr)
       
       ; Remove the directory after processing
       if ((strlen importFileDir) > 0) {
-        removeLast rootCtx.libraryPaths
+        removeLast rootCtx.tables.libraryPaths
       }
       
       find_more = false

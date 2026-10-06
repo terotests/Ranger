@@ -207,7 +207,7 @@ class EnumNativeAnalysis {
     def diag:boolean (ctx.hasCompilerFlag("strict-ownership"))
     for (keys root.definedEnums) ename:string ei {
       def reason:string ""
-      for root.definedClasses cl:RangerAppClassDesc ci {
+      for root.tables.definedClasses cl:RangerAppClassDesc ci {
         if ((strlen reason) > 0) {
           continue
         }

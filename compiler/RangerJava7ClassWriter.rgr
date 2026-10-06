@@ -143,7 +143,7 @@ class RangerJava7ClassWriter {
 
   fn javaProgramUsesJson:boolean (ctx:RangerAppWriterContext) {
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.definedClasses jc:RangerAppClassDesc jci {
+    for root.tables.definedClasses jc:RangerAppClassDesc jci {
       if (jc.is_system) {
         continue
       }
@@ -1416,7 +1416,7 @@ public class RgJson {
     def counters ( root.counters )
 
     if( counters.b_counted  == false ) {
-      def list (keys root.definedClasses)
+      def list (keys root.tables.definedClasses)
       for list name:string i {
         if( (indexOf name "operatorsOf") == 0 ) {
           counters.operator_cnt = counters.operator_cnt + 1
@@ -1666,7 +1666,7 @@ public class RgJson {
     if( (ctx.hasCompilerFlag("client")) || (ctx.hasCompilerSetting("client")) ) {
       print "--> could create Client services for Java here..."
       def root (ctx.getRoot())
-      root.appServices.forEach({
+      root.tables.appServices.forEach({
         print " - service " + index
       })
     } 

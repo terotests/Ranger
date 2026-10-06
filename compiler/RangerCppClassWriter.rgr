@@ -388,7 +388,7 @@ class RangerCppClassWriter {
     }
     def inFamily:boolean false
     def rootCtx:RangerAppWriterContext (ctx.getRoot())
-    for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
+    for rootCtx.tables.definedClasses ucl:RangerAppClassDesc uci {
       if (this.unionIsSealable(ucl ctx)) {
         if ((indexOf ucl.is_union_of cl.name) >= 0) {
           inFamily = true
@@ -2140,7 +2140,7 @@ class RangerCppClassWriter {
 
   fn cppProgramUsesHash:boolean (ctx:RangerAppWriterContext) {
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.definedClasses cl:RangerAppClassDesc i {
+    for root.tables.definedClasses cl:RangerAppClassDesc i {
       ; a class the file never writes cannot reach the preamble, and the
       ; operator and template classes of Lang.rgr declare maps all over —
       ; counting them means every program "needs" it, which is how it came to
@@ -2225,7 +2225,7 @@ class RangerCppClassWriter {
 
   fn cppProgramUsesType:boolean (tn:string ctx:RangerAppWriterContext) {
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.definedClasses cl:RangerAppClassDesc i {
+    for root.tables.definedClasses cl:RangerAppClassDesc i {
       ; the same exclusions cppProgramUsesHash makes: a class the file never
       ; writes cannot reach the preamble, and the operator and template classes
       ; of Lang.rgr name everything
@@ -2290,7 +2290,7 @@ class RangerCppClassWriter {
 
   fn cppProgramUsesOptionalUnion:boolean (ctx:RangerAppWriterContext) {
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.definedClasses cl:RangerAppClassDesc i {
+    for root.tables.definedClasses cl:RangerAppClassDesc i {
       if (((cl.is_system || cl.is_template) || cl.is_operator_class) || cl.is_union) {
         continue
       }
@@ -2323,7 +2323,7 @@ class RangerCppClassWriter {
   fn cppProgramHasWeakField:boolean (ctx:RangerAppWriterContext) {
     def found false
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.definedClasses cl:RangerAppClassDesc i {
+    for root.tables.definedClasses cl:RangerAppClassDesc i {
       for cl.variables pvar:RangerAppParamDesc j {
         if (!null? pvar.nameNode) {
           if (this.cppIsWeakField((unwrap pvar.nameNode) ctx)) {
@@ -3136,7 +3136,7 @@ class RangerCppClassWriter {
     ; the two reachability questions, asked once rather than per union
     def needsOptionalUnion:boolean (this.cppProgramUsesOptionalUnion(ctx))
     def anyIsUsed:boolean (this.cppProgramUsesType("Any" ctx))
-    root.definedClasses.forEach({
+    root.tables.definedClasses.forEach({
       ; index == name
       ; item == class description
       if(item.is_union) {

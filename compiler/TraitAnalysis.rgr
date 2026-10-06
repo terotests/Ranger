@@ -90,7 +90,7 @@ class TraitInterfaceAnalysis {
     }
     computed = true
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.definedClasses tc:RangerAppClassDesc ti {
+    for root.tables.definedClasses tc:RangerAppClassDesc ti {
       if (tc.is_trait == false) {
         continue
       }
@@ -102,7 +102,7 @@ class TraitInterfaceAnalysis {
       }
       def used:boolean false
       def consumed:boolean false
-      for root.definedClasses uc:RangerAppClassDesc ui {
+      for root.tables.definedClasses uc:RangerAppClassDesc ui {
         if (uc.is_trait || uc.is_system) {
           continue
         }

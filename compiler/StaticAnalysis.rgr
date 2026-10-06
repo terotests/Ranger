@@ -2231,7 +2231,7 @@ class StaticAnalyzer {
       return false
     }
     def mroot:RangerAppWriterContext ((unwrap ctx).getRoot())
-    for mroot.definedClasses mcl:RangerAppClassDesc mci {
+    for mroot.tables.definedClasses mcl:RangerAppClassDesc mci {
       if (this.scanFnsForMutation(mcl.methods typeName)) {
         return true
       }
@@ -2496,7 +2496,7 @@ class StaticAnalyzer {
       if (rounds > 30) {
         return
       }
-      for root.definedClasses cl:RangerAppClassDesc ci {
+      for root.tables.definedClasses cl:RangerAppClassDesc ci {
         for cl.methods m:RangerAppFunctionDesc i {
           if (this.markSharingMutations(m)) {
             changed = true
@@ -2989,11 +2989,11 @@ class StaticAnalyzer {
     ; inside the module would choose, so the module's API does not change
     ; with its implementation
     if ((unwrap ctx).hasCompilerFlag("rust-module")) {
-      for root.definedClasses mcl:RangerAppClassDesc mci {
+      for root.tables.definedClasses mcl:RangerAppClassDesc mci {
         this.markClassShared(mcl.name "rust module boundary")
       }
     }
-    for root.definedClasses cl:RangerAppClassDesc ci {
+    for root.tables.definedClasses cl:RangerAppClassDesc ci {
       ; D-UNION: a union is written as Rc<dyn Any> on the Rust target, and only
       ; an Rc<RefCell<T>> coerces into it — so every class named by a union is
       ; shared however it is used on its own. Without this the member is a plain
@@ -3062,7 +3062,7 @@ class StaticAnalyzer {
       return
     }
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
-    for root.definedClasses cl:RangerAppClassDesc ci {
+    for root.tables.definedClasses cl:RangerAppClassDesc ci {
       for cl.methods m:RangerAppFunctionDesc mi {
         this.foldObjectInitsFn(m)
       }
@@ -3372,7 +3372,7 @@ class StaticAnalyzer {
       return
     }
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
-    for root.definedClasses cl:RangerAppClassDesc ci {
+    for root.tables.definedClasses cl:RangerAppClassDesc ci {
       if cl.is_system {
         continue
       }
@@ -4204,7 +4204,7 @@ class StaticAnalyzer {
       return
     }
     def ssRoot:RangerAppWriterContext ((unwrap ctx).getRoot())
-    for ssRoot.definedClasses ssCl:RangerAppClassDesc ssCi {
+    for ssRoot.tables.definedClasses ssCl:RangerAppClassDesc ssCi {
       if ((((ssCl.is_system || ssCl.is_template) || ssCl.is_operator_class) || ssCl.is_generic_instance)) {
         continue
       }
@@ -4260,7 +4260,7 @@ class StaticAnalyzer {
       return
     }
     def trRoot:RangerAppWriterContext ((unwrap ctx).getRoot())
-    for trRoot.definedClasses trCl:RangerAppClassDesc trCi {
+    for trRoot.tables.definedClasses trCl:RangerAppClassDesc trCi {
       if (trCl.is_extended_by_children == false) {
         continue
       }
@@ -4376,7 +4376,7 @@ class StaticAnalyzer {
     }
     this.computeTraitReentrancy()
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
-    for root.definedClasses cl:RangerAppClassDesc ci {
+    for root.tables.definedClasses cl:RangerAppClassDesc ci {
       if (cl.rust_needs_ref_semantics == false) {
         continue
       }
@@ -4434,7 +4434,7 @@ class StaticAnalyzer {
       if (rounds > 30) {
         return
       }
-      for root.definedClasses cl:RangerAppClassDesc ci {
+      for root.tables.definedClasses cl:RangerAppClassDesc ci {
         if (cl.rust_needs_ref_semantics == false) {
           continue
         }
@@ -4476,7 +4476,7 @@ class StaticAnalyzer {
     ; goes into the same trait-typed slots. Without this, `this` inside
     ; such a class is `self` where the writer needs the receiver Rc, and
     ; passing it to a trait-typed parameter could not be written at all.
-    for root.definedClasses tcl:RangerAppClassDesc tci {
+    for root.tables.definedClasses tcl:RangerAppClassDesc tci {
       if tcl.is_extended_by_children {
         this.markClassShared(tcl.name "extended by children")
       }
@@ -4489,7 +4489,7 @@ class StaticAnalyzer {
         }
       }
     }
-    for root.definedClasses cl:RangerAppClassDesc ci {
+    for root.tables.definedClasses cl:RangerAppClassDesc ci {
       for cl.variables cv:RangerAppParamDesc vi {
         this.markDescRcWrap(cv)
       }
@@ -4880,7 +4880,7 @@ class StaticAnalyzer {
     ; phase 1: field candidates — plain classes only; trait-related, template,
     ; operator, system and generic-instance classes keep owned fields (their
     ; emission paths have their own rules and the saving is not worth the risk)
-    for root.definedClasses cl:RangerAppClassDesc ci {
+    for root.tables.definedClasses cl:RangerAppClassDesc ci {
       def clExcluded:boolean ((((((cl.is_system || cl.is_union) || cl.is_system_union) || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_generic_instance)
       if (clExcluded == false) {
         if (cl.is_extended_by_children || ((array_length cl.extends_classes) > 0)) {
@@ -4907,7 +4907,7 @@ class StaticAnalyzer {
     ; phase 2: every function body in the program — assignments into promoted
     ; descs can live anywhere, so the walk is unconditional even for classes
     ; whose own fields were excluded above
-    for root.definedClasses cl:RangerAppClassDesc ci {
+    for root.tables.definedClasses cl:RangerAppClassDesc ci {
       for cl.methods m:RangerAppFunctionDesc mi {
         this.rssWalkFn(m)
       }
@@ -4967,13 +4967,13 @@ class StaticAnalyzer {
       return
     }
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
-    for root.templateClassList tpl:string ti {
+    for root.tables.templateClassList tpl:string ti {
       if ((root.isNativeGeneric(tpl)) == false) {
         continue
       }
       def form@(optional):RangerAppClassDesc
       def members:[RangerAppClassDesc]
-      for root.definedClasses cl:RangerAppClassDesc ci {
+      for root.tables.definedClasses cl:RangerAppClassDesc ci {
         if (cl.generic_template != tpl) {
           continue
         }
@@ -5080,7 +5080,7 @@ class StaticAnalyzer {
       return
     }
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
-    for root.definedClasses cl:RangerAppClassDesc ci {
+    for root.tables.definedClasses cl:RangerAppClassDesc ci {
       for cl.methods m:RangerAppFunctionDesc i {
         this.applyOwnershipToRustBorrowsFn(cl m)
       }
@@ -5105,7 +5105,7 @@ class StaticAnalyzer {
     }
     this.initMutatingOps()
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
-    for root.definedClasses cl:RangerAppClassDesc i {
+    for root.tables.definedClasses cl:RangerAppClassDesc i {
       this.analyzeOwnershipClass(cl)
     }
     this.resolveCallEscapes()
@@ -5116,7 +5116,7 @@ class StaticAnalyzer {
     ; the sharing verdict, because a class behind a cell is built differently.
     this.foldObjectInitsAll()
     if strict {
-      for root.definedClasses cl:RangerAppClassDesc i {
+      for root.tables.definedClasses cl:RangerAppClassDesc i {
         this.reportOwnershipClass(cl)
       }
       this.reportClassSharing()
@@ -5135,22 +5135,22 @@ class StaticAnalyzer {
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
     
     ; Pass 1: Analyze all classes - detect direct weak assignments and basic mutations
-    for root.definedClasses cl:RangerAppClassDesc i {
+    for root.tables.definedClasses cl:RangerAppClassDesc i {
       this.analyzeClass(cl)
     }
     
     ; Pass 2: Analyze transitive weak assignments (after all direct assignments detected)
-    for root.definedClasses cl:RangerAppClassDesc i {
+    for root.tables.definedClasses cl:RangerAppClassDesc i {
       this.analyzeClassTransitiveWeak(cl)
     }
     
     ; Pass 3: Recursive mutation analysis - determine which methods mutate self
-    for root.definedClasses cl:RangerAppClassDesc i {
+    for root.tables.definedClasses cl:RangerAppClassDesc i {
       this.analyzeClassMutation(cl)
     }
     
     ; Pass 4: Parameter mutation analysis - mark params that need &mut based on method calls
-    for root.definedClasses cl:RangerAppClassDesc i {
+    for root.tables.definedClasses cl:RangerAppClassDesc i {
       this.analyzeClassParamMutations(cl)
     }
     
@@ -5163,7 +5163,7 @@ class StaticAnalyzer {
     while ((changed == true) && (iteration < maxIterations)) {
       changed = false
       def changedParams:[string]
-      for root.definedClasses cl:RangerAppClassDesc i {
+      for root.tables.definedClasses cl:RangerAppClassDesc i {
         this.analyzeClassTransitiveMutBorrow(cl changedParams)
       }
       if ((array_length changedParams) > 0) {

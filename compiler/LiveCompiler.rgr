@@ -924,7 +924,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           if ((array_length node.children) >= idx) {
             def arg:CodeNode (itemAt node.children idx)
             def root (ctx.getRoot())
-            def sNode (get root.appServices arg.vref)
+            def sNode (get root.tables.appServices arg.vref)
             if(!null? sNode) {
               wr.out( sNode.appGUID false)
             } {

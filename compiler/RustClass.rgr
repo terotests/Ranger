@@ -352,7 +352,7 @@ extension RangerRustClassWriter {
 
   fn rustNeedsCollapsibleIf:boolean (ctx:RangerAppWriterContext) {
     def ciRoot:RangerAppWriterContext (ctx.getRoot())
-    for ciRoot.definedClasses ciCl:RangerAppClassDesc ciCi {
+    for ciRoot.tables.definedClasses ciCl:RangerAppClassDesc ciCi {
       if ((this.rustClassIsEmitted(ciCl)) == false) {
         continue
       }
@@ -403,7 +403,7 @@ extension RangerRustClassWriter {
 
   fn rustNeedsPtrArg:boolean (ctx:RangerAppWriterContext) {
     def paRoot:RangerAppWriterContext (ctx.getRoot())
-    for paRoot.definedClasses paCl:RangerAppClassDesc paCi {
+    for paRoot.tables.definedClasses paCl:RangerAppClassDesc paCi {
       if ((this.rustClassIsEmitted(paCl)) == false) {
         continue
       }
@@ -566,7 +566,7 @@ extension RangerRustClassWriter {
 
   fn rustNeedsUnusedAssignments:boolean (ctx:RangerAppWriterContext) {
     def uaRoot:RangerAppWriterContext (ctx.getRoot())
-    for uaRoot.definedClasses uaCl:RangerAppClassDesc uaCi {
+    for uaRoot.tables.definedClasses uaCl:RangerAppClassDesc uaCi {
       if ((this.rustClassIsEmitted(uaCl)) == false) {
         continue
       }
@@ -590,7 +590,7 @@ extension RangerRustClassWriter {
   ; must not rename.
   fn rustNeedsUnusedVariables:boolean (ctx:RangerAppWriterContext) {
     def uvRoot:RangerAppWriterContext (ctx.getRoot())
-    for uvRoot.definedClasses uvCl:RangerAppClassDesc uvCi {
+    for uvRoot.tables.definedClasses uvCl:RangerAppClassDesc uvCi {
       if ((this.rustClassIsEmitted(uvCl)) == false) {
         continue
       }
@@ -618,7 +618,7 @@ extension RangerRustClassWriter {
 
   fn rustNeedsTooManyArgs:boolean (ctx:RangerAppWriterContext) {
     def tmaRoot:RangerAppWriterContext (ctx.getRoot())
-    for tmaRoot.definedClasses tmaCl:RangerAppClassDesc tmaCi {
+    for tmaRoot.tables.definedClasses tmaCl:RangerAppClassDesc tmaCi {
       if ((this.rustClassIsEmitted(tmaCl)) == false) {
         continue
       }
@@ -645,12 +645,12 @@ extension RangerRustClassWriter {
     if ((array_length (this.sealableUnionNames(ctx))) > 0) {
       return true
     }
-    for root.definedClassList tName:string tIdx {
+    for root.tables.definedClassList tName:string tIdx {
       if (this.rustTraitIsInterface(tName ctx)) {
         return true
       }
     }
-    for root.definedClasses cl:RangerAppClassDesc ci {
+    for root.tables.definedClasses cl:RangerAppClassDesc ci {
       if (((((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union)) {
         continue
       }
@@ -1410,7 +1410,7 @@ extension RangerRustClassWriter {
   fn rustHeaderHelperNeeds:int (ctx:RangerAppWriterContext) {
     def res:int 0
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.definedClasses cl:RangerAppClassDesc ci {
+    for root.tables.definedClasses cl:RangerAppClassDesc ci {
       ; a class the file never writes cannot reach a helper. The operator and
       ; template classes of Lang.rgr / stdops.rgr declare maps all over, and
       ; counting them meant every program "needed" the map preamble — which is
@@ -1567,7 +1567,7 @@ extension RangerRustClassWriter {
       ; the use line is rustc's unused_imports warning on every file
       def anyWeakField:boolean false
       def hdrRoot:RangerAppWriterContext (ctx.getRoot())
-      for hdrRoot.definedClasses hcl:RangerAppClassDesc hci {
+      for hdrRoot.tables.definedClasses hcl:RangerAppClassDesc hci {
         def hclSpecial:boolean (((((hcl.is_system || hcl.is_trait) || hcl.is_template) || hcl.is_operator_class) || hcl.is_generic_instance) || hcl.is_union)
         if (hclSpecial == false) {
           for hcl.variables hv:RangerAppParamDesc hvi {
@@ -1615,7 +1615,7 @@ extension RangerRustClassWriter {
       ; can name it. The consumers' `impl`s come from writeClass, alongside the
       ; ones a subclass gets for its parent.
       def hdrTraitRoot:RangerAppWriterContext (ctx.getRoot())
-      for hdrTraitRoot.definedClassList htName:string hti {
+      for hdrTraitRoot.tables.definedClassList htName:string hti {
         if (this.rustTraitIsInterface(htName ctx)) {
           def htc:RangerAppClassDesc (hdrTraitRoot.findClass(htName))
           header.out("" true)
@@ -1954,11 +1954,11 @@ extension RangerRustClassWriter {
         ; the family answer is cached on the trait root, and this pass is
         ; about to ask it again with more known
         if (mutPass > 0) {
-          for hdrRoot.definedClasses rcl:RangerAppClassDesc rci {
+          for hdrRoot.tables.definedClasses rcl:RangerAppClassDesc rci {
             rcl.rust_trait_mut_ready = false
           }
         }
-      for hdrRoot.definedClasses mcl:RangerAppClassDesc mci {
+      for hdrRoot.tables.definedClasses mcl:RangerAppClassDesc mci {
         def mclSpecial:boolean (((((mcl.is_system || mcl.is_trait) || mcl.is_template) || mcl.is_operator_class) || mcl.is_generic_instance) || mcl.is_union)
         ; a trait-related class keeps &mut self on every method of the trait
         ; interface whatever its body does, so its verdict is that — but the
@@ -2097,7 +2097,7 @@ extension RangerRustClassWriter {
       rust_field_call_mut_ready = true
       ; A second sweep, so the flag a late child raised on its parent reaches
       ; the siblings whose turn had already passed.
-      for hdrRoot.definedClasses aCl:RangerAppClassDesc aCi {
+      for hdrRoot.tables.definedClasses aCl:RangerAppClassDesc aCi {
         this.alignTraitSelfRcNeeds(aCl ctx)
       }
       fileHeaderWritten = true
@@ -2948,7 +2948,7 @@ extension RangerRustClassWriter {
 
   fn rustProgramHasMainFlag:boolean (ctx:RangerAppWriterContext) {
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.definedClasses rcl:RangerAppClassDesc rci {
+    for root.tables.definedClasses rcl:RangerAppClassDesc rci {
       for rcl.static_methods sm:RangerAppFunctionDesc smi {
         def smNN@(optional):CodeNode sm.nameNode
         if (!null? smNN) {

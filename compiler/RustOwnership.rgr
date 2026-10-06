@@ -453,7 +453,7 @@ extension RangerRustClassWriter {
       }
     }
     ; …and a field desc reached through ANOTHER object is not this object's
-    ; struct: `root.definedClasses` carries the desc of a class variable, but
+    ; struct: `root.tables.definedClasses` carries the desc of a class variable, but
     ; the variable being read belongs to `root`. Only a bare name — an
     ; implicit `this.x` — counts.
     if node.hasParamDesc {
@@ -1247,8 +1247,8 @@ extension RangerRustClassWriter {
       return
     }
     pathRoot.rust_path_names_ready = true
-    for pathRoot.definedClassList pathCn:string pathCi {
-      def pathC:RangerAppClassDesc (unwrap (get pathRoot.definedClasses pathCn))
+    for pathRoot.tables.definedClassList pathCn:string pathCi {
+      def pathC:RangerAppClassDesc (unwrap (get pathRoot.tables.definedClasses pathCn))
       def pathCtorO@(optional):RangerAppFunctionDesc pathC.constructor_fn
       if (!null? pathCtorO) {
         def pathCtor:RangerAppFunctionDesc (unwrap pathCtorO)

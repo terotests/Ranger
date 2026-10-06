@@ -36,11 +36,11 @@ extension LowIRBuilderPass {
     ; field of a class declared LATER in the file found no struct for it, and
     ; the field index came back -1: `getelementptr ... i32 0, i32 -1`, which
     ; clang rejects. Source order should not decide whether a field resolves.
-    for appCtx.definedClassList cName0:string i0 {
+    for appCtx.tables.definedClassList cName0:string i0 {
       if (cName0 == "RangerStaticMethods") {
         continue _
       }
-      def cl0 (unwrap (get appCtx.definedClasses cName0))
+      def cl0 (unwrap (get appCtx.tables.definedClasses cName0))
       if (cl0.is_operator_class || cl0.is_trait || cl0.is_system || cl0.is_union) {
         continue
       }
@@ -51,11 +51,11 @@ extension LowIRBuilderPass {
     ; already know that class B overrides the method it names.
     this.collectVirtualMethods(appCtx)
 
-    for appCtx.definedClassList cName:string i {
+    for appCtx.tables.definedClassList cName:string i {
       if (cName == "RangerStaticMethods") {
         continue _
       }
-      def cl (unwrap (get appCtx.definedClasses cName))
+      def cl (unwrap (get appCtx.tables.definedClasses cName))
       ; An OPERATOR class is the synthetic holder the matcher creates for an
       ; `operator type:T { fn forEach … }` extension: no fields, no instance
       ; methods, but its STATIC methods are what every call to such an
@@ -364,14 +364,14 @@ extension LowIRBuilderPass {
   fn collectLambdas:void (appCtx:RangerAppWriterContext) {
     def target (LowIRTarget.resolve(appCtx))
     def pt (target.ptrType)
-    for appCtx.definedClassList cName:string i {
+    for appCtx.tables.definedClassList cName:string i {
       if (cName == "RangerStaticMethods") {
         continue
       }
-      if (false == (has appCtx.definedClasses cName)) {
+      if (false == (has appCtx.tables.definedClasses cName)) {
         continue
       }
-      def cl (unwrap (get appCtx.definedClasses cName))
+      def cl (unwrap (get appCtx.tables.definedClasses cName))
       if (cl.is_trait) {
         continue
       }

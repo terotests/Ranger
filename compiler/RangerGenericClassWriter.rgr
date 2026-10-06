@@ -464,7 +464,7 @@ class RangerGenericClassWriter {
   fn sealableUnionNames:[string] (ctx:RangerAppWriterContext) {
     def out:[string]
     def rootCtx:RangerAppWriterContext (ctx.getRoot())
-    for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
+    for rootCtx.tables.definedClasses ucl:RangerAppClassDesc uci {
       if (this.unionIsSealable(ucl ctx)) {
         push out ucl.name
       }
@@ -477,7 +477,7 @@ class RangerGenericClassWriter {
     if (unionIfacesBuilt == false) {
       unionIfacesBuilt = true
       def rootCtx:RangerAppWriterContext (ctx.getRoot())
-      for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
+      for rootCtx.tables.definedClasses ucl:RangerAppClassDesc uci {
         if (this.unionIsSealable(ucl ctx)) {
           def iface:string (this.unionInterfaceName(ucl.name))
           for ucl.is_union_of mname:string mi {
