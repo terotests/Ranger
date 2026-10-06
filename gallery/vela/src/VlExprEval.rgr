@@ -24,6 +24,11 @@ Import "VlMath.rgr"
 Import "VlRegex.rgr"
 
 class VlExprScope {
+    ; How numbers are written (`config.locale`), and the format a `format`
+    ; that names none takes (`config.numberFormat`): a text mark's value and a
+    ; tooltip's numbers.
+    def locale:VlLocale (new VlLocale())
+    def numberFormat:string ""
     def datum:VlJson (new VlJson)
     def hasDatum:boolean false
     def parent:VlJson (new VlJson)
@@ -984,7 +989,11 @@ class VlExprEval {
             return (VlJson.boolValue((VlExprEval.truthy(a0))))
         }
         if (name == "format") {
-            return (VlJson.stringValue((VlExprEval.formatNumber((a0.asDouble()) (a1.asString())))))
+            def fspec:string (a1.asString())
+            if ((strlen fspec) == 0) {
+                fspec = scope.numberFormat
+            }
+            return (VlJson.stringValue((scope.locale.apply((VlExprEval.formatNumber((a0.asDouble()) fspec))))))
         }
 
         ; --- scale-aware ---

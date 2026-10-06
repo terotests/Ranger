@@ -1,0 +1,145 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; locale_test.rgr — a chart written in its reader's numbers, and in order.
+; ==============================================================================
+; Two things a slide deck in Finnish ran into: a bar chart with its values
+; written beside the bars (a layer of bars and a layer of text) ignored its
+; `"sort": "-x"`, and every number came out in English marks (6,491 and
+; 5814.5) where `config.locale` asked for 6 491 and 5 814,5.
+; ==============================================================================
+
+Import "../src/VlCompile.rgr"
+Import "../src/VlRuntime.rgr"
+
+class VlLocaleTest {
+    def failures:int 0
+    def checks:int 0
+
+    fn check:void (name:string got:string want:string) {
+        checks = (checks + 1)
+        if (got != want) {
+            failures = (failures + 1)
+            print ((((("FAIL " + name) + ": got '") + got) + "' want '") + want + "'")
+        }
+    }
+
+    ; Every text a chart draws, in drawing order, as one line.
+    sfn texts:void (mark:VlSceneMark out:[string]) {
+        for mark.items item:VlSceneItem ii {
+            if (mark.markType == "text") {
+                push out (item.text("text"))
+            }
+            for item.marks child:VlSceneMark ci {
+                VlLocaleTest.texts(child out)
+            }
+        }
+    }
+
+    ; Every rect's fill, in drawing order.
+    sfn fills:void (mark:VlSceneMark out:[string]) {
+        for mark.items item:VlSceneItem ii {
+            if (mark.markType == "rect") {
+                push out (item.text("fill"))
+            }
+            for item.marks child:VlSceneMark ci {
+                VlLocaleTest.fills(child out)
+            }
+        }
+    }
+
+    sfn barFills:string (vl:string) {
+        def p (new VlJsonParser())
+        def compiler (new VlCompile())
+        def rt (new VlRuntime())
+        def scene:VlSceneMark (rt.run((compiler.compileSpec((p.parse(vl))))))
+        def out:[string]
+        VlLocaleTest.fills(scene out)
+        def joined:string ""
+        for out t:string ti {
+            joined = ((joined + "|") + t)
+        }
+        return (joined + "|")
+    }
+
+    sfn drawn:string (vl:string) {
+        def p (new VlJsonParser())
+        def spec:VlJson (p.parse(vl))
+        def compiler (new VlCompile())
+        def vg:VlJson (compiler.compileSpec(spec))
+        def rt (new VlRuntime())
+        def scene:VlSceneMark (rt.run(vg))
+        def out:[string]
+        VlLocaleTest.texts(scene out)
+        def joined:string ""
+        for out t:string ti {
+            joined = ((joined + "|") + t)
+        }
+        return (joined + "|")
+    }
+
+    sfn data:string () {
+        return "\"data\":{\"values\":[{\"c\":\"Suomi\",\"v\":1100},{\"c\":\"Ranska\",\"v\":6491},{\"c\":\"Saksa\",\"v\":5814.5},{\"c\":\"Norja\",\"v\":150}]}"
+    }
+
+    sfn layered:string (config:string) {
+        def s:string ("{" + (VlLocaleTest.data()))
+        s = (s + ",\"encoding\":{\"y\":{\"field\":\"c\",\"type\":\"nominal\",\"sort\":\"-x\"},\"x\":{\"field\":\"v\",\"type\":\"quantitative\"}}")
+        s = (s + ",\"layer\":[{\"mark\":\"bar\"},{\"mark\":{\"type\":\"text\",\"dx\":3},\"encoding\":{\"text\":{\"field\":\"v\",\"type\":\"quantitative\"}}}]")
+        if ((strlen config) > 0) {
+            s = (s + ",\"config\":" + config)
+        }
+        return (s + "}")
+    }
+
+    fn run:void () {
+        def plain:string (VlLocaleTest.drawn((VlLocaleTest.layered(""))))
+        ; the categories, biggest first, as the y axis lists them
+        this.check("layered sort" (VlLocaleTest.between(plain "Ranska" "Norja")) "Ranska|Saksa|Suomi|Norja")
+        this.check("english marks" (VlLocaleTest.has(plain "6,000")) "yes")
+        this.check("value label, no format" (VlLocaleTest.has(plain "|5814.5")) "yes")
+
+        def nb:string (strfromcode 160)
+        def fi:string (VlLocaleTest.drawn((VlLocaleTest.layered("{\"locale\":{\"number\":{\"decimal\":\",\",\"thousands\":\"\\u00a0\"}},\"numberFormat\":\",\"}"))))
+        this.check("finnish axis" (VlLocaleTest.has(fi (("|6" + nb) + "000|"))) "yes")
+        this.check("finnish value label" (VlLocaleTest.has(fi (("|5" + nb) + "814,5"))) "yes")
+        this.check("finnish small value" (VlLocaleTest.has(fi "|150")) "yes")
+        this.check("no english marks left" (VlLocaleTest.has(fi "6,000")) "no")
+
+        ; a palette of the chart's own for its categories (a deck's theme)
+        def coloured:string ("{" + (VlLocaleTest.data()) + ",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"c\",\"type\":\"nominal\",\"sort\":null},\"y\":{\"field\":\"v\",\"type\":\"quantitative\"},\"color\":{\"field\":\"c\",\"type\":\"nominal\"}}")
+        def fills:string (VlLocaleTest.barFills((coloured + ",\"config\":{\"range\":{\"category\":[\"#b96926\",\"#59c3c4\"]}}}")))
+        this.check("category palette, first" (VlLocaleTest.has(fills "|#b96926|")) "yes")
+        this.check("category palette, second" (VlLocaleTest.has(fills "|#59c3c4|")) "yes")
+        def plainFills:string (VlLocaleTest.barFills((coloured + "}")))
+        this.check("default palette" (VlLocaleTest.has(plainFills "#b96926")) "no")
+
+        if (failures > 0) {
+            print ((("FAILURES: " + (to_string failures)) + " of ") + (to_string checks))
+        } {
+            print (("all " + (to_string checks)) + " locale tests passed")
+        }
+    }
+
+    sfn has:string (s:string part:string) {
+        if ((indexOf s part) >= 0) {
+            return "yes"
+        }
+        return "no"
+    }
+
+    ; the stretch of `s` from `a` to the end of `b`
+    sfn between:string (s:string a:string b:string) {
+        def i:int (indexOf s a)
+        def j:int (indexOf s b)
+        if ((i < 0) || (j < i)) {
+            return s
+        }
+        return (substring s i (j + (strlen b)))
+    }
+
+    sfn main:void () {
+        def t (new VlLocaleTest())
+        t.run()
+    }
+}

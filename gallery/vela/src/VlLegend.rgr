@@ -55,6 +55,8 @@ class VlLegendEntry {
 }
 
 class VlLegend {
+    ; the marks its numbers are written with (`config.locale`)
+    def locale:VlLocale (new VlLocale())
     ; --- the reference's `config.legend`, overridable per legend --------------
     def orient:string "right"
     ; A legend above or below the plot lays its entries out in a ROW rather
@@ -206,7 +208,7 @@ class VlLegend {
                 def e (new VlLegendEntry())
                 e.value = cell
                 if (cell.isNumber()) {
-                    e.label = (VlScale.tickLabel(cell.num))
+                    e.label = (locale.apply((VlScale.tickLabel(cell.num))))
                 } {
                     e.label = (VlText.truncate((cell.asString()) labelFontSize labelLimit))
                 }
@@ -262,7 +264,7 @@ class VlLegend {
         for values v:double idx {
             def e (new VlLegendEntry())
             e.value = (VlJson.numberValue(v))
-            e.label = (itemAt labels idx)
+            e.label = (locale.apply((itemAt labels idx)))
             push out e
         }
         return out
@@ -272,9 +274,9 @@ class VlLegend {
     ; tick is written when it did not.
     fn numberLabel:string (v:double) {
         if ((strlen labelFormat) > 0) {
-            return (VlFormat.apply(v labelFormat))
+            return (locale.apply((VlFormat.apply(v labelFormat))))
         }
-        return (VlScale.tickLabel(v))
+        return (locale.apply((VlScale.tickLabel(v))))
     }
 
     ; What a scale answers for one entry, as the channel wants it: a colour or a
@@ -622,7 +624,7 @@ class VlLegend {
                 item.setNumber("y" ((1.0 - perc) * along))
                 item.setNumber("x" (across + gradientLabelOffset))
             }
-            item.setString("text" (itemAt labels idx))
+            item.setString("text" (locale.apply((itemAt labels idx))))
             VlLegend.applyEncode(item labelsEncode)
             boxes.union((VlBounds.ofText((item.text("text")) (item.number("fontSize")) (item.text("align")) (item.text("baseline")) (item.number("x")) (item.number("y")))))
         }

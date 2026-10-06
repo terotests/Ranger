@@ -29,6 +29,67 @@
 
 Import "VlJson.rgr"
 
+; ------------------------------------------------------------------------------
+; The marks a number is written with: Vega's `config.locale.number`, which is
+; d3-format's locale. Everything here formats in d3's default (en-US) marks —
+; `,` between thousands, `.` before the decimals — and a chart in another
+; language swaps them at the end, which is also how d3 does it. A Finnish chart
+; states `{"decimal": ",", "thousands": "\u00a0"}` and reads 50 292 and 552,66.
+; ------------------------------------------------------------------------------
+class VlLocale {
+    def decimal:string "."
+    def thousands:string ","
+
+    ; `config.locale` (or anything that is not an object: the default marks)
+    sfn fromConfig:VlLocale (locale:VlJson) {
+        def out (new VlLocale())
+        if (! (locale.isObject())) {
+            return out
+        }
+        def number:VlJson (locale.get("number"))
+        if (! (number.isObject())) {
+            return out
+        }
+        def d:VlJson (number.get("decimal"))
+        if (d.isString()) {
+            out.decimal = d.str
+        }
+        def t:VlJson (number.get("thousands"))
+        if (t.isString()) {
+            out.thousands = t.str
+        }
+        return out
+    }
+
+    fn isDefault:boolean () {
+        return ((decimal == ".") && (thousands == ","))
+    }
+
+    ; A number written in the default marks, in this locale's.
+    fn apply:string (text:string) {
+        if (this.isDefault()) {
+            return text
+        }
+        def out:string ""
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            def c:string (substring text i (i + 1))
+            if (c == ",") {
+                out = (out + thousands)
+            } {
+                if (c == ".") {
+                    out = (out + decimal)
+                } {
+                    out = (out + c)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
 class VlFormatSpec {
     def comma:boolean false
     def precision:int -1
