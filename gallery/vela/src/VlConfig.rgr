@@ -20,6 +20,10 @@ class VlConfig {
     ; What a built-in range name means in THIS chart, when its
     ; configuration renamed it.
     def rangeSchemes:[string:string]
+    ; …or the colours themselves: `{"range": {"category": ["#B96926",
+    ; "#59C3C4"]}}` is every category scale in this chart in a deck's own
+    ; palette (kept joined by spaces)
+    def rangeLists:[string:string]
     def styles:[string:VlJson]
     ; Per-mark-type defaults: `config.rect`, `config.line`, `config.symbol`, …
     ; These are applied before the styles and are what give a line its width and
@@ -197,6 +201,23 @@ class VlConfig {
         if (rangeBlock.isObject()) {
             for rangeBlock.keys rk:string ri {
                 def entry:VlJson (rangeBlock.get(rk))
+                if (entry.isArray()) {
+                    def joined:string ""
+                    def ei:int 0
+                    while (ei < (entry.count())) {
+                        def cell:VlJson (entry.at(ei))
+                        if (cell.isString()) {
+                            if ((strlen joined) > 0) {
+                                joined = (joined + " ")
+                            }
+                            joined = (joined + cell.str)
+                        }
+                        ei = (ei + 1)
+                    }
+                    if ((strlen joined) > 0) {
+                        set rangeLists rk joined
+                    }
+                }
                 if (entry.isObject()) {
                     def named:string (entry.stringOr("scheme" ""))
                     if ((strlen named) > 0) {
@@ -341,6 +362,9 @@ class VlConfig {
     ; The palette a range name stands for in this chart, after any renaming
     ; the configuration did.
     fn schemeFor:[string] (name:string) {
+        if (has rangeLists name) {
+            return (strsplit (unwrap (get rangeLists name)) " ")
+        }
         if (has rangeSchemes name) {
             return (VlConfig.schemeColors((unwrap (get rangeSchemes name))))
         }

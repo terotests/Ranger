@@ -162,6 +162,11 @@ class VlRuntime {
         scope.zone = (VlTimeZone.named(timeZoneName))
         config.loadDefaults()
         config.mergeSpecConfig((spec.get("config")))
+        ; the marks numbers are written with, and the format a value label
+        ; takes when it names none (a Finnish deck: 50 292, 552,66)
+        def specConfig:VlJson (spec.get("config"))
+        scope.locale = (VlLocale.fromConfig((specConfig.get("locale"))))
+        scope.numberFormat = (specConfig.stringOr("numberFormat" ""))
         this.readSize()
         this.seedSignals()
         this.buildProjections()
@@ -1903,6 +1908,11 @@ class VlRuntime {
         ; Chinstrap, Adelie, Gentoo.
         def gathered:[string]
         def sortRows:[VlJson]
+        ; The rows a sort reads are the first data set's, matched by that set's
+        ; own field. Matched by no field, no row named any category, every
+        ; category sorted level, and a layered bar chart with value labels
+        ; ignored its `"sort": "-x"`.
+        def sortField:string ""
         while (k < total) {
             def entry:VlJson (fieldList.at(k))
             def rows:[VlJson] (this.dataRows((entry.stringOr("data" ""))))
@@ -1916,6 +1926,7 @@ class VlRuntime {
                     for rows r:VlJson ri {
                         push sortRows r
                     }
+                    sortField = field
                 }
             } {
                 def ext:[double] (VlTransform.extent(rows field))
@@ -1939,7 +1950,7 @@ class VlRuntime {
             k = (k + 1)
         }
         if discrete {
-            def orderedAll:[string] (VlRuntime.orderDomain(gathered sortRows sortDef ""))
+            def orderedAll:[string] (VlRuntime.orderDomain(gathered sortRows sortDef sortField))
             for orderedAll dv:string dvi {
                 sc.addDomainValue(dv)
             }
@@ -2415,6 +2426,7 @@ class VlRuntime {
                 ; Both are the specification being specific, and ignoring them
                 ; drew an axis of numbers where the chart asked for three words.
                 ticks = (this.statedTicks(sc adef axis ticks))
+                this.localTickLabels(sc axis ticks)
                 this.relabelTicks(adef ticks)
                 axis.useGridColors((this.axisGridStrokes(adef ticks)))
                 if (VlRuntime.axisPaints(adef "ticks" "stroke")) {
@@ -2541,6 +2553,23 @@ class VlRuntime {
             push out colour
         }
         return out
+    }
+
+    ; A number axis's labels in the chart's locale (`config.locale`). A band's
+    ; labels are names and a time axis's are dates: both left as they are.
+    fn localTickLabels:void (sc:VlScale axis:VlAxis ticks:[VlAxisTickValue]) {
+        if (scope.locale.isDefault()) {
+            return
+        }
+        if ((sc.scaleType == "band") || ((sc.scaleType == "point") || (sc.scaleType == "ordinal"))) {
+            return
+        }
+        if ((sc.isTime()) || (axis.labelFormatType == "time")) {
+            return
+        }
+        for ticks tv:VlAxisTickValue ti {
+            tv.label = (scope.locale.apply(tv.label))
+        }
     }
 
     ; The ticks the axis ASKED for, if it asked. Each stated value is placed by
@@ -2715,6 +2744,7 @@ class VlRuntime {
         while (k < total) {
             def ldef:VlJson (this.resolveSignalMembers((config.mergedLegend((legends.at(k))))))
             def legend (new VlLegend())
+            legend.locale = scope.locale
             def named:boolean false
             for legend.channelOrder channel:string ci {
                 def scaleName:string (ldef.stringOr(channel ""))
