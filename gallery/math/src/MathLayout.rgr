@@ -944,11 +944,16 @@ class MathLayout {
         def s:double (MathLayout.sm(st))
         def out:MathBox (new MathBox())
         def x:double 0.0
+        ; by code point: `charAt` is a UTF-8 byte on Go and a UTF-16 unit on
+        ; JavaScript, and either one splits a character past ASCII (or past
+        ; the BMP) into glyphs of its pieces
+        def chars:[int] (to_chars s0)
         def i:int 0
-        def n:int (strlen s0)
+        def n:int (array_length chars)
         while (i < n) {
-            def c:int (charAt s0 i)
-            if ((c == 32) || (c == 126)) {
+            def c:int (itemAt chars i)
+            ; a space, ~, and the no-break spaces U+00A0 / U+202F
+            if (((c == 32) || (c == 126)) || ((c == 160) || (c == 8239))) {
                 x = (x + (0.333 * s))
             } {
                 def b:MathBox (this.textChar(c font st))
@@ -974,6 +979,10 @@ class MathLayout {
         }
         if (MathFont.has((MathFont.mainFont()) c)) {
             return (this.glyph((MathFont.mainFont()) c st 0.0 1.0 1.0))
+        }
+        def alike:int (MathFont.lookalike(c))
+        if ((alike > 0) && (MathFont.has((MathFont.mainFont()) alike))) {
+            return (this.glyph((MathFont.mainFont()) alike st 0.0 1.0 1.0))
         }
         def base:int (MathLayout.baseLetter(c))
         def acc:int (MathLayout.accentMark(c))

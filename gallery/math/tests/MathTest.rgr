@@ -6,6 +6,7 @@
 ; (gallery/math/bin/samples.html).
 
 Import "../src/MathRender.rgr"
+Import "../src/MathOmml.rgr"
 
 class MathTest {
     def passed:int 0
@@ -34,6 +35,7 @@ class MathTest {
         this.testDelimiters()
         this.testMatrix()
         this.testText()
+        this.testUnicode()
         this.testErrors()
         this.testPath()
         this.writeSamples()
@@ -155,6 +157,81 @@ class MathTest {
         def c:MathBox (MathLayout.layout("\\color{red}{x} + y" false))
         def cols:[string] (MathRender.colours(c))
         this.check("\\color gives a second colour" ((array_length cols) == 2))
+    }
+
+    ; The code points of every glyph a layout drew, in order.
+    sfn drawn:[int] (b:MathBox) {
+        def out:[int]
+        def i:int 0
+        while (i < (array_length b.items)) {
+            def it:MathItem (itemAt b.items i)
+            if (it.kind == 0) {
+                push out it.cp
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn hasCp:boolean (cps:[int] cp:int) {
+        def i:int 0
+        while (i < (array_length cps)) {
+            if ((itemAt cps i) == cp) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Characters past ASCII are one character each, on every target: Go
+    ; indexes a string by UTF-8 byte and JavaScript by UTF-16 unit, and the
+    ; parser and the text layout used to walk with `charAt`, so on the Go
+    ; server \text{eV·nm} drew as "eVÂ?nm" (C2 B7 as two glyphs).
+    fn testUnicode:void () {
+        def dot:string (strfromcode 183)
+        def emoji:string (strfromcode 128512)
+        def tl:[MathAtom] (MathParser.parse(("\\text{eV" + dot + "nm}")))
+        def tl_0:MathAtom (itemAt tl 0)
+        this.check("\\text{eV·nm} keeps its text whole" (((array_length tl) == 1) && (tl_0.text == ("eV" + dot + "nm"))))
+        def tb:MathBox (MathLayout.layout(("\\text{eV" + dot + "nm}") false))
+        def tcs:[int] (MathTest.drawn(tb))
+        this.check("\\text{eV·nm} is five glyphs" ((array_length tcs) == 5))
+        this.check("\\text{eV·nm} draws no Â (the lead byte of ·)" ((MathTest.hasCp(tcs 194)) == false))
+        this.check("\\text{eV·nm} draws the middle dot, as the ⋅ of \\cdot" (MathTest.hasCp(tcs 8901)))
+        def deck:string ("E = \\frac{hc}{\\lambda} = \\frac{1240\\ \\text{eV" + dot + "nm}}{557{,}7\\ \\text{nm}} \\approx 2{,}2\\ \\text{eV}")
+        def db:MathBox (MathLayout.layout(deck true))
+        def dcs:[int] (MathTest.drawn(db))
+        this.check("the deck's formula draws · and no Â" ((MathTest.hasCp(dcs 8901)) && ((MathTest.hasCp(dcs 194)) == false)))
+        def te:[MathAtom] (MathParser.parse(("\\text{a" + emoji + "b}")))
+        def te_0:MathAtom (itemAt te 0)
+        this.check("an emoji in \\text survives the parser" (te_0.text == ("a" + emoji + "b")))
+        def eb:MathBox (MathLayout.layout(("\\text{a" + emoji + "b}") false))
+        this.check("an emoji in \\text is one glyph, not two or four" ((array_length (MathTest.drawn(eb))) == 3))
+        def tu:MathBox (MathLayout.layout(("\\text{" + (strfromcode 228) + (strfromcode 8364) + "}") false))
+        def tucs:[int] (MathTest.drawn(tu))
+        this.check("\\text{ä€}: ä from a letter and an accent, € one glyph" ((array_length tucs) == 3))
+        ; outside \text: one atom per character
+        def pa:[MathAtom] (MathParser.parse(((strfromcode 228) + "+" + (strfromcode 8804) + emoji)))
+        this.check("ä + ≤ and an emoji in math are four atoms" ((array_length pa) == 4))
+        def pa_3:MathAtom (itemAt pa 3)
+        this.check("an emoji in math is kept as its own text" ((pa_3.kind == "text") && (pa_3.text == emoji)))
+        def pa_2:MathAtom (itemAt pa 2)
+        this.check("≤ after ä is still \\leq" (pa_2.type == "rel"))
+        def pd:[MathAtom] (MathParser.parse(("a " + dot + " b")))
+        def pd_1:MathAtom (itemAt pd 1)
+        this.check("a · b is three atoms, · the \\cdot binary operator" (((array_length pd) == 3) && ((pd_1.cp == 8901) && (pd_1.type == "bin"))))
+        def nb:MathBox (MathLayout.layout(("\\text{a" + (strfromcode 160) + "b}") false))
+        this.check("a no-break space in \\text is a space, not a glyph" ((array_length (MathTest.drawn(nb))) == 2))
+        ; OMML and the linear form
+        def om:string (MathOmml.omml(("\\text{eV" + dot + "nm}")))
+        this.check("OMML keeps eV·nm" ((indexOf om ("eV" + dot + "nm")) >= 0))
+        def li:string (MathOmml.linear(("\\text{a" + emoji + "b} = " + (strfromcode 228))))
+        this.check("the linear form keeps the emoji and ä" (((indexOf li ("a" + emoji + "b")) >= 0) && ((indexOf li (strfromcode 228)) >= 0)))
+        def sq:string (MathOmml.linear("\\sqrt{\\alpha}"))
+        this.check("√α is one character under the root, no parentheses" (sq == ((strfromcode 8730) + (strfromcode 945))))
+        def pr:string (MathOmml.linear(("x^{" + (strfromcode 8242) + "}")))
+        this.check("x^′ is raised as a character" (pr == ("x" + (strfromcode 8242))))
     }
 
     fn testErrors:void () {

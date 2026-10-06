@@ -137,6 +137,15 @@ class MathFont @singleton(true) {
         return g
     }
 
+    ; A character no font here carries, as one they do that looks the same,
+    ; or 0. · (U+00B7, "eV·nm") is the centred dot of \cdot, and the Unicode
+    ; hyphens are the hyphen.
+    sfn lookalike:int (cp:int) {
+        if (cp == 183) { return 8901 }
+        if ((cp == 8208) || (cp == 8209)) { return 45 }
+        return 0
+    }
+
     ; --- the symbol table --------------------------------------------------------
     sfn symbol@(optional):MathSym (name:string) {
         def f:MathFont (MathFont.store())

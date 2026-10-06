@@ -519,10 +519,13 @@ class MathOmml {
     ; `s` in the script alphabet when every character has one, else "".
     sfn scripted:string (s:string sup:boolean) {
         def out:string ""
+        ; by code point: the characters compared against here (′ −) are past
+        ; ASCII, and `charAt` is a UTF-8 byte on Go, so it never matched them
+        def chars:[int] (to_chars s)
         def i:int 0
-        def n:int (strlen s)
+        def n:int (array_length chars)
         while (i < n) {
-            def c:int (charAt s i)
+            def c:int (itemAt chars i)
             def m:string ""
             if sup {
                 m = (MathOmml.supChar(c))
@@ -552,22 +555,25 @@ class MathOmml {
 
     ; More than one character goes in parentheses, so a/(b + c) reads right.
     sfn group:string (s:string) {
-        if ((strlen s) <= 1) {
+        ; code points, so one α or 𝑥 is one character on every target
+        def chars:[int] (to_chars s)
+        def n:int (array_length chars)
+        if (n <= 1) {
             return s
         }
-        def first:int (charAt s 0)
-        def last:int (charAt s ((strlen s) - 1))
+        def first:int (itemAt chars 0)
+        def last:int (itemAt chars (n - 1))
         if ((first == 40) && (last == 41)) {
             ; already one group only when the first ( closes at the end
             def depth:int 0
             def i:int 0
             def whole:boolean true
-            while (i < (strlen s)) {
-                def c:int (charAt s i)
+            while (i < n) {
+                def c:int (itemAt chars i)
                 if (c == 40) { depth = (depth + 1) }
                 if (c == 41) {
                     depth = (depth - 1)
-                    if ((depth == 0) && (i < ((strlen s) - 1))) {
+                    if ((depth == 0) && (i < (n - 1))) {
                         whole = false
                     }
                 }
@@ -579,8 +585,8 @@ class MathOmml {
         }
         def j:int 0
         def simple:boolean true
-        while (j < (strlen s)) {
-            def c2:int (charAt s j)
+        while (j < n) {
+            def c2:int (itemAt chars j)
             if ((c2 == 32) || ((c2 == 43) || ((c2 == 8722) || ((c2 == 45) || ((c2 == 47) || (c2 == 61)))))) {
                 simple = false
             }
@@ -651,7 +657,7 @@ class MathOmml {
                 }
             }
             def body:string (trim (MathOmml.lin(a.body true)))
-            if ((strlen body) > 1) {
+            if ((char_length body) > 1) {
                 return (root + "(" + body + ")")
             }
             return (root + body)
