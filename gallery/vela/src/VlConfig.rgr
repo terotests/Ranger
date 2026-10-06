@@ -499,6 +499,26 @@ class VlConfig {
             push out "#666666"
             return out
         }
+        ; The rest of ColorBrewer's qualitative palettes, as Vega names them.
+        ; Pastel1 and Pastel2 are the light ones a chart on a dark slide picks.
+        if (name == "pastel1") {
+            return (VlConfig.ramp("fbb4aeb3cde3ccebc5decbe4fed9a6ffffcce5d8bdfddaecf2f2f2"))
+        }
+        if (name == "pastel2") {
+            return (VlConfig.ramp("b3e2cdfdcdaccbd5e8f4cae4e6f5c9fff2aef1e2cccccccc"))
+        }
+        if (name == "set1") {
+            return (VlConfig.ramp("e41a1c377eb84daf4a984ea3ff7f00ffff33a65628f781bf999999"))
+        }
+        if (name == "set3") {
+            return (VlConfig.ramp("8dd3c7ffffb3bebadafb807280b1d3fdb462b3de69fccde5d9d9d9bc80bdccebc5ffed6f"))
+        }
+        if (name == "accent") {
+            return (VlConfig.ramp("7fc97fbeaed4fdc086ffff99386cb0f0027fbf5b17666666"))
+        }
+        if (name == "paired") {
+            return (VlConfig.ramp("a6cee31f78b4b2df8a33a02cfb9a99e31a1cfdbf6fff7f00cab2d66a3d9affff99b15928"))
+        }
         if (name == "category10") {
             push out "#1f77b4"
             push out "#ff7f0e"
