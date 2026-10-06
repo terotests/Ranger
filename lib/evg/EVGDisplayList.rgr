@@ -4043,27 +4043,35 @@ class EVGDisplayList {
         return out
     }
 
+    ; The text between the characters that need escaping is copied as it
+    ; stands, not character by character: on Go a string is its UTF-8 bytes
+    ; and `charAt` reads one byte, so rebuilding it with `strfromcode` wrote
+    ; every byte of "–" or "ä" as a character of its own (mojibake in the
+    ; JSON, which a Go host had to undo). The bytes of a multi-byte
+    ; character are all 128 or more, so none of them is escaped here.
     sfn jsonString:string (v:string) {
         def out:string "\""
+        def n:int (strlen v)
+        def from:int 0
         def i:int 0
-        while (i < (strlen v)) {
+        while (i < n) {
             def c:int (charAt v i)
-            if (c == 34) {
-                out = out + "\\\""
-            } {
-                if (c == 92) {
-                    out = out + "\\\\"
+            if (((c == 34) || (c == 92)) || (c < 32)) {
+                out = out + (substring v from i)
+                if (c == 34) {
+                    out = out + "\\\""
                 } {
-                    if (c < 32) {
-                        out = out + " "
+                    if (c == 92) {
+                        out = out + "\\\\"
                     } {
-                        out = out + (strfromcode c)
+                        out = out + " "
                     }
                 }
+                from = (i + 1)
             }
             i = (i + 1)
         }
-        return (out + "\"")
+        return (out + (substring v from n) + "\"")
     }
 
     ; A backend-shaped summary: how many quads, how many text runs, how deep
