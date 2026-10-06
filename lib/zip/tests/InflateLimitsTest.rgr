@@ -1,0 +1,176 @@
+; SPDX-License-Identifier: MIT
+
+; Inflate and ZipReader against streams zlib wrote, and against streams no
+; encoder writes: cut short, hostile, lying about their size. Each must end,
+; and none may allocate more than it is allowed.
+;
+;   npm run zip:limits
+
+Import "../Inflate.rgr"
+Import "../../../gallery/zip/ZipReader.rgr"
+
+class InflateLimitsTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new InflateLimitsTest)
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    sfn hexBytes:buffer (hex:string) {
+        def n:int (idiv (strlen hex) 2)
+        def b:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            def hi:int (InflateLimitsTest.nibble((charAt hex (i * 2))))
+            def lo:int (InflateLimitsTest.nibble((charAt hex ((i * 2) + 1))))
+            buffer_set b i ((hi * 16) + lo)
+            i = (i + 1)
+        }
+        return b
+    }
+
+    sfn nibble:int (c:int) {
+        if (c <= 57) {
+            return (c - 48)
+        }
+        return ((c - 97) + 10)
+    }
+
+    sfn slice:buffer (b:buffer n:int) {
+        def out:buffer (buffer_alloc n)
+        buffer_copy out 0 b 0 n
+        return out
+    }
+
+    sfn text:string (b:buffer) {
+        def s:string ""
+        def i:int 0
+        while (i < (buffer_length b)) {
+            s = (s + (strfromcode (buffer_get b i)))
+            i = (i + 1)
+        }
+        return s
+    }
+
+    fn run:void () {
+        print "inflate"
+        this.testInflate()
+        print "zip reader"
+        this.testZip()
+        print ""
+        if (failed == 0) {
+            print ("ALL PASS  " + (to_string passed))
+        } {
+            print ((((to_string failed) + " FAILED  ") + (to_string passed)) + " passed")
+        }
+    }
+
+    fn testInflate:void () {
+        def inf (new Inflate())
+        def hello:buffer (inf.decompress((InflateLimitsTest.hexBytes("cb48cdc9c957c840277514caf38b7252ac90c500"))))
+        this.check("zlib stream" (((InflateLimitsTest.text(hello)) == "hello hello hello hello, world: hello hello") && ((strlen inf.error) == 0)))
+        this.check("whole stream is not truncated" (inf.truncated == false))
+
+        ; 1 MiB of zeros in about a kilobyte
+        def bomb:buffer (InflateLimitsTest.hexBytes("edc13101000000c2a0f54f6d085fa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003e03"))
+        def free (new Inflate())
+        this.check("no limit: all of it" ((buffer_length (free.decompress(bomb))) == 1048576))
+        def capped (new Inflate())
+        capped.maxOutput = 1000
+        def got:buffer (capped.decompress(bomb))
+        this.check("over the limit: nothing" ((buffer_length got) == 0))
+        this.check("over the limit: said why" ((indexOf capped.error "larger than 1000") >= 0))
+        def exact (new Inflate())
+        exact.maxOutput = 1048576
+        this.check("at the limit: all of it" ((buffer_length (exact.decompress(bomb))) == 1048576))
+
+        ; the first half of a stream: what it held, and it ends
+        def whole:buffer (InflateLimitsTest.hexBytes("6dd631aed3401846d19e556409beb6c7e3595010484fd0a460f988169ff6af7c94d8dffdfaf9ebfdda5ebfbfbf3e3fdeafcffbcfe7dbd7bf53cfd3fe3c1dcfd3f93c8de7e97a9ee6f3743f4f0b8faac7c7f3074010044230044450044670ec70ecfa1de0d8e1d8e1d8e1d8e1d8e1d8e1d8e138e038e038f48782e380e380e380e380e380e380e384e384e384e3d49b01c709c709c709c709c709c78063c031e018700cbde2700c38061c038e01c705c705c705c705c705c7a56f151c171c171c171c138e09c78463c231e198704c7d74e198704c386e386e386e386e386e386e386e386ead071c371c0b8e05c78263c1b1e058702c38161c4b33c81dd4106e5ac24d53b8690b378de1a635dc34879bf670d3206e1279da25e2b873dd39efdc770e3c179e13af8d4f239f563ecd7cdaf934f469e9d3d4a7ad4f639fd63ecd7ddafb34f869f1d3e4a7cd4fa39f563fcd7edafd34fc69f9d3f4a7ed4fe39fd63fcd7fdaff1400a9005202a4064811902a206540ea801402a904520aa4164831906a20e540ea811404a9085212a426485190aa206541ea821406a90c521aa436487190ea20e541ea831408a9105222a4464891902a216542ea84140aa914522aa45648b1906a21e542ea85140ca9185232f45f33fc05"))
+        def cut (new Inflate())
+        def part:buffer (cut.decompress((InflateLimitsTest.slice(whole (idiv (buffer_length whole) 2)))))
+        def full:buffer ((new Inflate()).decompress(whole))
+        this.check("full text" ((buffer_length full) == 4090))
+        def n:int (buffer_length part)
+        def prefix:boolean ((n > 0) && (n < 4090))
+        def k:int 0
+        while (prefix && (k < n)) {
+            if ((buffer_get part k) != (buffer_get full k)) {
+                prefix = false
+            }
+            k = (k + 1)
+        }
+        this.check("cut short: a prefix of the text" prefix)
+        this.check("cut short: truncated, no error" (cut.truncated && ((strlen cut.error) == 0)))
+
+        ; a final block of the reserved type 3
+        def r (new Inflate())
+        def reserved:buffer (buffer_alloc 1)
+        buffer_set reserved 0 7
+        this.check("reserved block type" (((buffer_length (r.decompress(reserved))) == 0) && ((strlen r.error) > 0)))
+
+        ; a stored block whose length and complement disagree
+        def s (new Inflate())
+        def stored:buffer (InflateLimitsTest.hexBytes("010500000041414141"))
+        this.check("stored length mismatch" (((buffer_length (s.decompress(stored))) == 0) && ((strlen s.error) > 0)))
+
+        ; a back-reference before the first byte (fixed codes: length 3, distance 1)
+        def d (new Inflate())
+        def back:buffer (InflateLimitsTest.hexBytes("030200"))
+        d.decompress(back)
+        this.check("distance before the start" ((strlen d.error) > 0))
+
+        ; every one-byte and some longer junk ends
+        def j:int 0
+        def ended:int 0
+        while (j < 256) {
+            def junk:buffer (buffer_alloc 3)
+            buffer_set junk 0 j
+            buffer_set junk 1 ((j * 7) % 256)
+            buffer_set junk 2 ((j * 13) % 256)
+            def jf (new Inflate())
+            jf.maxOutput = 65536
+            jf.decompress(junk)
+            ended = (ended + 1)
+            j = (j + 1)
+        }
+        this.check("junk streams end" (ended == 256))
+    }
+
+    fn testZip:void () {
+        def ok (new ZipReader())
+        ok.openBytes((InflateLimitsTest.hexBytes("504b030414000000080000000000d79f8a0573000000a086010005000000612e747874edc13101000000c2a06ceb5fca1a1e4001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000af06504b0102140014000000080000000000d79f8a0573000000a0860100050000000000000000000000000000000000612e747874504b0506000000000100010033000000960000000000")))
+        def e@(optional):ZipEntry (ok.getEntry("a.txt"))
+        this.check("member found" (!null? e))
+        if (!null? e) {
+            this.check("member unpacked" ((buffer_length (ok.extract((unwrap e)))) == 100000))
+        }
+
+        def lies (new ZipReader())
+        lies.openBytes((InflateLimitsTest.hexBytes("504b030414000000080000000000d79f8a0573000000e803000005000000612e747874edc13101000000c2a06ceb5fca1a1e4001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000af06504b0102140014000000080000000000d79f8a0573000000e8030000050000000000000000000000000000000000612e747874504b0506000000000100010033000000960000000000")))
+        def e2@(optional):ZipEntry (lies.getEntry("a.txt"))
+        if (!null? e2) {
+            this.check("member larger than its header: refused" ((buffer_length (lies.extract((unwrap e2)))) == 0))
+            this.check("member larger than its header: said why" ((strlen lies.lastError) > 0))
+        }
+
+        def huge (new ZipReader())
+        huge.openBytes((InflateLimitsTest.hexBytes("504b030414000000080000000000d79f8a0573000000000000f005000000612e747874edc13101000000c2a06ceb5fca1a1e4001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000af06504b0102140014000000080000000000d79f8a0573000000000000f0050000000000000000000000000000000000612e747874504b0506000000000100010033000000960000000000")))
+        def e3@(optional):ZipEntry (huge.getEntry("a.txt"))
+        if (!null? e3) {
+            this.check("member over maxEntryBytes: refused" ((buffer_length (huge.extract((unwrap e3)))) == 0))
+            this.check("member over maxEntryBytes: said why" ((indexOf huge.lastError "larger than") >= 0))
+        }
+    }
+}

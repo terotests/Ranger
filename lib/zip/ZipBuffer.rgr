@@ -77,7 +77,15 @@ class ZipBuffer {
     }
     
     fn readBytes:buffer (count:int) {
-        ; Read count bytes into a new buffer
+        ; Read count bytes into a new buffer: fewer when the data ends first,
+        ; so a length read from a damaged or hostile header cannot allocate
+        ; more than the data holds
+        if (count > (length - pos)) {
+            count = (length - pos)
+        }
+        if (count < 0) {
+            count = 0
+        }
         def result:buffer (buffer_alloc count)
         def i 0
         while (i < count) {

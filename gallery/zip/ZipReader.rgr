@@ -15,6 +15,12 @@ class ZipReader {
     def reader:ZipBuffer (new ZipBuffer())
     def comment:string ""
     def isOpen:boolean false
+    ; The largest member extract unpacks, in bytes (0: no limit), and why
+    ; the last extract returned nothing ("" when it did not refuse).
+    ; A member is also never unpacked past the size its header gives, so a
+    ; few kilobytes cannot claim gigabytes (a zip bomb).
+    def maxEntryBytes:int 268435456
+    def lastError:string ""
     
     ; Central directory info
     def centralDirOffset:int 0
@@ -198,6 +204,7 @@ class ZipReader {
     fn extract:buffer (entry:ZipEntry) {
         ; Extract file data for the given entry
         ; Returns decompressed data
+        lastError = ""
         
         ; Seek to local file header
         reader.seek(entry.localHeaderOffset)
@@ -233,8 +240,23 @@ class ZipReader {
         }
         if (entry.compressionMethod == 8) {
             ; DEFLATE
+            if ((maxEntryBytes > 0) && (entry.uncompressedSize > maxEntryBytes)) {
+                lastError = ((entry.fileName + " is larger than ") + (to_string maxEntryBytes)) + " bytes"
+                return (buffer_alloc 0)
+            }
             def inflater (new Inflate())
+            ; one byte past the header's size, to tell a member that says
+            ; less than it holds from one that matches
+            inflater.maxOutput = (entry.uncompressedSize + 1)
             result = (inflater.decompress(compressedData))
+            if ((strlen inflater.error) > 0) {
+                lastError = (entry.fileName + ": ") + inflater.error
+                return (buffer_alloc 0)
+            }
+            if ((buffer_length result) > entry.uncompressedSize) {
+                lastError = entry.fileName + " holds more than its header says"
+                return (buffer_alloc 0)
+            }
         }
         
         ; Verify CRC32 (disabled - CRC calculation has known issues)

@@ -104,6 +104,9 @@ class InflateBitReader {
     def bitPos:int 0       ; Bits remaining in current byte (0 = need new byte)
     def currentByte:int 0
     def dataLength:int 0
+    ; a read went past the end: the stream was cut short, and every read
+    ; since answered 0
+    def overrun:boolean false
     
     Constructor () {
     }
@@ -114,12 +117,14 @@ class InflateBitReader {
         dataLength = offset + length
         bitPos = 0
         currentByte = 0
+        overrun = false
     }
     
     fn readBit:int () {
         ; DEFLATE reads bits LSB first (unlike JPEG which is MSB first)
         if (bitPos == 0) {
             if (bytePos >= dataLength) {
+                overrun = true
                 return 0
             }
             currentByte = (buffer_get data bytePos)
@@ -155,6 +160,7 @@ class InflateBitReader {
     fn readByte:int () {
         this.alignToByte()
         if (bytePos >= dataLength) {
+            overrun = true
             return 0
         }
         def b:int (buffer_get data bytePos)
@@ -186,6 +192,18 @@ class Inflate {
     def outBuf:buffer (buffer_alloc 0)
     def outLen:int 0
     def outCap:int 0
+
+    ; The most bytes one decompress may write; 0: no limit. A stream that
+    ; would write more is refused, so a small archive member cannot claim
+    ; gigabytes (a zip bomb): set it to what the container says the member
+    ; holds (ZipReader does).
+    def maxOutput:int 0
+    ; Why the last decompress returned no bytes: the output limit, a code
+    ; or distance the stream cannot have, a reserved block type. "" when it
+    ; succeeded. A stream cut short is not an error: what it held is
+    ; returned, and `truncated` says so.
+    def error:string ""
+    def truncated:boolean false
     
     ; Fixed Huffman tables (built once)
     def fixedLitLen:InflateHuffmanTable (new InflateHuffmanTable())
@@ -207,28 +225,52 @@ class Inflate {
         if (cap < 4096) {
             cap = 4096
         }
+        if ((maxOutput > 0) && (cap > maxOutput)) {
+            cap = maxOutput
+        }
         outBuf = (buffer_alloc cap)
         outCap = cap
         outLen = 0
     }
 
-    fn ensureCapacity:void (extra:int) {
+    fn fail:void (why:string) {
+        if ((strlen error) == 0) {
+            error = why
+        }
+    }
+
+    ; still decoding: no error, and input left to read
+    fn going:boolean () {
+        return (((strlen error) == 0) && (reader.overrun == false))
+    }
+
+    fn ensureCapacity:boolean (extra:int) {
         def need:int (outLen + extra)
+        if ((maxOutput > 0) && (need > maxOutput)) {
+            this.fail(("output larger than " + (to_string maxOutput)) + " bytes")
+            return false
+        }
         if (need <= outCap) {
-            return
+            return true
         }
         def newCap:int (outCap * 2)
         if (newCap < need) {
             newCap = need
         }
+        if ((maxOutput > 0) && (newCap > maxOutput)) {
+            newCap = maxOutput
+        }
         def grown:buffer (buffer_alloc newCap)
         buffer_copy grown 0 outBuf 0 outLen
         outBuf = grown
         outCap = newCap
+        return true
     }
 
     fn pushByte:void (b:int) {
-        this.ensureCapacity(1)
+        if ((this.ensureCapacity(1)) == false) {
+            return
+        }
         buffer_set outBuf outLen b
         outLen = (outLen + 1)
     }
@@ -429,6 +471,8 @@ class Inflate {
     ; the next object in a pack starts at inputPos after this returns).
     fn decompressFrom:buffer (data:buffer offset:int) {
         input = data
+        error = ""
+        truncated = false
         def dataLen:int (buffer_length data)
         def from:int offset
         if (from < 0) {
@@ -445,7 +489,7 @@ class Inflate {
         this.buildFixedTables()
         
         def finalBlock:boolean false
-        while ((false == finalBlock)) {
+        while ((false == finalBlock) && (this.going())) {
             ; Read block header
             def bfinal:int (reader.readBit())
             def btype:int (reader.readBits(2))
@@ -464,9 +508,15 @@ class Inflate {
                 ; Dynamic Huffman codes
                 this.decompressDynamic()
             }
-            ; btype == 3 is reserved/error
+            if (btype == 3) {
+                this.fail("reserved block type")
+            }
         }
-        
+        if ((strlen error) > 0) {
+            outLen = 0
+            return (buffer_alloc 0)
+        }
+        truncated = reader.overrun
         return (this.finalOutput())
     }
 
@@ -483,12 +533,17 @@ class Inflate {
         def len:int (reader.readUint16LE())
         def nlen:int (reader.readUint16LE())
         if ((len + nlen) != 65535) {
-            ; NLEN read advances the bitstream even when LEN/NLEN do not match.
+            if (reader.overrun == false) {
+                this.fail("stored block length does not match its complement")
+            }
+            return
         }
         
-        this.ensureCapacity(len)
+        if ((this.ensureCapacity(len)) == false) {
+            return
+        }
         def i 0
-        while (i < len) {
+        while ((i < len) && (this.going())) {
             def b:int (reader.readByte())
             this.pushByte(b)
             i = i + 1
@@ -498,8 +553,16 @@ class Inflate {
     fn decompressHuffman:void (litLenTable:InflateHuffmanTable distTable:InflateHuffmanTable) {
         ; Decode Huffman-compressed data
         def done:boolean false
-        while ((false == done)) {
+        while ((false == done) && (this.going())) {
             def sym:int (litLenTable.decode(reader))
+            if reader.overrun {
+                ; cut short: what the missing bits would have said is unknown
+                return
+            }
+            if ((sym < 0) || (sym > 285)) {
+                this.fail("invalid literal/length code")
+                return
+            }
             
             if (sym < 256) {
                 ; Literal byte
@@ -519,12 +582,23 @@ class Inflate {
                 }
                 
                 def distCode:int (distTable.decode(reader))
+                if ((distCode < 0) || (distCode > 29)) {
+                    this.fail("invalid distance code")
+                    return
+                }
                 def dist:int (itemAt distBase distCode)
                 def distExtraBits:int (itemAt distExtra distCode)
                 if (distExtraBits > 0) {
                     dist = dist + (reader.readBits(distExtraBits))
                 }
                 
+                if reader.overrun {
+                    return
+                }
+                if (dist > outLen) {
+                    this.fail("distance before the start of the output")
+                    return
+                }
                 ; Copy from output buffer (LZ77)
                 this.copyFromOutput(dist length)
             }
@@ -583,8 +657,12 @@ class Inflate {
         def allLengths:[int]
         def totalCodes:int (hlit + hdist)
         i = 0
-        while (i < totalCodes) {
+        while ((i < totalCodes) && (this.going())) {
             def sym:int (clTable.decode(reader))
+            if ((sym < 0) || (sym > 18)) {
+                this.fail("invalid code length code")
+                return
+            }
             
             if (sym < 16) {
                 ; Literal code length
@@ -628,6 +706,13 @@ class Inflate {
             }
         }
         
+        if ((this.going()) == false) {
+            return
+        }
+        if (i > totalCodes) {
+            this.fail("code lengths run past the table")
+            return
+        }
         ; Split into literal/length and distance lengths
         def litLenLengths:[int]
         def distLengths:[int]
@@ -657,7 +742,9 @@ class Inflate {
         ; Byte-by-byte read-then-write handles overlapping copies (distance < length)
         ; correctly, since each read position trails the write head.
         def srcPos:int (outLen - distance)
-        this.ensureCapacity(length)
+        if ((this.ensureCapacity(length)) == false) {
+            return
+        }
         def i 0
         while (i < length) {
             def b:int 0
