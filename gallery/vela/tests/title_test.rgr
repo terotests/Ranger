@@ -220,6 +220,46 @@ class VlTitleTest {
         this.check(("scheme " + scheme + ": the first bar's colour") (? ((strlen fills) > 0) (itemAt (strsplit fills " ") 0) "none") first)
     }
 
+    ; Category names down the side of a horizontal bar chart (Tero's
+    ; "Google Sli…" with three bars and room for two lines): an axis
+    ; `labelLimit` is read, and in a document a long name is broken onto
+    ; the lines its band has room for before it is cut.
+    fn wraps:void () {
+        def a:VlTextFit (VlText.wrapLabel("Sliqtly" 22.0 200.0 400.0 3))
+        this.check("a short name stays on one line" a.text "Sliqtly")
+        def b:VlTextFit (VlText.wrapLabel("Google Slides" 22.0 200.0 400.0 3))
+        this.check("a long name goes on two lines" b.text "Google\nSlides")
+        this.checkTrue("…and nothing is cut" (b.cut == false))
+        def c:VlTextFit (VlText.wrapLabel("Google Slides" 22.0 200.0 180.0 1))
+        this.checkTrue("one line of room: cut at the limit" (c.cut && ((indexOf c.text (strfromcode 8230)) > 0)))
+        def d:VlTextFit (VlText.wrapLabel("Customer satisfaction in the northern sales region" 10.0 100.0 180.0 2))
+        this.checkTrue("two lines of room: at most two lines" ((array_length (VlText.lines(d.text))) == 2))
+        def dl:[string] (VlText.lines(d.text))
+        this.checkTrue("…each under the limit" (((VlText.estimateWidth((itemAt dl 0) 10.0)) < 180.0) && ((VlText.estimateWidth((itemAt dl 1) 10.0)) < 180.0)))
+        this.checkTrue("…the rest cut and said so" d.cut)
+        this.check("a stated labelLimit is read" (this.yLabels(false "\"labelLimit\":400,")) "Sliqtly|PowerPoint|Google Slides|")
+        this.check("the default limit still cuts in the reference" (this.yLabels(false "")) "Sliqtly|PowerPoint|Google Sl" + (strfromcode 8230) + "|")
+        this.check("a document wraps before it cuts" (this.yLabels(true "")) "Sliqtly|PowerPoint|Google\nSlides|")
+    }
+
+    fn yLabels:string (auto:boolean axis:string) {
+        def spec:string ("{\"width\":600,\"height\":240,\"config\":{\"axis\":{\"labelFontSize\":22}},\"data\":{\"values\":[{\"c\":\"Sliqtly\",\"v\":2},{\"c\":\"PowerPoint\",\"v\":3},{\"c\":\"Google Slides\",\"v\":9}]},\"mark\":\"bar\",\"encoding\":{\"y\":{\"field\":\"c\",\"type\":\"nominal\",\"sort\":null,\"axis\":{" + axis + "\"title\":null}},\"x\":{\"field\":\"v\",\"type\":\"quantitative\"}}}")
+        def p (new VlJsonParser())
+        def compiler (new VlCompile())
+        compiler.autoLabelAngle = auto
+        def vg:VlJson (compiler.compileSpec((p.parse(spec))))
+        def rt (new VlRuntime())
+        rt.autoLabelAngle = auto
+        def list:VlCommandList (VlSceneCommands.build((rt.run(vg))))
+        def out:string ""
+        for list.commands c:VlDrawCommand ci {
+            if ((c.op == "text") && ((c.align == "right") && (c.x < 0.0))) {
+                out = ((out + c.text) + "|")
+            }
+        }
+        return out
+    }
+
     sfn main:void () {
         def t (new VlTitleTest())
         t.fits()
@@ -227,6 +267,7 @@ class VlTitleTest {
         t.strides()
         t.ageAxis()
         t.schemes()
+        t.wraps()
         print ((((to_string (t.checks - t.failures)) + "/") + (to_string t.checks)) + " title checks passed")
     }
 }

@@ -176,6 +176,12 @@ class VlAxis {
     ; one (`strideLabels`), on round values when the categories are numbers,
     ; rather than printing them over each other.
     def thinDiscrete:boolean false
+    ; A document's category axis down the SIDE breaks a long label onto the
+    ; lines its band has room for (`VlText.wrapLabel`) before cutting it:
+    ; at a third of the plot's width, cut only at `labelLimit`. Off by
+    ; default for the same parity reason as `labelAngleAuto`.
+    def labelWrap:boolean false
+    def wrapAt:double 0.0
     def minExtent:double 0.0
     def maxExtent:double 200.0
     ; How far the whole axis stands off the plot it measures. A diverging
@@ -263,6 +269,9 @@ class VlAxis {
         titleBaseline = (adef.stringOr("titleBaseline" titleBaseline))
         titleFontSize = (adef.doubleOr("titleFontSize" titleFontSize))
         titleLimit = (adef.doubleOr("titleLimit" titleLimit))
+        ; read like every other label setting: an axis that said
+        ; `"labelLimit": 400` was still cut at 180
+        labelLimit = (adef.doubleOr("labelLimit" labelLimit))
         bandPosition = (adef.doubleOr("bandPosition" bandPosition))
         minExtent = (adef.doubleOr("minExtent" minExtent))
         maxExtent = (adef.doubleOr("maxExtent" maxExtent))
@@ -600,6 +609,7 @@ class VlAxis {
         def mark (new VlSceneMark())
         mark.markType = "group"
         mark.role = "axis"
+        wrapAt = (chartWidth / 3.0)
         ; What a reader who cannot see the axis is told it says. The reference
         ; writes this in its RENDERER — it is not in the scenegraph — and it is
         ; built from the scale rather than from the ticks: "X-axis titled 'c'
@@ -937,6 +947,12 @@ class VlAxis {
             reach = 0.0
         }
         def away:double (reach + labelPadding)
+        ; How many lines a wrapped label may take: as many as stand in the
+        ; narrowest band, three at most.
+        def maxLines:int 1
+        if (labelWrap && vertical) {
+            maxLines = (VlAxis.linesInBands(ticks labelFontSize (flushTo - flushFrom)))
+        }
         for ticks tv:VlAxisTickValue idx {
             def item:VlSceneItem (mark.addItem())
             def labelPaint:string labelColor
@@ -958,7 +974,16 @@ class VlAxis {
             ; An axis label is cut to fit too — a hundred and eighty pixels by
             ; default — and the extent the axis reserves is measured from what
             ; is left, not from what was asked for.
-            item.setString("text" (VlText.truncate(tv.label labelFontSize labelLimit)))
+            if (labelWrap && vertical) {
+                def fit:VlTextFit (VlText.wrapLabel(tv.label labelFontSize wrapAt labelLimit maxLines))
+                item.setString("text" fit.text)
+                ; the words a reader lost, for a host that shows them on hover
+                if fit.cut {
+                    item.setString("full" tv.label)
+                }
+            } {
+                item.setString("text" (VlText.truncate(tv.label labelFontSize labelLimit)))
+            }
             if vertical {
                 item.setNumber("y" (tv.labelPosition + labelOffset))
                 if (orient == "left") {
@@ -1267,6 +1292,30 @@ class VlAxis {
     ; The flush alignment has already moved the end labels inward by then, and
     ; it has to: pulling the last label back over the axis is often what makes
     ; it collide with its neighbour in the first place.
+    ; How many lines of `fontSize` type stand in the narrowest gap between
+    ; neighbouring labels (the whole `range` for a single one), from one to
+    ; three, with a line's gap of air.
+    sfn linesInBands:int (ticks:[VlAxisTickValue] fontSize:double range:double) {
+        def gap:double (fabs range)
+        def n:int (array_length ticks)
+        def i:int 1
+        while (i < n) {
+            def a:VlAxisTickValue (itemAt ticks i)
+            def b:VlAxisTickValue (itemAt ticks (i - 1))
+            def d:double (fabs (a.labelPosition - b.labelPosition))
+            if (d < gap) {
+                gap = d
+            }
+            i = (i + 1)
+        }
+        def step:double (VlText.lineStep(fontSize))
+        def lines:int 1
+        while ((lines < 3) && (((fontSize + (step * (to_double lines))) + step) <= gap)) {
+            lines = (lines + 1)
+        }
+        return lines
+    }
+
     ; Which way a label was turned, as -1, 0 or 1. Vega measures the angle
     ; clockwise from level and wraps it into a full turn first, so 270 and -90
     ; are the same quarter turn and 360 is none at all.

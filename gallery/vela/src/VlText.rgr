@@ -267,6 +267,118 @@ class VlText {
         return fit
     }
 
+    ; A category label fitted to its room the way a document wants it read:
+    ; on one line when it is narrower than `wrapAt`, else broken at spaces
+    ; into at most `maxLines` lines (two balanced ones when two will do),
+    ; and only what still does not fit is cut, each line at `limit` with an
+    ; ellipsis, the last one taking whatever words are left. Lines are
+    ; joined with a line break. `cut` says words were lost.
+    sfn wrapLabel:VlTextFit (text:string fontSize:double wrapAt:double limit:double maxLines:int) {
+        def fit (new VlTextFit())
+        fit.size = fontSize
+        fit.text = text
+        def width:double wrapAt
+        if ((limit > 0.0) && ((width <= 0.0) || (width > limit))) {
+            width = limit
+        }
+        if (((width <= 0.0) || ((VlText.estimateWidth(text fontSize)) < width)) || ((indexOf text "\n") >= 0)) {
+            if ((limit > 0.0) && ((VlText.estimateWidth(text fontSize)) >= limit)) {
+                fit.text = (VlText.truncate(text fontSize limit))
+                fit.cut = true
+            }
+            return fit
+        }
+        if (maxLines >= 2) {
+            ; two lines broken where the longer one is shortest
+            def at:int (VlText.balancedBreak(text))
+            if (at > 0) {
+                def first:string (substring text 0 at)
+                def second:string (substring text (at + 1) (strlen text))
+                if (((VlText.estimateWidth(first fontSize)) < width) && ((VlText.estimateWidth(second fontSize)) < width)) {
+                    fit.text = ((first + "\n") + second)
+                    fit.lineCount = 2
+                    return fit
+                }
+            }
+            ; more lines at `wrapAt`, or as few as fit at `limit`
+            def lines:[string] (VlText.fillLines(text fontSize width))
+            if (((array_length lines) > maxLines) && (limit > width)) {
+                lines = (VlText.fillLines(text fontSize limit))
+            }
+            if ((array_length lines) > 1) {
+                return (VlText.joinLines(lines fontSize limit maxLines text))
+            }
+        }
+        if ((limit > 0.0) && ((VlText.estimateWidth(text fontSize)) >= limit)) {
+            fit.text = (VlText.truncate(text fontSize limit))
+            fit.cut = true
+        }
+        return fit
+    }
+
+    ; Words filled into lines narrower than `width`, a word wider than it on
+    ; a line of its own.
+    sfn fillLines:[string] (text:string fontSize:double width:double) {
+        def out:[string]
+        def words:[string] (strsplit text " ")
+        def line:string ""
+        for words w:string wi {
+            if ((strlen w) > 0) {
+                if ((strlen line) == 0) {
+                    line = w
+                } {
+                    def tryLine:string ((line + " ") + w)
+                    if ((VlText.estimateWidth(tryLine fontSize)) < width) {
+                        line = tryLine
+                    } {
+                        push out line
+                        line = w
+                    }
+                }
+            }
+        }
+        if ((strlen line) > 0) {
+            push out line
+        }
+        return out
+    }
+
+    ; At most `maxLines` of `lines`, the last taking the words left over,
+    ; each cut at `limit`.
+    sfn joinLines:VlTextFit (lines:[string] fontSize:double limit:double maxLines:int whole:string) {
+        def fit (new VlTextFit())
+        fit.size = fontSize
+        def kept:[string]
+        def n:int (array_length lines)
+        def i:int 0
+        while ((i < n) && (i < maxLines)) {
+            def line:string (itemAt lines i)
+            if ((i == (maxLines - 1)) && (n > maxLines)) {
+                def j:int (i + 1)
+                while (j < n) {
+                    line = ((line + " ") + (itemAt lines j))
+                    j = (j + 1)
+                }
+            }
+            if ((limit > 0.0) && ((VlText.estimateWidth(line fontSize)) >= limit)) {
+                line = (VlText.truncate(line fontSize limit))
+                fit.cut = true
+            }
+            push kept line
+            i = (i + 1)
+        }
+        def text:string ""
+        for kept k:string ki {
+            if (ki > 0) {
+                text = (text + "\n")
+            }
+            text = (text + k)
+        }
+        fit.text = text
+        fit.lineCount = (array_length kept)
+        return fit
+    }
+
     ; The space that splits `text` into two lines whose longer one is the
     ; shortest; -1 when it has no space.
     sfn balancedBreak:int (text:string) {
