@@ -97,6 +97,13 @@ class MathAtom {
 
 class MathParser {
     def src:string ""
+    ; `src` as Unicode code points. `pos` and `n` index THIS, not the string:
+    ; `charAt` / `substring` count UTF-8 bytes on Go and UTF-16 units on
+    ; JavaScript, so a scan with them split every character past ASCII into
+    ; pieces on one target or the other (\text{eV·nm} drew as "eVÂ?nm").
+    ; Slices of `src` are taken with `utf8_substring`, which counts code
+    ; points everywhere.
+    def cs:[int]
     def pos:int 0
     def n:int 0
     ; "" default, rm, bf, it, bb, cal
@@ -113,8 +120,9 @@ class MathParser {
 
     fn parseAll:[MathAtom] (tex:string) {
         src = tex
+        cs = (to_chars tex)
         pos = 0
-        n = (strlen tex)
+        n = (array_length cs)
         def list:[MathAtom] (this.parseRows("" "" false))
         while (pos < n) {
             ; a stray `}` or `&` at the top: say so, then keep reading
@@ -166,13 +174,13 @@ class MathParser {
     ; outside ASCII — the same spelling the symbol table uses for them.
     fn skipSpace:void () {
         while (pos < n) {
-            def c:int (charAt src pos)
+            def c:int (itemAt cs pos)
             if ((((c == 32) || (c == 9)) || (c == 10)) || (c == 13)) {
                 pos = (pos + 1)
             } {
                 if (c == 37) {
                     ; % comment to the end of the line
-                    while ((pos < n) && ((charAt src pos) != 10)) {
+                    while ((pos < n) && ((itemAt cs pos) != 10)) {
                         pos = (pos + 1)
                     }
                 } {
@@ -194,22 +202,22 @@ class MathParser {
         if (pos >= n) {
             return ""
         }
-        def c:int (charAt src pos)
+        def c:int (itemAt cs pos)
         if (c == 92) {
             pos = (pos + 1)
             if (pos >= n) {
                 return "\\"
             }
             def start:int pos
-            def c2:int (charAt src pos)
+            def c2:int (itemAt cs pos)
             if (MathParser.isLetter(c2)) {
-                while ((pos < n) && (MathParser.isLetter((charAt src pos)))) {
+                while ((pos < n) && (MathParser.isLetter((itemAt cs pos)))) {
                     pos = (pos + 1)
                 }
-                return ("\\" + (substring src start pos))
+                return ("\\" + (utf8_substring src start pos))
             }
             pos = (pos + 1)
-            return ("\\" + (substring src start pos))
+            return ("\\" + (utf8_substring src start pos))
         }
         pos = (pos + 1)
         if (c > 127) {
@@ -226,7 +234,7 @@ class MathParser {
     ; arguments that are names (\color{red}, \begin{matrix}).
     fn rawGroup:string () {
         this.skipSpace()
-        if ((pos >= n) || ((charAt src pos) != 123)) {
+        if ((pos >= n) || ((itemAt cs pos) != 123)) {
             ; one token
             def t:string (this.next())
             return t
@@ -235,7 +243,7 @@ class MathParser {
         def start:int pos
         def depth:int 1
         while (pos < n) {
-            def c:int (charAt src pos)
+            def c:int (itemAt cs pos)
             if (c == 92) {
                 pos = (pos + 2)
             } {
@@ -245,7 +253,7 @@ class MathParser {
                 if (c == 125) {
                     depth = (depth - 1)
                     if (depth == 0) {
-                        def s:string (substring src start pos)
+                        def s:string (utf8_substring src start pos)
                         pos = (pos + 1)
                         return s
                     }
@@ -253,30 +261,30 @@ class MathParser {
                 pos = (pos + 1)
             }
         }
-        return (substring src start n)
+        return (utf8_substring src start n)
     }
 
     ; An optional [..] argument, or "".
     fn optArg:string () {
         this.skipSpace()
-        if ((pos >= n) || ((charAt src pos) != 91)) {
+        if ((pos >= n) || ((itemAt cs pos) != 91)) {
             return ""
         }
         pos = (pos + 1)
         def start:int pos
         def depth:int 0
         while (pos < n) {
-            def c:int (charAt src pos)
+            def c:int (itemAt cs pos)
             if (c == 123) { depth = (depth + 1) }
             if (c == 125) { depth = (depth - 1) }
             if ((c == 93) && (depth == 0)) {
-                def s:string (substring src start pos)
+                def s:string (utf8_substring src start pos)
                 pos = (pos + 1)
                 return s
             }
             pos = (pos + 1)
         }
-        return (substring src start n)
+        return (utf8_substring src start n)
     }
 
     ; \\[4pt] — the extra space after a row, in em.
@@ -486,6 +494,13 @@ class MathParser {
     ; + = ( [ | , and the characters outside ASCII: by the symbol table.
     fn character:void (t:string list:[MathAtom]) {
         def s@(optional):MathSym (MathFont.symbol(t))
+        if ((null? s) && ((charAt t 0) == 35)) {
+            ; · in math is \cdot: a character the fonts lack, by its look-alike
+            def alike:int (MathFont.lookalike((?? (str2int (substring t 1 (strlen t))) 0)))
+            if (alike > 0) {
+                s = (MathFont.symbol(("#" + (to_string alike))))
+            }
+        }
         if (!null? s) {
             push list (this.fromSymbol((unwrap s)))
             return
@@ -867,7 +882,7 @@ class MathParser {
         this.skipSpace()
         def start:int pos
         while (pos < n) {
-            def c:int (charAt src pos)
+            def c:int (itemAt cs pos)
             if ((((c >= 48) && (c <= 57)) || (c == 46)) || (c == 45)) {
                 pos = (pos + 1)
             } {
@@ -879,7 +894,7 @@ class MathParser {
             unitEnd = n
         }
         pos = unitEnd
-        return (substring src start unitEnd)
+        return (utf8_substring src start unitEnd)
     }
 
     ; The delimiter after \left, \right, \big: one token.
