@@ -116,6 +116,9 @@ class VlAxis {
     ; runs into the last one kept. Vega-Lite asks for greedy on a log axis,
     ; where the ticks are unevenly spaced and halving removes the wrong ones.
     def labelOverlapMode:string ""
+    ; `labelOverlap` written in the spec, true or false: the author chose, so
+    ; a document's category stride stays out of it.
+    def labelOverlapSet:boolean false
     ; Opacities are stroke opacities, and only exist when a spec sets them: the
     ; reference leaves `opacity` at 1 and puts the number on `strokeOpacity`,
     ; which is a different thing to a renderer that strokes and fills.
@@ -332,6 +335,9 @@ class VlAxis {
     }
 
     fn readOverlap:void (v:VlJson) {
+        if (v.isBool() || v.isString()) {
+            labelOverlapSet = true
+        }
         if (v.isBool()) {
             labelOverlapMode = ""
             if (v.asBool()) {
@@ -1019,7 +1025,7 @@ class VlAxis {
         if ((strlen labelOverlapMode) > 0) {
             this.hideOverlappingLabels(mark)
         } {
-            if thinDiscrete {
+            if (thinDiscrete && (labelOverlapSet == false)) {
                 this.strideLabels(mark)
             }
         }
