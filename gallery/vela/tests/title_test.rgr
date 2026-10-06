@@ -148,6 +148,11 @@ class VlTitleTest {
     ; A short bar chart of 19 age groups down the side: only round ages shown,
     ; none on top of another.
     fn ageAxis:void () {
+        this.ageAxisWith("" true)
+        this.ageAxisWith(",\"axis\":{\"labelOverlap\":false}" false)
+    }
+
+    fn ageAxisWith:void (axis:string thinned:boolean) {
         def vals:string ""
         def i:int 0
         while (i < 19) {
@@ -157,7 +162,7 @@ class VlTitleTest {
             vals = (vals + "{\"age\":" + (to_string (i * 5)) + ",\"n\":" + (to_string (10 + i)) + "}")
             i = (i + 1)
         }
-        def spec:string ("{\"width\":200,\"height\":120,\"data\":{\"values\":[" + vals + "]},\"mark\":\"bar\",\"encoding\":{\"y\":{\"field\":\"age\",\"type\":\"ordinal\"},\"x\":{\"field\":\"n\",\"type\":\"quantitative\"}}}")
+        def spec:string ("{\"width\":200,\"height\":120,\"data\":{\"values\":[" + vals + "]},\"mark\":\"bar\",\"encoding\":{\"y\":{\"field\":\"age\",\"type\":\"ordinal\"" + axis + "},\"x\":{\"field\":\"n\",\"type\":\"quantitative\"}}}")
         def p (new VlJsonParser())
         def compiler (new VlCompile())
         compiler.autoLabelAngle = true
@@ -180,6 +185,10 @@ class VlTitleTest {
             }
         }
         print ("   ages shown: " + shown)
+        if (thinned == false) {
+            this.checkTrue("labelOverlap: false keeps every age" ((strlen shown) > 40))
+            return
+        }
         this.checkTrue("document: crowded ages are thinned" ((strlen shown) < 40))
         this.checkTrue("…to round ones" allRound)
         this.checkTrue("…starting at 0" ((indexOf shown "0 ") == 0))
