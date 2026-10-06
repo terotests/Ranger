@@ -194,12 +194,39 @@ class VlTitleTest {
         this.checkTrue("…starting at 0" ((indexOf shown "0 ") == 0))
     }
 
+    ; A colour scheme picked in Sliqtly's chart window: every bar gets a
+    ; colour from it, and a name the runtime does not know falls back to
+    ; the default palette rather than drawing the bars with none.
+    fn schemes:void () {
+        this.schemeWith("pastel1" "#fbb4ae")
+        this.schemeWith("pastel2" "#b3e2cd")
+        this.schemeWith("set1" "#e41a1c")
+        this.schemeWith("nosuchscheme" "#4c78a8")
+    }
+
+    fn schemeWith:void (scheme:string first:string) {
+        def spec:string ("{\"width\":200,\"data\":{\"values\":[{\"c\":\"A\",\"v\":2},{\"c\":\"B\",\"v\":3}]},\"mark\":\"bar\",\"encoding\":{\"y\":{\"field\":\"c\",\"type\":\"nominal\"},\"x\":{\"field\":\"v\",\"type\":\"quantitative\"},\"color\":{\"field\":\"c\",\"type\":\"nominal\",\"scale\":{\"scheme\":\"" + scheme + "\"}}}}")
+        def p (new VlJsonParser())
+        def compiler (new VlCompile())
+        def vg:VlJson (compiler.compileSpec((p.parse(spec))))
+        def rt (new VlRuntime())
+        def list:VlCommandList (VlSceneCommands.build((rt.run(vg))))
+        def fills:string ""
+        for list.commands c:VlDrawCommand ci {
+            if (((c.op == "rect") && ((strlen c.fill) > 0))) {
+                fills = ((fills + c.fill) + " ")
+            }
+        }
+        this.check(("scheme " + scheme + ": the first bar's colour") (? ((strlen fills) > 0) (itemAt (strsplit fills " ") 0) "none") first)
+    }
+
     sfn main:void () {
         def t (new VlTitleTest())
         t.fits()
         t.runtime()
         t.strides()
         t.ageAxis()
+        t.schemes()
         print ((((to_string (t.checks - t.failures)) + "/") + (to_string t.checks)) + " title checks passed")
     }
 }

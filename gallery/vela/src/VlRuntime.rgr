@@ -2068,7 +2068,13 @@ class VlRuntime {
                         push sc.rangeValues color
                     }
                 } {
+                    ; a name this runtime does not know: the default palette,
+                    ; so the marks still have a colour (an empty range drew
+                    ; them with none, and the chart went blank)
                     this.warn(("colour scheme '" + (r.stringOr("scheme" ""))) + "' is not implemented")
+                    for (config.schemeFor("category")) color:string ci {
+                        push sc.rangeValues color
+                    }
                 }
                 return
             }
