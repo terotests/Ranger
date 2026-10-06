@@ -2368,6 +2368,8 @@ class VlRuntime {
                     if (axis.labelAngleSet == false) {
                         axis.labelAngleAuto = true
                     }
+                    ; …and crowded categories are thinned to every k-th
+                    axis.thinDiscrete = true
                 }
                 ; A title is no longer than the side it is drawn along (a
                 ; document's axis only; Vega lets it run on). Turned up a

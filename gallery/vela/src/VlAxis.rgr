@@ -169,6 +169,10 @@ class VlAxis {
     ; own output, and an axis that turned its labels where the reference left
     ; them level would be a parity failure rather than an improvement.
     def labelAngleAuto:boolean false
+    ; A document's category axis whose labels do not fit shows every k-th
+    ; one (`strideLabels`), on round values when the categories are numbers,
+    ; rather than printing them over each other.
+    def thinDiscrete:boolean false
     def minExtent:double 0.0
     def maxExtent:double 200.0
     ; How far the whole axis stands off the plot it measures. A diverging
@@ -1014,8 +1018,230 @@ class VlAxis {
         }
         if ((strlen labelOverlapMode) > 0) {
             this.hideOverlappingLabels(mark)
+        } {
+            if thinDiscrete {
+                this.strideLabels(mark)
+            }
         }
         return mark
+    }
+
+    ; Category labels that run into each other: every k-th is kept, the
+    ; smallest k (`VlAxis.strides`) whose kept labels stand clear. Numbers
+    ; keep round values (0, 10, 20 of 0, 5, 10 …), never 7, 25, 42.
+    fn strideLabels:void (mark:VlSceneMark) {
+        def visible:[int]
+        def texts:[string]
+        for mark.items item:VlSceneItem idx {
+            if (((strlen (item.text("text"))) > 0) && ((item.number("opacity")) > 0.0)) {
+                push visible idx
+                push texts (item.text("text"))
+            }
+        }
+        def n:int (array_length visible)
+        if (n < 3) {
+            return
+        }
+        if ((this.labelsOverlap(mark visible)) == false) {
+            return
+        }
+        def cands:[int] (VlAxis.strides(texts))
+        def best:[int]
+        def c:int 0
+        def found:boolean false
+        while ((c < (array_length cands)) && (found == false)) {
+            def k:int (itemAt cands c)
+            def anchor:int (itemAt cands (c + 1))
+            def kept:[int]
+            def p:int 0
+            while (p < n) {
+                if (VlAxis.onStride(p k anchor)) {
+                    push kept (itemAt visible p)
+                }
+                p = (p + 1)
+            }
+            best = kept
+            if (((array_length kept) < 2) || ((this.labelsOverlap(mark kept)) == false)) {
+                found = true
+            }
+            c = (c + 2)
+        }
+        if ((array_length best) == 0) {
+            return
+        }
+        def q:int 0
+        while (q < n) {
+            def idx:int (itemAt visible q)
+            def keep:boolean false
+            for best b:int bi {
+                if (b == idx) {
+                    keep = true
+                }
+            }
+            if (keep == false) {
+                def hidden:VlSceneItem (itemAt mark.items idx)
+                hidden.setNumber("opacity" 0.0)
+            }
+            q = (q + 1)
+        }
+    }
+
+    sfn onStride:boolean (p:int k:int anchor:int) {
+        def d:int (p - anchor)
+        if (d < 0) {
+            d = (0 - d)
+        }
+        return ((d % k) == 0)
+    }
+
+    ; The strides to try for a category axis, smallest first, as pairs
+    ; (k, the index the kept labels count from). Labels that are evenly
+    ; stepped numbers keep only round steps (1, 2, 2.5 or 5 times a power of
+    ; ten) counted from a round value: of 0, 5, 10 … 90 every second from 0
+    ; (0, 10, 20 …), of 10, 20, 30, 40, 50 every second from 10. Anything
+    ; else: every 2nd, 3rd, … from the first.
+    sfn strides:[int] (labels:[string]) {
+        def out:[int]
+        def n:int (array_length labels)
+        def nums:[double]
+        def numeric:boolean (n >= 2)
+        for labels t:string i {
+            def clean:string (VlAxis.plainNumber(t))
+            def d@(optional):double (str2double clean)
+            if ((null? d) || ((strlen clean) == 0)) {
+                numeric = false
+            } {
+                push nums (unwrap d)
+            }
+        }
+        def step:double 0.0
+        if numeric {
+            step = ((itemAt nums 1) - (itemAt nums 0))
+            def j:int 1
+            while (j < n) {
+                def dj:double ((itemAt nums j) - (itemAt nums (j - 1)))
+                if ((fabs (dj - step)) > ((fabs step) * 0.001)) {
+                    numeric = false
+                }
+                j = (j + 1)
+            }
+            if ((fabs step) <= 0.0) {
+                numeric = false
+            }
+        }
+        def k:int 2
+        while (k < n) {
+            if numeric {
+                def big:double ((fabs step) * (to_double k))
+                if (VlAxis.roundStep(big)) {
+                    ; from the first label when it is itself round (a
+                    ; whole number of the step's power of ten: 10, 30, 50
+                    ; of 10 … 50), else from the first that is a whole
+                    ; number of steps (10, 20, 30 of 5 … 35)
+                    def anchor:int -1
+                    if (VlAxis.wholeOf((itemAt nums 0) (VlAxis.decade(big)))) {
+                        anchor = 0
+                    }
+                    def a:int 0
+                    while ((a < k) && (anchor < 0)) {
+                        if (VlAxis.wholeOf((itemAt nums a) big)) {
+                            anchor = a
+                        }
+                        a = (a + 1)
+                    }
+                    if (anchor < 0) {
+                        anchor = 0
+                    }
+                    push out k
+                    push out anchor
+                }
+            } {
+                push out k
+                push out 0
+            }
+            k = (k + 1)
+        }
+        ; numbers no round step fits: count from the first, as any labels
+        if ((array_length out) == 0) {
+            def k2:int 2
+            while (k2 < n) {
+                push out k2
+                push out 0
+                k2 = (k2 + 1)
+            }
+        }
+        return out
+    }
+
+    ; Whether v is a whole number of `unit`s.
+    sfn wholeOf:boolean (v:double unit:double) {
+        if (unit <= 0.0) {
+            return false
+        }
+        def q:double (v / unit)
+        def r:double (to_double (to_int (q + (? (q >= 0.0) 0.5 -0.5))))
+        return ((fabs (q - r)) < 0.001)
+    }
+
+    ; The power of ten at or under v (20 → 10, 2.5 → 1, 0.5 → 0.1).
+    sfn decade:double (v:double) {
+        def d:double 1.0
+        def guard:int 0
+        while (((d * 10.0) <= v) && (guard < 40)) {
+            d = (d * 10.0)
+            guard = (guard + 1)
+        }
+        while ((d > v) && (guard < 80)) {
+            d = (d / 10.0)
+            guard = (guard + 1)
+        }
+        return d
+    }
+
+    ; 1, 2, 2.5 or 5 times a power of ten.
+    sfn roundStep:boolean (v:double) {
+        if (v <= 0.0) {
+            return false
+        }
+        def m:double v
+        def guard:int 0
+        while ((m >= 10.0) && (guard < 40)) {
+            m = (m / 10.0)
+            guard = (guard + 1)
+        }
+        while ((m < 1.0) && (guard < 80)) {
+            m = (m * 10.0)
+            guard = (guard + 1)
+        }
+        def nice:[double] ([] _:double (1.0 2.0 2.5 5.0 10.0))
+        for nice x:double i {
+            if ((fabs (m - x)) < 0.0001) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; A label as a number would be written plainly: the typographic minus a
+    ; hyphen, no thousands spaces or commas.
+    sfn plainNumber:string (t:string) {
+        def out:string ""
+        def minus:string (strfromcode 8722)
+        def i:int 0
+        def n:int (strlen t)
+        while (i < n) {
+            def ch:string (substring t i (i + 1))
+            if ((ch != " ") && (ch != ",")) {
+                out = (out + ch)
+            }
+            i = (i + 1)
+        }
+        def at:int (indexOf out minus)
+        while (at >= 0) {
+            out = (((substring out 0 at) + "-") + (substring out (at + (strlen minus)) (strlen out)))
+            at = (indexOf out minus)
+        }
+        return (trim out)
     }
 
     ; Labels that would print on top of each other are hidden rather than
