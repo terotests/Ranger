@@ -36,11 +36,46 @@ class EVGListToElementsTest {
         this.testWinAnsiStandIns()
         this.testBareFamilyIsRegular()
         this.testEmojiFromFallbackFace()
+        this.testCroppedPicture()
         print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
         if (failed == 0) {
             print "ALL PASS"
         } {
             print "SOME FAILED"
+        }
+    }
+
+    fn testCroppedPicture:void () {
+        print "--- a cropped picture keeps its window and corners ---"
+        def c (new EVGDrawCmd())
+        c.kind = 2
+        c.x = 10.0
+        c.y = 20.0
+        c.w = 100.0
+        c.h = 50.0
+        c.src = "media/ranta.jpg"
+        c.hasCrop = true
+        c.cropX = 0.25
+        c.cropY = 0.0
+        c.cropW = 0.5
+        c.cropH = 1.0
+        c.radius = 4.0
+        def el@(optional):EVGElement (EVGListToElements.elementFor(c 200.0 200.0 true))
+        this.check("a picture becomes an element" (!null? el))
+        if (!null? el) {
+            def pe:EVGElement (unwrap el)
+            this.check("with its crop window" (pe.imageViewBoxSet && ((pe.imageViewBoxX == 0.25) && (pe.imageViewBoxW == 0.5))))
+            this.check("and its rounded corners" (pe.box.borderRadius.pixels == 4.0))
+        }
+        def plain (new EVGDrawCmd())
+        plain.kind = 2
+        plain.w = 10.0
+        plain.h = 10.0
+        plain.src = "a.png"
+        def el2@(optional):EVGElement (EVGListToElements.elementFor(plain 200.0 200.0 true))
+        if (!null? el2) {
+            def pe2:EVGElement (unwrap el2)
+            this.check("an uncropped one shows the whole bitmap" (pe2.imageViewBoxSet == false))
         }
     }
 

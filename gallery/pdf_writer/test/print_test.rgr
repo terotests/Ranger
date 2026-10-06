@@ -20,6 +20,8 @@ class PrintTest {
         test.testUtf8Decode(t)
         test.testWinAnsiDetection(t)
         test.testPageBoxes(t)
+        test.testCropMarks(t)
+        test.testViewBoxPlacement(t)
         t.summary()
     }
 
@@ -142,5 +144,50 @@ class PrintTest {
         ; Turning bleed back off restores the plain box.
         r.setBleed(0.0)
         t.eqStr("bleed can be turned off" (r.pageBoxes(595.0 842.0)) " /MediaBox [0 0 595 842]")
+    }
+
+    ; Crop marks sit in a slug outside the bleed: the sheet grows again, the
+    ; BleedBox stops where the slug begins, and eight hairlines mark the trim.
+    fn testCropMarks:void (t:RgTest) {
+        def r (new EVGPDFRenderer())
+        t.eqStr("no marks without asking" (r.cropMarkOps(100.0 50.0)) "")
+        r.setBleed(8.5)
+        r.setCropMarks(true)
+        def b:string (r.pageBoxes(595.0 842.0))
+        ; 595 + 2 * (8.5 + 20) = 652
+        t.ok("sheet holds trim, bleed and slug" ((indexOf b "/MediaBox [0 0 652 899]") >= 0))
+        t.ok("bleed box ends at the slug" ((indexOf b "/BleedBox [20 20 632 879]") >= 0))
+        t.ok("trim inset by bleed and slug" ((indexOf b "/TrimBox [28.5 28.5 623.5 870.5]") >= 0))
+        def ops:string (r.cropMarkOps(595.0 842.0))
+        def strokes:int 0
+        def at:int (indexOf ops " l S")
+        while (at >= 0) {
+            strokes = (strokes + 1)
+            at = (indexOfFrom ops " l S" (at + 1))
+        }
+        t.eqInt("eight marks" strokes 8)
+        ; bottom-left corner: the horizontal mark starts 2pt past the bleed
+        ; (28.5 - 10.5 = 18) and runs 16pt out to the sheet's slug (2)
+        t.ok("left mark on the trim's bottom line" ((indexOf ops "18 28.5 m 2 28.5 l S") >= 0))
+        t.ok("hairline in black" ((indexOf ops "0 0 0 RG\n0.25 w") >= 0))
+        r.setCropMarks(false)
+        t.ok("marks off: back to trim + bleed" ((indexOf (r.pageBoxes(595.0 842.0)) "/MediaBox [0 0 612 859]") >= 0))
+    }
+
+    ; The crop window of a picture is stretched over its box.
+    fn testViewBoxPlacement:void (t:RgTest) {
+        ; the middle half across, all of it down, into 100 x 50
+        def p:[double] (EVGPDFRenderer.viewBoxPlacement(0.25 0.0 0.5 1.0 100.0 50.0))
+        t.ok("drawn twice as wide" ((itemAt p 0) == 200.0))
+        t.ok("as tall as the box" ((itemAt p 1) == 50.0))
+        t.ok("moved left by a quarter of it" ((itemAt p 2) == (0.0 - 50.0)))
+        t.ok("not moved up or down" ((itemAt p 3) == 0.0))
+        ; the top half: the bitmap hangs below the box, its top on the box's top
+        def q:[double] (EVGPDFRenderer.viewBoxPlacement(0.0 0.0 1.0 0.5 100.0 50.0))
+        t.ok("top half: twice as tall" ((itemAt q 1) == 100.0))
+        t.ok("top half: bottom below the box" ((itemAt q 3) == (0.0 - 50.0)))
+        ; the bottom half sits flush with the box's bottom
+        def u:[double] (EVGPDFRenderer.viewBoxPlacement(0.0 0.5 1.0 0.5 100.0 50.0))
+        t.ok("bottom half: flush" ((itemAt u 3) == 0.0))
     }
 }
