@@ -1135,9 +1135,9 @@ class RangerApiBuilder  {
     }
     const root = ctx.getRoot();
     // Loop start
-    for ( let pi = 0; pi < root.definedClassList.length; pi++) {
-      var cname = root.definedClassList[pi];
-      const pcl = ( Object.prototype.hasOwnProperty.call(root.definedClasses, cname) ? root.definedClasses[cname] : undefined );
+    for ( let pi = 0; pi < root.tables.definedClassList.length; pi++) {
+      var cname = root.tables.definedClassList[pi];
+      const pcl = ( Object.prototype.hasOwnProperty.call(root.tables.definedClasses, cname) ? root.tables.definedClasses[cname] : undefined );
       if ( pcl.isNormalClass() == false ) {
         continue;
       }
@@ -1160,9 +1160,9 @@ class RangerApiBuilder  {
       }
     }
     // Loop start
-    for ( let ci = 0; ci < root.definedClassList.length; ci++) {
-      var cname_1 = root.definedClassList[ci];
-      const cl = ( Object.prototype.hasOwnProperty.call(root.definedClasses, cname_1) ? root.definedClasses[cname_1] : undefined );
+    for ( let ci = 0; ci < root.tables.definedClassList.length; ci++) {
+      var cname_1 = root.tables.definedClassList[ci];
+      const cl = ( Object.prototype.hasOwnProperty.call(root.tables.definedClasses, cname_1) ? root.tables.definedClasses[cname_1] : undefined );
       if ( cl.is_system ) {
         continue;
       }
@@ -3250,9 +3250,9 @@ class RangerDocCommentWriter  {
 RangerDocCommentWriter.lookupFn = function(ctx, name) {
   const root = ctx.getRoot();
   // Loop start
-  for ( let ci = 0; ci < root.definedClassList.length; ci++) {
-    var cname = root.definedClassList[ci];
-    const cl = ( Object.prototype.hasOwnProperty.call(root.definedClasses, cname) ? root.definedClasses[cname] : undefined );
+  for ( let ci = 0; ci < root.tables.definedClassList.length; ci++) {
+    var cname = root.tables.definedClassList[ci];
+    const cl = ( Object.prototype.hasOwnProperty.call(root.tables.definedClasses, cname) ? root.tables.definedClasses[cname] : undefined );
     const m = cl.findStaticMethod(name);
     if ( (typeof(m) === "undefined") == false ) {
       return m;
@@ -3804,7 +3804,7 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
       }
     }));
     const root = ctx.getRoot();
-    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
       if ( item.extends_classes.indexOf(cc.name) >= 0 ) {
         if ( item.hasMethod(f.name) ) {
           const m_1 = item.findMethod(f.name);
@@ -6591,96 +6591,86 @@ class RangerRegisteredPlugin  {
     this.features = [];
   }
 }
+class RangerRootTables  {
+  constructor() {
+    this.op_list = {};
+    this.active_macros = {};
+    this.already_imported = {};
+    this.typeClasses = {};
+    this.definedClasses = {};
+    this.definedClassList = [];
+    this.templateClassNodes = {};
+    this.templateClassList = [];
+    this.nativeGenerics = {};
+    this.genericFormUses = {};
+    this.classStaticWriters = {};
+    this.compilerFlags = {};
+    this.compilerMessages = [];
+    this.todoList = [];
+    this.pluginSpecificOperators = {};
+    this.appPages = {};
+    this.appServices = {};
+    this.libraryPaths = [];
+    this.moduleFunctions = {};
+    this.fileModules = {};
+    this.typedNodes = {};
+    this.registered_plugins = [];
+  }
+}
 class RangerAppWriterContext  {
   constructor() {
     this.langOperators = undefined;
     this.stdCommands = undefined;
     this.operators = undefined;
-    this.op_list = {};
     this.automatically_unwrapped = {};
     this.known_present = {};
     this.flow_narrowed = {};
     this.auto_unwrap_suppression = 0;
     this.reservedWords = undefined;
-    this.intRootCounter = 1;     /* note: unused */
     this.targetLangName = "";
     this.parent = undefined;
     this.cachedRoot = undefined;
-    this.defined_imports = [];     /* note: unused */
-    this.active_macros = {};
+    this.tables = undefined;
     this.macro_expansion_depth = 0;
-    this.already_imported = {};
     this.fileSystem = undefined;
     this.is_function = false;
     this.class_level_context = false;
     this.function_level_context = false;
     this.in_main = false;
-    this.is_block = false;     /* note: unused */
     this.is_lambda = false;
     this.is_capturing = false;
     this.is_catch_block = false;
     this.is_try_block = false;
     this.captured_variables = [];
-    this.has_block_exited = false;     /* note: unused */
-    this.in_expression = false;     /* note: unused */
     this.expr_stack = [];
     this.expr_restart = false;
     this.expr_restart_block = false;
     this.in_lhs_of_assignment = false;
     this.in_method = false;
     this.method_stack = [];
-    this.typeNames = [];     /* note: unused */
-    this.typeClasses = {};
-    this.currentClassName = undefined;     /* note: unused */
     this.in_class = false;
     this.in_static_method = false;
     this.currentClass = undefined;
     this.currentMethod = undefined;
     this.thisName = "this";
     this.definedEnums = {};
-    this.definedInterfaces = {};     /* note: unused */
-    this.definedInterfaceList = [];     /* note: unused */
-    this.definedClasses = {};
-    this.definedClassList = [];
-    this.definedTasks = {};     /* note: unused */
-    this.templateClassNodes = {};
-    this.templateClassList = [];
     this.classSignatures = {};
     this.classToSignature = {};
-    this.templateClasses = {};     /* note: unused */
-    this.nativeGenerics = {};
-    this.genericFormUses = {};
-    this.classStaticWriters = {};
     this.localVariables = {};
     this.localVarNames = [];
     this.contextFlags = {};
     this.settings = {};
-    this.compilerFlags = {};
     this.compilerSettings = {};
     this.parserErrors = [];
     this.compilerErrors = [];
-    this.compilerMessages = [];
-    this.compilerLog = {};     /* note: unused */
-    this.todoList = [];
-    this.definedMacro = {};     /* note: unused */
     this.defCounts = {};
     this.refTransform = {};
     this.staticClassBodies = [];
-    this.pluginSpecificOperators = {};
     this.viewClassBody = {};
-    this.appPages = {};
-    this.appServices = {};
     this.opNs = [];
-    this.langFilePath = "";     /* note: unused */
-    this.libraryPaths = [];
-    this.moduleFunctions = {};
-    this.fileModules = {};
-    this.outputPath = "";     /* note: unused */
     this.counters = new TypeCounts();
     this.parser = undefined;
     this.compiler = undefined;
-    this.typedNodes = {};
-    this.registered_plugins = [];
     this.operatorFunction = undefined;
     this.lastBlockOp = undefined;
     this.opFnsList = {};
@@ -6891,7 +6881,7 @@ class RangerAppWriterContext  {
   };
   removePluginOp (name) {
     const root = this.getRoot();
-    root.pluginSpecificOperators[name] = false;
+    root.tables.pluginSpecificOperators[name] = false;
   };
   isPluginOp (node) {
     if ( node.children.length > 0 ) {
@@ -6899,8 +6889,8 @@ class RangerAppWriterContext  {
       if ( fc.ns.length > 0 ) {
         const firstNS = fc.ns[0];
         const root = this.getRoot();
-        if ( ( typeof(root.pluginSpecificOperators[firstNS] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.pluginSpecificOperators, firstNS) ) ) {
-          return ( Object.prototype.hasOwnProperty.call(root.pluginSpecificOperators, firstNS) ? root.pluginSpecificOperators[firstNS] : undefined );
+        if ( ( typeof(root.tables.pluginSpecificOperators[firstNS] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.pluginSpecificOperators, firstNS) ) ) {
+          return ( Object.prototype.hasOwnProperty.call(root.tables.pluginSpecificOperators, firstNS) ? root.tables.pluginSpecificOperators[firstNS] : undefined );
         }
       }
     }
@@ -6908,12 +6898,12 @@ class RangerAppWriterContext  {
   };
   addPlugin (p) {
     const root = this.getRoot();
-    root.registered_plugins.push(p);
+    root.tables.registered_plugins.push(p);
   };
   findPluginsFor (featureName) {
     let res = [];
     // Loop start
-    for ( const p of this.registered_plugins) {
+    for ( const p of this.tables.registered_plugins) {
       if ( p.features.indexOf(featureName) >= 0 ) {
         res.push(p.name);
       }
@@ -6922,16 +6912,16 @@ class RangerAppWriterContext  {
   };
   addTypeClass (name) {
     const root = this.getRoot();
-    if ( false == ( typeof(root.typeClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.typeClasses, name) ) ) {
+    if ( false == ( typeof(root.tables.typeClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.typeClasses, name) ) ) {
       const newClass = new RangerTypeClass();
-      root.typeClasses[name] = newClass;
+      root.tables.typeClasses[name] = newClass;
       return newClass;
     }
-    return ( Object.prototype.hasOwnProperty.call(root.typeClasses, name) ? root.typeClasses[name] : undefined );
+    return ( Object.prototype.hasOwnProperty.call(root.tables.typeClasses, name) ? root.tables.typeClasses[name] : undefined );
   };
   getTypeClass (name) {
     const root = this.getRoot();
-    return ( Object.prototype.hasOwnProperty.call(root.typeClasses, name) ? root.typeClasses[name] : undefined );
+    return ( Object.prototype.hasOwnProperty.call(root.tables.typeClasses, name) ? root.tables.typeClasses[name] : undefined );
   };
   getParser () {
     if ( typeof(this.parser) === "undefined" ) {
@@ -6952,7 +6942,7 @@ class RangerAppWriterContext  {
   getTypedNodes (name) {
     const root = this.getRoot();
     let res = [];
-    const list = ( Object.prototype.hasOwnProperty.call(root.typedNodes, name) ? root.typedNodes[name] : undefined );
+    const list = ( Object.prototype.hasOwnProperty.call(root.tables.typedNodes, name) ? root.tables.typedNodes[name] : undefined );
     if ( (typeof(list) !== "undefined" && list != null )  ) {
       operatorsOf.forEach_7(list.items, ((item, index) => { 
         const tmp = item;
@@ -6963,32 +6953,32 @@ class RangerAppWriterContext  {
   };
   addTypedNode (name, op) {
     const root = this.getRoot();
-    if ( ( typeof(root.typedNodes[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.typedNodes, name) ) ) {
-      const orig_list = ( Object.prototype.hasOwnProperty.call(root.typedNodes, name) ? root.typedNodes[name] : undefined );
+    if ( ( typeof(root.tables.typedNodes[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.typedNodes, name) ) ) {
+      const orig_list = ( Object.prototype.hasOwnProperty.call(root.tables.typedNodes, name) ? root.tables.typedNodes[name] : undefined );
       orig_list.items.push(op);
     } else {
       const new_list = new RangerNodeList();
       new_list.items.push(op);
-      root.typedNodes[name] = new_list;
+      root.tables.typedNodes[name] = new_list;
     }
   };
   addOperator (op) {
     const root = this.getRoot();
     if ( op.name.length > 0 ) {
-      if ( ( typeof(root.op_list[op.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.op_list, op.name) ) ) {
-        const orig_list = ( Object.prototype.hasOwnProperty.call(root.op_list, op.name) ? root.op_list[op.name] : undefined );
+      if ( ( typeof(root.tables.op_list[op.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.op_list, op.name) ) ) {
+        const orig_list = ( Object.prototype.hasOwnProperty.call(root.tables.op_list, op.name) ? root.tables.op_list[op.name] : undefined );
         orig_list.items.push(op);
       } else {
         const new_list = new RangerOperatorList();
         new_list.items.push(op);
-        root.op_list[op.name] = new_list;
+        root.tables.op_list[op.name] = new_list;
       }
     }
   };
   getAllOperators () {
     const root = this.getRoot();
     let res = [];
-    operatorsOf_5.forEach_8(root.op_list, ((item, index) => { 
+    operatorsOf_5.forEach_8(root.tables.op_list, ((item, index) => { 
       operatorsOf.forEach_9(item.items, ((item, index) => { 
         const tmp = item;
         res.push(tmp);
@@ -6999,7 +6989,7 @@ class RangerAppWriterContext  {
   getOperatorsOf (name) {
     const root = this.getRoot();
     let res = [];
-    const list = ( Object.prototype.hasOwnProperty.call(root.op_list, name) ? root.op_list[name] : undefined );
+    const list = ( Object.prototype.hasOwnProperty.call(root.tables.op_list, name) ? root.tables.op_list[name] : undefined );
     if ( (typeof(list) !== "undefined" && list != null )  ) {
       return operatorsOf.clone_10(list.items);
     }
@@ -7124,11 +7114,11 @@ class RangerAppWriterContext  {
   };
   addPage (name, classDef) {
     const root = this.getRoot();
-    root.appPages[name] = classDef;
+    root.tables.appPages[name] = classDef;
   };
   addService (name, classDef) {
     const root = this.getRoot();
-    root.appServices[name] = classDef;
+    root.tables.appServices[name] = classDef;
   };
   getViewClass (s_name) {
     let res;
@@ -7976,12 +7966,12 @@ class RangerAppWriterContext  {
   };
   setNativeGeneric (templateName, isNative) {
     const root = this.getRoot();
-    root.nativeGenerics[templateName] = isNative;
+    root.tables.nativeGenerics[templateName] = isNative;
   };
   isNativeGeneric (templateName) {
     const root = this.getRoot();
-    if ( ( typeof(root.nativeGenerics[templateName] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.nativeGenerics, templateName) ) ) {
-      const v = ( Object.prototype.hasOwnProperty.call(root.nativeGenerics, templateName) ? root.nativeGenerics[templateName] : undefined );
+    if ( ( typeof(root.tables.nativeGenerics[templateName] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.nativeGenerics, templateName) ) ) {
+      const v = ( Object.prototype.hasOwnProperty.call(root.tables.nativeGenerics, templateName) ? root.tables.nativeGenerics[templateName] : undefined );
       return v;
     }
     return false;
@@ -8052,7 +8042,7 @@ class RangerAppWriterContext  {
     e.description = descr;
     e.todonode = node;
     const root = this.getRoot();
-    root.todoList.push(e);
+    root.tables.todoList.push(e);
   };
   setThisName (the_name) {
     const root = this.getRoot();
@@ -8071,7 +8061,7 @@ class RangerAppWriterContext  {
     e.description = descr;
     e.node = node;
     const root = this.getRoot();
-    root.compilerMessages.push(e);
+    root.tables.compilerMessages.push(e);
   };
   errCnt () {
     const root = this.getRoot();
@@ -8101,24 +8091,24 @@ class RangerAppWriterContext  {
   };
   addTemplateClass (name, node) {
     const root = this.getRoot();
-    root.templateClassList.push(name);
-    root.templateClassNodes[name] = node;
+    root.tables.templateClassList.push(name);
+    root.tables.templateClassNodes[name] = node;
   };
   hasTemplateNode (name) {
     const root = this.getRoot();
-    return ( typeof(root.templateClassNodes[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.templateClassNodes, name) );
+    return ( typeof(root.tables.templateClassNodes[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.templateClassNodes, name) );
   };
   findTemplateNode (name) {
     const root = this.getRoot();
-    return ( Object.prototype.hasOwnProperty.call(root.templateClassNodes, name) ? root.templateClassNodes[name] : undefined );
+    return ( Object.prototype.hasOwnProperty.call(root.tables.templateClassNodes, name) ? root.tables.templateClassNodes[name] : undefined );
   };
   setStaticWriter (className, writer) {
     const root = this.getRoot();
-    root.classStaticWriters[className] = writer;
+    root.tables.classStaticWriters[className] = writer;
   };
   getStaticWriter (className) {
     const root = this.getRoot();
-    return ( Object.prototype.hasOwnProperty.call(root.classStaticWriters, className) ? root.classStaticWriters[className] : undefined );
+    return ( Object.prototype.hasOwnProperty.call(root.tables.classStaticWriters, className) ? root.tables.classStaticWriters[className] : undefined );
   };
   isEnumDefined (n) {
     if ( ( typeof(this.definedEnums[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.definedEnums, n) ) ) {
@@ -8186,12 +8176,12 @@ class RangerAppWriterContext  {
   };
   setCompilerFlag (name, value) {
     const root = this.getRoot();
-    root.compilerFlags[name] = value;
+    root.tables.compilerFlags[name] = value;
   };
   hasCompilerFlag (s_name) {
     const root = this.getRoot();
-    if ( ( typeof(root.compilerFlags[s_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.compilerFlags, s_name) ) ) {
-      return ( Object.prototype.hasOwnProperty.call(root.compilerFlags, s_name) ? root.compilerFlags[s_name] : undefined );
+    if ( ( typeof(root.tables.compilerFlags[s_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.compilerFlags, s_name) ) ) {
+      return ( Object.prototype.hasOwnProperty.call(root.tables.compilerFlags, s_name) ? root.tables.compilerFlags[s_name] : undefined );
     }
     return false;
   };
@@ -8405,7 +8395,7 @@ class RangerAppWriterContext  {
   };
   isDefinedClass (name) {
     const root = this.getRoot();
-    return ( typeof(root.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.definedClasses, name) );
+    return ( typeof(root.tables.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.definedClasses, name) );
   };
   getRoot () {
     if ( typeof(this.parent) === "undefined" ) {
@@ -8419,26 +8409,27 @@ class RangerAppWriterContext  {
   getClasses () {
     let list = [];
     // Loop start
-    for ( const n of this.definedClassList) {
-      list.push(( Object.prototype.hasOwnProperty.call(this.definedClasses, n) ? this.definedClasses[n] : undefined ));
+    for ( let i = 0; i < this.tables.definedClassList.length; i++) {
+      var n = this.tables.definedClassList[i];
+      list.push(( Object.prototype.hasOwnProperty.call(this.tables.definedClasses, n) ? this.tables.definedClasses[n] : undefined ));
     }
     return list;
   };
   addClass (name, desc) {
     const root = this.getRoot();
-    if ( ( typeof(root.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.definedClasses, name) ) ) {
+    if ( ( typeof(root.tables.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.definedClasses, name) ) ) {
     } else {
-      root.definedClasses[name] = desc;
-      root.definedClassList.push(name);
+      root.tables.definedClasses[name] = desc;
+      root.tables.definedClassList.push(name);
     }
   };
   findClass (name) {
     const root = this.getRoot();
-    return ( Object.prototype.hasOwnProperty.call(root.definedClasses, name) ? root.definedClasses[name] : undefined );
+    return ( Object.prototype.hasOwnProperty.call(root.tables.definedClasses, name) ? root.tables.definedClasses[name] : undefined );
   };
   hasClass (name) {
     const root = this.getRoot();
-    return ( typeof(root.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.definedClasses, name) );
+    return ( typeof(root.tables.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.definedClasses, name) );
   };
   getCurrentMethod () {
     if ( (typeof(this.currentMethod) !== "undefined" && this.currentMethod != null )  ) {
@@ -8591,6 +8582,7 @@ class RangerAppWriterContext  {
     const new_ctx = new RangerAppWriterContext();
     new_ctx.parent = this;
     new_ctx.cachedRoot = this.getRoot();
+    new_ctx.tables = this.tables;
     return new_ctx;
   };
   getRootFile () {
@@ -8609,6 +8601,11 @@ class RangerAppWriterContext  {
     root.rootFile = file_name;
   };
 }
+RangerAppWriterContext.createRoot = function() {
+  const ctx = new RangerAppWriterContext();
+  ctx.tables = new RangerRootTables();
+  return ctx;
+};
 class SourceMapEntry  {
   constructor() {
     this.genLine = 0;
@@ -14049,9 +14046,9 @@ RangerProcessProcSend.isReservedHandler = function(name) {
 RangerProcessProcSend.collectProcessClasses = function(ctx) {
   let res = [];
   const root = ctx.getRoot();
-  for( var i in root.definedClasses) {
-    if(root.definedClasses.hasOwnProperty(i)) {
-      var cl = root.definedClasses[i] 
+  for( var i in root.tables.definedClasses) {
+    if(root.tables.definedClasses.hasOwnProperty(i)) {
+      var cl = root.tables.definedClasses[i] 
       if ( cl.is_process ) {
         res.push(cl);
       }
@@ -16183,7 +16180,7 @@ class RangerFlowParser  {
   CreateCTTI (node, ctx, orig_wr) {
     const root = ctx.getRoot();
     const wr = new CodeWriter();
-    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
       if ( item.isNormalClass() ) {
         wr.raw(((("\n      operators {\n        class_name _:string ( " + item.name) + "@(keyword) ) {\n          templates {\n            * ( '\"") + item.name) + "\"' )\n          }\n        }\n      }    \n          ", true);
       }
@@ -16198,7 +16195,7 @@ class RangerFlowParser  {
     wr.out("fn rtti_get_classes:[string] () {", true);
     wr.indent(1);
     wr.out("return ([] ", false);
-    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
       if ( item.isNormalClass() ) {
         wr.out(("'" + item.name) + "' ", false);
       }
@@ -16209,7 +16206,7 @@ class RangerFlowParser  {
     wr.out("fn rtti_get_fields:[RTTIClassField] (className:string) {", true);
     wr.indent(1);
     wr.out("def fields:[RTTIClassField]", true);
-    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
       if ( item.isNormalClass() ) {
         wr.out(("if(className == '" + item.name) + "') {", true);
         wr.indent(1);
@@ -16418,7 +16415,7 @@ class RangerFlowParser  {
   };
   SolveAsyncFuncs (node, ctx, wr) {
     const root = ctx.getRoot();
-    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
       operatorsOf.forEach_24(item.static_methods, ((item, index) => { 
         const thisFn = item;
         let visited = [];
@@ -16481,7 +16478,7 @@ class RangerFlowParser  {
       }));
     }));
     let notUsedFunctionCnt = 0;
-    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
       operatorsOf_5.forEach_26(item.method_variants, ((item, index) => { 
         operatorsOf.forEach_24(item.variants, ((item, index) => { 
           if ( item.isCalledBy.length == 0 ) {
@@ -16504,7 +16501,7 @@ class RangerFlowParser  {
     let use_dce = false;
     if ( ctx.hasCompilerFlag("dead4main") ) {
       let mainFn;
-      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
         const cl = item;
         // Loop start
         for ( let i = 0; i < cl.static_methods.length; i++) {
@@ -16526,7 +16523,7 @@ class RangerFlowParser  {
     if ( ctx.hasCompilerSetting("dceclass") ) {
       const dc = ctx.getCompilerSetting("dceclass");
       console.log("DCE : " + dc);
-      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
         const cl_1 = item;
         if ( cl_1.name == dc ) {
           use_dce = true;
@@ -16545,7 +16542,7 @@ class RangerFlowParser  {
     }
     if ( use_dce ) {
       const verbose = ctx.hasCompilerFlag("verbose");
-      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
         if ( item.is_used_by_main == false && verbose ) {
           console.log("class not used by main : " + item.name);
         }
@@ -16572,7 +16569,7 @@ class RangerFlowParser  {
       }));
     }
     if ( ctx.hasCompilerFlag("deadcode") ) {
-      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
         operatorsOf_5.forEach_26(item.method_variants, ((item, index) => { 
           item.variants = operatorsOf.filter_27(item.variants, ((item, index) => { 
             return item.is_unsed == false;
@@ -18696,8 +18693,8 @@ class RangerFlowParser  {
     const lang = ctx.getTargetLangName();
     const root = ctx.getRoot();
     // Loop start
-    for ( let i = 0; i < root.definedClassList.length; i++) {
-      var cn = root.definedClassList[i];
+    for ( let i = 0; i < root.tables.definedClassList.length; i++) {
+      var cn = root.tables.definedClassList[i];
       const cl = root.findClass(cn);
       if ( cl.generic_template != templateName ) {
         continue;
@@ -18728,8 +18725,8 @@ class RangerFlowParser  {
       progress = false;
       let todo = [];
       // Loop start
-      for ( let i = 0; i < root.definedClassList.length; i++) {
-        var cn = root.definedClassList[i];
+      for ( let i = 0; i < root.tables.definedClassList.length; i++) {
+        var cn = root.tables.definedClassList[i];
         const cl = root.findClass(cn);
         const tn = cl.generic_template;
         if ( tn.length == 0 ) {
@@ -18761,8 +18758,8 @@ class RangerFlowParser  {
     while (changed) {
       changed = false;
       // Loop start
-      for ( let i_1 = 0; i_1 < root.definedClassList.length; i_1++) {
-        var cn_1 = root.definedClassList[i_1];
+      for ( let i_1 = 0; i_1 < root.tables.definedClassList.length; i_1++) {
+        var cn_1 = root.tables.definedClassList[i_1];
         const cl_1 = root.findClass(cn_1);
         if ( cl_1.generic_has_placeholder == false || cl_1.is_generic_form ) {
           continue;
@@ -18771,14 +18768,14 @@ class RangerFlowParser  {
           continue;
         }
         // Loop start
-        for ( let oi = 0; oi < root.templateClassList.length; oi++) {
-          var owner = root.templateClassList[oi];
+        for ( let oi = 0; oi < root.tables.templateClassList.length; oi++) {
+          var owner = root.tables.templateClassList[oi];
           if ( root.isNativeGeneric(owner) == false ) {
             continue;
           }
           const ownerForm = "__gf_" + owner;
-          if ( ( typeof(root.genericFormUses[ownerForm] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.genericFormUses, ownerForm) ) ) {
-            const uses = ( Object.prototype.hasOwnProperty.call(root.genericFormUses, ownerForm) ? root.genericFormUses[ownerForm] : undefined );
+          if ( ( typeof(root.tables.genericFormUses[ownerForm] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.genericFormUses, ownerForm) ) ) {
+            const uses = ( Object.prototype.hasOwnProperty.call(root.tables.genericFormUses, ownerForm) ? root.tables.genericFormUses[ownerForm] : undefined );
             if ( uses.indexOf(cn_1) >= 0 ) {
               root.setNativeGeneric(owner, false);
               changed = true;
@@ -18818,7 +18815,7 @@ class RangerFlowParser  {
     }
     this.genericCheckNodes.push(typeArgs);
     const errBefore = root.compilerErrors.length;
-    const classesBefore = root.definedClassList.length;
+    const classesBefore = root.tables.definedClassList.length;
     const made = ctx.createGenericClassInstance(
       tpl,
       formName,
@@ -18845,13 +18842,13 @@ class RangerFlowParser  {
       ok = false;
     }
     let uses = [];
-    const classesAfter = root.definedClassList.length;
+    const classesAfter = root.tables.definedClassList.length;
     let k = classesBefore;
     while (k < classesAfter) {
-      uses.push(root.definedClassList[k]);
+      uses.push(root.tables.definedClassList[k]);
       k = k + 1;
     };
-    root.genericFormUses["__gf_" + tpl] = uses;
+    root.tables.genericFormUses["__gf_" + tpl] = uses;
     if ( ok == false ) {
       return false;
     }
@@ -20032,8 +20029,8 @@ class RangerFlowParser  {
             const macroRoot = ctx.getRoot();
             const macroKey = (((fc.vref + "@") + callArgs.getFilename()) + ":") + (callArgs.sp.toString());
             let macroActive = false;
-            if ( ( typeof(macroRoot.active_macros[macroKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(macroRoot.active_macros, macroKey) ) ) {
-              macroActive = ( Object.prototype.hasOwnProperty.call(macroRoot.active_macros, macroKey) ? macroRoot.active_macros[macroKey] : undefined );
+            if ( ( typeof(macroRoot.tables.active_macros[macroKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(macroRoot.tables.active_macros, macroKey) ) ) {
+              macroActive = ( Object.prototype.hasOwnProperty.call(macroRoot.tables.active_macros, macroKey) ? macroRoot.tables.active_macros[macroKey] : undefined );
             }
             if ( macroActive ) {
               ctx.addError(callArgs, ("Macro expansion of operator '" + fc.vref) + "' is recursive: expanding it reaches the same call site again, so it never terminates.");
@@ -20045,7 +20042,7 @@ class RangerFlowParser  {
               ctx.removeOpNs(added_ns);
               return true;
             }
-            macroRoot.active_macros[macroKey] = true;
+            macroRoot.tables.active_macros[macroKey] = true;
             macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth + 1;
             const macroNode = this.buildMacro(langOper, callArgs, ctx);
             let arg_len_1 = callArgs.children.length;
@@ -20057,7 +20054,7 @@ class RangerFlowParser  {
             macroNode.parent = callArgs;
             this.WalkNode(macroNode, ctx, wr);
             macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth - 1;
-            macroRoot.active_macros[macroKey] = false;
+            macroRoot.tables.active_macros[macroKey] = false;
             match.setRvBasedOn(nameNode, callArgs);
             ctx.removeOpNs(added_ns);
             return true;
@@ -22641,10 +22638,10 @@ class RangerFlowParser  {
       this.walkAlso.push(rn_2);
     }
     // Loop start
-    for ( let i_11 = 0; i_11 < ctx.definedClassList.length; i_11++) {
-      var cname = ctx.definedClassList[i_11];
+    for ( let i_11 = 0; i_11 < ctx.tables.definedClassList.length; i_11++) {
+      var cname = ctx.tables.definedClassList[i_11];
       allTypes.push(cname);
-      const c = ( Object.prototype.hasOwnProperty.call(ctx.definedClasses, cname) ? ctx.definedClasses[cname] : undefined );
+      const c = ( Object.prototype.hasOwnProperty.call(ctx.tables.definedClasses, cname) ? ctx.tables.definedClasses[cname] : undefined );
       if ( ((c.is_system || c.is_interface) || c.is_template) || c.is_trait ) {
         continue;
       }
@@ -22663,7 +22660,7 @@ class RangerFlowParser  {
       }));
     }
     // Loop start
-    for ( const cname_1 of ctx.definedClassList) {
+    for ( const cname_1 of ctx.tables.definedClassList) {
       allTypes.push(cname_1);
     }
     allTypes.push("int");
@@ -23257,14 +23254,14 @@ class RangerFlowParser  {
         ctx.addError(node, "import expects a file name string");
         return;
       }
-      if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, import_file) ) ) {
+      if ( ( typeof(ctx.tables.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.tables.already_imported, import_file) ) ) {
         // Loop start
         for ( const item_4 of node.children) {
           this.WalkCollectMethods(item_4, ctx, wr);
         }
         return;
       } else {
-        ctx.already_imported[import_file] = true;
+        ctx.tables.already_imported[import_file] = true;
       }
       const envOpt = ctx.getEnv();
       if ( typeof(envOpt) === "undefined" ) {
@@ -23287,8 +23284,8 @@ class RangerFlowParser  {
         }
       }
       let wi = 0;
-      while (wi < rootCtx.libraryPaths.length) {
-        searchPaths.push(rootCtx.libraryPaths[wi]);
+      while (wi < rootCtx.tables.libraryPaths.length) {
+        searchPaths.push(rootCtx.tables.libraryPaths[wi]);
         wi = wi + 1;
       };
       const filePathIs = TFiles.searchEnv(env, searchPaths, searchName);
@@ -23297,14 +23294,14 @@ class RangerFlowParser  {
         return;
       }
       const seenKey2 = "@" + PkgImport.foldPath(((filePathIs + "/") + searchName));
-      if ( ( typeof(ctx.already_imported[seenKey2] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, seenKey2) ) ) {
+      if ( ( typeof(ctx.tables.already_imported[seenKey2] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.tables.already_imported, seenKey2) ) ) {
         // Loop start
         for ( const item2 of node.children) {
           this.WalkCollectMethods(item2, ctx, wr);
         }
         return;
       }
-      ctx.already_imported[seenKey2] = true;
+      ctx.tables.already_imported[seenKey2] = true;
       const c = operatorsOf_17.readc95file_18(env, filePathIs, searchName);
       const code = new SourceCode(c);
       code.filename = import_file;
@@ -23314,11 +23311,11 @@ class RangerFlowParser  {
       const fullPath = (filePathIs + "/") + searchName;
       const importFileDir = require("path").dirname(fullPath);
       if ( importFileDir.length > 0 ) {
-        rootCtx.libraryPaths.push(importFileDir);
+        rootCtx.tables.libraryPaths.push(importFileDir);
       }
       this.WalkCollectMethods(rnode, ctx, wr);
       if ( importFileDir.length > 0 ) {
-        rootCtx.libraryPaths.pop();
+        rootCtx.tables.libraryPaths.pop();
       }
       find_more = false;
     }
@@ -24608,8 +24605,8 @@ class RangerFlowParser  {
   finalizeRecordClasses (ctx, wr) {
     const rootCtx = ctx.getRoot();
     // Loop start
-    for ( let i = 0; i < rootCtx.definedClassList.length; i++) {
-      var cname = rootCtx.definedClassList[i];
+    for ( let i = 0; i < rootCtx.tables.definedClassList.length; i++) {
+      var cname = rootCtx.tables.definedClassList[i];
       const cl = rootCtx.findClass(cname);
       if ( cl.is_record ) {
         if ( cl.has_constructor == false ) {
@@ -24727,11 +24724,11 @@ class RangerFlowParser  {
     const env = envOpt;
     const rootCtx = ctx.getRoot();
     let startDir = ".";
-    const lp = rootCtx.libraryPaths.length;
+    const lp = rootCtx.tables.libraryPaths.length;
     if ( lp > 0 ) {
-      startDir = rootCtx.libraryPaths[(lp - 1)];
+      startDir = rootCtx.tables.libraryPaths[(lp - 1)];
     }
-    return PkgImport.resolve(env, startDir, spec, rootCtx.libraryPaths);
+    return PkgImport.resolve(env, startDir, spec, rootCtx.tables.libraryPaths);
   };
   mergeImports (node, ctx, wr) {
     const envOpt = ctx.getEnv();
@@ -24743,11 +24740,11 @@ class RangerFlowParser  {
     if ( node.isFirstVref("Import") ) {
       const fNameNode = node.children[1];
       const import_file = fNameNode.string_value;
-      if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, import_file) ) ) {
+      if ( ( typeof(ctx.tables.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.tables.already_imported, import_file) ) ) {
         return;
       }
       let source_code = "";
-      ctx.already_imported[import_file] = true;
+      ctx.tables.already_imported[import_file] = true;
       const rootCtx = ctx.getRoot();
       let importFileDir = "";
       if ( source_code.length == 0 ) {
@@ -24765,8 +24762,8 @@ class RangerFlowParser  {
           }
         }
         let pi = 0;
-        while (pi < rootCtx.libraryPaths.length) {
-          searchPaths.push(rootCtx.libraryPaths[pi]);
+        while (pi < rootCtx.tables.libraryPaths.length) {
+          searchPaths.push(rootCtx.tables.libraryPaths[pi]);
           pi = pi + 1;
         };
         const filePathIs = TFiles.searchEnv(env, searchPaths, searchName);
@@ -24781,10 +24778,10 @@ class RangerFlowParser  {
           console.log((("importing " + import_file) + " from ") + filePathIs);
         }
         const seenKey = "@" + PkgImport.foldPath(((filePathIs + "/") + searchName));
-        if ( ( typeof(ctx.already_imported[seenKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, seenKey) ) ) {
+        if ( ( typeof(ctx.tables.already_imported[seenKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.tables.already_imported, seenKey) ) ) {
           return;
         }
-        ctx.already_imported[seenKey] = true;
+        ctx.tables.already_imported[seenKey] = true;
         const c = operatorsOf_17.readc95file_18(env, filePathIs, searchName);
         source_code = c;
         const fullPath = (filePathIs + "/") + searchName;
@@ -24845,14 +24842,14 @@ class RangerFlowParser  {
       const rn = parser.rootNode;
       ModuleFunctions.hoist(rn, import_file, ctx);
       if ( importFileDir.length > 0 ) {
-        rootCtx.libraryPaths.push(importFileDir);
+        rootCtx.tables.libraryPaths.push(importFileDir);
         if ( ctx.hasCompilerFlag("verbose") ) {
           console.log("  -> pushed importFileDir to libraryPaths: " + importFileDir);
         }
       }
       this.mergeImports(rn, ctx, wr);
       if ( importFileDir.length > 0 ) {
-        rootCtx.libraryPaths.pop();
+        rootCtx.tables.libraryPaths.pop();
       }
       node.children.push(rn);
       if ( ctx.hasCompilerFlag("verbose") ) {
@@ -24954,7 +24951,7 @@ ModuleFunctions.hoist = function(root, fileName, ctx) {
   }
   const target = body;
   const rootCtx = ctx.getRoot();
-  rootCtx.fileModules[fileName] = modName;
+  rootCtx.tables.fileModules[fileName] = modName;
   // Loop start
   for ( const f of fns) {
     const head = f.getFirst();
@@ -24963,27 +24960,27 @@ ModuleFunctions.hoist = function(root, fileName, ctx) {
     f.parent = target;
     const nameNode = f.getSecond();
     const fname = nameNode.vref;
-    if ( ( typeof(rootCtx.moduleFunctions[fname] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, fname) ) ) {
-      const prev = ( Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, fname) ? rootCtx.moduleFunctions[fname] : undefined );
+    if ( ( typeof(rootCtx.tables.moduleFunctions[fname] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.tables.moduleFunctions, fname) ) ) {
+      const prev = ( Object.prototype.hasOwnProperty.call(rootCtx.tables.moduleFunctions, fname) ? rootCtx.tables.moduleFunctions[fname] : undefined );
       const parts = prev.split("|");
       if ( parts.indexOf(modName) < 0 ) {
-        rootCtx.moduleFunctions[fname] = (prev + "|") + modName;
+        rootCtx.tables.moduleFunctions[fname] = (prev + "|") + modName;
       }
     } else {
-      rootCtx.moduleFunctions[fname] = modName;
+      rootCtx.tables.moduleFunctions[fname] = modName;
     }
   }
   root.children = rest;
 };
 ModuleFunctions.resolve = function(name, fileName, ctx) {
   const rootCtx = ctx.getRoot();
-  if ( false == ( typeof(rootCtx.moduleFunctions[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, name) ) ) {
+  if ( false == ( typeof(rootCtx.tables.moduleFunctions[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.tables.moduleFunctions, name) ) ) {
     return "";
   }
-  const mods = ( Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, name) ? rootCtx.moduleFunctions[name] : undefined );
+  const mods = ( Object.prototype.hasOwnProperty.call(rootCtx.tables.moduleFunctions, name) ? rootCtx.tables.moduleFunctions[name] : undefined );
   const parts = mods.split("|");
-  if ( ( typeof(rootCtx.fileModules[fileName] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.fileModules, fileName) ) ) {
-    const own = ( Object.prototype.hasOwnProperty.call(rootCtx.fileModules, fileName) ? rootCtx.fileModules[fileName] : undefined );
+  if ( ( typeof(rootCtx.tables.fileModules[fileName] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.tables.fileModules, fileName) ) ) {
+    const own = ( Object.prototype.hasOwnProperty.call(rootCtx.tables.fileModules, fileName) ? rootCtx.tables.fileModules[fileName] : undefined );
     if ( parts.indexOf(own) >= 0 ) {
       return own;
     }
@@ -25494,9 +25491,9 @@ class RangerGenericClassWriter  {
   sealableUnionNames (ctx) {
     let out = [];
     const rootCtx = ctx.getRoot();
-    for( var uci in rootCtx.definedClasses) {
-      if(rootCtx.definedClasses.hasOwnProperty(uci)) {
-        var ucl = rootCtx.definedClasses[uci] 
+    for( var uci in rootCtx.tables.definedClasses) {
+      if(rootCtx.tables.definedClasses.hasOwnProperty(uci)) {
+        var ucl = rootCtx.tables.definedClasses[uci] 
         if ( this.unionIsSealable(ucl, ctx) ) {
           out.push(ucl.name);
         }
@@ -25508,9 +25505,9 @@ class RangerGenericClassWriter  {
     if ( this.unionIfacesBuilt == false ) {
       this.unionIfacesBuilt = true;
       const rootCtx = ctx.getRoot();
-      for( var uci in rootCtx.definedClasses) {
-        if(rootCtx.definedClasses.hasOwnProperty(uci)) {
-          var ucl = rootCtx.definedClasses[uci] 
+      for( var uci in rootCtx.tables.definedClasses) {
+        if(rootCtx.tables.definedClasses.hasOwnProperty(uci)) {
+          var ucl = rootCtx.tables.definedClasses[uci] 
           if ( this.unionIsSealable(ucl, ctx) ) {
             const iface = this.unionInterfaceName(ucl.name);
             // Loop start
@@ -26232,9 +26229,9 @@ class TraitInterfaceAnalysis  {
     }
     this.computed = true;
     const root = ctx.getRoot();
-    for( var ti in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ti)) {
-        var tc = root.definedClasses[ti] 
+    for( var ti in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ti)) {
+        var tc = root.tables.definedClasses[ti] 
         if ( tc.is_trait == false ) {
           continue;
         }
@@ -26246,9 +26243,9 @@ class TraitInterfaceAnalysis  {
         }
         let used = false;
         let consumed = false;
-        for( var ui in root.definedClasses) {
-          if(root.definedClasses.hasOwnProperty(ui)) {
-            var uc = root.definedClasses[ui] 
+        for( var ui in root.tables.definedClasses) {
+          if(root.tables.definedClasses.hasOwnProperty(ui)) {
+            var uc = root.tables.definedClasses[ui] 
             if ( uc.is_trait || uc.is_system ) {
               continue;
             }
@@ -26567,9 +26564,9 @@ class EnumNativeAnalysis  {
     for ( let ei = 0; ei < Object.keys(root.definedEnums).length; ei++) {
       var ename = Object.keys(root.definedEnums)[ei];
       let reason = "";
-      for( var ci in root.definedClasses) {
-        if(root.definedClasses.hasOwnProperty(ci)) {
-          var cl = root.definedClasses[ci] 
+      for( var ci in root.tables.definedClasses) {
+        if(root.tables.definedClasses.hasOwnProperty(ci)) {
+          var cl = root.tables.definedClasses[ci] 
           if ( reason.length > 0 ) {
             continue;
           }
@@ -26743,9 +26740,9 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
   };
   javaProgramUsesJson (ctx) {
     const root = ctx.getRoot();
-    for( var jci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(jci)) {
-        var jc = root.definedClasses[jci] 
+    for( var jci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(jci)) {
+        var jc = root.tables.definedClasses[jci] 
         if ( jc.is_system ) {
           continue;
         }
@@ -27678,7 +27675,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     const root = ctx.getRoot();
     const counters = root.counters;
     if ( counters.b_counted == false ) {
-      const list = Object.keys(root.definedClasses);
+      const list = Object.keys(root.tables.definedClasses);
       // Loop start
       for ( const name of list) {
         if ( name.indexOf("operatorsOf") == 0 ) {
@@ -30896,9 +30893,9 @@ class CppValueClassAnalysis  {
       return "it extends another class";
     }
     const rootCtx = ctx.getRoot();
-    for( var oci in rootCtx.definedClasses) {
-      if(rootCtx.definedClasses.hasOwnProperty(oci)) {
-        var ocl = rootCtx.definedClasses[oci] 
+    for( var oci in rootCtx.tables.definedClasses) {
+      if(rootCtx.tables.definedClasses.hasOwnProperty(oci)) {
+        var ocl = rootCtx.tables.definedClasses[oci] 
         if ( ocl.extends_classes.indexOf(cl.name) >= 0 ) {
           return "it is extended by " + ocl.name;
         }
@@ -30928,14 +30925,14 @@ class CppValueClassAnalysis  {
     if ( ctx.hasCompilerFlag("cpp-shared-classes") ) {
       return;
     }
-    for( var ci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.definedClasses[ci] 
+    for( var ci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.tables.definedClasses[ci] 
         let reason = this.classReason(cl, ctx);
         if ( reason.length == 0 ) {
-          for( var oci in root.definedClasses) {
-            if(root.definedClasses.hasOwnProperty(oci)) {
-              var ocl = root.definedClasses[oci] 
+          for( var oci in root.tables.definedClasses) {
+            if(root.tables.definedClasses.hasOwnProperty(oci)) {
+              var ocl = root.tables.definedClasses[oci] 
               if ( reason.length > 0 ) {
                 continue;
               }
@@ -31309,9 +31306,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     let inFamily = false;
     const rootCtx = ctx.getRoot();
-    for( var uci in rootCtx.definedClasses) {
-      if(rootCtx.definedClasses.hasOwnProperty(uci)) {
-        var ucl = rootCtx.definedClasses[uci] 
+    for( var uci in rootCtx.tables.definedClasses) {
+      if(rootCtx.tables.definedClasses.hasOwnProperty(uci)) {
+        var ucl = rootCtx.tables.definedClasses[uci] 
         if ( this.unionIsSealable(ucl, ctx) ) {
           if ( ucl.is_union_of.indexOf(cl.name) >= 0 ) {
             inFamily = true;
@@ -32759,9 +32756,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   };
   cppProgramUsesHash (ctx) {
     const root = ctx.getRoot();
-    for( var i in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(i)) {
-        var cl = root.definedClasses[i] 
+    for( var i in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(i)) {
+        var cl = root.tables.definedClasses[i] 
         if ( (((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
           continue;
         }
@@ -32835,9 +32832,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   };
   cppProgramUsesType (tn, ctx) {
     const root = ctx.getRoot();
-    for( var i in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(i)) {
-        var cl = root.definedClasses[i] 
+    for( var i in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(i)) {
+        var cl = root.tables.definedClasses[i] 
         if ( (((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
           continue;
         }
@@ -32897,9 +32894,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   };
   cppProgramUsesOptionalUnion (ctx) {
     const root = ctx.getRoot();
-    for( var i in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(i)) {
-        var cl = root.definedClasses[i] 
+    for( var i in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(i)) {
+        var cl = root.tables.definedClasses[i] 
         if ( ((cl.is_system || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
           continue;
         }
@@ -32933,9 +32930,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   cppProgramHasWeakField (ctx) {
     let found = false;
     const root = ctx.getRoot();
-    for( var i in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(i)) {
-        var cl = root.definedClasses[i] 
+    for( var i in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(i)) {
+        var cl = root.tables.definedClasses[i] 
         // Loop start
         for ( const pvar of cl.variables) {
           if ( (typeof(pvar.nameNode) !== "undefined" && pvar.nameNode != null )  ) {
@@ -33611,7 +33608,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     let wroteOptionalUnion = false;
     const needsOptionalUnion = this.cppProgramUsesOptionalUnion(ctx);
     const anyIsUsed = this.cppProgramUsesType("Any", ctx);
-    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
       if ( item.is_union ) {
         if ( item.name == "Any" ) {
           if ( anyIsUsed == false ) {
@@ -34199,9 +34196,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     }
     this.rustIdentNamesDone = true;
     const inRoot = ctx.getRoot();
-    for( var ici in inRoot.definedClasses) {
-      if(inRoot.definedClasses.hasOwnProperty(ici)) {
-        var icl = inRoot.definedClasses[ici] 
+    for( var ici in inRoot.tables.definedClasses) {
+      if(inRoot.tables.definedClasses.hasOwnProperty(ici)) {
+        var icl = inRoot.tables.definedClasses[ici] 
         // Loop start
         for ( const iv of icl.variables) {
           this.rustIdentNames[iv.name] = true;
@@ -35388,9 +35385,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           let dotDecl = 0;
           let dotShared = 0;
           const dotRoot = ctx.getRoot();
-          for( var dci in dotRoot.definedClasses) {
-            if(dotRoot.definedClasses.hasOwnProperty(dci)) {
-              var dcl = dotRoot.definedClasses[dci] 
+          for( var dci in dotRoot.tables.definedClasses) {
+            if(dotRoot.tables.definedClasses.hasOwnProperty(dci)) {
+              var dcl = dotRoot.tables.definedClasses[dci] 
               const dfv = dcl.findVariable(node.vref);
               if ( (typeof(dfv) !== "undefined" && dfv != null )  ) {
                 dotDecl = dotDecl + 1;
@@ -38063,9 +38060,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     }
     pathRoot.rust_path_names_ready = true;
     // Loop start
-    for ( let pathCi = 0; pathCi < pathRoot.definedClassList.length; pathCi++) {
-      var pathCn = pathRoot.definedClassList[pathCi];
-      const pathC = ( Object.prototype.hasOwnProperty.call(pathRoot.definedClasses, pathCn) ? pathRoot.definedClasses[pathCn] : undefined );
+    for ( let pathCi = 0; pathCi < pathRoot.tables.definedClassList.length; pathCi++) {
+      var pathCn = pathRoot.tables.definedClassList[pathCi];
+      const pathC = ( Object.prototype.hasOwnProperty.call(pathRoot.tables.definedClasses, pathCn) ? pathRoot.tables.definedClasses[pathCn] : undefined );
       const pathCtorO = pathC.constructor_fn;
       if ( (typeof(pathCtorO) !== "undefined" && pathCtorO != null )  ) {
         const pathCtor = pathCtorO;
@@ -43614,9 +43611,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustNeedsCollapsibleIf (ctx) {
     const ciRoot = ctx.getRoot();
-    for( var ciCi in ciRoot.definedClasses) {
-      if(ciRoot.definedClasses.hasOwnProperty(ciCi)) {
-        var ciCl = ciRoot.definedClasses[ciCi] 
+    for( var ciCi in ciRoot.tables.definedClasses) {
+      if(ciRoot.tables.definedClasses.hasOwnProperty(ciCi)) {
+        var ciCl = ciRoot.tables.definedClasses[ciCi] 
         if ( this.rustClassIsEmitted(ciCl) == false ) {
           continue;
         }
@@ -43665,9 +43662,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustNeedsPtrArg (ctx) {
     const paRoot = ctx.getRoot();
-    for( var paCi in paRoot.definedClasses) {
-      if(paRoot.definedClasses.hasOwnProperty(paCi)) {
-        var paCl = paRoot.definedClasses[paCi] 
+    for( var paCi in paRoot.tables.definedClasses) {
+      if(paRoot.tables.definedClasses.hasOwnProperty(paCi)) {
+        var paCl = paRoot.tables.definedClasses[paCi] 
         if ( this.rustClassIsEmitted(paCl) == false ) {
           continue;
         }
@@ -43811,9 +43808,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustNeedsUnusedAssignments (ctx) {
     const uaRoot = ctx.getRoot();
-    for( var uaCi in uaRoot.definedClasses) {
-      if(uaRoot.definedClasses.hasOwnProperty(uaCi)) {
-        var uaCl = uaRoot.definedClasses[uaCi] 
+    for( var uaCi in uaRoot.tables.definedClasses) {
+      if(uaRoot.tables.definedClasses.hasOwnProperty(uaCi)) {
+        var uaCl = uaRoot.tables.definedClasses[uaCi] 
         if ( this.rustClassIsEmitted(uaCl) == false ) {
           continue;
         }
@@ -43835,9 +43832,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustNeedsUnusedVariables (ctx) {
     const uvRoot = ctx.getRoot();
-    for( var uvCi in uvRoot.definedClasses) {
-      if(uvRoot.definedClasses.hasOwnProperty(uvCi)) {
-        var uvCl = uvRoot.definedClasses[uvCi] 
+    for( var uvCi in uvRoot.tables.definedClasses) {
+      if(uvRoot.tables.definedClasses.hasOwnProperty(uvCi)) {
+        var uvCl = uvRoot.tables.definedClasses[uvCi] 
         if ( this.rustClassIsEmitted(uvCl) == false ) {
           continue;
         }
@@ -43869,9 +43866,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustNeedsTooManyArgs (ctx) {
     const tmaRoot = ctx.getRoot();
-    for( var tmaCi in tmaRoot.definedClasses) {
-      if(tmaRoot.definedClasses.hasOwnProperty(tmaCi)) {
-        var tmaCl = tmaRoot.definedClasses[tmaCi] 
+    for( var tmaCi in tmaRoot.tables.definedClasses) {
+      if(tmaRoot.tables.definedClasses.hasOwnProperty(tmaCi)) {
+        var tmaCl = tmaRoot.tables.definedClasses[tmaCi] 
         if ( this.rustClassIsEmitted(tmaCl) == false ) {
           continue;
         }
@@ -43901,14 +43898,14 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       return true;
     }
     // Loop start
-    for ( const tName of root.definedClassList) {
+    for ( const tName of root.tables.definedClassList) {
       if ( this.rustTraitIsInterface(tName, ctx) ) {
         return true;
       }
     }
-    for( var ci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.definedClasses[ci] 
+    for( var ci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.tables.definedClasses[ci] 
         if ( (((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
           continue;
         }
@@ -44511,9 +44508,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   rustHeaderHelperNeeds (ctx) {
     let res = 0;
     const root = ctx.getRoot();
-    for( var ci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.definedClasses[ci] 
+    for( var ci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.tables.definedClasses[ci] 
         if ( (((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
           continue;
         }
@@ -44608,9 +44605,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       }
       let anyWeakField = false;
       const hdrRoot = ctx.getRoot();
-      for( var hci in hdrRoot.definedClasses) {
-        if(hdrRoot.definedClasses.hasOwnProperty(hci)) {
-          var hcl = hdrRoot.definedClasses[hci] 
+      for( var hci in hdrRoot.tables.definedClasses) {
+        if(hdrRoot.tables.definedClasses.hasOwnProperty(hci)) {
+          var hcl = hdrRoot.tables.definedClasses[hci] 
           const hclSpecial = ((((hcl.is_system || hcl.is_trait) || hcl.is_template) || hcl.is_operator_class) || hcl.is_generic_instance) || hcl.is_union;
           if ( hclSpecial == false ) {
             // Loop start
@@ -44637,8 +44634,8 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       }
       const hdrTraitRoot = ctx.getRoot();
       // Loop start
-      for ( let hti = 0; hti < hdrTraitRoot.definedClassList.length; hti++) {
-        var htName = hdrTraitRoot.definedClassList[hti];
+      for ( let hti = 0; hti < hdrTraitRoot.tables.definedClassList.length; hti++) {
+        var htName = hdrTraitRoot.tables.definedClassList[hti];
         if ( this.rustTraitIsInterface(htName, ctx) ) {
           const htc = hdrTraitRoot.findClass(htName);
           header.out("", true);
@@ -44932,16 +44929,16 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         mutChanged = false;
         this.rust_field_call_mut_ready = mutPass > 0;
         if ( mutPass > 0 ) {
-          for( var rci in hdrRoot.definedClasses) {
-            if(hdrRoot.definedClasses.hasOwnProperty(rci)) {
-              var rcl = hdrRoot.definedClasses[rci] 
+          for( var rci in hdrRoot.tables.definedClasses) {
+            if(hdrRoot.tables.definedClasses.hasOwnProperty(rci)) {
+              var rcl = hdrRoot.tables.definedClasses[rci] 
               rcl.rust_trait_mut_ready = false;
             }
           };
         }
-        for( var mci in hdrRoot.definedClasses) {
-          if(hdrRoot.definedClasses.hasOwnProperty(mci)) {
-            var mcl = hdrRoot.definedClasses[mci] 
+        for( var mci in hdrRoot.tables.definedClasses) {
+          if(hdrRoot.tables.definedClasses.hasOwnProperty(mci)) {
+            var mcl = hdrRoot.tables.definedClasses[mci] 
             const mclSpecial = ((((mcl.is_system || mcl.is_trait) || mcl.is_template) || mcl.is_operator_class) || mcl.is_generic_instance) || mcl.is_union;
             const mclTraitRel = mcl.is_extended_by_children || mcl.extends_classes.length > 0;
             if ( mclSpecial == false ) {
@@ -45053,9 +45050,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         mutPass = mutPass + 1;
       };
       this.rust_field_call_mut_ready = true;
-      for( var aCi in hdrRoot.definedClasses) {
-        if(hdrRoot.definedClasses.hasOwnProperty(aCi)) {
-          var aCl = hdrRoot.definedClasses[aCi] 
+      for( var aCi in hdrRoot.tables.definedClasses) {
+        if(hdrRoot.tables.definedClasses.hasOwnProperty(aCi)) {
+          var aCl = hdrRoot.tables.definedClasses[aCi] 
           this.alignTraitSelfRcNeeds(aCl, ctx);
         }
       };
@@ -45784,9 +45781,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustProgramHasMainFlag (ctx) {
     const root = ctx.getRoot();
-    for( var rci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(rci)) {
-        var rcl = root.definedClasses[rci] 
+    for( var rci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(rci)) {
+        var rcl = root.tables.definedClasses[rci] 
         // Loop start
         for ( const sm of rcl.static_methods) {
           const smNN = sm.nameNode;
@@ -45953,9 +45950,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       return false;
     }
     const rootCtx = ctx.getRoot();
-    for( var uci in rootCtx.definedClasses) {
-      if(rootCtx.definedClasses.hasOwnProperty(uci)) {
-        var ucl = rootCtx.definedClasses[uci] 
+    for( var uci in rootCtx.tables.definedClasses) {
+      if(rootCtx.tables.definedClasses.hasOwnProperty(uci)) {
+        var ucl = rootCtx.tables.definedClasses[uci] 
         if ( this.unionIsSealable(ucl, ctx) ) {
           if ( ucl.is_union_of.indexOf(cl.name) >= 0 ) {
             return true;
@@ -52512,9 +52509,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
   };
   goProgramUsesOptional (ctx) {
     const root = ctx.getRoot();
-    for( var i in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(i)) {
-        var cl = root.definedClasses[i] 
+    for( var i in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(i)) {
+        var cl = root.tables.definedClasses[i] 
         if ( (((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
           continue;
         }
@@ -52605,9 +52602,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     this.go_slice_ptr_ready = true;
     const root = ctx.getRoot();
     const keys = this.goSliceKeys;
-    for( var ci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.definedClasses[ci] 
+    for( var ci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.tables.definedClasses[ci] 
         this.goSlicePtrScan(cl, cl.methods, "m", keys, false);
         this.goSlicePtrScan(cl, cl.static_methods, "s", keys, false);
         if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
@@ -52617,9 +52614,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
       }
     };
-    for( var ci_1 in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ci_1)) {
-        var cl_1 = root.definedClasses[ci_1] 
+    for( var ci_1 in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ci_1)) {
+        var cl_1 = root.tables.definedClasses[ci_1] 
         this.goSlicePtrScan(cl_1, cl_1.methods, "m", keys, true);
         this.goSlicePtrScan(cl_1, cl_1.static_methods, "s", keys, true);
         if ( (typeof(cl_1.constructor_fn) !== "undefined" && cl_1.constructor_fn != null )  ) {
@@ -55399,7 +55396,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
   };
   CreateTsUnions (parser, ctx, wr) {
     const root = ctx.getRoot();
-    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
       if ( this.unionIsSealable(item, ctx) ) {
         wr.out(("type union_" + index) + " = ", false);
         wr.indent(1);
@@ -56361,7 +56358,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
       if ( (ctx.hasCompilerFlag("nodemodule") && this.target_typescript == false) && this.target_esm == false ) {
         const root = ctx.getRoot();
-        operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+        operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
           if ( ctx.hasCompilerFlag("dead4main") || ctx.hasCompilerSetting("dceclass") ) {
             if ( item.is_used_by_main == false ) {
               return;
@@ -61128,10 +61125,10 @@ class LowIRBuilderPass  {
   };
   fieldArrayElemType (className, fieldName, lctx) {
     const appCtx = lctx.ctx;
-    if ( false == ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) ) {
+    if ( false == ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) ) {
       return "";
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
     const allVars = this.collectStructVars(cl, appCtx);
     // Loop start
     for ( const v of allVars) {
@@ -61391,10 +61388,10 @@ class LowIRBuilderPass  {
   };
   initFieldDefaultsInObject (className, objPtr, lctx) {
     const appCtx = lctx.ctx;
-    if ( false == ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) ) {
+    if ( false == ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) ) {
       return;
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
     const allVars = this.collectStructVars(cl, appCtx);
     // Loop start
     for ( const v of allVars) {
@@ -61473,10 +61470,10 @@ class LowIRBuilderPass  {
     if ( fnDesc.name != "Constructor" ) {
       return false;
     }
-    if ( ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) == false ) {
+    if ( ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) == false ) {
       return false;
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
     return cl.has_constructor;
   };
   isClassField (fieldName, className, module) {
@@ -62183,10 +62180,10 @@ class LowIRBuilderPass  {
     if ( depth > 16 ) {
       return false;
     }
-    if ( ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) == false ) {
+    if ( ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) == false ) {
       return false;
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
     // Loop start
     for ( const b of cl.extends_classes) {
       if ( b == baseName ) {
@@ -66223,10 +66220,10 @@ class LowIRBuilderPass  {
   };
   fieldObjectClassName (className, fieldName, lctx) {
     const appCtx = lctx.ctx;
-    if ( false == ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) ) {
+    if ( false == ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) ) {
       return "";
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
     const allVars = this.collectStructVars(cl, appCtx);
     // Loop start
     for ( const v of allVars) {
@@ -66237,7 +66234,7 @@ class LowIRBuilderPass  {
         const nn = v.nameNode;
         const tn = nn.type_name;
         if ( tn.length > 0 ) {
-          if ( ( typeof(appCtx.definedClasses[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, tn) ) ) {
+          if ( ( typeof(appCtx.tables.definedClasses[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, tn) ) ) {
             return tn;
           }
         }
@@ -66258,19 +66255,19 @@ class LowIRBuilderPass  {
     const sec = node.getSecond();
     const nm = sec.vref;
     if ( nm.length > 0 ) {
-      if ( ( typeof(appCtx.definedClasses[nm] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, nm) ) ) {
+      if ( ( typeof(appCtx.tables.definedClasses[nm] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, nm) ) ) {
         return nm;
       }
     }
     const tn = node.eval_type_name;
     if ( tn.length > 0 ) {
-      if ( ( typeof(appCtx.definedClasses[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, tn) ) ) {
+      if ( ( typeof(appCtx.tables.definedClasses[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, tn) ) ) {
         return tn;
       }
     }
     const tn2 = node.type_name;
     if ( tn2.length > 0 ) {
-      if ( ( typeof(appCtx.definedClasses[tn2] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, tn2) ) ) {
+      if ( ( typeof(appCtx.tables.definedClasses[tn2] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, tn2) ) ) {
         return tn2;
       }
     }
@@ -66434,8 +66431,8 @@ class LowIRBuilderPass  {
     let ctorDesc;
     if ( (typeof(lctx.ctx) !== "undefined" && lctx.ctx != null )  ) {
       const appCtx = lctx.ctx;
-      if ( ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) ) {
-        const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
+      if ( ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) ) {
+        const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
         if ( cl.has_constructor ) {
           if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
             ctorDesc = cl.constructor_fn;
@@ -66745,10 +66742,10 @@ class LowIRBuilderPass  {
     if ( depth > 16 ) {
       return className;
     }
-    if ( ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) == false ) {
+    if ( ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) == false ) {
       return className;
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
     // Loop start
     for ( const m of cl.methods) {
       if ( m.name == methodName ) {
@@ -66782,10 +66779,10 @@ class LowIRBuilderPass  {
     if ( depth > 16 ) {
       return className;
     }
-    if ( ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) == false ) {
+    if ( ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) == false ) {
       return className;
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
     // Loop start
     for ( const baseName of cl.extends_classes) {
       if ( appCtx.isDefinedClass(baseName) ) {
@@ -66813,12 +66810,12 @@ class LowIRBuilderPass  {
   };
   collectVirtualMethods (appCtx) {
     // Loop start
-    for ( let ci = 0; ci < appCtx.definedClassList.length; ci++) {
-      var cName = appCtx.definedClassList[ci];
+    for ( let ci = 0; ci < appCtx.tables.definedClassList.length; ci++) {
+      var cName = appCtx.tables.definedClassList[ci];
       if ( cName == "RangerStaticMethods" ) {
         continue;
       }
-      const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
+      const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName) ? appCtx.tables.definedClasses[cName] : undefined );
       if ( this.classIsLowered(cl) == false ) {
         continue;
       }
@@ -66839,7 +66836,7 @@ class LowIRBuilderPass  {
         this.virtualKeys.push(key);
         let emptyCases = [];
         this.virtualCases[key] = emptyCases;
-        const topCl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, top) ? appCtx.definedClasses[top] : undefined );
+        const topCl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, top) ? appCtx.tables.definedClasses[top] : undefined );
         // Loop start
         for ( const tm of topCl.methods) {
           if ( tm.name == m.name ) {
@@ -66859,15 +66856,15 @@ class LowIRBuilderPass  {
       const meth = parts[1];
       let cases = [];
       // Loop start
-      for ( let di = 0; di < appCtx.definedClassList.length; di++) {
-        var dName = appCtx.definedClassList[di];
+      for ( let di = 0; di < appCtx.tables.definedClassList.length; di++) {
+        var dName = appCtx.tables.definedClassList[di];
         if ( dName == "RangerStaticMethods" ) {
           continue;
         }
         if ( dName == top_1 ) {
           continue;
         }
-        const dcl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, dName) ? appCtx.definedClasses[dName] : undefined );
+        const dcl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, dName) ? appCtx.tables.definedClasses[dName] : undefined );
         if ( this.classIsLowered(dcl) == false ) {
           continue;
         }
@@ -66878,7 +66875,7 @@ class LowIRBuilderPass  {
         if ( impl == top_1 ) {
           continue;
         }
-        if ( ( typeof(appCtx.definedClasses[impl] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, impl) ) == false ) {
+        if ( ( typeof(appCtx.tables.definedClasses[impl] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, impl) ) == false ) {
           continue;
         }
         cases.push(dName);
@@ -67102,7 +67099,7 @@ class LowIRBuilderPass  {
     const appCtx0 = lctx.ctx;
     if ( callee.ns.length >= 2 ) {
       const ns0 = callee.ns[0];
-      if ( ( typeof(appCtx0.definedClasses[ns0] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx0.definedClasses, ns0) ) ) {
+      if ( ( typeof(appCtx0.tables.definedClasses[ns0] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx0.tables.definedClasses, ns0) ) ) {
         return false;
       }
       if ( ns0 == "this" ) {
@@ -67126,7 +67123,7 @@ class LowIRBuilderPass  {
       return false;
     }
     const appCtx = lctx.ctx;
-    if ( ( typeof(appCtx.definedClasses[p0] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, p0) ) ) {
+    if ( ( typeof(appCtx.tables.definedClasses[p0] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, p0) ) ) {
       return false;
     }
     if ( ( typeof(lctx.slots[p0] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, p0) ) ) {
@@ -68813,12 +68810,12 @@ class LowIRBuilderPass  {
     }
     this.collectLambdas(appCtx);
     // Loop start
-    for ( let i0 = 0; i0 < appCtx.definedClassList.length; i0++) {
-      var cName0 = appCtx.definedClassList[i0];
+    for ( let i0 = 0; i0 < appCtx.tables.definedClassList.length; i0++) {
+      var cName0 = appCtx.tables.definedClassList[i0];
       if ( cName0 == "RangerStaticMethods" ) {
         continue;
       }
-      const cl0 = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName0) ? appCtx.definedClasses[cName0] : undefined );
+      const cl0 = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName0) ? appCtx.tables.definedClasses[cName0] : undefined );
       if ( ((cl0.is_operator_class || cl0.is_trait) || cl0.is_system) || cl0.is_union ) {
         continue;
       }
@@ -68826,12 +68823,12 @@ class LowIRBuilderPass  {
     }
     this.collectVirtualMethods(appCtx);
     // Loop start
-    for ( let i = 0; i < appCtx.definedClassList.length; i++) {
-      var cName = appCtx.definedClassList[i];
+    for ( let i = 0; i < appCtx.tables.definedClassList.length; i++) {
+      var cName = appCtx.tables.definedClassList[i];
       if ( cName == "RangerStaticMethods" ) {
         continue;
       }
-      const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
+      const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName) ? appCtx.tables.definedClasses[cName] : undefined );
       if ( (cl.is_trait || cl.is_system) || cl.is_union ) {
         continue;
       }
@@ -69112,15 +69109,15 @@ class LowIRBuilderPass  {
     const target = LowIRTarget.resolve(appCtx);
     const pt = target.ptrType;
     // Loop start
-    for ( let i = 0; i < appCtx.definedClassList.length; i++) {
-      var cName = appCtx.definedClassList[i];
+    for ( let i = 0; i < appCtx.tables.definedClassList.length; i++) {
+      var cName = appCtx.tables.definedClassList[i];
       if ( cName == "RangerStaticMethods" ) {
         continue;
       }
-      if ( false == ( typeof(appCtx.definedClasses[cName] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ) ) {
+      if ( false == ( typeof(appCtx.tables.definedClasses[cName] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName) ) ) {
         continue;
       }
-      const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
+      const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName) ? appCtx.tables.definedClasses[cName] : undefined );
       if ( cl.is_trait ) {
         continue;
       }
@@ -72872,7 +72869,7 @@ class LiveCompiler  {
           if ( node.children.length >= idx ) {
             const arg = node.children[idx];
             const root = ctx.getRoot();
-            const sNode = ( Object.prototype.hasOwnProperty.call(root.appServices, arg.vref) ? root.appServices[arg.vref] : undefined );
+            const sNode = ( Object.prototype.hasOwnProperty.call(root.tables.appServices, arg.vref) ? root.tables.appServices[arg.vref] : undefined );
             if ( (typeof(sNode) !== "undefined" && sNode != null )  ) {
               wr.out(sNode.appGUID, false);
             } else {
@@ -74972,6 +74969,12 @@ class ZipBuffer  {
     return ((b0 + b1 * 256) + b2 * 65536) + b3 * 16777216;
   };
   readBytes (count) {
+    if ( count > this.length - this.pos ) {
+      count = this.length - this.pos;
+    }
+    if ( count < 0 ) {
+      count = 0;
+    }
     let result = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(count));
     let i = 0;
     while (i < count) {
@@ -75291,6 +75294,7 @@ class InflateBitReader  {
     this.bitPos = 0;
     this.currentByte = 0;
     this.dataLength = 0;
+    this.overrun = false;
   }
   init (buf, offset, length) {
     this.data = buf;
@@ -75298,10 +75302,12 @@ class InflateBitReader  {
     this.dataLength = offset + length;
     this.bitPos = 0;
     this.currentByte = 0;
+    this.overrun = false;
   };
   readBit () {
     if ( this.bitPos == 0 ) {
       if ( this.bytePos >= this.dataLength ) {
+        this.overrun = true;
         return 0;
       }
       this.currentByte = this.data._view.getUint8(this.bytePos);
@@ -75331,6 +75337,7 @@ class InflateBitReader  {
   readByte () {
     this.alignToByte();
     if ( this.bytePos >= this.dataLength ) {
+      this.overrun = true;
       return 0;
     }
     const b = this.data._view.getUint8(this.bytePos);
@@ -75356,6 +75363,9 @@ class Inflate  {
     this.outBuf = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.outLen = 0;
     this.outCap = 0;
+    this.maxOutput = 0;
+    this.error = "";
+    this.truncated = false;
     this.fixedLitLen = new InflateHuffmanTable();
     this.fixedDist = new InflateHuffmanTable();
     this.fixedTablesBuilt = false;
@@ -75370,18 +75380,36 @@ class Inflate  {
     if ( cap < 4096 ) {
       cap = 4096;
     }
+    if ( this.maxOutput > 0 && cap > this.maxOutput ) {
+      cap = this.maxOutput;
+    }
     this.outBuf = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(cap));
     this.outCap = cap;
     this.outLen = 0;
   };
+  fail (why) {
+    if ( this.error.length == 0 ) {
+      this.error = why;
+    }
+  };
+  going () {
+    return this.error.length == 0 && this.reader.overrun == false;
+  };
   ensureCapacity (extra) {
     const need = this.outLen + extra;
+    if ( this.maxOutput > 0 && need > this.maxOutput ) {
+      this.fail(("output larger than " + (this.maxOutput.toString())) + " bytes");
+      return false;
+    }
     if ( need <= this.outCap ) {
-      return;
+      return true;
     }
     let newCap = this.outCap * 2;
     if ( newCap < need ) {
       newCap = need;
+    }
+    if ( this.maxOutput > 0 && newCap > this.maxOutput ) {
+      newCap = this.maxOutput;
     }
     let grown = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(newCap));
     (function(
@@ -75393,9 +75421,12 @@ class Inflate  {
     ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(grown,0,this.outBuf,0,this.outLen);
     this.outBuf = grown;
     this.outCap = newCap;
+    return true;
   };
   pushByte (b) {
-    this.ensureCapacity(1);
+    if ( this.ensureCapacity(1) == false ) {
+      return;
+    }
     this.outBuf._view.setUint8(this.outLen, b);
     this.outLen = this.outLen + 1;
   };
@@ -75576,6 +75607,8 @@ class Inflate  {
   };
   decompressFrom (data, offset) {
     this.input = data;
+    this.error = "";
+    this.truncated = false;
     const dataLen = data.byteLength;
     let from = offset;
     if ( from < 0 ) {
@@ -75589,7 +75622,7 @@ class Inflate  {
     this.reader.init(data, from, rest);
     this.buildFixedTables();
     let finalBlock = false;
-    while (false == finalBlock) {
+    while (false == finalBlock && this.going()) {
       const bfinal = this.reader.readBit();
       const btype = this.reader.readBits(2);
       finalBlock = bfinal == 1;
@@ -75602,7 +75635,15 @@ class Inflate  {
       if ( btype == 2 ) {
         this.decompressDynamic();
       }
+      if ( btype == 3 ) {
+        this.fail("reserved block type");
+      }
     };
+    if ( this.error.length > 0 ) {
+      this.outLen = 0;
+      return (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
+    }
+    this.truncated = this.reader.overrun;
     return this.finalOutput();
   };
   inputPos () {
@@ -75613,10 +75654,16 @@ class Inflate  {
     const __len = this.reader.readUint16LE();
     const nlen = this.reader.readUint16LE();
     if ( __len + nlen != 65535 ) {
+      if ( this.reader.overrun == false ) {
+        this.fail("stored block length does not match its complement");
+      }
+      return;
     }
-    this.ensureCapacity(__len);
+    if ( this.ensureCapacity(__len) == false ) {
+      return;
+    }
     let i = 0;
-    while (i < __len) {
+    while (i < __len && this.going()) {
       const b = this.reader.readByte();
       this.pushByte(b);
       i = i + 1;
@@ -75624,8 +75671,15 @@ class Inflate  {
   };
   decompressHuffman (litLenTable, distTable) {
     let done = false;
-    while (false == done) {
+    while (false == done && this.going()) {
       const sym = litLenTable.decode(this.reader);
+      if ( this.reader.overrun ) {
+        return;
+      }
+      if ( sym < 0 || sym > 285 ) {
+        this.fail("invalid literal/length code");
+        return;
+      }
       if ( sym < 256 ) {
         this.pushByte(sym);
       }
@@ -75640,10 +75694,21 @@ class Inflate  {
           length = length + this.reader.readBits(extraBits);
         }
         const distCode = distTable.decode(this.reader);
+        if ( distCode < 0 || distCode > 29 ) {
+          this.fail("invalid distance code");
+          return;
+        }
         let dist = this.distBase[distCode];
         const distExtraBits = this.distExtra[distCode];
         if ( distExtraBits > 0 ) {
           dist = dist + this.reader.readBits(distExtraBits);
+        }
+        if ( this.reader.overrun ) {
+          return;
+        }
+        if ( dist > this.outLen ) {
+          this.fail("distance before the start of the output");
+          return;
         }
         this.copyFromOutput(dist, length);
       }
@@ -75691,8 +75756,12 @@ class Inflate  {
     let allLengths = [];
     const totalCodes = hlit + hdist;
     i = 0;
-    while (i < totalCodes) {
+    while (i < totalCodes && this.going()) {
       const sym = clTable.decode(this.reader);
+      if ( sym < 0 || sym > 18 ) {
+        this.fail("invalid code length code");
+        return;
+      }
       if ( sym < 16 ) {
         allLengths.push(sym);
         i = i + 1;
@@ -75730,6 +75799,13 @@ class Inflate  {
         i = i + repeat_2;
       }
     };
+    if ( this.going() == false ) {
+      return;
+    }
+    if ( i > totalCodes ) {
+      this.fail("code lengths run past the table");
+      return;
+    }
     let litLenLengths = [];
     let distLengths = [];
     i = 0;
@@ -75749,7 +75825,9 @@ class Inflate  {
   };
   copyFromOutput (distance, length) {
     const srcPos = this.outLen - distance;
-    this.ensureCapacity(length);
+    if ( this.ensureCapacity(length) == false ) {
+      return;
+    }
     let i = 0;
     while (i < length) {
       let b = 0;
@@ -77471,7 +77549,7 @@ class RangerDocGenerator  {
         wr.out("# Classes", true);
       }
       const root = ctx.getRoot();
-      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
         if ( false == item.isNormalClass() ) {
           return;
         }
@@ -79454,9 +79532,9 @@ class StaticAnalyzer  {
       return false;
     }
     const mroot = this.ctx.getRoot();
-    for( var mci in mroot.definedClasses) {
-      if(mroot.definedClasses.hasOwnProperty(mci)) {
-        var mcl = mroot.definedClasses[mci] 
+    for( var mci in mroot.tables.definedClasses) {
+      if(mroot.tables.definedClasses.hasOwnProperty(mci)) {
+        var mcl = mroot.tables.definedClasses[mci] 
         if ( this.scanFnsForMutation(mcl.methods, typeName) ) {
           return true;
         }
@@ -79680,9 +79758,9 @@ class StaticAnalyzer  {
       if ( rounds > 30 ) {
         return;
       }
-      for( var ci in root.definedClasses) {
-        if(root.definedClasses.hasOwnProperty(ci)) {
-          var cl = root.definedClasses[ci] 
+      for( var ci in root.tables.definedClasses) {
+        if(root.tables.definedClasses.hasOwnProperty(ci)) {
+          var cl = root.tables.definedClasses[ci] 
           // Loop start
           for ( const m of cl.methods) {
             if ( this.markSharingMutations(m) ) {
@@ -80112,16 +80190,16 @@ class StaticAnalyzer  {
     this.computeSharingMutations();
     const root = this.ctx.getRoot();
     if ( this.ctx.hasCompilerFlag("rust-module") ) {
-      for( var mci in root.definedClasses) {
-        if(root.definedClasses.hasOwnProperty(mci)) {
-          var mcl = root.definedClasses[mci] 
+      for( var mci in root.tables.definedClasses) {
+        if(root.tables.definedClasses.hasOwnProperty(mci)) {
+          var mcl = root.tables.definedClasses[mci] 
           this.markClassShared(mcl.name, "rust module boundary");
         }
       };
     }
-    for( var ci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.definedClasses[ci] 
+    for( var ci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.tables.definedClasses[ci] 
         if ( cl.is_union && cl.name != "Any" ) {
           // Loop start
           for ( let umi = 0; umi < cl.is_union_of.length; umi++) {
@@ -80163,9 +80241,9 @@ class StaticAnalyzer  {
       return;
     }
     const root = this.ctx.getRoot();
-    for( var ci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.definedClasses[ci] 
+    for( var ci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.tables.definedClasses[ci] 
         // Loop start
         for ( const m of cl.methods) {
           this.foldObjectInitsFn(m);
@@ -80446,9 +80524,9 @@ class StaticAnalyzer  {
       return;
     }
     const root = this.ctx.getRoot();
-    for( var ci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.definedClasses[ci] 
+    for( var ci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.tables.definedClasses[ci] 
         if ( cl.is_system ) {
           continue;
         }
@@ -81129,9 +81207,9 @@ class StaticAnalyzer  {
       return;
     }
     const ssRoot = this.ctx.getRoot();
-    for( var ssCi in ssRoot.definedClasses) {
-      if(ssRoot.definedClasses.hasOwnProperty(ssCi)) {
-        var ssCl = ssRoot.definedClasses[ssCi] 
+    for( var ssCi in ssRoot.tables.definedClasses) {
+      if(ssRoot.tables.definedClasses.hasOwnProperty(ssCi)) {
+        var ssCl = ssRoot.tables.definedClasses[ssCi] 
         if ( ((ssCl.is_system || ssCl.is_template) || ssCl.is_operator_class) || ssCl.is_generic_instance ) {
           continue;
         }
@@ -81173,9 +81251,9 @@ class StaticAnalyzer  {
       return;
     }
     const trRoot = this.ctx.getRoot();
-    for( var trCi in trRoot.definedClasses) {
-      if(trRoot.definedClasses.hasOwnProperty(trCi)) {
-        var trCl = trRoot.definedClasses[trCi] 
+    for( var trCi in trRoot.tables.definedClasses) {
+      if(trRoot.tables.definedClasses.hasOwnProperty(trCi)) {
+        var trCl = trRoot.tables.definedClasses[trCi] 
         if ( trCl.is_extended_by_children == false ) {
           continue;
         }
@@ -81288,9 +81366,9 @@ class StaticAnalyzer  {
     }
     this.computeTraitReentrancy();
     const root = this.ctx.getRoot();
-    for( var ci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.definedClasses[ci] 
+    for( var ci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.tables.definedClasses[ci] 
         if ( cl.rust_needs_ref_semantics == false ) {
           continue;
         }
@@ -81330,9 +81408,9 @@ class StaticAnalyzer  {
       if ( rounds > 30 ) {
         return;
       }
-      for( var ci_1 in root.definedClasses) {
-        if(root.definedClasses.hasOwnProperty(ci_1)) {
-          var cl_1 = root.definedClasses[ci_1] 
+      for( var ci_1 in root.tables.definedClasses) {
+        if(root.tables.definedClasses.hasOwnProperty(ci_1)) {
+          var cl_1 = root.tables.definedClasses[ci_1] 
           if ( cl_1.rust_needs_ref_semantics == false ) {
             continue;
           }
@@ -81364,9 +81442,9 @@ class StaticAnalyzer  {
       return;
     }
     const root = this.ctx.getRoot();
-    for( var tci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(tci)) {
-        var tcl = root.definedClasses[tci] 
+    for( var tci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(tci)) {
+        var tcl = root.tables.definedClasses[tci] 
         if ( tcl.is_extended_by_children ) {
           this.markClassShared(tcl.name, "extended by children");
         }
@@ -81382,9 +81460,9 @@ class StaticAnalyzer  {
         }
       }
     };
-    for( var ci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.definedClasses[ci] 
+    for( var ci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.tables.definedClasses[ci] 
         // Loop start
         for ( const cv of cl.variables) {
           this.markDescRcWrap(cv);
@@ -81705,9 +81783,9 @@ class StaticAnalyzer  {
       return;
     }
     const root = this.ctx.getRoot();
-    for( var ci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.definedClasses[ci] 
+    for( var ci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.tables.definedClasses[ci] 
         let clExcluded = (((((cl.is_system || cl.is_union) || cl.is_system_union) || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_generic_instance;
         if ( clExcluded == false ) {
           if ( cl.is_extended_by_children || cl.extends_classes.length > 0 ) {
@@ -81733,9 +81811,9 @@ class StaticAnalyzer  {
         }
       }
     };
-    for( var ci_1 in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ci_1)) {
-        var cl_1 = root.definedClasses[ci_1] 
+    for( var ci_1 in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ci_1)) {
+        var cl_1 = root.tables.definedClasses[ci_1] 
         // Loop start
         for ( const m of cl_1.methods) {
           this.rssWalkFn(m);
@@ -81786,16 +81864,16 @@ class StaticAnalyzer  {
     }
     const root = this.ctx.getRoot();
     // Loop start
-    for ( let ti = 0; ti < root.templateClassList.length; ti++) {
-      var tpl = root.templateClassList[ti];
+    for ( let ti = 0; ti < root.tables.templateClassList.length; ti++) {
+      var tpl = root.tables.templateClassList[ti];
       if ( root.isNativeGeneric(tpl) == false ) {
         continue;
       }
       let form;
       let members = [];
-      for( var ci in root.definedClasses) {
-        if(root.definedClasses.hasOwnProperty(ci)) {
-          var cl = root.definedClasses[ci] 
+      for( var ci in root.tables.definedClasses) {
+        if(root.tables.definedClasses.hasOwnProperty(ci)) {
+          var cl = root.tables.definedClasses[ci] 
           if ( cl.generic_template != tpl ) {
             continue;
           }
@@ -81903,9 +81981,9 @@ class StaticAnalyzer  {
       return;
     }
     const root = this.ctx.getRoot();
-    for( var ci in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.definedClasses[ci] 
+    for( var ci in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.tables.definedClasses[ci] 
         // Loop start
         for ( let i = 0; i < cl.methods.length; i++) {
           var m = cl.methods[i];
@@ -81925,9 +82003,9 @@ class StaticAnalyzer  {
     }
     this.initMutatingOps();
     const root = this.ctx.getRoot();
-    for( var i in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(i)) {
-        var cl = root.definedClasses[i] 
+    for( var i in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(i)) {
+        var cl = root.tables.definedClasses[i] 
         this.analyzeOwnershipClass(cl);
       }
     };
@@ -81935,9 +82013,9 @@ class StaticAnalyzer  {
     this.analyzeClassSharing();
     this.foldObjectInitsAll();
     if ( strict ) {
-      for( var i_1 in root.definedClasses) {
-        if(root.definedClasses.hasOwnProperty(i_1)) {
-          var cl_1 = root.definedClasses[i_1] 
+      for( var i_1 in root.tables.definedClasses) {
+        if(root.tables.definedClasses.hasOwnProperty(i_1)) {
+          var cl_1 = root.tables.definedClasses[i_1] 
           this.reportOwnershipClass(cl_1);
         }
       };
@@ -81950,27 +82028,27 @@ class StaticAnalyzer  {
     }
     this.initMutatingOps();
     const root = this.ctx.getRoot();
-    for( var i in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(i)) {
-        var cl = root.definedClasses[i] 
+    for( var i in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(i)) {
+        var cl = root.tables.definedClasses[i] 
         this.analyzeClass(cl);
       }
     };
-    for( var i_1 in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(i_1)) {
-        var cl_1 = root.definedClasses[i_1] 
+    for( var i_1 in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(i_1)) {
+        var cl_1 = root.tables.definedClasses[i_1] 
         this.analyzeClassTransitiveWeak(cl_1);
       }
     };
-    for( var i_2 in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(i_2)) {
-        var cl_2 = root.definedClasses[i_2] 
+    for( var i_2 in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(i_2)) {
+        var cl_2 = root.tables.definedClasses[i_2] 
         this.analyzeClassMutation(cl_2);
       }
     };
-    for( var i_3 in root.definedClasses) {
-      if(root.definedClasses.hasOwnProperty(i_3)) {
-        var cl_3 = root.definedClasses[i_3] 
+    for( var i_3 in root.tables.definedClasses) {
+      if(root.tables.definedClasses.hasOwnProperty(i_3)) {
+        var cl_3 = root.tables.definedClasses[i_3] 
         this.analyzeClassParamMutations(cl_3);
       }
     };
@@ -81980,9 +82058,9 @@ class StaticAnalyzer  {
     while (changed == true && iteration < maxIterations) {
       changed = false;
       let changedParams = [];
-      for( var i_4 in root.definedClasses) {
-        if(root.definedClasses.hasOwnProperty(i_4)) {
-          var cl_4 = root.definedClasses[i_4] 
+      for( var i_4 in root.tables.definedClasses) {
+        if(root.tables.definedClasses.hasOwnProperty(i_4)) {
+          var cl_4 = root.tables.definedClasses[i_4] 
           this.analyzeClassTransitiveMutBorrow(cl_4, changedParams);
         }
       };
@@ -97097,23 +97175,23 @@ class VirtualCompiler  {
         }
       }
     }
-    const appCtx = new RangerAppWriterContext();
+    const appCtx = RangerAppWriterContext.createRoot();
     ModuleFunctions.hoist(root, the_file, appCtx);
     appCtx.env = env;
-    appCtx.libraryPaths = langFileDirs;
+    appCtx.tables.libraryPaths = langFileDirs;
     appCtx.compilerSettings["package"] = package_name;
     if ( appCtx.hasCompilerFlag("verbose") ) {
       // Loop start
-      for ( const include_path of appCtx.libraryPaths) {
+      for ( const include_path of appCtx.tables.libraryPaths) {
         console.log("include-path : " + include_path);
       }
     }
     operatorsOf_5.forEach_51(params.flags, ((item, index) => { 
       const n = index;
-      appCtx.compilerFlags[n] = true;
+      appCtx.tables.compilerFlags[n] = true;
     }));
     if ( autoDetectedTypeScript ) {
-      appCtx.compilerFlags["typescript"] = true;
+      appCtx.tables.compilerFlags["typescript"] = true;
     }
     operatorsOf_5.forEach_37(params.params, ((item, index) => { 
       const v = item;
@@ -97414,13 +97492,13 @@ class VirtualCompiler  {
       }
       let handledClasses = {};
       // Loop start
-      for ( let i_4 = 0; i_4 < appCtx.definedClassList.length; i_4++) {
-        var cName = appCtx.definedClassList[i_4];
+      for ( let i_4 = 0; i_4 < appCtx.tables.definedClassList.length; i_4++) {
+        var cName = appCtx.tables.definedClassList[i_4];
         if ( cName == "RangerStaticMethods" ) {
-          staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
+          staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName) ? appCtx.tables.definedClasses[cName] : undefined );
           continue;
         }
-        const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
+        const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName) ? appCtx.tables.definedClasses[cName] : undefined );
         if ( cl.is_operator_class ) {
           continue;
         }
@@ -97452,7 +97530,7 @@ class VirtualCompiler  {
             if ( ( typeof(handledClasses[eClassName] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, eClassName) ) ) {
               continue;
             }
-            const parentCl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, eClassName) ? appCtx.definedClasses[eClassName] : undefined );
+            const parentCl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, eClassName) ? appCtx.tables.definedClasses[eClassName] : undefined );
             lcc.WalkNode(parentCl.classNode, appCtx, wr);
             handledClasses[eClassName] = true;
           }
@@ -97468,16 +97546,16 @@ class VirtualCompiler  {
         lcc.langWriter.writeInterface(ifDesc, appCtx, wr);
       }
       // Loop start
-      for ( let i_7 = 0; i_7 < appCtx.definedClassList.length; i_7++) {
-        var cName_1 = appCtx.definedClassList[i_7];
+      for ( let i_7 = 0; i_7 < appCtx.tables.definedClassList.length; i_7++) {
+        var cName_1 = appCtx.tables.definedClassList[i_7];
         if ( ( typeof(handledClasses[cName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, cName_1) ) ) {
           continue;
         }
         if ( cName_1 == "RangerStaticMethods" ) {
-          staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_1) ? appCtx.definedClasses[cName_1] : undefined );
+          staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName_1) ? appCtx.tables.definedClasses[cName_1] : undefined );
           continue;
         }
-        const cl_1 = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_1) ? appCtx.definedClasses[cName_1] : undefined );
+        const cl_1 = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName_1) ? appCtx.tables.definedClasses[cName_1] : undefined );
         if ( cl_1.is_operator_class ) {
           continue;
         }
@@ -97508,9 +97586,9 @@ class VirtualCompiler  {
         lcc.WalkNode(cl_1.classNode, appCtx, wr);
       }
       // Loop start
-      for ( let i_8 = 0; i_8 < appCtx.definedClassList.length; i_8++) {
-        var cName_2 = appCtx.definedClassList[i_8];
-        const cl_2 = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_2) ? appCtx.definedClasses[cName_2] : undefined );
+      for ( let i_8 = 0; i_8 < appCtx.tables.definedClassList.length; i_8++) {
+        var cName_2 = appCtx.tables.definedClassList[i_8];
+        const cl_2 = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName_2) ? appCtx.tables.definedClasses[cName_2] : undefined );
         if ( cl_2.is_operator_class ) {
           lcc.WalkNode(cl_2.classNode, appCtx, wr);
         }

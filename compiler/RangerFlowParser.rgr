@@ -1412,7 +1412,7 @@ class RangerFlowParser {
     def root (ctx.getRoot())    
     def wr (new CodeWriter)
 
-    root.definedClasses.forEach({
+    root.tables.definedClasses.forEach({
       if(item.isNormalClass()) {
           wr.raw(`
       operators {
@@ -1441,7 +1441,7 @@ class RangerFlowParser {
     wr.out('fn rtti_get_classes:[string] () {' true)
       wr.indent(1)    
       wr.out('return ([] ' false)
-      root.definedClasses.forEach({
+      root.tables.definedClasses.forEach({
         if(item.isNormalClass()) {
           wr.out( `'` + item.name +  `' ` , false )
         }
@@ -1454,7 +1454,7 @@ class RangerFlowParser {
     wr.out('fn rtti_get_fields:[RTTIClassField] (className:string) {' true)
       wr.indent(1)   
       wr.out(`def fields:[RTTIClassField]` true)
-      root.definedClasses.forEach({
+      root.tables.definedClasses.forEach({
         if(item.isNormalClass()) {
           wr.out(`if(className == '` + item.name +`') {` , true)
           wr.indent(1)
@@ -1724,7 +1724,7 @@ class RangerFlowParser {
   fn SolveAsyncFuncs (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def root (ctx.getRoot())
-    root.definedClasses.forEach({
+    root.tables.definedClasses.forEach({
 
       item.static_methods.forEach({
 
@@ -1793,7 +1793,7 @@ class RangerFlowParser {
 
     def notUsedFunctionCnt 0
 
-    root.definedClasses.forEach({
+    root.tables.definedClasses.forEach({
       item.method_variants.forEach({
         item.variants.forEach({
           if( (size item.isCalledBy ) == 0 ) {
@@ -1823,7 +1823,7 @@ class RangerFlowParser {
     def use_dce false
     if(ctx.hasCompilerFlag('dead4main')) {
       def mainFn:RangerAppFunctionDesc
-      root.definedClasses.forEach({
+      root.tables.definedClasses.forEach({
         def cl item
         for cl.static_methods variant@(lives):RangerAppFunctionDesc i {
           ctx.disableCurrentClass()
@@ -1843,7 +1843,7 @@ class RangerFlowParser {
     if(ctx.hasCompilerSetting('dceclass')) {
       def dc (ctx.getCompilerSetting('dceclass'))
       print "DCE : " + dc
-      root.definedClasses.forEach({
+      root.tables.definedClasses.forEach({
         def cl item
         if(cl.name == dc) {
           use_dce = true
@@ -1862,7 +1862,7 @@ class RangerFlowParser {
 
     if use_dce {
       def verbose (ctx.hasCompilerFlag('verbose'))
-      root.definedClasses.forEach({
+      root.tables.definedClasses.forEach({
         if( item.is_used_by_main == false && verbose ) {
           print "class not used by main : " + item.name
         }
@@ -1890,7 +1890,7 @@ class RangerFlowParser {
     }
     
     if(ctx.hasCompilerFlag('deadcode')) {
-      root.definedClasses.forEach({
+      root.tables.definedClasses.forEach({
         item.method_variants.forEach({
           item.variants = (filter item.variants {
             return (item.is_unsed == false)
@@ -4438,7 +4438,7 @@ class RangerFlowParser {
   fn genericArgsFitTarget:boolean (templateName:string ctx:RangerAppWriterContext) {
     def lang:string (ctx.getTargetLangName())
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.definedClassList cn:string i {
+    for root.tables.definedClassList cn:string i {
       def cl:RangerAppClassDesc (root.findClass(cn))
       if (cl.generic_template != templateName) {
         continue
@@ -4469,7 +4469,7 @@ class RangerFlowParser {
     while progress {
       progress = false
       def todo:[string]
-      for root.definedClassList cn:string i {
+      for root.tables.definedClassList cn:string i {
         def cl:RangerAppClassDesc (root.findClass(cn))
         def tn:string cl.generic_template
         if ((strlen tn) == 0) {
@@ -4501,7 +4501,7 @@ class RangerFlowParser {
     def changed:boolean true
     while changed {
       changed = false
-      for root.definedClassList cn:string i {
+      for root.tables.definedClassList cn:string i {
         def cl:RangerAppClassDesc (root.findClass(cn))
         if ((cl.generic_has_placeholder == false) || cl.is_generic_form) {
           continue
@@ -4511,13 +4511,13 @@ class RangerFlowParser {
         }
         ; this placeholder instance is not native: every template whose
         ; generic form uses it falls back too
-        for root.templateClassList owner:string oi {
+        for root.tables.templateClassList owner:string oi {
           if ((root.isNativeGeneric(owner)) == false) {
             continue
           }
           def ownerForm:string ("__gf_" + owner)
-          if (has root.genericFormUses ownerForm) {
-            def uses:[string] (unwrap (get root.genericFormUses ownerForm))
+          if (has root.tables.genericFormUses ownerForm) {
+            def uses:[string] (unwrap (get root.tables.genericFormUses ownerForm))
             if ((indexOf uses cn) >= 0) {
               root.setNativeGeneric(owner false)
               changed = true
@@ -4559,7 +4559,7 @@ class RangerFlowParser {
     }
     push genericCheckNodes typeArgs
     def errBefore:int (array_length root.compilerErrors)
-    def classesBefore:int (array_length root.definedClassList)
+    def classesBefore:int (array_length root.tables.definedClassList)
     def made@(optional):RangerAppClassDesc (ctx.createGenericClassInstance(tpl formName typeArgs this wr))
     def ok:boolean ((array_length root.compilerErrors) == errBefore)
     while ((array_length root.compilerErrors) > errBefore) {
@@ -4583,13 +4583,13 @@ class RangerFlowParser {
       ok = false
     }
     def uses:[string]
-    def classesAfter:int (array_length root.definedClassList)
+    def classesAfter:int (array_length root.tables.definedClassList)
     def k:int classesBefore
     while (k < classesAfter) {
-      push uses (itemAt root.definedClassList k)
+      push uses (itemAt root.tables.definedClassList k)
       k = (k + 1)
     }
-    set root.genericFormUses ("__gf_" + tpl) uses
+    set root.tables.genericFormUses ("__gf_" + tpl) uses
     if (ok == false) {
       return false
     }

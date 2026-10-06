@@ -130,7 +130,7 @@ extension RangerRustClassWriter {
       return false
     }
     def rootCtx:RangerAppWriterContext (ctx.getRoot())
-    for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
+    for rootCtx.tables.definedClasses ucl:RangerAppClassDesc uci {
       if (this.unionIsSealable(ucl ctx)) {
         if ((indexOf ucl.is_union_of cl.name) >= 0) {
           return true

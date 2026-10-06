@@ -260,10 +260,10 @@ extension LowIRBuilderPass {
 
   fn fieldObjectClassName:string (className:string fieldName:string lctx:LowIRLowerContext) {
     def appCtx (unwrap lctx.ctx)
-    if (false == (has appCtx.definedClasses className)) {
+    if (false == (has appCtx.tables.definedClasses className)) {
       return ""
     }
-    def cl (unwrap (get appCtx.definedClasses className))
+    def cl (unwrap (get appCtx.tables.definedClasses className))
     ; INHERITED fields too: `cl.node.children` walks through RangerAppClassDesc's
     ; `node`, which is declared on the base class. Without this the chain
     ; resolved to nothing and the array read emitted a bare `%cl.node.children`.
@@ -276,7 +276,7 @@ extension LowIRBuilderPass {
         def nn (unwrap v.nameNode)
         def tn:string nn.type_name
         if ((strlen tn) > 0) {
-          if (has appCtx.definedClasses tn) {
+          if (has appCtx.tables.definedClasses tn) {
             return tn
           }
         }
@@ -298,7 +298,7 @@ extension LowIRBuilderPass {
     def sec (node.getSecond())
     def nm:string sec.vref
     if ((strlen nm) > 0) {
-      if (has appCtx.definedClasses nm) {
+      if (has appCtx.tables.definedClasses nm) {
         return nm
       }
     }
@@ -306,13 +306,13 @@ extension LowIRBuilderPass {
     ; argument and its class-name child is not a plain vref).
     def tn:string node.eval_type_name
     if ((strlen tn) > 0) {
-      if (has appCtx.definedClasses tn) {
+      if (has appCtx.tables.definedClasses tn) {
         return tn
       }
     }
     def tn2:string node.type_name
     if ((strlen tn2) > 0) {
-      if (has appCtx.definedClasses tn2) {
+      if (has appCtx.tables.definedClasses tn2) {
         return tn2
       }
     }
@@ -463,8 +463,8 @@ extension LowIRBuilderPass {
     def ctorDesc@(optional):RangerAppFunctionDesc
     if (!null? lctx.ctx) {
       def appCtx (unwrap lctx.ctx)
-      if (has appCtx.definedClasses className) {
-        def cl (unwrap (get appCtx.definedClasses className))
+      if (has appCtx.tables.definedClasses className) {
+        def cl (unwrap (get appCtx.tables.definedClasses className))
         if cl.has_constructor {
           if (!null? cl.constructor_fn) {
             ctorDesc = (unwrap cl.constructor_fn)
@@ -762,10 +762,10 @@ extension LowIRBuilderPass {
     if (depth > 16) {
       return className
     }
-    if ((has appCtx.definedClasses className) == false) {
+    if ((has appCtx.tables.definedClasses className) == false) {
       return className
     }
-    def cl (unwrap (get appCtx.definedClasses className))
+    def cl (unwrap (get appCtx.tables.definedClasses className))
     for cl.methods m:RangerAppFunctionDesc i {
       if (m.name == methodName) {
         return className
@@ -792,10 +792,10 @@ extension LowIRBuilderPass {
     if (depth > 16) {
       return className
     }
-    if ((has appCtx.definedClasses className) == false) {
+    if ((has appCtx.tables.definedClasses className) == false) {
       return className
     }
-    def cl (unwrap (get appCtx.definedClasses className))
+    def cl (unwrap (get appCtx.tables.definedClasses className))
     for cl.extends_classes baseName:string bi {
       if (appCtx.isDefinedClass(baseName)) {
         def up:string (this.topmostDeclaringClass(baseName methodName appCtx (depth + 1)))
@@ -818,11 +818,11 @@ extension LowIRBuilderPass {
   fn collectVirtualMethods:void (appCtx:RangerAppWriterContext) {
     ; Pass one: any method whose declaring class is NOT the topmost declarer of
     ; that name is an override, and makes the topmost one a dispatch point.
-    for appCtx.definedClassList cName:string ci {
+    for appCtx.tables.definedClassList cName:string ci {
       if (cName == "RangerStaticMethods") {
         continue _
       }
-      def cl (unwrap (get appCtx.definedClasses cName))
+      def cl (unwrap (get appCtx.tables.definedClasses cName))
       if ((this.classIsLowered(cl)) == false) {
         continue
       }
@@ -843,7 +843,7 @@ extension LowIRBuilderPass {
         def emptyCases:[string]
         set this.virtualCases key emptyCases
         ; The base declaration carries the signature every override shares.
-        def topCl (unwrap (get appCtx.definedClasses top))
+        def topCl (unwrap (get appCtx.tables.definedClasses top))
         for topCl.methods tm:RangerAppFunctionDesc ti {
           if (tm.name == m.name) {
             set this.virtualDescOf key tm
@@ -863,14 +863,14 @@ extension LowIRBuilderPass {
       def top:string (itemAt parts 0)
       def meth:string (itemAt parts 1)
       def cases:[string]
-      for appCtx.definedClassList dName:string di {
+      for appCtx.tables.definedClassList dName:string di {
         if (dName == "RangerStaticMethods") {
           continue _
         }
         if (dName == top) {
           continue
         }
-        def dcl (unwrap (get appCtx.definedClasses dName))
+        def dcl (unwrap (get appCtx.tables.definedClasses dName))
         if ((this.classIsLowered(dcl)) == false) {
           continue
         }
@@ -881,7 +881,7 @@ extension LowIRBuilderPass {
         if (impl == top) {
           continue
         }
-        if ((has appCtx.definedClasses impl) == false) {
+        if ((has appCtx.tables.definedClasses impl) == false) {
           continue
         }
         push cases dName
@@ -1115,7 +1115,7 @@ extension LowIRBuilderPass {
     ; callee, and `arg` is a local, not a class.
     if ((array_length callee.ns) >= 2) {
       def ns0 (itemAt callee.ns 0)
-      if (has appCtx0.definedClasses ns0) {
+      if (has appCtx0.tables.definedClasses ns0) {
         return false
       }
       if (ns0 == "this") {
@@ -1139,7 +1139,7 @@ extension LowIRBuilderPass {
       return false
     }
     def appCtx (unwrap lctx.ctx)
-    if (has appCtx.definedClasses p0) {
+    if (has appCtx.tables.definedClasses p0) {
       return false
     }
     if (has lctx.slots p0) {

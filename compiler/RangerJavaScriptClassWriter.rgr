@@ -148,7 +148,7 @@ class RangerJavaScriptClassWriter {
 
   fn CreateTsUnions (parser:RangerFlowParser ctx:RangerAppWriterContext wr:CodeWriter) {
     def root (ctx.getRoot())
-    root.definedClasses.forEach({
+    root.tables.definedClasses.forEach({
       ; index == name
       ; item == class description
       ; S5: only sealable unions — never the compiler's universal `Any`.
@@ -1218,7 +1218,7 @@ class RangerJavaScriptClassWriter {
       ; CommonJS format: module.exports.X = X
       if( (ctx.hasCompilerFlag("nodemodule")) && (target_typescript == false) && (target_esm == false)) {
         def root (ctx.getRoot())
-        root.definedClasses.forEach({
+        root.tables.definedClasses.forEach({
 
           if( (ctx.hasCompilerFlag('dead4main')) || (ctx.hasCompilerSetting('dceclass'))) {
             if(item.is_used_by_main == false) {

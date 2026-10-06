@@ -245,7 +245,7 @@ class CppValueClassAnalysis {
       return "it extends another class"
     }
     def rootCtx:RangerAppWriterContext (ctx.getRoot())
-    for rootCtx.definedClasses ocl:RangerAppClassDesc oci {
+    for rootCtx.tables.definedClasses ocl:RangerAppClassDesc oci {
       if ((indexOf ocl.extends_classes cl.name) >= 0) {
         return ("it is extended by " + ocl.name)
       }
@@ -285,12 +285,12 @@ class CppValueClassAnalysis {
     if (ctx.hasCompilerFlag("cpp-shared-classes")) {
       return
     }
-    for root.definedClasses cl:RangerAppClassDesc ci {
+    for root.tables.definedClasses cl:RangerAppClassDesc ci {
       def reason:string (this.classReason(cl ctx))
       if ((strlen reason) == 0) {
         ; the whole-program scan: one use the C++ writer can only spell with a
         ; pointer is enough to keep the pointer everywhere
-        for root.definedClasses ocl:RangerAppClassDesc oci {
+        for root.tables.definedClasses ocl:RangerAppClassDesc oci {
           if ((strlen reason) > 0) {
             continue
           }

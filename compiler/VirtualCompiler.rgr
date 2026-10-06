@@ -956,27 +956,27 @@ class tester {
     }
 
     ; --- context for the compilation ---
-    def appCtx@(lives):RangerAppWriterContext (new RangerAppWriterContext()))
+    def appCtx@(lives):RangerAppWriterContext (RangerAppWriterContext.createRoot()))
     ; top-level functions join the file's module class (ISSUES.md #104)
     ModuleFunctions.hoist(root the_file appCtx)
     appCtx.env = env
-    appCtx.libraryPaths = langFileDirs
+    appCtx.tables.libraryPaths = langFileDirs
     set appCtx.compilerSettings "package" package_name
     if(appCtx.hasCompilerFlag('verbose')) {
-      for appCtx.libraryPaths include_path:string i {
+      for appCtx.tables.libraryPaths include_path:string i {
         print "include-path : " + include_path
       }
     }
 
     params.flags.forEach({
       def n index
-      set appCtx.compilerFlags n true
+      set appCtx.tables.compilerFlags n true
       ; print " / flag " + index
     })
 
     ; Auto-add typescript flag if .ts extension was detected
     if autoDetectedTypeScript {
-      set appCtx.compilerFlags "typescript" true
+      set appCtx.tables.compilerFlags "typescript" true
     }
 
     params.params.forEach({
@@ -1368,12 +1368,12 @@ class tester {
 
       def handledClasses:[string:boolean]
 
-      for appCtx.definedClassList cName:string i {
+      for appCtx.tables.definedClassList cName:string i {
         if (cName == "RangerStaticMethods") {
-          staticMethods = (get appCtx.definedClasses cName)
+          staticMethods = (get appCtx.tables.definedClasses cName)
           continue _
         }
-        def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
+        def cl:RangerAppClassDesc (get appCtx.tables.definedClasses cName)
         if(cl.is_operator_class) {
           continue
         }
@@ -1406,7 +1406,7 @@ class tester {
             if(has handledClasses eClassName) {
               continue
             }
-            def parentCl:RangerAppClassDesc (get appCtx.definedClasses eClassName)
+            def parentCl:RangerAppClassDesc (get appCtx.tables.definedClasses eClassName)
             lcc.WalkNode( (unwrap parentCl.classNode ) appCtx (unwrap wr))
             set handledClasses eClassName true      
           }
@@ -1423,15 +1423,15 @@ class tester {
           lcc.langWriter.writeInterface( ifDesc appCtx (unwrap wr) )
       }
 
-      for appCtx.definedClassList cName:string i {
+      for appCtx.tables.definedClassList cName:string i {
         if(has handledClasses cName) {
           continue
         }
         if (cName == "RangerStaticMethods") {
-          staticMethods = (get appCtx.definedClasses cName)
+          staticMethods = (get appCtx.tables.definedClasses cName)
           continue _
         }
-        def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
+        def cl:RangerAppClassDesc (get appCtx.tables.definedClasses cName)
         if(cl.is_operator_class) {
           continue 
         }
@@ -1462,8 +1462,8 @@ class tester {
         lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
       }        
 
-      for appCtx.definedClassList cName:string i {
-        def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
+      for appCtx.tables.definedClassList cName:string i {
+        def cl:RangerAppClassDesc (get appCtx.tables.definedClasses cName)
         if(cl.is_operator_class) {
           lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
         }

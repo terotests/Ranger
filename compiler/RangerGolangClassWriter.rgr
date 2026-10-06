@@ -2434,7 +2434,7 @@ class RangerGolangClassWriter {
 
   fn goProgramUsesOptional:boolean (ctx:RangerAppWriterContext) {
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.definedClasses cl:RangerAppClassDesc i {
+    for root.tables.definedClasses cl:RangerAppClassDesc i {
       if ((((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union) {
         continue
       }
@@ -2526,7 +2526,7 @@ class RangerGolangClassWriter {
     go_slice_ptr_ready = true
     def root:RangerAppWriterContext (ctx.getRoot())
     def keys:[string:boolean] goSliceKeys
-    for root.definedClasses cl:RangerAppClassDesc ci {
+    for root.tables.definedClasses cl:RangerAppClassDesc ci {
       this.goSlicePtrScan(cl cl.methods "m" keys false)
       this.goSlicePtrScan(cl cl.static_methods "s" keys false)
       if (!null? cl.constructor_fn) {
@@ -2535,7 +2535,7 @@ class RangerGolangClassWriter {
         this.goSlicePtrScan(cl cfs "c" keys false)
       }
     }
-    for root.definedClasses cl:RangerAppClassDesc ci {
+    for root.tables.definedClasses cl:RangerAppClassDesc ci {
       this.goSlicePtrScan(cl cl.methods "m" keys true)
       this.goSlicePtrScan(cl cl.static_methods "s" keys true)
       if (!null? cl.constructor_fn) {

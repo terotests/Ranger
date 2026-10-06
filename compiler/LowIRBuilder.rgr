@@ -2110,10 +2110,10 @@ class LowIRBuilderPass {
   ; The declared element type of an array field on the given class, or "".
   fn fieldArrayElemType:string (className:string fieldName:string lctx:LowIRLowerContext) {
     def appCtx (unwrap lctx.ctx)
-    if (false == (has appCtx.definedClasses className)) {
+    if (false == (has appCtx.tables.definedClasses className)) {
       return ""
     }
-    def cl (unwrap (get appCtx.definedClasses className))
+    def cl (unwrap (get appCtx.tables.definedClasses className))
     ; INHERITED fields too -- the struct is flat, and a field declared on a
     ; base class is just as much a field of this one.
     def allVars (this.collectStructVars(cl appCtx))
@@ -2418,10 +2418,10 @@ class LowIRBuilderPass {
 
   fn initFieldDefaultsInObject:void (className:string objPtr:string lctx:LowIRLowerContext) {
     def appCtx (unwrap lctx.ctx)
-    if (false == (has appCtx.definedClasses className)) {
+    if (false == (has appCtx.tables.definedClasses className)) {
       return
     }
-    def cl (unwrap (get appCtx.definedClasses className))
+    def cl (unwrap (get appCtx.tables.definedClasses className))
     ; Inherited fields need their defaults too, or a base-class field starts as
     ; whatever the allocator left there.
     def allVars (this.collectStructVars(cl appCtx))
@@ -2529,10 +2529,10 @@ class LowIRBuilderPass {
     if (fnDesc.name != "Constructor") {
       return false
     }
-    if ((has appCtx.definedClasses className) == false) {
+    if ((has appCtx.tables.definedClasses className) == false) {
       return false
     }
-    def cl (unwrap (get appCtx.definedClasses className))
+    def cl (unwrap (get appCtx.tables.definedClasses className))
     return cl.has_constructor
   }
 
@@ -3563,10 +3563,10 @@ class LowIRBuilderPass {
     if (depth > 16) {
       return false
     }
-    if ((has appCtx.definedClasses className) == false) {
+    if ((has appCtx.tables.definedClasses className) == false) {
       return false
     }
-    def cl (unwrap (get appCtx.definedClasses className))
+    def cl (unwrap (get appCtx.tables.definedClasses className))
     for cl.extends_classes b:string bi {
       if (b == baseName) {
         return true

@@ -102,7 +102,7 @@ class ModuleFunctions {
     }
     def target:CodeNode (unwrap body)
     def rootCtx:RangerAppWriterContext (ctx.getRoot())
-    set rootCtx.fileModules fileName modName
+    set rootCtx.tables.fileModules fileName modName
     for fns f:CodeNode fi {
       def head:CodeNode (f.getFirst())
       head.vref = "sfn"
@@ -110,14 +110,14 @@ class ModuleFunctions {
       f.parent = target
       def nameNode:CodeNode (f.getSecond())
       def fname:string nameNode.vref
-      if (has rootCtx.moduleFunctions fname) {
-        def prev:string (unwrap (get rootCtx.moduleFunctions fname))
+      if (has rootCtx.tables.moduleFunctions fname) {
+        def prev:string (unwrap (get rootCtx.tables.moduleFunctions fname))
         def parts:[string] (strsplit prev "|")
         if ((indexOf parts modName) < 0) {
-          set rootCtx.moduleFunctions fname ((prev + "|") + modName)
+          set rootCtx.tables.moduleFunctions fname ((prev + "|") + modName)
         }
       } {
-        set rootCtx.moduleFunctions fname modName
+        set rootCtx.tables.moduleFunctions fname modName
       }
     }
     root.children = rest
@@ -127,13 +127,13 @@ class ModuleFunctions {
   ; module has the function, "?a|b" when several do and none is the caller's.
   sfn resolve:string (name:string fileName:string ctx:RangerAppWriterContext) {
     def rootCtx:RangerAppWriterContext (ctx.getRoot())
-    if (false == (has rootCtx.moduleFunctions name)) {
+    if (false == (has rootCtx.tables.moduleFunctions name)) {
       return ""
     }
-    def mods:string (unwrap (get rootCtx.moduleFunctions name))
+    def mods:string (unwrap (get rootCtx.tables.moduleFunctions name))
     def parts:[string] (strsplit mods "|")
-    if (has rootCtx.fileModules fileName) {
-      def own:string (unwrap (get rootCtx.fileModules fileName))
+    if (has rootCtx.tables.fileModules fileName) {
+      def own:string (unwrap (get rootCtx.tables.fileModules fileName))
       if ((indexOf parts own) >= 0) {
         return own
       }

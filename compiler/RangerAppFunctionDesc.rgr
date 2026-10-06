@@ -155,7 +155,7 @@ class RangerAppFunctionDesc {
       }
     })
     def root (ctx.getRoot())
-    root.definedClasses.forEach({
+    root.tables.definedClasses.forEach({
       if( (indexOf item.extends_classes cc.name) >= 0 ) {
         if(item.hasMethod(f.name)) {
           def m (item.findMethod(f.name))

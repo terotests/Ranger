@@ -44,6 +44,15 @@ export const {
 } = compiler;
 
 /**
+ * The root context's class tables. The compiler keeps them in
+ * `ctx.tables` (RangerRootTables); the language-server bundle above is
+ * rebuilt on its own schedule and may still have them on the context.
+ */
+function rootTables(ctx: any): any {
+  return ctx?.tables ?? ctx;
+}
+
+/**
  * Result of compiling code for introspection
  */
 export interface IntrospectionResult {
@@ -200,7 +209,7 @@ export async function compileForIntrospection(
     // Build a synthetic root node from the class definitions
     // This gives us access to AST positions for type queries
     let rootNode: any = null;
-    if (result.ctx?.definedClasses) {
+    if (rootTables(result.ctx)?.definedClasses) {
       const syntheticRoot: any = {
         sp: 0,
         ep: sourceCode.length,
@@ -210,8 +219,8 @@ export async function compileForIntrospection(
       };
 
       // Add all class nodes as children
-      for (const className in result.ctx.definedClasses) {
-        const classDesc = result.ctx.definedClasses[className];
+      for (const className in rootTables(result.ctx).definedClasses) {
+        const classDesc = rootTables(result.ctx).definedClasses[className];
         if (classDesc.node) {
           syntheticRoot.children.push(classDesc.node);
         }
@@ -282,12 +291,12 @@ function createIntrospectionResult(
 
     getClasses(): Map<string, ClassInfo> {
       const classes = new Map<string, ClassInfo>();
-      if (!context?.definedClasses) return classes;
+      if (!rootTables(context)?.definedClasses) return classes;
 
       const classNames =
-        context.definedClassList || Object.keys(context.definedClasses);
+        rootTables(context).definedClassList || Object.keys(rootTables(context).definedClasses);
       for (const className of classNames) {
-        const classDesc = context.definedClasses[className];
+        const classDesc = rootTables(context).definedClasses[className];
         if (!classDesc) continue;
 
         classes.set(className, extractClassInfo(classDesc));
@@ -296,8 +305,8 @@ function createIntrospectionResult(
     },
 
     getClass(name: string): ClassInfo | undefined {
-      if (!context?.definedClasses?.[name]) return undefined;
-      return extractClassInfo(context.definedClasses[name]);
+      if (!rootTables(context)?.definedClasses?.[name]) return undefined;
+      return extractClassInfo(rootTables(context).definedClasses[name]);
     },
 
     getEnums(): Map<string, EnumInfo> {
@@ -316,9 +325,9 @@ function createIntrospectionResult(
 
     getVariablesInScope(className: string, methodName: string): VariableInfo[] {
       const variables: VariableInfo[] = [];
-      if (!context?.definedClasses?.[className]) return variables;
+      if (!rootTables(context)?.definedClasses?.[className]) return variables;
 
-      const classDesc = context.definedClasses[className];
+      const classDesc = rootTables(context).definedClasses[className];
       const methodDesc =
         classDesc.methods?.[methodName] ||
         findMethodInVariants(classDesc, methodName);

@@ -35,7 +35,7 @@ class RangerProcessProcSend {
   sfn collectProcessClasses:[RangerAppClassDesc] (ctx:RangerAppWriterContext) {
     def res:[RangerAppClassDesc]
     def root (ctx.getRoot())
-    for root.definedClasses cl:RangerAppClassDesc i {
+    for root.tables.definedClasses cl:RangerAppClassDesc i {
       if (cl.is_process) {
         push res cl
       }
