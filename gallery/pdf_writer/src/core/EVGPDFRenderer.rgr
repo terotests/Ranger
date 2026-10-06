@@ -120,6 +120,11 @@ class EVGPDFRenderer {
     ; side, the page content is shifted into the middle, and the PDF declares a
     ; TrimBox so a printer knows where the finished page actually ends.
     def bleed:double 0.0
+    ; Crop marks: thin lines in a slug outside the bleed that show the press
+    ; where to cut. The slug is `markSpace` points wide on every side and is
+    ; zero when no marks were asked for, so the sheet stays trim + bleed.
+    def cropMarks:boolean false
+    def markSpace:double 0.0
 
     ; --- print finishing -----------------------------------------------------
     ; "rgb" writes the device colours it always wrote. "cmyk" converts every
@@ -925,7 +930,7 @@ class EVGPDFRenderer {
             this.beginBleedShift()
             ; Apply margin offset when rendering
             this.renderElement(pg pgMargin pgMargin)
-            this.endBleedShift()
+            this.endBleedShiftFor(pgWidth pgHeight)
             def contentData:buffer (streamBuffer.toBuffer())
             push contentDataList contentData
             
@@ -2057,6 +2062,16 @@ class EVGPDFRenderer {
             }
         }
         
+        ; A crop window into the source decides on its own: the window is
+        ; stretched over the box, whatever objectFit says.
+        if el.imageViewBoxSet {
+            def place:[double] (EVGPDFRenderer.viewBoxPlacement(el.imageViewBoxX el.imageViewBoxY el.imageViewBoxW el.imageViewBoxH w h))
+            renderW = (itemAt place 0)
+            renderH = (itemAt place 1)
+            offsetX = (itemAt place 2)
+            offsetY = (itemAt place 3)
+        }
+
         ; Draw the image (orientation already applied during JPEG processing)
         ; PDF transformation matrix: [a b c d e f] cm
         ; where: a=scaleX, d=scaleY, e=translateX, f=translateY
@@ -2085,6 +2100,30 @@ class EVGPDFRenderer {
         streamBuffer.writeString("Q\n")
     }
     
+    ; Where a picture goes when only the window vx vy vw vh of it (fractions
+    ; of the bitmap, top-left origin) is to fill a box of w x h: the size the
+    ; whole bitmap is drawn at and its offset from the box's BOTTOM left, as
+    ; PDF counts. The box clips the rest.
+    sfn viewBoxPlacement:[double] (vx:double vy:double vw:double vh:double w:double h:double) {
+        def out:[double]
+        def ww:double vw
+        def hh:double vh
+        if (ww < 0.000001) {
+            ww = 1.0
+        }
+        if (hh < 0.000001) {
+            hh = 1.0
+        }
+        def rw:double (w / ww)
+        def rh:double (h / hh)
+        push out rw
+        push out rh
+        push out (0.0 - (vx * rw))
+        ; the window's top edge lands on the box's top edge
+        push out ((h + (vy * rh)) - rh)
+        return out
+    }
+
     ; The transform taking this element's path coordinates onto its layout box.
     ;
     ; Kept as its own method so the HTML renderer can agree with it by
@@ -3522,10 +3561,7 @@ class EVGPDFRenderer {
         ; The bleed shift is a `cm` on the content stream and annotations are
         ; not content, so what the translate does to the ink has to be done to
         ; the rectangle by hand.
-        def dx:double 0.0
-        if (bleed > 0.0) {
-            dx = bleed
-        }
+        def dx:double (this.outset())
         push linkPage curLinkPage
         push linkUrl url
         push linkX (x + dx)
@@ -3604,20 +3640,91 @@ class EVGPDFRenderer {
     }
 
     fn beginBleedShift:void () {
-        if (bleed > 0.0) {
+        def o:double (this.outset())
+        if (o > 0.0) {
             streamBuffer.writeString("q\n")
-            streamBuffer.writeString("1 0 0 1 " + (this.formatNum(bleed)) + " " + (this.formatNum(bleed)) + " cm\n")
+            streamBuffer.writeString("1 0 0 1 " + (this.formatNum(o)) + " " + (this.formatNum(o)) + " cm\n")
         }
     }
 
-    fn endBleedShift:void () {
-        if (bleed > 0.0) {
+    ; Closes the shift and, outside it, draws the crop marks round a page of
+    ; trimW x trimH: they belong to the sheet, not to the page's content.
+    fn endBleedShiftFor:void (trimW:double trimH:double) {
+        if ((this.outset()) > 0.0) {
             streamBuffer.writeString("Q\n")
         }
+        streamBuffer.writeString((this.cropMarkOps(trimW trimH)))
+    }
+
+    fn endBleedShift:void () {
+        this.endBleedShiftFor(pageWidth pageHeight)
     }
 
     fn setBleed:void (b:double) {
         bleed = b
+    }
+
+    ; Marks on or off. The slug they sit in is 20pt (about 7mm): each mark
+    ; starts 2pt beyond the bleed, so it never shows on a trimmed page even
+    ; when the cut drifts by the whole bleed, and runs 16pt (about 5.6mm).
+    fn setCropMarks:void (on:boolean) {
+        cropMarks = on
+        markSpace = 0.0
+        if on {
+            markSpace = 20.0
+        }
+    }
+
+    ; How far the trim sits from the sheet's edge: the bleed plus the slug.
+    fn outset:double () {
+        return (bleed + markSpace)
+    }
+
+    ; The eight crop-mark strokes for a trim of trimW x trimH, in sheet
+    ; coordinates (origin bottom left). Two per corner, each on the line of a
+    ; trim edge and pointing away from the page. Black at 0.25pt, the hairline
+    ; presses expect.
+    fn cropMarkOps:string (trimW:double trimH:double) {
+        if (cropMarks == false) {
+            return ""
+        }
+        def o:double (this.outset())
+        def gap:double (bleed + 2.0)
+        def len:double (markSpace - 4.0)
+        def x0:double o
+        def x1:double (o + trimW)
+        def y0:double o
+        def y1:double (o + trimH)
+        def out:string "q\n0 0 0 RG\n0.25 w\n"
+        def xs:[double] ([] _:double (x0 x1))
+        def ys:[double] ([] _:double (y0 y1))
+        def i:int 0
+        while (i < 2) {
+            def x:double (itemAt xs i)
+            def dx:double (0.0 - 1.0)
+            if (i == 1) {
+                dx = 1.0
+            }
+            def j:int 0
+            while (j < 2) {
+                def y:double (itemAt ys j)
+                def dy:double (0.0 - 1.0)
+                if (j == 1) {
+                    dy = 1.0
+                }
+                ; horizontal mark on the line of the trim's top or bottom edge
+                def hx0:double (x + (dx * gap))
+                def hx1:double (x + (dx * (gap + len)))
+                out = (out + (this.formatNum(hx0)) + " " + (this.formatNum(y)) + " m " + (this.formatNum(hx1)) + " " + (this.formatNum(y)) + " l S\n")
+                ; vertical mark on the line of the trim's left or right edge
+                def vy0:double (y + (dy * gap))
+                def vy1:double (y + (dy * (gap + len)))
+                out = (out + (this.formatNum(x)) + " " + (this.formatNum(vy0)) + " m " + (this.formatNum(x)) + " " + (this.formatNum(vy1)) + " l S\n")
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return (out + "Q\n")
     }
 
     ; Page boxes for a trim size of trimW x trimH.
@@ -3626,18 +3733,23 @@ class EVGPDFRenderer {
     ; sheet is the trim size plus `bleed` on each side, and TrimBox marks where
     ; the finished page is cut — full-bleed artwork runs past the trim into the
     ; bleed area and the cut lands inside the ink rather than at its edge.
-    ; BleedBox equals MediaBox here: everything outside trim IS the bleed.
+    ; With crop marks the sheet grows again by the slug they sit in, and the
+    ; BleedBox stops where the slug begins.
     fn pageBoxes:string (trimW:double trimH:double) {
-        if (bleed <= 0.0) {
+        def o:double (this.outset())
+        if (o <= 0.0) {
             return (" /MediaBox [0 0 " + (this.formatNum(trimW)) + " " + (this.formatNum(trimH)) + "]")
         }
-        def sheetW:double (trimW + (bleed * 2.0))
-        def sheetH:double (trimH + (bleed * 2.0))
+        def sheetW:double (trimW + (o * 2.0))
+        def sheetH:double (trimH + (o * 2.0))
         def out:string (" /MediaBox [0 0 " + (this.formatNum(sheetW)) + " " + (this.formatNum(sheetH)) + "]")
-        out = out + (" /BleedBox [0 0 " + (this.formatNum(sheetW)) + " " + (this.formatNum(sheetH)) + "]")
-        def trimX2:double (bleed + trimW)
-        def trimY2:double (bleed + trimH)
-        out = out + (" /TrimBox [" + (this.formatNum(bleed)) + " " + (this.formatNum(bleed)) + " " + (this.formatNum(trimX2)) + " " + (this.formatNum(trimY2)) + "]")
+        ; the bleed ends where the slug with the crop marks begins
+        def bx2:double (sheetW - markSpace)
+        def by2:double (sheetH - markSpace)
+        out = out + (" /BleedBox [" + (this.formatNum(markSpace)) + " " + (this.formatNum(markSpace)) + " " + (this.formatNum(bx2)) + " " + (this.formatNum(by2)) + "]")
+        def trimX2:double (o + trimW)
+        def trimY2:double (o + trimH)
+        out = out + (" /TrimBox [" + (this.formatNum(o)) + " " + (this.formatNum(o)) + " " + (this.formatNum(trimX2)) + " " + (this.formatNum(trimY2)) + "]")
         return out
     }
 

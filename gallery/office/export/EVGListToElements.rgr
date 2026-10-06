@@ -277,6 +277,18 @@ class EVGListToElements {
             el.width = (EVGUnit.px(c.w))
             el.height = (EVGUnit.px(c.h))
             el.src = c.src
+            ; a cropped picture shows its window, not the whole bitmap
+            ; centred, and keeps its rounded corners
+            if c.hasCrop {
+                el.imageViewBoxX = c.cropX
+                el.imageViewBoxY = c.cropY
+                el.imageViewBoxW = c.cropW
+                el.imageViewBoxH = c.cropH
+                el.imageViewBoxSet = true
+            }
+            if (c.radius > 0.0) {
+                el.box.borderRadius = (EVGUnit.px(c.radius))
+            }
             if (c.rotate != 0.0) {
                 el.rotate = c.rotate
                 EVGListToElements.pivot(el c)
