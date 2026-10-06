@@ -2378,6 +2378,8 @@ class VlRuntime {
                     def side:double (fabs (sc.rangeMax - sc.rangeMin))
                     if (side >= 1.0) {
                         axis.titleLimit = side
+                        ; …and fitted to it rather than cut
+                        axis.titleWrap = true
                     }
                 }
                 def tickCount:int (this.axisTickCount(adef))

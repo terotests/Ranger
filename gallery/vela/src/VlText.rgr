@@ -19,6 +19,18 @@
 ; that swap is local.
 ; ==============================================================================
 
+; What `VlText.fitTitle` decided: the size, the text (lines joined with a
+; line break), how many lines, and whether words were cut.
+class VlTextFit {
+    def size:double 11.0
+    def text:string ""
+    def lineCount:int 1
+    def cut:boolean false
+
+    Constructor () {
+    }
+}
+
 class VlText {
     ; The reference's canvas-free estimate, truncated toward zero exactly as its
     ; `~~` does.
@@ -160,6 +172,124 @@ class VlText {
             }
         }
         return ((substring text 0 kept) + ellipsis)
+    }
+
+    ; A title fitted to `limit`, the way a document wants it read rather than
+    ; cut: first a little smaller on one line (down to 85 %), then on two
+    ; lines broken at the space that balances them, from the full size down to
+    ; `least`; only when even that does not fit is it cut, at `least`, with an
+    ; ellipsis on the line that runs over. `cut` says the reader lost words
+    ; (a host shows the whole title on hover). The lines are joined with a
+    ; line break, the value model's way of writing a label on several lines.
+    sfn fitTitle:VlTextFit (text:string fontSize:double limit:double least:double) {
+        def fit (new VlTextFit())
+        fit.size = fontSize
+        fit.text = text
+        if ((limit <= 0.0) || ((VlText.estimateWidth(text fontSize)) < limit)) {
+            return fit
+        }
+        def floorSize:double least
+        if (floorSize > fontSize) {
+            floorSize = fontSize
+        }
+        def step:double 0.5
+        ; one line, a little smaller
+        def oneLeast:double (fontSize * 0.85)
+        if (oneLeast < floorSize) {
+            oneLeast = floorSize
+        }
+        def s1:double (fontSize - step)
+        while (s1 >= oneLeast) {
+            if ((VlText.estimateWidth(text s1)) < limit) {
+                fit.size = s1
+                return fit
+            }
+            s1 = (s1 - step)
+        }
+        ; two lines, broken where the longer one is shortest
+        def at:int (VlText.balancedBreak(text))
+        if (at > 0) {
+            def first:string (substring text 0 at)
+            def second:string (substring text (at + 1) (strlen text))
+            def s2:double fontSize
+            while (s2 >= floorSize) {
+                if (((VlText.estimateWidth(first s2)) < limit) && ((VlText.estimateWidth(second s2)) < limit)) {
+                    fit.size = s2
+                    fit.text = ((first + "\n") + second)
+                    fit.lineCount = 2
+                    return fit
+                }
+                s2 = (s2 - step)
+            }
+        }
+        ; too long even then: at the least size, as many words as fit on the
+        ; first line and the rest cut on the second
+        fit.size = floorSize
+        fit.cut = true
+        def words:[string] (strsplit text " ")
+        def line1:string ""
+        def used:int 0
+        def wi:int 0
+        while (wi < (array_length words)) {
+            def w:string (itemAt words wi)
+            def tryLine:string w
+            if ((strlen line1) > 0) {
+                tryLine = ((line1 + " ") + w)
+            }
+            if ((VlText.estimateWidth(tryLine floorSize)) < limit) {
+                line1 = tryLine
+                used = (wi + 1)
+                wi = (wi + 1)
+            } {
+                wi = (array_length words)
+            }
+        }
+        if (used == 0) {
+            fit.text = (VlText.truncate(text floorSize limit))
+            return fit
+        }
+        def rest:string ""
+        def ri:int used
+        while (ri < (array_length words)) {
+            if ((strlen rest) > 0) {
+                rest = (rest + " ")
+            }
+            rest = (rest + (itemAt words ri))
+            ri = (ri + 1)
+        }
+        if ((strlen rest) == 0) {
+            fit.text = line1
+            fit.cut = false
+            return fit
+        }
+        fit.text = ((line1 + "\n") + (VlText.truncate(rest floorSize limit)))
+        fit.lineCount = 2
+        return fit
+    }
+
+    ; The space that splits `text` into two lines whose longer one is the
+    ; shortest; -1 when it has no space.
+    sfn balancedBreak:int (text:string) {
+        def n:int (strlen text)
+        def best:int -1
+        def bestLong:double 0.0
+        def i:int 1
+        while (i < (n - 1)) {
+            if ((substring text i (i + 1)) == " ") {
+                def a:double (VlText.estimateWidth((substring text 0 i) 10.0))
+                def b:double (VlText.estimateWidth((substring text (i + 1) n) 10.0))
+                def longer:double a
+                if (b > longer) {
+                    longer = b
+                }
+                if ((best < 0) || (longer < bestLong)) {
+                    best = i
+                    bestLong = longer
+                }
+            }
+            i = (i + 1)
+        }
+        return best
     }
 
     sfn widestLabel:double (labels:[string] fontSize:double) {

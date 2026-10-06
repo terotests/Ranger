@@ -1,0 +1,131 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; title_test.rgr — a document's axis title is fitted, not cut.
+; ==============================================================================
+; On a slide a long y title ("Count of Records per Region") used to be cut to
+; the axis' length: "Count…". `VlText.fitTitle` makes it a little smaller,
+; then puts it on two lines, and cuts only below the least size. The axis
+; reserves the room the title then takes, and a cut title keeps its whole text
+; for a host to show on hover.
+; ==============================================================================
+
+Import "../src/VlCompile.rgr"
+Import "../src/VlRuntime.rgr"
+Import "../src/VlCommand.rgr"
+Import "../src/VlText.rgr"
+
+class VlTitleTest {
+    def failures:int 0
+    def checks:int 0
+
+    fn check:void (name:string got:string want:string) {
+        checks = (checks + 1)
+        if (got == want) {
+            print ("ok   " + name)
+        } {
+            failures = (failures + 1)
+            print ("FAIL " + name)
+            print ("  got  " + got)
+            print ("  want " + want)
+        }
+    }
+
+    fn checkTrue:void (name:string got:boolean) {
+        this.check(name (? got "true" "false") "true")
+    }
+
+    fn fits:void () {
+        ; fits as it is
+        def a:VlTextFit (VlText.fitTitle("Count" 11.0 200.0 6.6))
+        this.check("a short title is left alone" a.text "Count")
+        this.checkTrue("…at its own size" (a.size == 11.0))
+        this.checkTrue("…and nothing is cut" (a.cut == false))
+        ; a little too long: smaller, still one line
+        ; "Count of Records" is 16 characters: 0.8 × 16 × 11 = 140.8
+        def b:VlTextFit (VlText.fitTitle("Count of Records" 11.0 135.0 6.6))
+        this.check("a little too long: one line" b.text "Count of Records")
+        this.checkTrue("…a little smaller" ((b.size < 11.0) && (b.size >= 9.35)))
+        this.checkTrue("…and it fits" ((VlText.estimateWidth(b.text b.size)) < 135.0))
+        ; much too long: two balanced lines
+        def c:VlTextFit (VlText.fitTitle("Count of Records per Region" 11.0 140.0 6.6))
+        this.check("too long: two lines, broken where they balance" c.text "Count of Records\nper Region")
+        this.checkTrue("…two lines" (c.lineCount == 2))
+        this.checkTrue("…not cut" (c.cut == false))
+        def lines:[string] (VlText.lines(c.text))
+        this.checkTrue("…each line fits" (((VlText.estimateWidth((itemAt lines 0) c.size)) < 140.0) && ((VlText.estimateWidth((itemAt lines 1) c.size)) < 140.0)))
+        ; far too long even on two lines at the least size: cut, and said so
+        def d:VlTextFit (VlText.fitTitle("Number of customer support tickets resolved within the first day" 11.0 60.0 6.6))
+        this.checkTrue("far too long: cut" d.cut)
+        this.checkTrue("…at the least size" (d.size == 6.6))
+        this.checkTrue("…ending in an ellipsis" ((indexOf d.text (strfromcode 8230)) > 0))
+        def dl:[string] (VlText.lines(d.text))
+        this.checkTrue("…on at most two lines" ((array_length dl) <= 2))
+        ; one long word cannot be broken: cut at the least size
+        def e:VlTextFit (VlText.fitTitle("Supercalifragilisticexpialidocious" 11.0 60.0 6.6))
+        this.checkTrue("one long word: cut" (e.cut && (e.lineCount == 1)))
+        this.check("the break balances the lines" (to_string (VlText.balancedBreak("aa bbbb cc dd"))) "7")
+        this.check("no space: no break" (to_string (VlText.balancedBreak("abcdef"))) "-1")
+    }
+
+    ; A chart in document mode: its y title is drawn on two lines, and the
+    ; plot moves in by the line it takes.
+    fn chart:VlCommandList (title:string auto:boolean) {
+        def spec:string ("{\"width\":200,\"height\":120,\"data\":{\"values\":[{\"a\":\"A\",\"b\":28},{\"a\":\"B\",\"b\":55}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"a\",\"type\":\"nominal\"},\"y\":{\"field\":\"b\",\"type\":\"quantitative\",\"title\":\"" + title + "\"}}}")
+        def p (new VlJsonParser())
+        def compiler (new VlCompile())
+        compiler.autoLabelAngle = auto
+        def vg:VlJson (compiler.compileSpec((p.parse(spec))))
+        def rt (new VlRuntime())
+        rt.autoLabelAngle = auto
+        return (VlSceneCommands.build((rt.run(vg))))
+    }
+
+    sfn yTitle:VlDrawCommand (list:VlCommandList) {
+        def found (new VlDrawCommand())
+        for list.commands c:VlDrawCommand i {
+            if ((c.op == "text") && ((c.angle == -90.0) || (c.angle == 270.0))) {
+                found = c
+            }
+        }
+        return found
+    }
+
+    ; How far in from the left the plot starts: the room the y axis took.
+    fn plotLeft:double (title:string) {
+        def spec:string ("{\"width\":200,\"height\":120,\"data\":{\"values\":[{\"a\":\"A\",\"b\":28}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"a\",\"type\":\"nominal\"},\"y\":{\"field\":\"b\",\"type\":\"quantitative\",\"title\":\"" + title + "\"}}}")
+        def p (new VlJsonParser())
+        def compiler (new VlCompile())
+        compiler.autoLabelAngle = true
+        def vg:VlJson (compiler.compileSpec((p.parse(spec))))
+        def rt (new VlRuntime())
+        rt.autoLabelAngle = true
+        rt.run(vg)
+        return (rt.plotOriginX())
+    }
+
+    fn runtime:void () {
+        def long:string "Count of Records per Region and Quarter"
+        def doc:VlCommandList (this.chart(long true))
+        def t:VlDrawCommand (VlTitleTest.yTitle(doc))
+        this.checkTrue("document: the y title is on two lines" ((array_length (VlText.lines(t.text))) == 2))
+        this.check("document: nothing cut, nothing to show on hover" t.full "")
+        this.checkTrue("document: two lines take more room than one" ((this.plotLeft(long)) > (this.plotLeft("Count"))))
+        ; the reference mode is untouched: one line, as written
+        def ref:VlCommandList (this.chart(long false))
+        def rt0:VlDrawCommand (VlTitleTest.yTitle(ref))
+        this.check("reference: the title as written" rt0.text long)
+        ; far too long: cut, and the whole title kept
+        def far:string "Number of customer support tickets resolved within the first day of the quarter by region"
+        def cut:VlCommandList (this.chart(far true))
+        def ct:VlDrawCommand (VlTitleTest.yTitle(cut))
+        this.check("document: a cut title keeps its whole text" ct.full far)
+    }
+
+    sfn main:void () {
+        def t (new VlTitleTest())
+        t.fits()
+        t.runtime()
+        print ((((to_string (t.checks - t.failures)) + "/") + (to_string t.checks)) + " title checks passed")
+    }
+}

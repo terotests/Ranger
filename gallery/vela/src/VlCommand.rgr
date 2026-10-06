@@ -92,6 +92,9 @@ class VlDrawCommand {
     def cornerBL:double 0.0
 
     def text:string ""
+    ; The whole text when `text` was cut to fit (an axis title in a
+    ; document); "" when nothing was cut.
+    def full:string ""
     def font:string "sans-serif"
     def fontSize:double 11.0
     def fontWeight:string ""
@@ -667,6 +670,9 @@ class VlSceneCommands {
                 cmd.y = (cmd.y - (r * (cos a)))
             }
             cmd.text = (item.textOf("text"))
+            if (item.has("full")) {
+                cmd.full = (item.textOf("full"))
+            }
             cmd.fontSize = 11.0
             if (item.has("fontSize")) {
                 cmd.fontSize = (item.number("fontSize"))

@@ -62,6 +62,13 @@ class VlAxis {
     ; Nothing by default: the reference caps a LABEL at a hundred and eighty
     ; pixels and leaves titles alone, however long the column is called.
     def titleLimit:double 0.0
+    ; A document's axis fits a long title to `titleLimit` rather than cutting
+    ; it (`VlText.fitTitle`): smaller, then on two lines, cut only below
+    ; `titleLeast` points. What it decided is kept for the room the axis takes.
+    def titleWrap:boolean false
+    def titleLeast:double 0.0
+    def titleDrawnSize:double 0.0
+    def titleLineCount:int 1
     def domainColor:string "#888"
     def domainWidth:double 1.0
     def gridColor:string "#ddd"
@@ -744,7 +751,12 @@ class VlAxis {
             ; name over the plot reserved fourteen pixels beside the plot for a
             ; title that is not there.
             if (! titlePlaced) {
-                totalExtent = ((labelExtent + titlePadding) + titleFontSize)
+                ; a title on two lines takes a line more
+                def titleRoom:double titleDrawnSize
+                if (titleLineCount > 1) {
+                    titleRoom = (titleRoom + ((VlText.lineStep(titleDrawnSize)) * (to_double (titleLineCount - 1))))
+                }
+                totalExtent = ((labelExtent + titlePadding) + titleRoom)
             }
         }
         ; The offset moves the axis away from the plot — every part of it
@@ -1362,8 +1374,26 @@ class VlAxis {
         ; spec positioned, which is what the reference records here.
         item.setValue("auto" (VlJson.boolValue(true)))
         item.setString("text" title)
+        titleDrawnSize = titleFontSize
+        titleLineCount = 1
         if (titleLimit > 0.0) {
-            item.setString("text" (VlText.truncate(title titleFontSize titleLimit)))
+            if (titleWrap && (titlePlaced == false)) {
+                def least:double titleLeast
+                if (least <= 0.0) {
+                    least = (titleFontSize * 0.6)
+                }
+                def fit:VlTextFit (VlText.fitTitle(title titleFontSize titleLimit least))
+                item.setString("text" fit.text)
+                item.setNumber("fontSize" fit.size)
+                titleDrawnSize = fit.size
+                titleLineCount = fit.lineCount
+                ; the words a reader lost, for a host that shows them on hover
+                if fit.cut {
+                    item.setString("full" title)
+                }
+            } {
+                item.setString("text" (VlText.truncate(title titleFontSize titleLimit)))
+            }
             item.setNumber("limit" titleLimit)
         }
         def away:double (labelExtent + titlePadding)
