@@ -36,6 +36,34 @@ class VlLocaleTest {
         }
     }
 
+    ; The texts a reader sees: an axis hides a crowded label by its opacity.
+    sfn shownTexts:void (mark:VlSceneMark out:[string]) {
+        for mark.items item:VlSceneItem ii {
+            if (mark.markType == "text") {
+                def hidden:boolean false
+                if (item.has("opacity")) {
+                    hidden = ((item.number("opacity")) == 0.0)
+                }
+                if (! hidden) {
+                    push out (item.text("text"))
+                }
+            }
+            for item.marks child:VlSceneMark ci {
+                VlLocaleTest.shownTexts(child out)
+            }
+        }
+    }
+
+    sfn shownCount:int (vl:string) {
+        def p (new VlJsonParser())
+        def compiler (new VlCompile())
+        def rt (new VlRuntime())
+        def scene:VlSceneMark (rt.run((compiler.compileSpec((p.parse(vl))))))
+        def out:[string]
+        VlLocaleTest.shownTexts(scene out)
+        return (array_length out)
+    }
+
     ; Every rect's fill, in drawing order.
     sfn fills:void (mark:VlSceneMark out:[string]) {
         for mark.items item:VlSceneItem ii {
@@ -113,6 +141,27 @@ class VlLocaleTest {
         this.check("category palette, second" (VlLocaleTest.has(fills "|#59c3c4|")) "yes")
         def plainFills:string (VlLocaleTest.barFills((coloured + "}")))
         this.check("default palette" (VlLocaleTest.has(plainFills "#b96926")) "no")
+
+        ; month names in the chart's words (`config.locale.time`)
+        def months:string "{\"data\":{\"values\":[{\"d\":\"2026-01-01\",\"v\":1},{\"d\":\"2026-02-01\",\"v\":2},{\"d\":\"2026-03-01\",\"v\":3}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"d\",\"type\":\"ordinal\",\"timeUnit\":\"month\"},\"y\":{\"field\":\"v\",\"type\":\"quantitative\"}}"
+        def en:string (VlLocaleTest.drawn((months + "}")))
+        this.check("english months" (VlLocaleTest.has(en "|Jan|")) "yes")
+        def fiTime:string ",\"config\":{\"locale\":{\"time\":{\"months\":[\"tammikuu\",\"helmikuu\",\"maaliskuu\",\"huhtikuu\",\"toukokuu\",\"kesäkuu\",\"heinäkuu\",\"elokuu\",\"syyskuu\",\"lokakuu\",\"marraskuu\",\"joulukuu\"],\"shortMonths\":[\"tammi\",\"helmi\",\"maalis\",\"huhti\",\"touko\",\"kesä\",\"heinä\",\"elo\",\"syys\",\"loka\",\"marras\",\"joulu\"],\"days\":[\"sunnuntai\",\"maanantai\",\"tiistai\",\"keskiviikko\",\"torstai\",\"perjantai\",\"lauantai\"],\"shortDays\":[\"su\",\"ma\",\"ti\",\"ke\",\"to\",\"pe\",\"la\"]}}}}"
+        def fiMonths:string (VlLocaleTest.drawn((months + fiTime)))
+        this.check("finnish months" (VlLocaleTest.between(fiMonths "tammi" "maalis")) "tammi|helmi|maalis")
+        this.check("no english months left" (VlLocaleTest.has(fiMonths "|Jan|")) "no")
+        ; a list of the wrong length is not read: English rather than gaps
+        def short:string (VlLocaleTest.drawn((months + ",\"config\":{\"locale\":{\"time\":{\"shortMonths\":[\"tammi\"]}}}}")))
+        this.check("short list ignored" (VlLocaleTest.has(short "|Jan|")) "yes")
+        def days:VlTimeNames (VlTimeNames.fromConfig(((new VlJsonParser()).parse("{\"time\":{\"days\":[\"sunnuntai\",\"maanantai\",\"tiistai\",\"keskiviikko\",\"torstai\",\"perjantai\",\"lauantai\"]}}"))))
+        this.check("weekday name" (days.day(1 false)) "maanantai")
+        this.check("weekday short falls back" (days.day(1 true)) "Mon")
+
+        ; Turned upright, a label is as wide as its font is tall: twelve
+        ; Finnish months on 600 px stand clear and none is thinned away
+        def year:string "[{\"d\":\"2026-01-01\"},{\"d\":\"2026-02-01\"},{\"d\":\"2026-03-01\"},{\"d\":\"2026-04-01\"},{\"d\":\"2026-05-01\"},{\"d\":\"2026-06-01\"},{\"d\":\"2026-07-01\"},{\"d\":\"2026-08-01\"},{\"d\":\"2026-09-01\"},{\"d\":\"2026-10-01\"},{\"d\":\"2026-11-01\"},{\"d\":\"2026-12-01\"}]"
+        def upright:string ("{\"width\":600,\"height\":100,\"data\":{\"values\":" + year + "},\"mark\":\"tick\",\"encoding\":{\"x\":{\"field\":\"d\",\"type\":\"ordinal\",\"timeUnit\":\"month\",\"title\":null,\"axis\":{\"labelAngle\":-90,\"labelFontSize\":15}}}" + fiTime)
+        this.check("upright labels all shown" (to_string (VlLocaleTest.shownCount(upright))) "12")
 
         if (failures > 0) {
             print ((("FAILURES: " + (to_string failures)) + " of ") + (to_string checks))

@@ -73,7 +73,90 @@ class VlTimeParts {
 ; database records, and it does not pretend to. A date before the first era of
 ; its zone is read at that era's offset.
 ; ============================================================================
+; The words a time is written in: `config.locale.time` (d3's
+; timeFormatLocale: months, shortMonths, days, shortDays). A Finnish chart says
+; "tammi", "helmi" on its month axis, not "Jan", "Feb". Empty lists are English.
+class VlTimeNames {
+    def months:[string]
+    def shortMonths:[string]
+    def days:[string]
+    def shortDays:[string]
+
+    sfn fromConfig:VlTimeNames (locale:VlJson) {
+        def out (new VlTimeNames())
+        if (! (locale.isObject())) {
+            return out
+        }
+        def time:VlJson (locale.get("time"))
+        if (! (time.isObject())) {
+            return out
+        }
+        out.months = (VlTimeNames.listOf((time.get("months")) 12))
+        out.shortMonths = (VlTimeNames.listOf((time.get("shortMonths")) 12))
+        out.days = (VlTimeNames.listOf((time.get("days")) 7))
+        out.shortDays = (VlTimeNames.listOf((time.get("shortDays")) 7))
+        return out
+    }
+
+    ; A list of exactly `count` strings, or none: a short list would name some
+    ; months and leave the rest blank.
+    sfn listOf:[string] (v:VlJson count:int) {
+        def out:[string]
+        if (! (v.isArray())) {
+            return out
+        }
+        if ((v.count()) != count) {
+            return out
+        }
+        def i:int 0
+        while (i < count) {
+            def item:VlJson (v.at(i))
+            if (! (item.isString())) {
+                def none:[string]
+                return none
+            }
+            push out item.str
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn month:string (m:int short:boolean) {
+        if ((m < 1) || (m > 12)) {
+            return ""
+        }
+        if short {
+            if ((array_length shortMonths) == 12) {
+                return (itemAt shortMonths (m - 1))
+            }
+            return (substring (VlTime.monthName(m)) 0 3)
+        }
+        if ((array_length months) == 12) {
+            return (itemAt months (m - 1))
+        }
+        return (VlTime.monthName(m))
+    }
+
+    fn day:string (w:int short:boolean) {
+        if ((w < 0) || (w > 6)) {
+            return ""
+        }
+        if short {
+            if ((array_length shortDays) == 7) {
+                return (itemAt shortDays w)
+            }
+            return (substring (VlTime.weekdayName(w)) 0 3)
+        }
+        if ((array_length days) == 7) {
+            return (itemAt days w)
+        }
+        return (VlTime.weekdayName(w))
+    }
+}
+
 class VlTimeZone {
+    ; the words its times are written in (`config.locale.time`)
+    def names:VlTimeNames (new VlTimeNames())
     def name:string "UTC"
     ; Minutes EAST of UTC in standard time: Helsinki is 120, New York is -300.
     def standardMinutes:int 0
@@ -1331,7 +1414,7 @@ class VlTime {
             def c:string (substring spec i (i + 1))
             if ((c == "%") && ((i + 1) < n)) {
                 def d:string (substring spec (i + 1) (i + 2))
-                out = (out + (VlTime.directive(p d)))
+                out = (out + (VlTime.directive(p d zone.names)))
                 i = (i + 2)
             } {
                 out = (out + c)
@@ -1341,7 +1424,7 @@ class VlTime {
         return out
     }
 
-    sfn directive:string (p:VlTimeParts d:string) {
+    sfn directive:string (p:VlTimeParts d:string names:VlTimeNames) {
         if (d == "Y") {
             return (VlJson.intToText(p.year))
         }
@@ -1352,10 +1435,10 @@ class VlTime {
             return (VlTime.pad2(p.month))
         }
         if (d == "B") {
-            return (VlTime.monthName(p.month))
+            return (names.month(p.month false))
         }
         if (d == "b") {
-            return (substring (VlTime.monthName(p.month)) 0 3)
+            return (names.month(p.month true))
         }
         if (d == "d") {
             return (VlTime.pad2(p.day))
@@ -1368,10 +1451,10 @@ class VlTime {
             return (VlJson.intToText(p.day))
         }
         if (d == "A") {
-            return (VlTime.weekdayName(p.weekday))
+            return (names.day(p.weekday false))
         }
         if (d == "a") {
-            return (substring (VlTime.weekdayName(p.weekday)) 0 3)
+            return (names.day(p.weekday true))
         }
         if (d == "H") {
             return (VlTime.pad2(p.hours))

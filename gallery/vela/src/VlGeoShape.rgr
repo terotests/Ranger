@@ -1,0 +1,176 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; VlGeoShape.rgr — GeoJSON shapes, drawn through a projection.
+; ==============================================================================
+; A `geoshape` mark is a row per feature: a Feature (its `geometry`), or a bare
+; geometry, or — with the channel `shape` — a column holding one. Its rings are
+; projected point by point and joined into an SVG path, which the scene draws
+; as any `path`. The projection is fitted to every position the rows carry.
+;
+; The joins are straight lines between projected points (planar), and a ring
+; is drawn as the area it encloses whichever way it winds: d3 cuts on the
+; sphere and reads a clockwise ring as the world outside it, which drew a
+; hand-written square over Finland as the whole map with a hole in it.
+; ==============================================================================
+
+Import "VlJson.rgr"
+Import "VlGeo.rgr"
+
+class VlGeoShape {
+
+    ; The geometry a row stands for. `field` is the column the channel `shape`
+    ; names ("datum.geo" or "geo"), "" for the row itself.
+    sfn geometryOf:VlJson (row:VlJson field:string) {
+        def at:VlJson row
+        if ((strlen field) > 0) {
+            def name:string field
+            if ((indexOf name "datum.") == 0) {
+                name = (substring name 6 (strlen name))
+            }
+            at = (row.get(name))
+        }
+        if (! (at.isObject())) {
+            return (new VlJson())
+        }
+        if ((at.stringOr("type" "")) == "Feature") {
+            return (at.get("geometry"))
+        }
+        return at
+    }
+
+    ; Every longitude and latitude a geometry holds, in order.
+    sfn positions:void (geom:VlJson lons:[double] lats:[double]) {
+        if (! (geom.isObject())) {
+            return
+        }
+        def kind:string (geom.stringOr("type" ""))
+        if (kind == "GeometryCollection") {
+            def parts:VlJson (geom.get("geometries"))
+            def n:int (parts.count())
+            def i:int 0
+            while (i < n) {
+                VlGeoShape.positions((parts.at(i)) lons lats)
+                i = (i + 1)
+            }
+            return
+        }
+        VlGeoShape.nested((geom.get("coordinates")) lons lats)
+    }
+
+    ; A position is a list of numbers; anything else is a list of lists.
+    sfn nested:void (c:VlJson lons:[double] lats:[double]) {
+        if (! (c.isArray())) {
+            return
+        }
+        def n:int (c.count())
+        if (n == 0) {
+            return
+        }
+        if ((c.at(0)).isNumber()) {
+            if (n > 1) {
+                push lons ((c.at(0)).asDouble())
+                push lats ((c.at(1)).asDouble())
+            }
+            return
+        }
+        def i:int 0
+        while (i < n) {
+            VlGeoShape.nested((c.at(i)) lons lats)
+            i = (i + 1)
+        }
+    }
+
+    ; The SVG path of a geometry projected by `proj`: rings closed, lines left
+    ; open, points as nothing (a map of points is a `point` mark).
+    sfn pathOf:string (geom:VlJson proj:VlGeo) {
+        if (! (geom.isObject())) {
+            return ""
+        }
+        def kind:string (geom.stringOr("type" ""))
+        def c:VlJson (geom.get("coordinates"))
+        if (kind == "Polygon") {
+            return (VlGeoShape.rings(c proj true))
+        }
+        if (kind == "MultiPolygon") {
+            def out:string ""
+            def n:int (c.count())
+            def i:int 0
+            while (i < n) {
+                out = (out + (VlGeoShape.rings((c.at(i)) proj true)))
+                i = (i + 1)
+            }
+            return out
+        }
+        if (kind == "LineString") {
+            return (VlGeoShape.ring(c proj false))
+        }
+        if (kind == "MultiLineString") {
+            return (VlGeoShape.rings(c proj false))
+        }
+        if (kind == "GeometryCollection") {
+            def all:string ""
+            def parts:VlJson (geom.get("geometries"))
+            def m:int (parts.count())
+            def j:int 0
+            while (j < m) {
+                all = (all + (VlGeoShape.pathOf((parts.at(j)) proj)))
+                j = (j + 1)
+            }
+            return all
+        }
+        return ""
+    }
+
+    sfn rings:string (list:VlJson proj:VlGeo closed:boolean) {
+        def out:string ""
+        if (! (list.isArray())) {
+            return out
+        }
+        def n:int (list.count())
+        def i:int 0
+        while (i < n) {
+            out = (out + (VlGeoShape.ring((list.at(i)) proj closed)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn ring:string (pts:VlJson proj:VlGeo closed:boolean) {
+        def out:string ""
+        if (! (pts.isArray())) {
+            return out
+        }
+        def n:int (pts.count())
+        def drawn:int 0
+        def i:int 0
+        while (i < n) {
+            def p:VlJson (pts.at(i))
+            if ((p.isArray()) && ((p.count()) > 1)) {
+                def at:VlGeoXY (proj.projectPoint(((p.at(0)).asDouble()) ((p.at(1)).asDouble())))
+                if at.ok {
+                    def step:string "L"
+                    if (drawn == 0) {
+                        step = "M"
+                    }
+                    out = (out + step + (VlGeoShape.num(at.x)) + "," + (VlGeoShape.num(at.y)))
+                    drawn = (drawn + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if (closed && (drawn > 2)) {
+            out = (out + "Z")
+        }
+        if (drawn < 2) {
+            return ""
+        }
+        return out
+    }
+
+    ; three decimals: a thousandth of a pixel
+    sfn num:string (v:double) {
+        def r:double ((to_double (floor ((v * 1000.0) + 0.5))) / 1000.0)
+        return (to_string r)
+    }
+}

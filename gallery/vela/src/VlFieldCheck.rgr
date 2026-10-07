@@ -1,0 +1,430 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; VlFieldCheck.rgr — the fields a chart names that its data does not have.
+; ==============================================================================
+; `"field": "myyntii"` over a file whose columns are kuukausi, alue, myynti and
+; asiakkaat draws an empty frame and says nothing: Vega reads every value as
+; missing. This reads a Vega-Lite spec whose data is in it (`values`, which a
+; host that fetched the file has put there) and names each encoding field no
+; row has, with the column nearest to it by spelling ("myynti").
+;
+; It only speaks when it knows. Data it cannot see (a url), and transforms that
+; make columns it cannot name ahead of the data (pivot, lookup, flatten,
+; extent), turn the check off for that view rather than guess.
+; ==============================================================================
+
+Import "VlJson.rgr"
+
+class VlMissingField {
+    def channel:string ""
+    def field:string ""
+    ; the nearest column by spelling, "" for none near enough
+    def nearest:string ""
+    ; the columns the data has, in order
+    def columns:[string]
+
+    fn message:string () {
+        def out:string ("encoding " + channel + " reads field \"" + field + "\", which the data does not have")
+        if ((strlen nearest) > 0) {
+            out = (out + " (did you mean \"" + nearest + "\"?)")
+        }
+        if ((array_length columns) > 0) {
+            def shown:[string]
+            for columns c:string ci {
+                if (ci < 12) {
+                    push shown c
+                }
+            }
+            out = (out + "; its fields are " + (join shown ", "))
+            if ((array_length columns) > 12) {
+                out = (out + " …")
+            }
+        }
+        return out
+    }
+}
+
+class VlColumns {
+    def names:[string]
+}
+
+class VlFieldCheck {
+
+    ; The fields `spec` names that its data does not have.
+    sfn missing:[VlMissingField] (spec:VlJson) {
+        def out:[VlMissingField]
+        if (! (spec.isObject())) {
+            return out
+        }
+        def none:[string]
+        VlFieldCheck.walk(spec none false out)
+        return out
+    }
+
+    ; One view: its columns are its own data's, or what it inherits
+    ; (`known` false: nothing is known and nothing is checked), with what its
+    ; transforms add.
+    sfn walk:void (v:VlJson inherited:[string] knownIn:boolean out:[VlMissingField]) {
+        if (! (v.isObject())) {
+            return
+        }
+        ; a repeat writes its fields in later ({"repeat": "row"}); a facet's
+        ; rows are its own data's, which the inner spec shares
+        def cols (new VlColumns())
+        def known:boolean knownIn
+        for inherited c:string ci {
+            push cols.names c
+        }
+        def data:VlJson (v.get("data"))
+        if (data.isObject()) {
+            def own (new VlColumns())
+            known = (VlFieldCheck.columnsOf(data own))
+            cols = own
+        }
+        def tr:VlJson (v.get("transform"))
+        if (known && (tr.isArray())) {
+            known = (VlFieldCheck.transformed(tr cols))
+        }
+        if known {
+            VlFieldCheck.checkEncoding((v.get("encoding")) cols.names out)
+            def facet:VlJson (v.get("facet"))
+            if (facet.isObject()) {
+                if (facet.has("field")) {
+                    VlFieldCheck.checkOne("facet" facet cols.names out)
+                } {
+                    VlFieldCheck.checkOne("row" (facet.get("row")) cols.names out)
+                    VlFieldCheck.checkOne("column" (facet.get("column")) cols.names out)
+                }
+            }
+        }
+        for (strsplit "layer concat hconcat vconcat" " ") key:string ki {
+            def kids:VlJson (v.get(key))
+            if (kids.isArray()) {
+                def i:int 0
+                while (i < (kids.count())) {
+                    VlFieldCheck.walk((kids.at(i)) cols.names known out)
+                    i = (i + 1)
+                }
+            }
+        }
+        ; a repeat's spec names its fields through the repeat; checked as
+        ; it stands, a `{"repeat": …}` field is not a string and is passed
+        def inner:VlJson (v.get("spec"))
+        if (inner.isObject()) {
+            VlFieldCheck.walk(inner cols.names known out)
+        }
+    }
+
+    ; The columns of `data` into `cols`; false when they cannot be known
+    ; (a url, a named data set, a generator other than a sequence).
+    sfn columnsOf:boolean (data:VlJson cols:VlColumns) {
+        def seq:VlJson (data.get("sequence"))
+        if (seq.isObject()) {
+            push cols.names (seq.stringOr("as" "data"))
+            return true
+        }
+        def values:VlJson (data.get("values"))
+        def fmt:VlJson (data.get("format"))
+        if ((fmt.isObject()) && (values.isObject())) {
+            def prop:string (fmt.stringOr("property" ""))
+            if ((strlen prop) > 0) {
+                values = (values.get(prop))
+            }
+        }
+        if (! (values.isArray())) {
+            return false
+        }
+        if ((values.count()) == 0) {
+            return false
+        }
+        def i:int 0
+        def scalars:boolean false
+        while (i < (values.count())) {
+            def row:VlJson (values.at(i))
+            if (row.isObject()) {
+                for row.keys k:string ki {
+                    if ((indexOf cols.names k) < 0) {
+                        push cols.names k
+                    }
+                }
+            } {
+                scalars = true
+            }
+            i = (i + 1)
+        }
+        ; a list of plain values is read as {"data": value}
+        if scalars {
+            if ((indexOf cols.names "data") < 0) {
+                push cols.names "data"
+            }
+        }
+        return true
+    }
+
+    ; What `tr` adds to `cols`; false when a transform makes columns that
+    ; cannot be named before the data is read.
+    sfn transformed:boolean (tr:VlJson cols:VlColumns) {
+        def i:int 0
+        while (i < (tr.count())) {
+            def t:VlJson (tr.at(i))
+            if (! (t.isObject())) {
+                return false
+            }
+            if ((((t.has("pivot")) || (t.has("lookup"))) || (t.has("flatten"))) || (t.has("extent"))) {
+                return false
+            }
+            ; an aggregate keeps only its groups and what it makes
+            if (t.has("aggregate")) {
+                def kept (new VlColumns())
+                VlFieldCheck.addAll((t.get("groupby")) kept)
+                VlFieldCheck.addAs((t.get("aggregate")) kept)
+                cols.names = kept.names
+            }
+            VlFieldCheck.addAs((t.get("window")) cols)
+            VlFieldCheck.addAs((t.get("joinaggregate")) cols)
+            if (t.has("calculate")) {
+                VlFieldCheck.addName((t.get("as")) cols)
+            }
+            if (t.has("timeUnit")) {
+                VlFieldCheck.addName((t.get("as")) cols)
+            }
+            if (t.has("bin")) {
+                VlFieldCheck.addName((t.get("as")) cols)
+                def binAs:VlJson (t.get("as"))
+                if (binAs.isString()) {
+                    VlFieldCheck.addName((VlJson.stringValue((binAs.str + "_end"))) cols)
+                }
+            }
+            if (t.has("fold")) {
+                def foldAs:VlJson (t.get("as"))
+                if (foldAs.isArray()) {
+                    VlFieldCheck.addAll(foldAs cols)
+                } {
+                    VlFieldCheck.addName((VlJson.stringValue("key")) cols)
+                    VlFieldCheck.addName((VlJson.stringValue("value")) cols)
+                }
+            }
+            if ((((t.has("density")) || (t.has("regression"))) || (t.has("loess"))) || (t.has("quantile"))) {
+                def made:VlJson (t.get("as"))
+                if (made.isArray()) {
+                    VlFieldCheck.addAll(made cols)
+                } {
+                    if (t.has("density")) {
+                        VlFieldCheck.addName((VlJson.stringValue("value")) cols)
+                        VlFieldCheck.addName((VlJson.stringValue("density")) cols)
+                    }
+                    if (t.has("quantile")) {
+                        VlFieldCheck.addName((VlJson.stringValue("prob")) cols)
+                        VlFieldCheck.addName((VlJson.stringValue("value")) cols)
+                    }
+                }
+            }
+            if (t.has("stack")) {
+                VlFieldCheck.addAll((t.get("as")) cols)
+            }
+            if (t.has("impute")) {
+                VlFieldCheck.addName((t.get("impute")) cols)
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn addName:void (v:VlJson cols:VlColumns) {
+        if (v.isString()) {
+            if ((indexOf cols.names v.str) < 0) {
+                push cols.names v.str
+            }
+        }
+    }
+
+    sfn addAll:void (v:VlJson cols:VlColumns) {
+        if (v.isString()) {
+            VlFieldCheck.addName(v cols)
+            return
+        }
+        if (! (v.isArray())) {
+            return
+        }
+        def i:int 0
+        while (i < (v.count())) {
+            VlFieldCheck.addName((v.at(i)) cols)
+            i = (i + 1)
+        }
+    }
+
+    ; the `as` of each operation in a list ({"op": "sum", "field": …, "as": …})
+    sfn addAs:void (ops:VlJson cols:VlColumns) {
+        if (! (ops.isArray())) {
+            return
+        }
+        def i:int 0
+        while (i < (ops.count())) {
+            def op:VlJson (ops.at(i))
+            if (op.isObject()) {
+                VlFieldCheck.addName((op.get("as")) cols)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn checkEncoding:void (enc:VlJson cols:[string] out:[VlMissingField]) {
+        if (! (enc.isObject())) {
+            return
+        }
+        for enc.keys ch:string ki {
+            def def0:VlJson (enc.get(ch))
+            if (def0.isArray()) {
+                ; tooltip: [{field…}, …]
+                def i:int 0
+                while (i < (def0.count())) {
+                    VlFieldCheck.checkOne(ch (def0.at(i)) cols out)
+                    i = (i + 1)
+                }
+            } {
+                VlFieldCheck.checkOne(ch def0 cols out)
+                if (def0.isObject()) {
+                    def cond:VlJson (def0.get("condition"))
+                    if (cond.isObject()) {
+                        VlFieldCheck.checkOne(ch cond cols out)
+                    }
+                }
+            }
+        }
+    }
+
+    sfn checkOne:void (ch:string def0:VlJson cols:[string] out:[VlMissingField]) {
+        if (! (def0.isObject())) {
+            return
+        }
+        def f:VlJson (def0.get("field"))
+        if (! (f.isString())) {
+            return
+        }
+        def name:string f.str
+        if ((strlen name) == 0) {
+            return
+        }
+        ; `"field": "properties.v"` reads into an object; `a\.b` is a name
+        ; with a dot in it, which this does not take apart
+        if ((indexOf name "\\") >= 0) {
+            return
+        }
+        def head:string name
+        def dot:int (indexOf name ".")
+        if (dot > 0) {
+            head = (substring name 0 dot)
+        }
+        if ((indexOf cols head) >= 0) {
+            return
+        }
+        if ((indexOf cols name) >= 0) {
+            return
+        }
+        ; a field written with a time unit's or an aggregate's own name
+        ; (`"field": "month_date"`) is the compiler's; and one named twice
+        ; is reported once
+        for out m:VlMissingField mi {
+            if (m.field == name) {
+                return
+            }
+        }
+        def m (new VlMissingField())
+        m.channel = ch
+        m.field = name
+        ; "propertiez.v" → "properties.v": the object's name is what is
+        ; compared, the path under it kept
+        if (dot > 0) {
+            def near:string (VlFieldCheck.nearest(head cols))
+            if ((strlen near) > 0) {
+                m.nearest = (near + (substring name dot (strlen name)))
+            }
+        } {
+            m.nearest = (VlFieldCheck.nearest(name cols))
+        }
+        m.columns = cols
+        push out m
+    }
+
+    ; The column spelled nearest to `name`: at most a third of its letters
+    ; apart (at least one, at most three), case not counted.
+    sfn nearest:string (name:string cols:[string]) {
+        def best:string ""
+        def bestD:int 1000
+        def low:string (VlFieldCheck.lower(name))
+        def most:int (to_int ((to_double (strlen name)) / 3.0))
+        if (most < 1) {
+            most = 1
+        }
+        if (most > 3) {
+            most = 3
+        }
+        for cols c:string ci {
+            def d:int (VlFieldCheck.distance(low (VlFieldCheck.lower(c))))
+            if ((d <= most) && (d < bestD)) {
+                best = c
+                bestD = d
+            }
+        }
+        return best
+    }
+
+    sfn lower:string (s:string) {
+        def up:string "ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ"
+        def lo:string "abcdefghijklmnopqrstuvwxyzåäö"
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def ch:string (substring s i (i + 1))
+            def at:int (indexOf up ch)
+            if (at >= 0) {
+                out = (out + (substring lo at (at + 1)))
+            } {
+                out = (out + ch)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Levenshtein distance, one row at a time
+    sfn distance:int (a:string b:string) {
+        def n:int (strlen a)
+        def m:int (strlen b)
+        def prev:[int]
+        def j:int 0
+        while (j <= m) {
+            push prev j
+            j = (j + 1)
+        }
+        def i:int 1
+        while (i <= n) {
+            def cur:[int]
+            push cur i
+            def ca:string (substring a (i - 1) i)
+            def k:int 1
+            while (k <= m) {
+                def cost:int 1
+                if (ca == (substring b (k - 1) k)) {
+                    cost = 0
+                }
+                def best:int ((itemAt prev k) + 1)
+                def ins:int ((itemAt cur (k - 1)) + 1)
+                if (ins < best) {
+                    best = ins
+                }
+                def sub:int ((itemAt prev (k - 1)) + cost)
+                if (sub < best) {
+                    best = sub
+                }
+                push cur best
+                k = (k + 1)
+            }
+            prev = cur
+            i = (i + 1)
+        }
+        return (itemAt prev m)
+    }
+}
