@@ -52012,13 +52012,25 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     const item = node.children[2];
     const idx = node.children[3];
     const body = node.children[4];
+    const once = (coll.vref.length == 0 && coll.ns.length == 0) && idx.vref.length > 0;
+    let collName = "";
+    if ( once ) {
+      collName = idx.vref + "_of";
+      wr.out(collName + " := ", false);
+      this.goWriteOperand(coll, ctx, wr);
+      wr.newline();
+    }
     wr.out("var ", false);
     this.goWriteOperand(idx, ctx, wr);
     wr.out(" int64 = 0;  ", true);
     wr.out("for ; ", false);
     this.goWriteOperand(idx, ctx, wr);
     wr.out(" < int64(len(", false);
-    this.goWriteOperand(coll, ctx, wr);
+    if ( once ) {
+      wr.out(collName, false);
+    } else {
+      this.goWriteOperand(coll, ctx, wr);
+    }
     wr.out(")) ; ", false);
     this.goWriteOperand(idx, ctx, wr);
     wr.out("++ {", true);
@@ -52028,7 +52040,11 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       if ( this.goLoops.treeMentions(body, itemName) ) {
         this.goWriteOperand(item, ctx, wr);
         wr.out(" := ", false);
-        this.goWriteOperand(coll, ctx, wr);
+        if ( once ) {
+          wr.out(collName, false);
+        } else {
+          this.goWriteOperand(coll, ctx, wr);
+        }
         wr.out("[", false);
         this.goWriteOperand(idx, ctx, wr);
         wr.out("]", true);
