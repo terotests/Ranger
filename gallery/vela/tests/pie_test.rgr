@@ -1,0 +1,118 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; ==============================================================================
+; pie_test.rgr — a donut with its figure in the hole, side by side and faceted.
+; ==============================================================================
+; A text layer over an arc says one figure: `"text": {"value": "58 %"}`. Each
+; pie of a concatenation or a facet is drawn round the middle of its own pane,
+; and a facet whose panels each fill their ring (`"resolve": {"scale":
+; {"theta": "independent"}}`) still colours its wedges by the shared scale.
+; ==============================================================================
+
+Import "../src/VlCompile.rgr"
+Import "../src/VlRuntime.rgr"
+Import "../src/VlCommand.rgr"
+
+class VlPieTest {
+    def failures:int 0
+    def checks:int 0
+
+    fn checkTrue:void (name:string got:boolean) {
+        checks = (checks + 1)
+        if got {
+            print ("ok   " + name)
+        } {
+            failures = (failures + 1)
+            print ("FAIL " + name)
+        }
+    }
+
+    sfn draw:VlCommandList (spec:string) {
+        def p (new VlJsonParser())
+        def compiler (new VlCompile())
+        def vg:VlJson (compiler.compileSpec((p.parse(spec))))
+        def rt (new VlRuntime())
+        return (VlSceneCommands.build((rt.run(vg))))
+    }
+
+    sfn ring:string (values:string text:string) {
+        return ((("{\"width\":300,\"height\":300,\"data\":{\"values\":" + values) + "},\"layer\":[{\"mark\":{\"type\":\"arc\",\"innerRadius\":85,\"outerRadius\":130},\"encoding\":{\"theta\":{\"field\":\"v\",\"type\":\"quantitative\",\"stack\":true},\"color\":{\"field\":\"k\",\"type\":\"nominal\",\"legend\":null}}},{\"mark\":{\"type\":\"text\",\"fontSize\":34},\"encoding\":{\"text\":{\"value\":\"" + text) + "\"}}}]}")
+    }
+
+    fn texts:[VlDrawCommand] (list:VlCommandList want:string) {
+        def out:[VlDrawCommand]
+        for list.commands c:VlDrawCommand i {
+            if ((c.op == "text") && (c.text == want)) {
+                push out c
+            }
+        }
+        return out
+    }
+
+    fn arcs:[VlDrawCommand] (list:VlCommandList) {
+        def out:[VlDrawCommand]
+        for list.commands c:VlDrawCommand i {
+            if (c.op == "arc") {
+                push out c
+            }
+        }
+        return out
+    }
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        return ((d < 0.5) && (d > -0.5))
+    }
+
+    fn single:void () {
+        def list:VlCommandList (VlPieTest.draw((VlPieTest.ring("[{\"k\":\"A\",\"v\":58},{\"k\":\"B\",\"v\":42}]" "58 %"))))
+        def t:[VlDrawCommand] (this.texts(list "58 %"))
+        this.checkTrue("a text layer's value is drawn" ((array_length t) > 0))
+        def a:[VlDrawCommand] (this.arcs(list))
+        if (((array_length t) > 0) && ((array_length a) > 0)) {
+            def t0:VlDrawCommand (itemAt t 0)
+            def a0:VlDrawCommand (itemAt a 0)
+            this.checkTrue("…in the middle of the ring" (VlPieTest.near(t0.x a0.x)))
+        }
+    }
+
+    fn concat:void () {
+        def spec:string ((("{\"hconcat\":[" + (VlPieTest.ring("[{\"k\":\"A\",\"v\":54},{\"k\":\"B\",\"v\":37}]" "59 %"))) + ",") + ((VlPieTest.ring("[{\"k\":\"A\",\"v\":29771},{\"k\":\"B\",\"v\":21521}]" "58 %")) + "]}"))
+        def list:VlCommandList (VlPieTest.draw(spec))
+        def a:[VlDrawCommand] (this.arcs(list))
+        def t1:[VlDrawCommand] (this.texts(list "59 %"))
+        def t2:[VlDrawCommand] (this.texts(list "58 %"))
+        this.checkTrue("two pies side by side: four wedges" ((array_length a) == 4))
+        this.checkTrue("…and both figures" (((array_length t1) > 0) && ((array_length t2) > 0)))
+        if ((((array_length a) == 4) && ((array_length t1) > 0)) && ((array_length t2) > 0)) {
+            def first:VlDrawCommand (itemAt a 0)
+            def last:VlDrawCommand (itemAt a 3)
+            def f1:VlDrawCommand (itemAt t1 0)
+            def f2:VlDrawCommand (itemAt t2 0)
+            this.checkTrue("the first pie is round its own figure" (VlPieTest.near(first.x f1.x)))
+            this.checkTrue("the second pie is round its own figure" (VlPieTest.near(last.x f2.x)))
+            this.checkTrue("…which is not the first one's" ((last.x - first.x) > 200.0))
+        }
+    }
+
+    fn facet:void () {
+        def spec:string "{\"data\":{\"values\":[{\"m\":\"P\",\"k\":\"A\",\"v\":54},{\"m\":\"P\",\"k\":\"B\",\"v\":37},{\"m\":\"Q\",\"k\":\"A\",\"v\":29771},{\"m\":\"Q\",\"k\":\"B\",\"v\":21521}]},\"facet\":{\"column\":{\"field\":\"m\",\"type\":\"nominal\"}},\"spec\":{\"width\":200,\"height\":200,\"mark\":{\"type\":\"arc\",\"innerRadius\":50},\"encoding\":{\"theta\":{\"field\":\"v\",\"type\":\"quantitative\",\"stack\":true},\"color\":{\"field\":\"k\",\"type\":\"nominal\"}}},\"resolve\":{\"scale\":{\"theta\":\"independent\"}}}"
+        def list:VlCommandList (VlPieTest.draw(spec))
+        def a:[VlDrawCommand] (this.arcs(list))
+        this.checkTrue("a facet of pies: four wedges" ((array_length a) == 4))
+        def fills:[string]
+        for a c:VlDrawCommand ci {
+            if ((indexOf fills c.fill) < 0) {
+                push fills c.fill
+            }
+        }
+        this.checkTrue("with independent angles the wedges keep their two colours" ((array_length fills) == 2))
+    }
+
+    sfn main:void () {
+        def t (new VlPieTest())
+        t.single()
+        t.concat()
+        t.facet()
+        print ((((to_string (t.checks - t.failures)) + "/") + (to_string t.checks)) + " pie checks passed")
+    }
+}

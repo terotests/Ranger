@@ -38,6 +38,7 @@ compile $VELA/tests/flow_test.rgr flow_test.js
 compile $VELA/tests/regex_test.rgr regex_test.js
 compile $VELA/tests/chart_test.rgr chart_test.js
 compile $VELA/tests/title_test.rgr title_test.js
+compile $VELA/tests/pie_test.rgr pie_test.js
 compile $VELA/tests/locale_test.rgr locale_test.js
 compile $VELA/tools/vela_scene.rgr vela_scene.js
 compile $VELA/tools/vela_commands.rgr vela_commands.js
@@ -49,7 +50,7 @@ echo "ok"
 status=0
 
 say "unit tests"
-for t in json_test expr_test scale_test flow_test regex_test chart_test title_test locale_test; do
+for t in json_test expr_test scale_test flow_test regex_test chart_test title_test pie_test locale_test; do
   out=$(node "$BIN/$t.js")
   echo "$out" | tail -1
   if echo "$out" | grep -q "FAIL"; then status=1; fi
