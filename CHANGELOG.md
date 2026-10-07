@@ -24,6 +24,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **C++: five shapes the Sliqtly editor (PresApp + EVGUI, 85k lines) hit.**
+  A subclass without a constructor under a base with one crashed the writer
+  (`Cannot read properties of undefined (reading 'params')`). A static
+  function named like a field (`sfn text` beside `def text`) gets a
+  `_static` suffix, since C++ keeps both in one scope. `cell = none` inside
+  `if (!null? cell)` assigns the optional instead of `cell.value()`.
+  `unwrap` of a buffer no longer writes `.value()` on a bare vector. `??`
+  over a map read of int/double/boolean with a variable key re-parsed as
+  `(get countskey)`; those `get` overloads now have a Ranger form.
+  `tests/compiler-cpp-class-shapes.test.ts` runs all five on es6 and C++.
+
 - **`npm run test:publish` depended on the machine it ran on.** The
   interpreter's local time is UTC, and `runtime-conformance` compared it with
   Node formatting in the host's zone, so the `Intl` date probes failed

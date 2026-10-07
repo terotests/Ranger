@@ -31802,6 +31802,22 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     wr.out(this.adjustType(node.ns[index]), false);
   };
+  cppRenameStaticsShadowingFields (ctx) {
+    const root = ctx.getRoot();
+    // Loop start
+    for ( let i = 0; i < root.getClasses().length; i++) {
+      var cl = root.getClasses()[i];
+      // Loop start
+      for ( let si = 0; si < cl.static_methods.length; si++) {
+        var sm = cl.static_methods[si];
+        if ( (typeof(cl.findVariable(sm.name)) !== "undefined" && cl.findVariable(sm.name) != null )  ) {
+          if ( sm.compiledName == sm.name ) {
+            sm.compiledName = sm.name + "_static";
+          }
+        }
+      }
+    }
+  };
   cppWriteVRefPath (node, fromIndex, toIndex, ctx, wr) {
     let had_static = false;
     // Loop start
@@ -31904,6 +31920,20 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     const pu = parent;
     return pu.getVRefAt(0) == "=";
+  };
+  cppVRefIsAssignedOptional (node) {
+    if ( node.nsp.length > 1 ) {
+      return false;
+    }
+    if ( this.cppVRefIsAssignmentTarget(node) == false ) {
+      return false;
+    }
+    const pu = node.parent;
+    if ( pu.children.length < 3 ) {
+      return false;
+    }
+    const lhs = pu.children[1];
+    return (lhs.vref == node.vref && lhs.sp == node.sp) && lhs.ep == node.ep;
   };
   cppVRefIsCallTarget (node) {
     const parent = node.parent;
@@ -32065,7 +32095,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           }
         }
         if ( i == 0 ) {
-          if ( this.cppShouldAutoUnwrap(p, ctx) ) {
+          if ( this.cppShouldAutoUnwrap(p, ctx) && this.cppVRefIsAssignedOptional(node) == false ) {
             const uv = ("(" + this.adjustType(p.compiledName)) + ".value())";
             wr.out(uv, false);
             continue;
@@ -32088,7 +32118,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
       const pu = p_1;
       wr.out(pu.compiledName, false);
-      if ( this.cppShouldAutoUnwrap(pu, ctx) ) {
+      if ( this.cppShouldAutoUnwrap(pu, ctx) && this.cppVRefIsAssignedOptional(node) == false ) {
         wr.out(".value()", false);
       }
       return;
@@ -33970,6 +34000,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       wr.out("char **__g_argv;", true);
       this.CreateUnions(this.compiler.parser, ctx, wr.getTag("c++unions"));
       this.writeCppTraitInterfaces(ctx, wr.getTag("c++TraitDefs"));
+      this.cppRenameStaticsShadowingFields(ctx);
       this.header_created = true;
     }
     const classWriter = orig_wr.getTag("c++ClassDefs");
@@ -33990,7 +34021,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       for ( let i_1 = 0; i_1 < cl.extends_classes.length; i_1++) {
         var pName = cl.extends_classes[i_1];
         const pcc = ctx.findClass(pName);
-        if ( pcc.has_constructor ) {
+        if ( pcc.has_constructor && ((typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null ) ) ) {
           wr.out((" : " + pcc.name) + "(", false);
           const constr_1 = cl.constructor_fn;
           // Loop start

@@ -4266,6 +4266,14 @@ inline bool rg_opt_bool(const std::optional<bool> & b) { return b.value(); }
             }
         }
 
+        ; an optional buffer is a bare std::vector<uint8_t> on C++ (writeTypeDef
+        ; does not wrap it), so, as for charbuffer, the value is the variable
+        unwrap       cmdUnwrap:buffer        ( arg@(optional):buffer ) {
+            templates {
+                cpp ( (e 1) )
+            }
+        }
+
         unwrap       cmdUnwrap:T        ( arg@(optional):T ) {
             templates {
                 ranger ( "( unwrap " (e 1) ")" )
@@ -8928,6 +8936,9 @@ std::string join(const T& v, const std::string& delim) {
 
         get             cmdGet@(optional weak):int          ( map:[K:int] key:K ) { 
             templates {
+                ; `??` is a macro on C++: it writes this call back as Ranger and
+                ; re-parses it, and without a form here the arguments ran together
+                ranger ( "(get " (e 1) " " (e 2) ")")
                 cpp( "cpp_get_map_int_value(" (e 1) ", " (e 2) ")"
 (imp "<optional>") 
 (macro
@@ -8955,6 +8966,9 @@ std::optional<int> cpp_get_map_int_value( const M & m , const K & key) {
 
         get             cmdGet@(optional weak):double          ( map:[K:double] key:K ) {
             templates {
+                ; `??` is a macro on C++: it writes this call back as Ranger and
+                ; re-parses it, and without a form here the arguments ran together
+                ranger ( "(get " (e 1) " " (e 2) ")")
                 cpp( "cpp_get_map_string_double_value(" (e 1) ", " (e 2) ")"
 (imp "<optional>")
 (macro
@@ -9007,6 +9021,9 @@ i "}" nl ))
         ; generic overload below.
         get             cmdGet@(optional weak):boolean          ( map:[K:boolean] key:K ) {
             templates {
+                ; `??` is a macro on C++: it writes this call back as Ranger and
+                ; re-parses it, and without a form here the arguments ran together
+                ranger ( "(get " (e 1) " " (e 2) ")")
                 rust ( (e 1) ".get(" (kref 2) ").cloned()" )
                 csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? (bool?)" (e 1) "[" (e 2) "] : null)" )
                 ; An optional boolean is a bare bool on C++, so a miss reads
