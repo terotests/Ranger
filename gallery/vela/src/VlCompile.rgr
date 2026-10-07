@@ -1970,6 +1970,9 @@ class VlCompile {
         def data:VlJson (piece.get("data"))
         def cellData (VlJson.arrayValue())
         def cellScales (VlJson.arrayValue())
+        ; the sets that moved into the panels, and what each was read from
+        def movedNames:[string]
+        def movedFrom:[string]
         if panelScales {
             ; A scale each PANEL has its own of belongs to the panel, and so
             ; does everything that reads it: the rows it measures, the axis
@@ -1991,6 +1994,8 @@ class VlCompile {
                 if ((strlen (node.stringOr("source" ""))) == 0) {
                     push kept.arr node
                 } {
+                    push movedNames (node.stringOr("name" ""))
+                    push movedFrom (node.stringOr("source" ""))
                     node.setMember("source" (VlJson.stringValue("facet")))
                     push cellData.arr node
                 }
@@ -2132,6 +2137,12 @@ class VlCompile {
                     if (VlCompile.namesAnyChannel((one.stringOr("name" "")) apart)) {
                         push cellScales.arr one
                     } {
+                        ; a scale the panels still share stays on the page,
+                        ; where the sets it was measured on no longer are:
+                        ; it reads the rows they were derived from. Left
+                        ; naming a set inside the panels, a pie's colours
+                        ; had no domain and every wedge came out one colour.
+                        VlCompile.domainToPage((one.get("domain")) movedNames movedFrom)
                         push keptScales.arr one
                     }
                 }
@@ -2700,6 +2711,46 @@ class VlCompile {
     ; Whether a data set of this name is among those a panel holds. A mark
     ; reading one of them is already inside the panel and must not be pointed
     ; at the raw partition instead.
+    ; the set `name` names on the page: itself, or what it was derived from
+    ; when it moved inside the panels
+    sfn pageSet:string (name:string movedNames:[string] movedFrom:[string]) {
+        def at:string name
+        def guard:int 0
+        while (guard < 32) {
+            def i:int (indexOf movedNames at)
+            if (i < 0) {
+                return at
+            }
+            at = (itemAt movedFrom i)
+            guard = (guard + 1)
+        }
+        return at
+    }
+
+    sfn domainToPage:void (domain:VlJson movedNames:[string] movedFrom:[string]) {
+        if (! (domain.isObject())) {
+            return
+        }
+        def named:string (domain.stringOr("data" ""))
+        if ((strlen named) > 0) {
+            domain.setMember("data" (VlJson.stringValue((VlCompile.pageSet(named movedNames movedFrom)))))
+        }
+        def fields:VlJson (domain.get("fields"))
+        if (fields.isArray()) {
+            def k:int 0
+            while (k < (fields.count())) {
+                def f:VlJson (fields.at(k))
+                k = (k + 1)
+                if (f.isObject()) {
+                    def fn2:string (f.stringOr("data" ""))
+                    if ((strlen fn2) > 0) {
+                        f.setMember("data" (VlJson.stringValue((VlCompile.pageSet(fn2 movedNames movedFrom)))))
+                    }
+                }
+            }
+        }
+    }
+
     sfn namesData:boolean (name:string nodes:VlJson) {
         if ((strlen name) == 0) {
             return false
@@ -11495,14 +11546,11 @@ class VlCompile {
     ; and how far out to stand. The angle is the MIDDLE of the wedge, which is
     ; why it is written from the stack's two ends rather than from either.
     fn encodePolarText:void (update:VlJson) {
-        def half (VlJson.objectValue())
-        half.setMember("signal" (VlJson.stringValue("width")))
-        half.setMember("mult" (VlJson.numberValue(0.5)))
-        update.setMember("x" half)
-        def halfDown (VlJson.objectValue())
-        halfDown.setMember("signal" (VlJson.stringValue("height")))
-        halfDown.setMember("mult" (VlJson.numberValue(0.5)))
-        update.setMember("y" halfDown)
+        ; the centre of the PANE: in a concatenation or a facet the plain
+        ; `width` is the whole chart's, and every pie of a row was drawn
+        ; round the same point, off its own pane
+        update.setMember("x" (this.middleOf("width")))
+        update.setMember("y" (this.middleOf("height")))
         update.setMember("align" (VlCompile.literal((VlJson.stringValue("center")))))
         update.setMember("baseline" (VlCompile.literal((VlJson.stringValue("middle")))))
 
@@ -11540,14 +11588,11 @@ class VlCompile {
     }
 
     fn encodeArc:void (update:VlJson) {
-        def half (VlJson.objectValue())
-        half.setMember("signal" (VlJson.stringValue("width")))
-        half.setMember("mult" (VlJson.numberValue(0.5)))
-        update.setMember("x" half)
-        def halfDown (VlJson.objectValue())
-        halfDown.setMember("signal" (VlJson.stringValue("height")))
-        halfDown.setMember("mult" (VlJson.numberValue(0.5)))
-        update.setMember("y" halfDown)
+        ; the centre of the PANE: in a concatenation or a facet the plain
+        ; `width` is the whole chart's, and every pie of a row was drawn
+        ; round the same point, off its own pane
+        update.setMember("x" (this.middleOf("width")))
+        update.setMember("y" (this.middleOf("height")))
         def radius:VlChannel (this.channel("radius"))
         def theta:VlChannel (this.channel("theta"))
         ; An angle read from a category: the wedge fills its band of the circle
@@ -12478,6 +12523,11 @@ class VlCompile {
                 }
                 signal.setMember("signal" (VlJson.stringValue(expr)))
                 update.setMember("text" signal)
+            } {
+                ; `"text": {"value": "58 %"}` is the words every mark of the
+                ; layer says: the figure in a donut's hole. Left out, the
+                ; mark had nothing to draw.
+                update.setMember("text" (VlCompile.literal(text.value)))
             }
         }
         ; An image's `url` is the picture it draws. Read as nothing, the mark
