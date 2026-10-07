@@ -1,0 +1,12 @@
+; C1: parse S-expressions into shape AstNodes (PLAN_COMPILER_V4.md).
+Import "../../compiler/v4/Parser.rgr"
+
+class Main {
+    sfn main:void () {
+        print (AstParser.childAsString((AstParser.parseString("(def x:int 1)")) 0))
+        print (AstParser.childAsString((AstParser.parseString("(+ 2 3.5)")) 0))
+        print (AstParser.childAsString((AstParser.parseString("(print \"hi\")")) 0))
+        print (AstParser.childAsString((AstParser.parseString("(f true false)")) 0))
+        print (AstParser.childAsString((AstParser.parseString("{ print \"hi\" }")) 0))
+    }
+}
