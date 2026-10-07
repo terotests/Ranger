@@ -2010,11 +2010,16 @@ class ScriptEditor {
         if (stop > n) {
             stop = n
         }
+        ; Cells are characters, not storage units: on C++ a string is UTF-8
+        ; bytes, and an "ä" counted as its two bytes pushed the rest of the
+        ; line one cell right.
+        def vcol:int (char_length (substring s 0 i))
         def runAt:int -1
         def runN:int 0
         def runFill:double 0.0
         while (i < stop) {
-            def ch:int (charAt s i)
+            def ch:int (EVGCodepoint.codeAt(s i))
+            def step:int (EVGCodepoint.unitsAt(s i))
             def fill:double (ScriptEditor.minimapInk(ch))
             if (fill < 0.001) {
                 if (runAt >= 0) {
@@ -2024,7 +2029,7 @@ class ScriptEditor {
                 }
             } {
                 if (runAt < 0) {
-                    runAt = i
+                    runAt = vcol
                     runN = 1
                     runFill = fill
                 } {
@@ -2032,13 +2037,14 @@ class ScriptEditor {
                         runN = (runN + 1)
                     } {
                         this.paintMinimapDots(dl x0 y h charW limit runAt runN ink runFill)
-                        runAt = i
+                        runAt = vcol
                         runN = 1
                         runFill = fill
                     }
                 }
             }
-            i = (i + 1)
+            i = (i + step)
+            vcol = (vcol + 1)
         }
         if (runAt >= 0) {
             this.paintMinimapDots(dl x0 y h charW limit runAt runN ink runFill)

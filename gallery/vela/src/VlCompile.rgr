@@ -38,6 +38,7 @@
 Import "VlJson.rgr"
 Import "VlTime.rgr"
 Import "VlRegex.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 
 ; One entry of the `encoding` block, read once so the rest of the file asks
 ; questions of a field rather than of a JSON object.
@@ -7223,8 +7224,9 @@ class VlCompile {
         def n:int (strlen text)
         def k:int 0
         while (k < n) {
-            def c:int (charAt text k)
-            k = (k + 1)
+            ; one underscore per character on every target, not per byte
+            def c:int (EVGCodepoint.codeAt(text k))
+            k = (k + (EVGCodepoint.unitsAt(text k)))
             def keep:boolean false
             if ((c >= 48) && (c <= 57)) { keep = true }
             if ((c >= 65) && (c <= 90)) { keep = true }

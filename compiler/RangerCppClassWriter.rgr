@@ -1000,6 +1000,22 @@ class RangerCppClassWriter {
     wr.out((this.adjustType((itemAt node.ns index))) false)
   }
 
+  ; C++ keeps a class's fields and static functions in one scope, so a
+  ; static `text` next to a field `text` (or an inherited one) does not
+  ; compile. Such a static gets a suffix before any call to it is written.
+  fn cppRenameStaticsShadowingFields:void (ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for (root.getClasses()) cl:RangerAppClassDesc i {
+      for cl.static_methods sm:RangerAppFunctionDesc si {
+        if (!null? (cl.findVariable(sm.name))) {
+          if (sm.compiledName == sm.name) {
+            sm.compiledName = (sm.name + "_static")
+          }
+        }
+      }
+    }
+  }
+
   fn cppWriteVRefPath:void (node:CodeNode fromIndex:int toIndex:int ctx:RangerAppWriterContext wr:CodeWriter) {
     def had_static:boolean false
     for node.nsp p:RangerAppParamDesc i {
@@ -1111,6 +1127,36 @@ class RangerCppClassWriter {
     return (pu.getVRefAt(0) == "=")
   }
 
+  ; The variable itself on the left of `=`, as in `cell = none` inside an
+  ; `if (!null? cell)`: the optional is assigned, not the value it holds.
+  fn cppVRefIsAssignedOptional:boolean (node:CodeNode) {
+    if ((array_length node.nsp) > 1) {
+      return false
+    }
+    if ((this.cppVRefIsAssignmentTarget(node)) == false) {
+      return false
+    }
+    def pu:CodeNode (unwrap node.parent)
+    if ((array_length pu.children) < 3) {
+      return false
+    }
+    def lhs:CodeNode (itemAt pu.children 1)
+    return (((lhs.vref == node.vref) && (lhs.sp == node.sp)) && (lhs.ep == node.ep))
+  }
+
+  fn cppThisIsCallReceiver:boolean (node:CodeNode) {
+    def parent@(optional):CodeNode node.parent
+    if (null? parent) {
+      return false
+    }
+    def pu:CodeNode (unwrap parent)
+    if ((pu.has_call == false) || ((array_length pu.children) < 2)) {
+      return false
+    }
+    def recv:CodeNode (itemAt pu.children 1)
+    return (((recv.vref == "this") && (recv.sp == node.sp)) && (recv.ep == node.ep))
+  }
+
   fn cppVRefIsCallTarget:boolean (node:CodeNode) {
     def parent@(optional):CodeNode node.parent
     if (null? parent) {
@@ -1212,6 +1258,13 @@ class RangerCppClassWriter {
 
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.vref == "this") {
+      ; `this.clear()`: the receiver of a call is the object itself. Through
+      ; shared_from_this() it threw bad_weak_ptr in a constructor, where no
+      ; shared_ptr holds the object yet, and cost a refcount pair elsewhere.
+      if (this.cppThisIsCallReceiver(node)) {
+        wr.out("this" false)
+        return
+      }
       ; std::dynamic_pointer_cast<RangerAppClassDesc>
 
       def currC (ctx.getCurrentClass())
@@ -1275,7 +1328,7 @@ class RangerCppClassWriter {
           }
         }
         if (i == 0) {
-          if (this.cppShouldAutoUnwrap(p ctx)) {
+          if ((this.cppShouldAutoUnwrap(p ctx)) && ((this.cppVRefIsAssignedOptional(node)) == false)) {
             def uv:string ((("(" + this.adjustType(p.compiledName)) + ".value())"))
             wr.out(uv false)
             continue
@@ -1301,7 +1354,7 @@ class RangerCppClassWriter {
       }
       def pu:RangerAppParamDesc (unwrap p)
       wr.out(pu.compiledName false)
-      if (this.cppShouldAutoUnwrap(pu ctx)) {
+      if ((this.cppShouldAutoUnwrap(pu ctx)) && ((this.cppVRefIsAssignedOptional(node)) == false)) {
         wr.out(".value()" false)
       }
       return
@@ -3596,6 +3649,7 @@ class RangerCppClassWriter {
 
       this.CreateUnions( (unwrap this.compiler.parser) ctx (wr.getTag("c++unions")))
       this.writeCppTraitInterfaces(ctx (wr.getTag("c++TraitDefs")))
+      this.cppRenameStaticsShadowingFields(ctx)
 
       header_created = true
     }
@@ -3634,9 +3688,11 @@ class RangerCppClassWriter {
       ; wr.out(" public std::enable_shared_from_this<" + cl.name +  "> " , false)
       for cl.extends_classes pName:string i {
         def pcc (ctx.findClass(pName))
-        if pcc.has_constructor {
+        ; A subclass without its own constructor leaves the base to its
+        ; default constructor, which C++ calls implicitly.
+        if (pcc.has_constructor && (!null? cl.constructor_fn)) {
           wr.out(" : " + pcc.name +"(" , false)
-          def constr:RangerAppFunctionDesc cl.constructor_fn
+          def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
           for constr.params arg:RangerAppParamDesc i {
             if (i > 0) {
               wr.out("," false)

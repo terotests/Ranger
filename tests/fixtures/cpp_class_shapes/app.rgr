@@ -1,0 +1,88 @@
+; Shapes a large app (the Sliqtly editor) hit on the C++ target.
+
+; a static function named like a field
+class Box {
+    def text:string ""
+    def w:double 0.0
+    sfn text:Box (t:string w:double) {
+        def b:Box (new Box())
+        b.text = t
+        b.w = w
+        return b
+    }
+}
+
+; a subclass without a constructor under a base that has one
+class Base {
+    def tag:string ""
+    Constructor () {
+        tag = "base"
+    }
+}
+class Sub extends Base {
+    def n:int 1
+}
+
+class Cell {
+    def n:int 0
+}
+
+class Img {
+    def data:buffer
+}
+
+; methods called on `this` inside the constructor, before any shared_ptr owns it
+class Settings {
+    def title:string "x"
+    def n:int 0
+    Constructor () {
+        this.clear()
+        n = (this.count())
+    }
+    fn clear:void () {
+        title = ""
+    }
+    fn count:int () {
+        return 5
+    }
+}
+
+class Main {
+    sfn main@(main):void () {
+        def b:Box (Box.text("hi" 2.0))
+        print b.text
+
+        def s:Sub (new Sub())
+        print (s.tag + (to_string s.n))
+
+        ; the optional itself is cleared inside its own null check
+        def cell@(optional):Cell
+        cell = (new Cell())
+        if (!null? cell) {
+            def c0:Cell (unwrap cell)
+            c0.n = 3
+            def none@(optional):Cell
+            cell = none
+        }
+        if (null? cell) {
+            print "cleared"
+        }
+
+        ; unwrap of a buffer field
+        def img:Img (new Img())
+        img.data = (buffer_from_string "abc")
+        def d:buffer (unwrap img.data)
+        print (to_string (buffer_length d))
+
+        ; ?? over a map read with a variable key, inside an expression
+        def counts:[string:int]
+        def key:string "k"
+        set counts key ((?? (get counts key) 0) + 1)
+        set counts key ((?? (get counts key) 0) + 1)
+        def missing:int (?? (get counts "none") 7)
+        print ((to_string (?? (get counts key) 0)) + " " + (to_string missing))
+
+        def st:Settings (new Settings())
+        print ((st.title + "|") + (to_string st.n))
+    }
+}

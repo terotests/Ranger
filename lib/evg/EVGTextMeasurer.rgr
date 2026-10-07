@@ -138,7 +138,7 @@ class EVGTextMeasurer {
         ; Default implementation - estimate based on font size
         ; Average character width is approximately 0.5-0.6 of font size
         def avgCharWidth:double (fontSize * 0.55)
-        def textLen:int (strlen text)
+        def textLen:int (char_length text)
         def width:double ((to_double textLen) * avgCharWidth)
         def lineHeight:double (fontSize * (EVGTextMeasurer.normalLineHeightEm()))
         
@@ -526,9 +526,14 @@ class EVGTextMeasurer {
         
         while (i <= textLen) {
             def ch:int 0
+            def step:int 1
             def isEnd:boolean (i == textLen)
             if (isEnd == false) {
-                ch = (charAt text i)
+                ; the code point, so an en dash breaks on C++ too, where the
+                ; string is UTF-8 bytes, and the step over all of its units
+                ; so a break after it does not cut it in half
+                ch = (EVGCodepoint.codeAt(text i))
+                step = (EVGCodepoint.unitsAt(text i))
             }
             
             ; Where a line may be broken: a space, a newline, the end — and
@@ -565,7 +570,7 @@ class EVGTextMeasurer {
                 ; there rather than one character earlier.
                 def wordEnd:int i
                 if hyphen {
-                    wordEnd = (i + 1)
+                    wordEnd = (i + step)
                 }
                 def word:string ""
                 if (wordEnd > wordStart) {
@@ -612,10 +617,10 @@ class EVGTextMeasurer {
                 if hyphen {
                     joiner = ""
                 }
-                wordStart = i + 1
+                wordStart = i + step
             }
             
-            i = i + 1
+            i = i + step
         }
         
         ; Add final line
@@ -645,9 +650,11 @@ class SimpleTextMeasurer {
         ; Sum up character widths
         def i:int 0
         while (i < textLen) {
-            def ch:int (charAt text i)
+            ; a character at a time: on C++ the string is UTF-8 bytes, and
+            ; "ä" summed as two bytes was two wrong advances
+            def ch:int (EVGCodepoint.codeAt(text i))
             width = width + (this.measureChar(ch fontFamily fontSize))
-            i = i + 1
+            i = i + (EVGCodepoint.unitsAt(text i))
         }
         
         def lineHeight:double (fontSize * (EVGTextMeasurer.normalLineHeightEm()))
