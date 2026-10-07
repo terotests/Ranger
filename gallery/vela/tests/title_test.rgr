@@ -66,6 +66,17 @@ class VlTitleTest {
         this.checkTrue("one long word: cut" (e.cut && (e.lineCount == 1)))
         this.check("the break balances the lines" (to_string (VlText.balancedBreak("aa bbbb cc dd"))) "7")
         this.check("no space: no break" (to_string (VlText.balancedBreak("abcdef"))) "-1")
+        this.utf8()
+    }
+
+    ; Widths and cuts count characters, not the target's string units: C++
+    ; strings are UTF-8 bytes, so "€" is three of them and "ä" two.
+    fn utf8:void () {
+        this.check("drawWidth: € is one character" (VlJson.formatNumber((VlText.drawWidth("k€" 10.0)) 3)) "8.2")
+        this.check("characterCount: ä, −, emoji are one each" (to_string (VlText.characterCount((("ä" + (strfromcode 8722)) + (strfromcode 128077))))) "3")
+        def cut:string (VlText.truncate("Etelä-Pohjanmaa" 10.0 60.0))
+        this.check("truncate cuts between characters" cut ("Etelä-" + (strfromcode 8230)))
+        this.check("varName: one underscore per character" (VlCompile.varName("ä€x")) "__x")
     }
 
     ; A chart in document mode: its y title is drawn on two lines, and the

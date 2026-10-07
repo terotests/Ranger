@@ -31935,6 +31935,18 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     const lhs = pu.children[1];
     return (lhs.vref == node.vref && lhs.sp == node.sp) && lhs.ep == node.ep;
   };
+  cppThisIsCallReceiver (node) {
+    const parent = node.parent;
+    if ( typeof(parent) === "undefined" ) {
+      return false;
+    }
+    const pu = parent;
+    if ( pu.has_call == false || pu.children.length < 2 ) {
+      return false;
+    }
+    const recv = pu.children[1];
+    return (recv.vref == "this" && recv.sp == node.sp) && recv.ep == node.ep;
+  };
   cppVRefIsCallTarget (node) {
     const parent = node.parent;
     if ( typeof(parent) === "undefined" ) {
@@ -32038,6 +32050,10 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   };
   WriteVRef (node, ctx, wr) {
     if ( node.vref == "this" ) {
+      if ( this.cppThisIsCallReceiver(node) ) {
+        wr.out("this", false);
+        return;
+      }
       const currC = ctx.getCurrentClass();
       let sft = "shared_from_this()";
       if ( (typeof(currC) !== "undefined" && currC != null )  ) {

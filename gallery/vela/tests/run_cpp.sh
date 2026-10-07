@@ -60,9 +60,18 @@ if ! echo "$log" | grep -q "\[OK\]"; then
   exit 1
 fi
 printf '  %-14s %s lines\n' "chart_test.cpp" "$(wc -l < "$OUT/chart_test.cpp" | tr -d ' ')"
+# Text widths and cuts: a C++ string is UTF-8 bytes, so these checks are the
+# ones that catch a byte counted as a character.
+log=$(node --max-old-space-size=8192 dist/rgrc.js -l=cpp "$VELA/tests/title_test.rgr" \
+  -d="$OUT" -o="title_test.cpp" -nodecli 2>&1)
+if ! echo "$log" | grep -q "\[OK\]"; then
+  echo "$log" | grep -A3 "\[FAIL\]" | head -40
+  echo "FAILED to compile title_test.rgr to C++" >&2
+  exit 1
+fi
 
 say "build with $CXX"
-for tool in vela_scene vela_commands vela_evg vela_compile vela_svg vela_chart chart_test; do
+for tool in vela_scene vela_commands vela_evg vela_compile vela_svg vela_chart chart_test title_test; do
   if "$CXX" -std=c++17 -O1 -o "$OUT/$tool" "$OUT/$tool.cpp" 2> "$OUT/$tool.log"; then
     echo "  ok   $tool"
   else
@@ -152,6 +161,18 @@ else
 fi
 if ! grep -q "chart api tests passed" "$OUT/chart_test.cpp.txt"; then
   tail -5 "$OUT/chart_test.cpp.txt"; status=1
+fi
+
+say "title fitting and text widths, from the native binary"
+node "$VELA/bin/title_test.js" > "$OUT/title_test.js.txt" 2>&1
+"$OUT/title_test" > "$OUT/title_test.cpp.txt" 2>&1
+if diff -q "$OUT/title_test.js.txt" "$OUT/title_test.cpp.txt" > /dev/null; then
+  echo "  ok   $(tail -1 "$OUT/title_test.cpp.txt")"
+else
+  echo "  DIFF title_test"; diff "$OUT/title_test.js.txt" "$OUT/title_test.cpp.txt" | head -10; status=1
+fi
+if grep -q "^FAIL" "$OUT/title_test.cpp.txt"; then
+  grep -A2 "^FAIL" "$OUT/title_test.cpp.txt" | head -10; status=1
 fi
 
 say "and the charts it draws, byte for byte"

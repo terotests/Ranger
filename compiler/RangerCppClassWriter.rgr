@@ -1144,6 +1144,19 @@ class RangerCppClassWriter {
     return (((lhs.vref == node.vref) && (lhs.sp == node.sp)) && (lhs.ep == node.ep))
   }
 
+  fn cppThisIsCallReceiver:boolean (node:CodeNode) {
+    def parent@(optional):CodeNode node.parent
+    if (null? parent) {
+      return false
+    }
+    def pu:CodeNode (unwrap parent)
+    if ((pu.has_call == false) || ((array_length pu.children) < 2)) {
+      return false
+    }
+    def recv:CodeNode (itemAt pu.children 1)
+    return (((recv.vref == "this") && (recv.sp == node.sp)) && (recv.ep == node.ep))
+  }
+
   fn cppVRefIsCallTarget:boolean (node:CodeNode) {
     def parent@(optional):CodeNode node.parent
     if (null? parent) {
@@ -1245,6 +1258,13 @@ class RangerCppClassWriter {
 
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.vref == "this") {
+      ; `this.clear()`: the receiver of a call is the object itself. Through
+      ; shared_from_this() it threw bad_weak_ptr in a constructor, where no
+      ; shared_ptr holds the object yet, and cost a refcount pair elsewhere.
+      if (this.cppThisIsCallReceiver(node)) {
+        wr.out("this" false)
+        return
+      }
       ; std::dynamic_pointer_cast<RangerAppClassDesc>
 
       def currC (ctx.getCurrentClass())

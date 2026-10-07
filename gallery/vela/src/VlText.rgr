@@ -19,6 +19,8 @@
 ; that swap is local.
 ; ==============================================================================
 
+Import "pkg:evg/EVGCodepoint.rgr"
+
 ; What `VlText.fitTitle` decided: the size, the text (lines joined with a
 ; line break), how many lines, and whether words were cut.
 class VlTextFit {
@@ -68,24 +70,10 @@ class VlText {
     ; is written with the typographic minus (U+2212) — three bytes and one
     ; character. Measured in bytes, "−20" is five characters wide, every axis
     ; with a negative value on it reserves too much room, and the chart is
-    ; sixteen pixels wider in C++ than in JavaScript.
-    ;
-    ; UTF-8 marks its continuation bytes 10xxxxxx and nothing else does, so the
-    ; characters are the bytes that are not continuations. A target whose
-    ; strings are not bytes has no continuation bytes to find and counts them
-    ; all, which is the same answer.
+    ; sixteen pixels wider in C++ than in JavaScript. `char_length` counts code
+    ; points on every target, so an emoji is one character in JavaScript too.
     sfn characterCount:int (text:string) {
-        def n:int (strlen text)
-        def count:int 0
-        def i:int 0
-        while (i < n) {
-            def c:int (charAt text i)
-            if ((c < 128) || (c > 191)) {
-                count = (count + 1)
-            }
-            i = (i + 1)
-        }
-        return count
+        return (char_length text)
     }
 
     ; How wide the string will actually be DRAWN, which is a different question
@@ -108,12 +96,14 @@ class VlText {
     ; should replace this call and nothing else.
     sfn drawWidth:double (text:string fontSize:double) {
         def total:double 0.0
+        ; One advance per CHARACTER: `charAt` steps bytes in C++, and "k€"
+        ; came out as four characters there and two in JavaScript.
         def n:int (strlen text)
         def k:int 0
         while (k < n) {
-            def c:int (charAt text k)
+            def c:int (EVGCodepoint.codeAt(text k))
             total = (total + (VlText.advanceEm(c)))
-            k = (k + 1)
+            k = (k + (EVGCodepoint.unitsAt(text k)))
         }
         return (total * fontSize)
     }
@@ -160,15 +150,18 @@ class VlText {
         }
         def ellipsis:string (strfromcode 8230)
         def room:double (limit - (VlText.estimateWidth(ellipsis fontSize)))
+        ; Cut between characters, never inside one: a byte step in C++ would
+        ; leave half of "ä" before the ellipsis.
         def n:int (strlen text)
         def kept:int 0
-        def at:int 1
-        while (at <= n) {
-            if ((VlText.estimateWidth((substring text 0 at) fontSize)) < room) {
-                kept = at
-                at = (at + 1)
+        def at:int 0
+        while (at < n) {
+            def next:int (at + (EVGCodepoint.unitsAt(text at)))
+            if ((VlText.estimateWidth((substring text 0 next) fontSize)) < room) {
+                kept = next
+                at = next
             } {
-                at = (n + 1)
+                at = n
             }
         }
         return ((substring text 0 kept) + ellipsis)

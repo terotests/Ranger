@@ -24,6 +24,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **C++: `this.method()` in a constructor no longer throws `bad_weak_ptr`.**
+  A call's receiver `this` was written as `shared_from_this()`, which throws
+  while the constructor runs because no `shared_ptr` owns the object yet.
+  The receiver of a call is now the raw `this`; other uses of `this` keep
+  `shared_from_this()`.
+- **Vela: text widths and cuts count characters on C++.** `VlText.drawWidth`
+  stepped bytes, so "k€" was four characters wide natively and two in
+  JavaScript; `truncate` could cut inside "ä"; `characterCount` counted an
+  emoji as two in JavaScript; `varName` wrote one underscore per byte. They
+  step code points now (`EVGCodepoint`, `char_length`), and `title_test`
+  runs in the native suite too.
+- **EVG text measuring counts characters on C++.** The estimate and
+  `SimpleTextMeasurer` summed bytes, and `wrapText` broke after an en dash at
+  its first byte, leaving half a character on each line. They step code
+  points now. The script editor's minimap places cells by character too.
 - **C++: five shapes the Sliqtly editor (PresApp + EVGUI, 85k lines) hit.**
   A subclass without a constructor under a base with one crashed the writer
   (`Cannot read properties of undefined (reading 'params')`). A static

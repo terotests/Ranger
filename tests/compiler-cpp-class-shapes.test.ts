@@ -43,7 +43,7 @@ function compile(target: string, outName: string) {
   return { ok: c.status === 0 && !c.out.includes("[FAIL]"), log: c.out, dir, file: path.join(dir, outName) };
 }
 
-const EXPECTED = "hi\nbase1\ncleared\n3\n2 7\n";
+const EXPECTED = "hi\nbase1\ncleared\n3\n2 7\n|5\n";
 
 describe("C++ class shapes", () => {
   it("es6", () => {

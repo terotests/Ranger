@@ -31,6 +31,22 @@ class Img {
     def data:buffer
 }
 
+; methods called on `this` inside the constructor, before any shared_ptr owns it
+class Settings {
+    def title:string "x"
+    def n:int 0
+    Constructor () {
+        this.clear()
+        n = (this.count())
+    }
+    fn clear:void () {
+        title = ""
+    }
+    fn count:int () {
+        return 5
+    }
+}
+
 class Main {
     sfn main@(main):void () {
         def b:Box (Box.text("hi" 2.0))
@@ -65,5 +81,8 @@ class Main {
         set counts key ((?? (get counts key) 0) + 1)
         def missing:int (?? (get counts "none") 7)
         print ((to_string (?? (get counts key) 0)) + " " + (to_string missing))
+
+        def st:Settings (new Settings())
+        print ((st.title + "|") + (to_string st.n))
     }
 }
