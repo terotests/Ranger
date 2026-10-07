@@ -1896,13 +1896,30 @@ class RangerGolangClassWriter {
     def idx:CodeNode (itemAt node.children 3)
     def body:CodeNode (itemAt node.children 4)
 
+    ; A collection named by an expression (a call, a chain) is evaluated
+    ; ONCE, into `<index>_of`: written into the condition and the binding it
+    ; ran twice a turn, so `for (Layout.slides(d md)) ...` laid out every
+    ; slide again for each slide. A name keeps being re-read every turn, so a
+    ; body that appends to it still sees the growth.
+    def once:boolean ((((strlen coll.vref) == 0) && ((array_length coll.ns) == 0)) && ((strlen idx.vref) > 0))
+    def collName:string ""
+    if once {
+      collName = (idx.vref + "_of")
+      wr.out((collName + " := ") false)
+      this.goWriteOperand(coll ctx wr)
+      wr.newline()
+    }
     wr.out("var " false)
     this.goWriteOperand(idx ctx wr)
     wr.out(" int64 = 0;  " true)
     wr.out("for ; " false)
     this.goWriteOperand(idx ctx wr)
     wr.out(" < int64(len(" false)
-    this.goWriteOperand(coll ctx wr)
+    if once {
+      wr.out(collName false)
+    } {
+      this.goWriteOperand(coll ctx wr)
+    }
     wr.out(")) ; " false)
     this.goWriteOperand(idx ctx wr)
     wr.out("++ {" true)
@@ -1914,7 +1931,11 @@ class RangerGolangClassWriter {
       if (goLoops.treeMentions(body itemName)) {
         this.goWriteOperand(item ctx wr)
         wr.out(" := " false)
-        this.goWriteOperand(coll ctx wr)
+        if once {
+          wr.out(collName false)
+        } {
+          this.goWriteOperand(coll ctx wr)
+        }
         wr.out("[" false)
         this.goWriteOperand(idx ctx wr)
         wr.out("]" true)
