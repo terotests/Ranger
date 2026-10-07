@@ -1,0 +1,81 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; ==============================================================================
+; geo_test.rgr — GeoJSON features drawn as shapes through a projection.
+; ==============================================================================
+; Inline features under `"format": {"property": "features"}` are the rows; each
+; is cut through the projection into a closed path, and the projection is
+; fitted to the shapes so that together they fill the plot.
+; ==============================================================================
+
+Import "../src/VlCompile.rgr"
+Import "../src/VlRuntime.rgr"
+Import "../src/VlCommand.rgr"
+
+class VlGeoTest {
+    def failures:int 0
+    def checks:int 0
+
+    fn checkTrue:void (name:string got:boolean) {
+        checks = (checks + 1)
+        if got {
+            print ("ok   " + name)
+        } {
+            failures = (failures + 1)
+            print ("FAIL " + name)
+        }
+    }
+
+    sfn draw:VlCommandList (spec:string) {
+        def p (new VlJsonParser())
+        def compiler (new VlCompile())
+        def vg:VlJson (compiler.compileSpec((p.parse(spec))))
+        def rt (new VlRuntime())
+        return (VlSceneCommands.build((rt.run(vg))))
+    }
+
+    sfn square:string (name:string v:int lon:int) {
+        def a:string (to_string lon)
+        def b:string (to_string (lon + 5))
+        return ("{\"type\":\"Feature\",\"properties\":{\"n\":\"" + name + "\",\"v\":" + (to_string v) + "},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[" + a + ",60],[" + b + ",60],[" + b + ",65],[" + a + ",65],[" + a + ",60]]]}}")
+    }
+
+    fn shapes:[VlDrawCommand] (list:VlCommandList) {
+        def out:[VlDrawCommand]
+        for list.commands c:VlDrawCommand i {
+            if ((c.op == "path") && ((indexOf c.pathData "Z") > 0)) {
+                if ((strlen c.fill) > 0) {
+                    push out c
+                }
+            }
+        }
+        return out
+    }
+
+    fn features:void () {
+        def spec:string ("{\"width\":500,\"height\":400,\"data\":{\"values\":{\"type\":\"FeatureCollection\",\"features\":[" + (VlGeoTest.square("A" 3 20)) + "," + (VlGeoTest.square("B" 7 25)) + "]},\"format\":{\"type\":\"json\",\"property\":\"features\"}},\"projection\":{\"type\":\"mercator\"},\"mark\":{\"type\":\"geoshape\",\"stroke\":\"white\"},\"encoding\":{\"color\":{\"field\":\"properties.v\",\"type\":\"quantitative\",\"legend\":null}}}")
+        def list:VlCommandList (VlGeoTest.draw(spec))
+        def s:[VlDrawCommand] (this.shapes(list))
+        this.checkTrue("two features, two closed shapes" ((array_length s) == 2))
+        if ((array_length s) == 2) {
+            def a:VlDrawCommand (itemAt s 0)
+            def b:VlDrawCommand (itemAt s 1)
+            this.checkTrue("coloured by their value" (a.fill != b.fill))
+            ; fitted: the pair spans the full height, 400
+            this.checkTrue("fitted to the plot" (((indexOf a.pathData ",400") >= 0) && ((indexOf a.pathData ",0") >= 0)))
+            this.checkTrue("side by side, sharing an edge" ((indexOf b.pathData "M250,") == 0))
+        }
+    }
+
+    fn noProjection:void () {
+        def spec:string ("{\"width\":300,\"height\":300,\"data\":{\"values\":[" + (VlGeoTest.square("A" 3 20)) + "]},\"mark\":\"geoshape\"}")
+        def list:VlCommandList (VlGeoTest.draw(spec))
+        this.checkTrue("drawn without a stated projection" ((array_length (this.shapes(list))) == 1))
+    }
+
+    sfn main:void () {
+        def t (new VlGeoTest())
+        t.features()
+        t.noProjection()
+        print ((((to_string (t.checks - t.failures)) + "/") + (to_string t.checks)) + " geo checks passed")
+    }
+}

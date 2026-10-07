@@ -601,6 +601,10 @@ class VlCompile {
         ; writes outside its own triangle — read as five, the page came out a
         ; hundred and eighty pixels short of the words in it.
         out.setMember("padding" (VlJson.numberValue((src.doubleOr("padding" 5.0)))))
+        ; …or one for each side, as Vega takes it
+        if ((src.get("padding")).isObject()) {
+            out.setMember("padding" (src.get("padding")))
+        }
 
         ; A discrete axis sizes the plot rather than the other way round: the
         ; chart is as wide as its bands need, which is a signal over the band
@@ -4598,10 +4602,11 @@ class VlCompile {
     }
 
     fn readEncoding:void () {
+        ; A chart may encode nothing: one mark drawn as it is stated — a map's
+        ; outline (`"mark": "geoshape"`), a single point.
         def encoding:VlJson (source.get("encoding"))
         if (! (encoding.isObject())) {
-            this.fail("specification has no encoding")
-            return
+            encoding = (VlJson.objectValue())
         }
         ; A composite mark is read, expanded and read AGAIN on this same
         ; compiler, so the list starts empty each time: appended to, an error
@@ -5823,6 +5828,14 @@ class VlCompile {
         }
         if (data.has("url")) {
             src.setMember("url" (data.get("url")))
+        }
+        ; rows kept under a key of the document (`"format": {"property":
+        ; "features"}`, a GeoJSON collection's)
+        def fmt:VlJson (data.get("format"))
+        if (fmt.isObject()) {
+            if (fmt.has("property")) {
+                src.setMember("format" fmt)
+            }
         }
         ; A chart may GENERATE its data rather than be given it — a sequence of
         ; numbers to draw a sine wave over. There is nothing to derive it from,
@@ -7917,6 +7930,10 @@ class VlCompile {
     ; scales — a projection turns a pair of angles into a pair of pixels, and
     ; the position channels are the answer rather than the question.
     fn onProjection:boolean () {
+        ; a shape cut from a map is drawn through a projection, stated or not
+        if (markName == "geoshape") {
+            return true
+        }
         if (! ((rootSource.get("projection")).isObject())) {
             if (! ((source.get("projection")).isObject())) {
                 return false
@@ -7978,11 +7995,21 @@ class VlCompile {
         sized.setMember("signal" (VlJson.stringValue(((("[" + widthSignal) + ", ") + heightSignal) + "]")))
         one.setMember("size" sized)
         one.setMember("fit" (VlCompile.signalRef(fitName)))
+        ; a map's shapes are fitted to the shapes themselves: the rows ARE
+        ; the features
+        if (markName == "geoshape") {
+            one.setMember("fit" (VlCompile.signalRef((("data('" + dataLabel) + "')"))))
+        }
         for stated.keys k:string ki {
             one.setMember(k (stated.get(k)))
         }
         if (! (one.has("type"))) {
-            one.setMember("type" (VlJson.stringValue("mercator")))
+            ; the reference's own default for a map of shapes
+            if (markName == "geoshape") {
+                one.setMember("type" (VlJson.stringValue("equalEarth")))
+            } {
+                one.setMember("type" (VlJson.stringValue("mercator")))
+            }
         }
         push out.arr one
         return out
@@ -7992,6 +8019,10 @@ class VlCompile {
     ; is fitted to, and one to place each row through it.
     fn pushGeoTransforms:void (transforms:VlJson fitName:string) {
         if (! (this.onProjection())) {
+            return
+        }
+        ; shapes carry their own coordinates: nothing to gather or place
+        if (markName == "geoshape") {
             return
         }
         def lon:string (this.geoField("longitude"))
@@ -10994,6 +11025,9 @@ class VlCompile {
         if (((markName == "point") || (markName == "circle")) || (markName == "square")) {
             return "symbol"
         }
+        if (markName == "geoshape") {
+            return "shape"
+        }
         return markName
     }
 
@@ -11495,6 +11529,28 @@ class VlCompile {
             if ((((key == "dx") || (key == "dy")) || (key == "opacity")) || (key == "interpolate")) {
                 update.setMember(key (VlCompile.literal((markDef.get(key)))))
             }
+        }
+        ; A shape cut from a map: each row is a GeoJSON feature (or the
+        ; channel `shape` names the column that holds one), drawn through the
+        ; projection by a transform on the mark itself.
+        if (markName == "geoshape") {
+            this.encodePaint(update)
+            this.encodeAria(update)
+            def encodeGeo (VlJson.objectValue())
+            encodeGeo.setMember("update" update)
+            m.setMember("encode" encodeGeo)
+            def cut (VlJson.objectValue())
+            cut.setMember("type" (VlJson.stringValue("geoshape")))
+            cut.setMember("projection" (VlJson.stringValue((this.sname("projection")))))
+            def shapeCh:VlChannel (this.channel("shape"))
+            if (shapeCh.defined && (shapeCh.kind == "geojson")) {
+                cut.setMember("field" (VlJson.stringValue(("datum." + (shapeCh.outField())))))
+            }
+            def mts (VlJson.arrayValue())
+            push mts.arr cut
+            m.setMember("transform" mts)
+            push out.arr m
+            return out
         }
         if (markName == "arc") {
             this.encodePaint(update)

@@ -30,6 +30,7 @@ Import "VlAxis.rgr"
 Import "VlLegend.rgr"
 Import "VlViewBox.rgr"
 Import "VlGeo.rgr"
+Import "VlGeoShape.rgr"
 
 ; A group that is a plot in its own right: its own size, and the room its own
 ; axes take outside it. A concatenated or faceted view is a row of these.
@@ -91,6 +92,15 @@ class VlRuntime {
     ; thinks the zone is" is not an input. Empty means UTC, which is what a
     ; `utc` scale gets whatever this says.
     def timeZoneName:string ""
+    ; month and day names from `config.locale.time`
+    def timeNames:VlTimeNames (new VlTimeNames())
+
+    ; The chart's zone, writing its times in the chart's words.
+    fn zone:VlTimeZone () {
+        def z:VlTimeZone (VlTimeZone.named(timeZoneName))
+        z.names = timeNames
+        return z
+    }
     ; The map projections the specification declared, by name, and the points
     ; each `geojson` transform gathered for one to be fitted to. A projection
     ; is fitted the first time something asks it to place a point, because
@@ -149,6 +159,12 @@ class VlRuntime {
     def chartWidth:double 200.0
     def chartHeight:double 200.0
     def padding:double 5.0
+    ; `"padding": {"top": 30, "left": 5, …}`, each side its own (a number
+    ; sets all four, and `padding` is then each of them)
+    def padLeft:double 5.0
+    def padTop:double 5.0
+    def padRight:double 5.0
+    def padBottom:double 5.0
     def background:string ""
 
     ; ------------------------------------------------------------------ run ---
@@ -159,7 +175,8 @@ class VlRuntime {
                 this.warn(("time zone '" + timeZoneName) + "' is not one this runtime carries; UTC was used")
             }
         }
-        scope.zone = (VlTimeZone.named(timeZoneName))
+        timeNames = (VlTimeNames.fromConfig(((spec.get("config")).get("locale"))))
+        scope.zone = (this.zone())
         config.loadDefaults()
         config.mergeSpecConfig((spec.get("config")))
         ; the marks numbers are written with, and the format a value label
@@ -204,11 +221,15 @@ class VlRuntime {
         def room:double 0.0
         if (auto.isObject()) {
             if ((auto.stringOr("contains" "content")) == "padding") {
-                room = (padding * 2.0)
+                room = 1.0
             }
         }
-        def targetWidth:double (chartWidth - room)
-        def targetHeight:double (chartHeight - room)
+        def targetWidth:double chartWidth
+        def targetHeight:double chartHeight
+        if (room > 0.0) {
+            targetWidth = ((chartWidth - padLeft) - padRight)
+            targetHeight = ((chartHeight - padTop) - padBottom)
+        }
         def out:VlSceneMark scene
         def rounds:int 0
         def settled:boolean false
@@ -216,10 +237,10 @@ class VlRuntime {
             def item:VlSceneItem (itemAt out.items 0)
             def viewW:double (item.number("viewWidth"))
             def viewH:double (item.number("viewHeight"))
-            def left:double ((item.number("originX")) - padding)
-            def top:double ((item.number("originY")) - padding)
-            def right:double ((((viewW - (padding * 2.0)) - chartWidth) - left))
-            def bottom:double ((((viewH - (padding * 2.0)) - chartHeight) - top))
+            def left:double ((item.number("originX")) - padLeft)
+            def top:double ((item.number("originY")) - padTop)
+            def right:double ((((viewW - (padLeft + padRight)) - chartWidth) - left))
+            def bottom:double ((((viewH - (padTop + padBottom)) - chartHeight) - top))
             def wantWidth:double chartWidth
             def wantHeight:double chartHeight
             if fitX {
@@ -597,6 +618,18 @@ class VlRuntime {
         chartWidth = (spec.doubleOr("width" 200.0))
         chartHeight = (spec.doubleOr("height" 200.0))
         padding = (spec.doubleOr("padding" 5.0))
+        padLeft = padding
+        padTop = padding
+        padRight = padding
+        padBottom = padding
+        def sides:VlJson (spec.get("padding"))
+        if (sides.isObject()) {
+            padLeft = (sides.doubleOr("left" 0.0))
+            padTop = (sides.doubleOr("top" 0.0))
+            padRight = (sides.doubleOr("right" 0.0))
+            padBottom = (sides.doubleOr("bottom" 0.0))
+            padding = padLeft
+        }
         background = (spec.stringOr("background" ""))
     }
 
@@ -731,6 +764,19 @@ class VlRuntime {
         }
 
         def values:VlJson (def0.get("values"))
+        ; rows kept under a key of the document: a GeoJSON collection's
+        ; `features` (`"format": {"property": "features"}`), a dotted path
+        ; for one deeper
+        def fmt:VlJson (def0.get("format"))
+        if ((fmt.isObject()) && (values.isObject())) {
+            def prop:string (fmt.stringOr("property" ""))
+            if ((strlen prop) > 0) {
+                def parts:[string] (strsplit prop ".")
+                for parts part:string pi {
+                    values = (values.get(part))
+                }
+            }
+        }
         if (values.isArray()) {
             def vcount:int (values.count())
             def vi:int 0
@@ -1504,6 +1550,26 @@ class VlRuntime {
                 if ((strlen key) == 0) {
                     return made
                 }
+                ; fitted to the shapes of a data set: `data('data_0')`
+                if ((indexOf key "data('") == 0) {
+                    if (! (has geoShapes key)) {
+                        def setName:string (substring key 6 ((strlen key) - 2))
+                        def shapePoints (VlJson.arrayValue())
+                        def slons:[double]
+                        def slats:[double]
+                        def shapeRows:[VlJson] (this.dataRows(setName))
+                        for shapeRows srow:VlJson sri {
+                            VlGeoShape.positions((VlGeoShape.geometryOf(srow "")) slons slats)
+                        }
+                        for slons sl:double sli {
+                            def spair (VlJson.arrayValue())
+                            push spair.arr (VlJson.numberValue(sl))
+                            push spair.arr (VlJson.numberValue((itemAt slats sli)))
+                            push shapePoints.arr spair
+                        }
+                        set geoShapes key shapePoints
+                    }
+                }
                 if (! (has geoShapes key)) {
                     return made
                 }
@@ -1615,7 +1681,7 @@ class VlRuntime {
         ; makes a BAND scale whose categories are instants, and an axis over it
         ; formats them as dates — in UTC, if the band had no zone of its own,
         ; which labelled a Helsinki January as December.
-        sc.zone = (VlTimeZone.named(timeZoneName))
+        sc.zone = (this.zone())
         if (sdef.has("padding")) {
             sc.paddingInner = (sdef.doubleOr("padding" 0.0))
             sc.paddingOuter = (sdef.doubleOr("padding" 0.0))
@@ -2307,7 +2373,7 @@ class VlRuntime {
         ; it takes.
         VlRuntime.restack(rootItem)
 
-        def box:[double] (VlViewBox.measure(rootItem chartWidth chartHeight padding))
+        def box:[double] (VlViewBox.measureSides(rootItem chartWidth chartHeight padLeft padTop padRight padBottom))
         rootItem.setNumber("viewWidth" (itemAt box 0))
         rootItem.setNumber("viewHeight" (itemAt box 1))
         rootItem.setNumber("originX" (itemAt box 2))
@@ -3033,16 +3099,16 @@ class VlRuntime {
     ; the reference's `autosize: pad`: the plot keeps the size the spec asked
     ; for and the view grows to fit the guides around it.
     fn viewWidth:double () {
-        return (((chartWidth + extentLeft) + extentRight) + (padding * 2.0))
+        return (((chartWidth + extentLeft) + extentRight) + (padLeft + padRight))
     }
     fn viewHeight:double () {
-        return (((chartHeight + extentTop) + extentBottom) + (padding * 2.0))
+        return (((chartHeight + extentTop) + extentBottom) + (padTop + padBottom))
     }
     fn plotOriginX:double () {
-        return (padding + extentLeft)
+        return (padLeft + extentLeft)
     }
     fn plotOriginY:double () {
-        return (padding + extentTop)
+        return (padTop + extentTop)
     }
 
     fn encodeMark:VlSceneMark (mdef:VlJson) {
@@ -3082,12 +3148,35 @@ class VlRuntime {
 
         def styles:[string] (VlConfig.styleNames((mdef.get("style"))))
         def encoded:[string:int] (VlRuntime.encodedKeys(encode))
+        ; a map's shapes: each row's geometry cut through the projection
+        def cutBy:string ""
+        def cutField:string ""
+        def mts:VlJson (mdef.get("transform"))
+        if (mts.isArray()) {
+            def mtn:int (mts.count())
+            def mti:int 0
+            while (mti < mtn) {
+                def mt:VlJson (mts.at(mti))
+                if ((mt.stringOr("type" "")) == "geoshape") {
+                    cutBy = (mt.stringOr("projection" ""))
+                    cutField = (mt.stringOr("field" ""))
+                }
+                mti = (mti + 1)
+            }
+        }
+        def cutProj:VlGeo (VlGeo.named(""))
+        if ((strlen cutBy) > 0) {
+            cutProj = (this.projectionFor(cutBy))
+        }
         for rows row:VlJson idx {
             def item:VlSceneItem (mark.addItem())
             item.datum = row
             item.hasDatum = true
             this.applyDefaults(item mark.markType mark.role styles encoded)
             this.encodeItem(item mark.markType row enter update)
+            if ((strlen cutProj.kind) > 0) {
+                item.setString("path" (VlGeoShape.pathOf((VlGeoShape.geometryOf(row cutField)) cutProj)))
+            }
         }
         this.sortMarkItems(mark (mdef.get("sort")))
         return mark

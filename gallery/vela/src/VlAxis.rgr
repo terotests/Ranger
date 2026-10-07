@@ -1526,7 +1526,7 @@ class VlAxis {
         def first:boolean true
         for visible index:int position {
             def item:VlSceneItem (itemAt mark.items index)
-            def box:VlBounds (this.labelBox(item))
+            def box:VlBounds (this.takenBox(item))
             if first {
                 keptBox = box
                 first = false
@@ -1574,6 +1574,42 @@ class VlAxis {
         return (VlBounds.ofText((item.text("text")) (item.number("fontSize")) (item.text("align")) (item.text("baseline")) (item.number("x")) (item.number("y"))))
     }
 
+    ; The room a label TAKES on the page, which is what two labels collide
+    ; in: a label turned a quarter is as wide as its font is tall, and judged
+    ; flat, twelve month names that stood clear upright were thinned to three.
+    fn takenBox:VlBounds (item:VlSceneItem) {
+        def box:VlBounds (this.labelBox(item))
+        if (! (item.has("angle"))) {
+            return box
+        }
+        def angle:double (item.number("angle"))
+        if (angle == 0.0) {
+            return box
+        }
+        def ax:double (item.number("x"))
+        def ay:double (item.number("y"))
+        def radians:double ((angle * 3.141592653589793) / 180.0)
+        def c:double (cos radians)
+        def sn:double (sin radians)
+        def out (new VlBounds())
+        def xs:[double]
+        def ys:[double]
+        push xs box.x1
+        push ys box.y1
+        push xs box.x2
+        push ys box.y1
+        push xs box.x2
+        push ys box.y2
+        push xs box.x1
+        push ys box.y2
+        for xs px:double k {
+            def dx:double (px - ax)
+            def dy:double ((itemAt ys k) - ay)
+            out.add((ax + ((dx * c) - (dy * sn))) (ay + ((dx * sn) + (dy * c))))
+        }
+        return out
+    }
+
     ; The reference's intersection test, which is strict: boxes that merely
     ; touch do not overlap, and a gap in EITHER axis is enough to separate them.
     sfn boxesOverlap:boolean (a:VlBounds b:VlBounds) {
@@ -1596,7 +1632,7 @@ class VlAxis {
         def previous (new VlBounds())
         def havePrevious:boolean false
         for visible index:int position {
-            def box:VlBounds (this.labelBox((itemAt mark.items index)))
+            def box:VlBounds (this.takenBox((itemAt mark.items index)))
             if havePrevious {
                 if (VlAxis.boxesOverlap(previous box)) {
                     return true

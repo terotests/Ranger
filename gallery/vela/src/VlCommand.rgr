@@ -721,7 +721,7 @@ class VlSceneCommands {
                 cmd.angle = (item.number("angle"))
             }
         }
-        if (mark.markType == "path") {
+        if ((mark.markType == "path") || (mark.markType == "shape")) {
             cmd.op = "path"
             cmd.x = (offsetX + (item.number("x")))
             cmd.y = (offsetY + (item.number("y")))

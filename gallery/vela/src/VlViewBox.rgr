@@ -44,6 +44,11 @@ class VlViewBox {
     ; originY. Computed together because each depends on the same bounds, and a
     ; caller that asked for them separately would walk the scene four times.
     sfn measure:[double] (rootItem:VlSceneItem plotWidth:double plotHeight:double padding:double) {
+        return (VlViewBox.measureSides(rootItem plotWidth plotHeight padding padding padding padding))
+    }
+
+    ; …with each side's padding its own (`"padding": {"top": …}`)
+    sfn measureSides:[double] (rootItem:VlSceneItem plotWidth:double plotHeight:double padL:double padT:double padR:double padB:double) {
         def bounds (new VlBounds())
         bounds.set(0.0 0.0 plotWidth plotHeight)
         for rootItem.marks child:VlSceneMark ci {
@@ -56,10 +61,10 @@ class VlViewBox {
         def bottom:double (VlViewBox.overhang((bounds.y2 - plotHeight)))
 
         def out:[double]
-        push out (((plotWidth + left) + right) + (padding * 2.0))
-        push out (((plotHeight + top) + bottom) + (padding * 2.0))
-        push out (left + padding)
-        push out (top + padding)
+        push out (((plotWidth + left) + right) + (padL + padR))
+        push out (((plotHeight + top) + bottom) + (padT + padB))
+        push out (left + padL)
+        push out (top + padT)
         return out
     }
 
@@ -314,7 +319,7 @@ class VlViewBox {
         if (markType == "arc") {
             VlShape.appendArc(builder 0.0 0.0 (item.number("startAngle")) (item.number("endAngle")) (item.number("innerRadius")) (item.number("outerRadius")))
         }
-        if (markType == "path") {
+        if ((markType == "path") || (markType == "shape")) {
             builder.addPathData((item.text("path")))
         }
         def box:VlBounds (VlViewBox.ofBuilder(builder))

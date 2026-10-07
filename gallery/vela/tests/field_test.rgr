@@ -1,0 +1,71 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; field_test.rgr — a field the data does not have is named, with the nearest.
+; ==============================================================================
+
+Import "../src/VlFieldCheck.rgr"
+
+class VlFieldTest {
+    def failures:int 0
+    def checks:int 0
+
+    fn check:void (name:string got:string want:string) {
+        checks = (checks + 1)
+        if (got != want) {
+            failures = (failures + 1)
+            print ((((("FAIL " + name) + ": got '") + got) + "' want '") + want + "'")
+        }
+    }
+
+    ; "channel:field>nearest" for each missing field, joined with spaces
+    sfn found:string (vl:string) {
+        def p (new VlJsonParser())
+        def out:[string]
+        for (VlFieldCheck.missing((p.parse(vl)))) m:VlMissingField mi {
+            push out (m.channel + ":" + m.field + ">" + m.nearest)
+        }
+        return (join out " ")
+    }
+
+    sfn rows:string () {
+        return "\"data\":{\"values\":[{\"kuukausi\":\"2026-01-01\",\"alue\":\"Etelä\",\"myynti\":142,\"asiakkaat\":56}]}"
+    }
+
+    fn run:void () {
+        def r:string (VlFieldTest.rows())
+        this.check("typos" (VlFieldTest.found(("{" + r + ",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"alueet\",\"type\":\"nominal\"},\"y\":{\"field\":\"myyntii\",\"type\":\"quantitative\"}}}"))) "x:alueet>alue y:myyntii>myynti")
+        this.check("all there" (VlFieldTest.found(("{" + r + ",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"alue\",\"type\":\"nominal\"},\"y\":{\"aggregate\":\"sum\",\"field\":\"myynti\",\"type\":\"quantitative\"}}}"))) "")
+        this.check("nothing near" (VlFieldTest.found(("{" + r + ",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"hinta\",\"type\":\"nominal\"}}}"))) "x:hinta>")
+        this.check("case only" (VlFieldTest.found(("{" + r + ",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"Alue\",\"type\":\"nominal\"}}}"))) "x:Alue>alue")
+        ; made by transforms
+        this.check("calculate and aggregate" (VlFieldTest.found(("{" + r + ",\"transform\":[{\"calculate\":\"datum.myynti*2\",\"as\":\"kaksi\"},{\"aggregate\":[{\"op\":\"sum\",\"field\":\"kaksi\",\"as\":\"s\"}],\"groupby\":[\"alue\"]}],\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"alue\"},\"y\":{\"field\":\"s\"},\"color\":{\"field\":\"myynti\"}}}"))) "color:myynti>")
+        this.check("window and fold" (VlFieldTest.found(("{" + r + ",\"transform\":[{\"window\":[{\"op\":\"sum\",\"field\":\"myynti\",\"as\":\"kum\"}]},{\"fold\":[\"myynti\",\"asiakkaat\"]}],\"mark\":\"line\",\"encoding\":{\"x\":{\"field\":\"kum\"},\"y\":{\"field\":\"value\"},\"color\":{\"field\":\"key\"}}}"))) "")
+        ; layers inherit, and check their own encodings
+        this.check("layer" (VlFieldTest.found(("{" + r + ",\"encoding\":{\"x\":{\"field\":\"alue\"}},\"layer\":[{\"mark\":\"bar\",\"encoding\":{\"y\":{\"field\":\"myynti\"}}},{\"mark\":\"text\",\"encoding\":{\"text\":{\"field\":\"myyntii\"}}}]}"))) "text:myyntii>myynti")
+        ; a nested field reads into its object
+        this.check("nested" (VlFieldTest.found("{\"data\":{\"values\":[{\"properties\":{\"v\":3}}]},\"mark\":\"bar\",\"encoding\":{\"color\":{\"field\":\"properties.v\"}}}")) "")
+        this.check("geojson property" (VlFieldTest.found("{\"data\":{\"values\":{\"features\":[{\"properties\":{\"v\":3}}]},\"format\":{\"property\":\"features\"}},\"mark\":\"geoshape\",\"encoding\":{\"color\":{\"field\":\"propertiez.v\"}}}")) "color:propertiez.v>properties.v")
+        ; what cannot be known is not checked
+        this.check("url" (VlFieldTest.found("{\"data\":{\"url\":\"data/x.csv\"},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"zzz\"}}}")) "")
+        this.check("pivot" (VlFieldTest.found(("{" + r + ",\"transform\":[{\"pivot\":\"alue\",\"value\":\"myynti\"}],\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"Etelä\"}}}"))) "")
+        this.check("repeat field" (VlFieldTest.found(("{" + r + ",\"repeat\":{\"layer\":[\"myynti\"]},\"spec\":{\"mark\":\"line\",\"encoding\":{\"y\":{\"field\":{\"repeat\":\"layer\"}}}}}"))) "")
+        this.check("sequence" (VlFieldTest.found("{\"data\":{\"sequence\":{\"start\":0,\"stop\":5,\"as\":\"i\"}},\"transform\":[{\"calculate\":\"datum.i*2\",\"as\":\"y\"}],\"mark\":\"point\",\"encoding\":{\"x\":{\"field\":\"i\"},\"y\":{\"field\":\"y\"}}}")) "")
+        ; the message a report shows
+        def p (new VlJsonParser())
+        def ms:[VlMissingField] (VlFieldCheck.missing((p.parse(("{" + r + ",\"mark\":\"bar\",\"encoding\":{\"y\":{\"field\":\"myyntii\"}}}")))))
+        this.check("message" ((itemAt ms 0).message()) "encoding y reads field \"myyntii\", which the data does not have (did you mean \"myynti\"?); its fields are kuukausi, alue, myynti, asiakkaat")
+        this.check("distance" (to_string (VlFieldCheck.distance("kitten" "sitting"))) "3")
+
+        if (failures > 0) {
+            print ((("FAILURES: " + (to_string failures)) + " of ") + (to_string checks))
+        } {
+            print (("all " + (to_string checks)) + " field tests passed")
+        }
+    }
+
+    sfn main:void () {
+        def t (new VlFieldTest())
+        t.run()
+    }
+}
