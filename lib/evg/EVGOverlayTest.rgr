@@ -419,6 +419,29 @@ class EVGOverlayTest {
             ((hit.idAt(page (t2.calculatedX + 10.0) (t2.calculatedY + 200.0))) == "t2"))
     }
 
+    ; A surface opened inside a clipping box (a select in a window's scrolling
+    ; body) hangs below the box, and the display list draws it there. A point
+    ; on that part of it is outside the clip, and the clip used to take the
+    ; whole subtree with it — surface included — so the press went to
+    ; whatever was under the list instead.
+    sfn testHitPastClip:void (c:OverlayCheck) {
+        print "--- a surface hanging out of a clipping box still answers ---"
+        def page:EVGElement (EVGOverlayTest.buildAt(100.0 100.0 "bottom" "start" 200.0 120.0))
+        def holder:EVGElement (EVGOverlayTest.nodeById(page "holder"))
+        holder.setAttribute("overflow" "auto")
+        EVGOverlayTest.laidOut(page)
+        def s:EVGElement (EVGOverlayTest.nodeById(page "surface"))
+        def px:double (s.calculatedX + 20.0)
+        def py:double (s.calculatedY + 80.0)
+        c.ok("the point is below the clipping box" (py > (holder.calculatedY + holder.calculatedHeight)))
+        c.ok("the box does clip" (holder.clipsContent()))
+        def hit (new EVGHitTest())
+        c.eqStr("the surface answers there" (hit.idAt(page px py)) "surface")
+        ; what the box clips still does not: the anchor is inside it, so a
+        ; point beside the box finds the page, not something clipped away
+        c.eqStr("beside it, the page" (hit.idAt(page 50.0 50.0)) "page")
+    }
+
     ; ---- collisions ----------------------------------------------------------
     ; A menu near the bottom of the page opens upwards. Every real menu does
     ; this, and the reason is not aesthetics: the part that falls off the page
@@ -610,6 +633,7 @@ class EVGOverlayTest {
         EVGOverlayTest.testCentered(c)
         EVGOverlayTest.testPaintOrder(c)
         EVGOverlayTest.testHitTopmost(c)
+        EVGOverlayTest.testHitPastClip(c)
         EVGOverlayTest.testFlip(c)
         EVGOverlayTest.testShift(c)
         EVGOverlayTest.testNoRoomEitherWay(c)
