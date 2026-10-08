@@ -441,6 +441,30 @@ class EVGStyleVarTest {
         c.eqInt("both of them" (EVGStyleVarTest.bgRed(el)) 4)
     }
 
+    ; A sheet that takes another's parse styles as the parsed one does, and
+    ; what is parsed into it afterwards stays its own.
+    sfn testAdopt:void (c:VarCheck) {
+        print "--- a sheet can take another's parse ---"
+        def css:string ("@vars { --ink: rgb(30,0,0); } .box { color: var(--ink); }"
+            + " .themed .box { color: rgb(31,0,0); } .bad { color: var(--none); }")
+        def a:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        def b (new EVGStyleSheet())
+        b.adopt(a)
+        b.setViewport(800.0 600.0 false)
+        c.eqInt("the same rules" (b.getRuleCount()) (a.getRuleCount()))
+        c.eqInt("the same palette" (b.getVarCount()) (a.getVarCount()))
+        def el:EVGElement (EVGStyleVarTest.boxWith("box"))
+        b.applyTree(el "")
+        c.eqInt("styled as the parsed sheet styles" (EVGStyleVarTest.inkRed(el)) 30)
+        b.parse(".box { background-color: rgb(32,0,0); } @vars { --ink: rgb(33,0,0); }")
+        c.eqInt("parsing more into it adds to it" (b.getRuleCount()) ((a.getRuleCount()) + 1))
+        c.eqInt("and not to the sheet it took from" (a.getVarCount()) 1)
+        def el2:EVGElement (EVGStyleVarTest.boxWith("box"))
+        a.applyTree(el2 "")
+        c.eqInt("which styles as it did" (EVGStyleVarTest.inkRed(el2)) 30)
+        c.eqInt("with nothing of the other's" (EVGStyleVarTest.bgRed(el2)) (0 - 1))
+    }
+
     sfn main:void () {
         def c (new VarCheck())
         print "=== EVG stylesheet: custom properties ==="
@@ -460,6 +484,7 @@ class EVGStyleVarTest {
         EVGStyleVarTest.testTransitionThroughAVariable(c)
         EVGStyleVarTest.testReload(c)
         EVGStyleVarTest.testNoVariables(c)
+        EVGStyleVarTest.testAdopt(c)
         print ""
         print (("passed=" + (to_string c.passed)) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {

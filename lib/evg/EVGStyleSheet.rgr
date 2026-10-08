@@ -408,6 +408,49 @@ class EVGStyleSheet {
         this.parse(css)
     }
 
+    ; Take the rules and the palette another sheet parsed, instead of parsing
+    ; the same text again. A UI that builds a fresh tree, and a fresh sheet,
+    ; for each change (EVGUI's UiHost rebuilds) parsed its whole stylesheet
+    ; every time; on Sliqtly's switch of presentations that was a sixth of
+    ; the work. Parsed rules are never changed afterwards, so they are shared;
+    ; the lists holding them are this sheet's own, because `parse` appends.
+    ; The plans are not taken: they are built for this sheet's viewport.
+    fn adopt:void (from:EVGStyleSheet) {
+        def r:[EVGStyleRule]
+        for from.rules x:EVGStyleRule i {
+            push r x
+        }
+        rules = r
+        def e:[string]
+        for from.errors x:string i {
+            push e x
+        }
+        errors = e
+        def vt:[string]
+        def vm:[EVGMediaQuery]
+        def vn:[string]
+        def vv:[string]
+        def n:int (array_length from.varNames)
+        def k:int 0
+        while (k < n) {
+            push vt (itemAt from.varThemes k)
+            push vm (itemAt from.varMedia k)
+            push vn (itemAt from.varNames k)
+            push vv (itemAt from.varValues k)
+            k = (k + 1)
+        }
+        varThemes = vt
+        varMedia = vm
+        varNames = vn
+        varValues = vv
+        def vc:[string:int]
+        varChecked = vc
+        def vr:[string:int]
+        varReported = vr
+        ruleCounter = from.ruleCounter
+        this.dropPlans()
+    }
+
     ; --- what set this value -------------------------------------------------
     ;
     ; The plan for `slot` as (property, value, rule) triples, in cascade order.
