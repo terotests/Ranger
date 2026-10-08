@@ -99,6 +99,11 @@ class EVGHitTest {
     fn collectAt:void (el:EVGElement px:double py:double) {
         if (el.clipsContent()) {
             if ((EVGHitTest.containsPoint(el px py)) == false) {
+                ; …but not the surfaces opened inside it. The display list
+                ; defers a surface past every clip it is under, so a select's
+                ; list opened in a scrolling window body is drawn below the
+                ; window — and a press there has to find it.
+                this.surfacesAt(el px py)
                 return
             }
         }
@@ -124,6 +129,32 @@ class EVGHitTest {
                 push deferred kid
             } {
                 this.collectAt(kid px py)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Only the surfaces of a subtree the point cannot see: they go to
+    ; `deferred` as `collectAt` would put them there, and nothing else under
+    ; the clip is taken. Pruned by the paint bounds like `collectAt` (they hold
+    ; the surfaces too).
+    fn surfacesAt:void (el:EVGElement px:double py:double) {
+        if (el.isHidden()) {
+            return
+        }
+        if (el.paintUnbounded == false) {
+            if (px < el.paintLeft) { return }
+            if (py < el.paintTop) { return }
+            if (px > el.paintRight) { return }
+            if (py > el.paintBottom) { return }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            if kid.isOverlay {
+                push deferred kid
+            } {
+                this.surfacesAt(kid px py)
             }
             i = (i + 1)
         }
