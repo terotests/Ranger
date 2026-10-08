@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **C++: a local named like a math function no longer hides the call.**
+  The C++ templates of `to_int`, `floor`, `ceil`, `sqrt`, `sin`, `cos`,
+  `tan`, `asin`, `acos`, `atan2` and `fabs` now write `std::floor(…)` and so
+  on (from `<cmath>`), so `def floor:double` in the same function (as in
+  RangerMarkdown's MdVegaRender) compiles. Before, clang and g++ refused it:
+  "called object type 'double' is not a function".
 - **C++: `this.method()` in a constructor no longer throws `bad_weak_ptr`.**
   A call's receiver `this` was written as `shared_from_this()`, which throws
   while the constructor runs because no `shared_ptr` owns the object yet.

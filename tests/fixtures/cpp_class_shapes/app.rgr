@@ -84,5 +84,12 @@ class Main {
 
         def st:Settings (new Settings())
         print ((st.title + "|") + (to_string st.n))
+
+        ; a local named like a math function (RangerMarkdown's MdVegaRender
+        ; has `def floor`): to_int's C++ is std::floor, which it cannot hide
+        def floor:double 1.5
+        def fits:double (floor + 3.04)
+        fits = ((to_double (to_int (fits * 10.0))) / 10.0)
+        print (to_string (to_int (fits * 10.0)))
     }
 }

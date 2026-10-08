@@ -11,6 +11,9 @@
 // - `??` over `(get map key)` with a variable key: the generated Ranger form
 //   of an operator without a ranger template ran its arguments together,
 //   `(get countskey)`.
+// - A local named like a math function (`def floor:double`) hid the
+//   unqualified `floor(…)` that to_int wrote in C++; the cmath calls of the
+//   C++ templates are std:: now.
 
 import { describe, it, expect } from "vitest";
 import * as fs from "fs";
@@ -43,7 +46,7 @@ function compile(target: string, outName: string) {
   return { ok: c.status === 0 && !c.out.includes("[FAIL]"), log: c.out, dir, file: path.join(dir, outName) };
 }
 
-const EXPECTED = "hi\nbase1\ncleared\n3\n2 7\n|5\n";
+const EXPECTED = "hi\nbase1\ncleared\n3\n2 7\n|5\n45\n";
 
 describe("C++ class shapes", () => {
   it("es6", () => {
