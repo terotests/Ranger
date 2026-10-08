@@ -91,5 +91,10 @@ class Main {
         def fits:double (floor + 3.04)
         fits = ((to_double (to_int (fits * 10.0))) / 10.0)
         print (to_string (to_int (fits * 10.0)))
+
+        ; whole-number double literals stay doubles: 30 * 86400000 as ints
+        ; overflows in C++ (it did, in a "last 30 days" test)
+        def month:double (30.0 * 86400000.0)
+        print (to_string (to_int (month / 1000.0)))
     }
 }
