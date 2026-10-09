@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **C++: a whole-number double literal keeps its `.0`.** `30.0 * 86400000.0`
+  was written as `30 * 86400000`, which C++ computes in `int` and overflows
+  (-1702967296), so a "used in the last 30 days" test in Sliqtly's rooms
+  was wrong natively and right in JavaScript. The C++ writer now uses the
+  same `doubleNeedsPointZero` as the Go, Kotlin and Dart writers.
 - **C++: a local named like a math function no longer hides the call.**
   The C++ templates of `to_int`, `floor`, `ceil`, `sqrt`, `sin`, `cos`,
   `tan`, `asin`, `acos`, `atan2` and `fabs` now write `std::floor(…)` and so

@@ -31149,7 +31149,12 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   WriteScalarValue (node, ctx, wr) {
     switch (node.value_type ) { 
       case 2 : 
-        wr.out("" + node.double_value, false);
+        const dd_str = "" + node.double_value;
+        if ( this.doubleNeedsPointZero(dd_str) ) {
+          wr.out(dd_str + ".0", false);
+        } else {
+          wr.out(dd_str, false);
+        }
         break;
       case 4 : 
         const s = this.escapeCppTrigraphs(this.EncodeString(node, ctx, wr));
