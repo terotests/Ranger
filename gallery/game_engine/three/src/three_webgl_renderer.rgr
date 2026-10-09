@@ -34,6 +34,8 @@ class ThreeWebGLRenderer {
     def clearR:double 0.086
     def clearG:double 0.102
     def clearB:double 0.133
+    ; 1 opaque; 0 leaves what no mesh covers transparent (Three.js setClearAlpha)
+    def clearAlpha:double 1.0
 
     ; HDR output: tone-mapping mode (ThreeToneMapping.* enum, default
     ; NoToneMapping = 0) + exposure. The GL backend feeds these to the übershader
@@ -76,6 +78,10 @@ class ThreeWebGLRenderer {
         clearB = b
         return this
     }
+    fn setClearAlpha:ThreeWebGLRenderer (a:double) {
+        clearAlpha = a
+        return this
+    }
     fn setToneMapping:ThreeWebGLRenderer (mode:int) {
         toneMapping = mode
         return this
@@ -109,6 +115,7 @@ class ThreeWebGLRenderer {
             bg = scene.backgroundG
             bb = scene.backgroundB
         }
+        be.setClearAlpha(clearAlpha)
         be.beginFrame(w h br bg bb)
         ; lights (collected from the scene) + camera position for specular
         this.applyLights(scene be)
@@ -134,18 +141,22 @@ class ThreeWebGLRenderer {
         ; view-projection = projection * inverse(camera world)
         def vp:ThreeMatrix4 (new ThreeMatrix4)
         vp.multiplyMatrices(camera.projectionMatrix camera.matrixWorldInverse)
-        ; environment cube map: upload + select it, then draw the skybox behind
-        ; everything (a large cube at the origin, depth-writes off in the backend).
+        ; environment cube map: upload + select it, then (unless it lights only the
+        ; reflections) draw the skybox behind everything (a large cube at the
+        ; origin, depth-writes off in the backend).
+        def eh:int 0
         if scene.hasEnvCube {
-            def eh:int (be.ensureEnvironment(scene.envCube))
+            eh = (be.ensureEnvironment(scene.envCube))
             be.setEnvironment(eh)
+        } {
+            be.setEnvironment(0)
+        }
+        if (scene.hasEnvCube && scene.envBackground) {
             def scaleM:ThreeMatrix4 (new ThreeMatrix4)
             scaleM.makeScale(20000.0 20000.0 20000.0)
             def skyMvp:ThreeMatrix4 (new ThreeMatrix4)
             skyMvp.multiplyMatrices(vp scaleM)
             be.drawSkybox(eh skyMvp)
-        } {
-            be.setEnvironment(0)
         }
         ; light-probe GI: disable first (so a probe-less scene doesn't keep stale
         ; state), then let any probe volume in the tree hand its SH to the backend.

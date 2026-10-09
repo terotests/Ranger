@@ -25,6 +25,10 @@ Import "three_material.rgr"
 class ThreeRenderBackend {
     fn beginFrame:void (w:int h:int r:double g:double b:double) {
     }
+    ; The alpha the next beginFrame clears to: 1 opaque, 0 transparent (what
+    ; nothing covers shows what is behind the canvas). Three.js setClearAlpha.
+    fn setClearAlpha:void (a:double) {
+    }
     ; Per-frame lighting: ambient rgb, and dirCount directional lights whose
     ; directions (toward the light, normalised) are dirs[i*3..] and colours
     ; (colour*intensity) are cols[i*3..].

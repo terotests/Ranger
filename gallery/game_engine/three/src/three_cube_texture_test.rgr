@@ -6,6 +6,29 @@
 
 Import "three_cube_texture.rgr"
 Import "three_texture.rgr"
+Import "three_scene.rgr"
+Import "three_perspective_camera.rgr"
+Import "three_webgl_renderer.rgr"
+
+; What the renderer asked of its backend: the clear alpha, the cube selected
+; for reflections, how many skyboxes were drawn.
+class ThreeEnvRecorder extends ThreeRenderBackend {
+    def clearA:double (0.0 - 1.0)
+    def env:int (0 - 1)
+    def skies:int 0
+    fn setClearAlpha:void (a:double) {
+        clearA = a
+    }
+    fn ensureEnvironment:int (cube:ThreeCubeTexture) {
+        return 7
+    }
+    fn setEnvironment:void (handle:int) {
+        env = handle
+    }
+    fn drawSkybox:void (handle:int mvp:ThreeMatrix4) {
+        skies = (skies + 1)
+    }
+}
 
 class ThreeCubeTextureTest {
     def passed:int 0
@@ -64,6 +87,26 @@ class ThreeCubeTextureTest {
         def tex:ThreeTexture (ThreeTexture.uvGrid(64 8))
         this.ok("uv grid has image" (tex.hasImage()))
         this.ok("uv grid size" ((tex.width == 64) && (tex.height == 64)))
+
+        ; scene.environment lights reflections only; setEnvironmentMap is also the
+        ; background. setClearAlpha reaches the backend before the frame.
+        def cam:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        def refl:ThreeScene (new ThreeScene)
+        refl.setEnvironment(cube)
+        def rec:ThreeEnvRecorder (new ThreeEnvRecorder)
+        def r:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+        r.setBackend(rec)
+        r.setClearAlpha(0.0)
+        r.render(refl cam)
+        this.ok("environment selected for reflections" (rec.env == 7))
+        this.ok("environment draws no skybox" (rec.skies == 0))
+        this.ok("clear alpha reaches the backend" (rec.clearA == 0.0))
+        def sky:ThreeScene (new ThreeScene)
+        sky.setEnvironmentMap(cube)
+        r.setClearAlpha(1.0)
+        r.render(sky cam)
+        this.ok("environment map is also the background" (rec.skies == 1))
+        this.ok("opaque clear again" (rec.clearA == 1.0))
 
         print "== summary =="
         def s:string (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
