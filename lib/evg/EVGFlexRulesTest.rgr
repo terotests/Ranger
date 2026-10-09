@@ -30,6 +30,11 @@
 ;   1b. A width on an item that grows is its basis (CSS `flex-basis: auto`).
 ;      It was counted a fixed size, so `width: 0; flex-grow: 1` stayed 0.
 ;
+;   3b. An item sized by its content shrinks too. Only items with a width or
+;      a basis took part in shrinking, so a row of content-sized boxes wider
+;      than its line spilled out over each other (a chat's head at 500% zoom).
+;      As in CSS it stops at its content's minimum unless it clips.
+;
 ;   5. `row-gap` / `column-gap` are the axes, and lines have a gap too. Both
 ;      longhands parsed and neither was ever read, and the shorthand spaced the
 ;      items on a wrapped row without spacing the rows.
@@ -112,6 +117,21 @@ class FlexRulesCheck {
         l.setPageSize(1200.0 900.0)
         l.layout(root)
         return l
+    }
+
+    ; A width-less row box holding one box `inner` wide: sized by its content.
+    fn holder:EVGElement (inner:string decls:string) {
+        def h (EVGElement.createDiv())
+        h.setAttribute("display" "flex")
+        h.setAttribute("flex-direction" "row")
+        h.setAttribute("height" "40px")
+        this.applyDecls(h decls)
+        def kid (EVGElement.createDiv())
+        kid.setAttribute("width" inner)
+        kid.setAttribute("height" "40px")
+        kid.setAttribute("flex-shrink" "0")
+        h.addChild(kid)
+        return h
     }
 
     fn widthOf:double (root:EVGElement i:int) {
@@ -297,6 +317,33 @@ class FlexRulesCheck {
         this.near("the shorthand spaces the lines too" m2.calculatedY 50.0)
 
         ; --- and the silence ----------------------------------------------------
+        ; --- 3b. content-sized items shrink too -------------------------------
+        print ""
+        print "-- an item sized by its content shrinks with the rest"
+        def none:[string]
+        def c1 (this.row("300px" none))
+        c1.addChild((this.holder("250px" "overflow:hidden")))
+        c1.addChild((this.holder("250px" "overflow:hidden")))
+        def lc1 (this.lay(c1))
+        this.near("two clipping boxes share the cut" (this.widthOf(c1 0)) 150.0)
+        this.near("evenly" (this.widthOf(c1 1)) 150.0)
+
+        def c2 (this.row("300px" none))
+        c2.addChild((this.holder("250px" "")))
+        c2.addChild((this.holder("250px" "overflow:hidden")))
+        def lc2 (this.lay(c2))
+        this.near("one that does not clip stops at its content" (this.widthOf(c2 0)) 250.0)
+        this.near("and the clipping one gives up the rest" (this.widthOf(c2 1)) 50.0)
+
+        def c3 (this.row("300px" none))
+        def g3 (EVGElement.createDiv())
+        this.applyDecls(g3 "width:0px;flex-grow:1;height:40px")
+        c3.addChild(g3)
+        c3.addChild((this.holder("400px" "overflow:hidden;min-width:0px")))
+        def lc3 (this.lay(c3))
+        this.near("past the line a growing item gets nothing" (this.widthOf(c3 0)) 0.0)
+        this.near("and the content-sized one fits the row" (this.widthOf(c3 1)) 300.0)
+
         print ""
         print "-- a declaration the engine cannot use is reported, not swallowed"
         EVGReject.clearNotes()

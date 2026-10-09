@@ -1624,26 +1624,41 @@ class EVGLayout {
         }
 
         ; Row-axis flex-shrink (nowrap only — with wrap the row wraps instead):
-        ; when there is no grow flex and fixed children overflow the width, scale
-        ; them to fit (they used to spill out). Applied by re-routing each fixed
+        ; when the children's bases overflow the width, scale them to fit
+        ; (they used to spill out). Applied by re-routing each fixed
         ; child through the flex-width path (calculatedFlexWidth + clear width),
         ; so layoutElement adopts the shrunk width instead of the explicit one.
         if (isColumn == false) {
             if (parent.flexWrap == "nowrap") {
                 def fixedW2:double 0.0
-                def totalFlex2:double 0.0
                 def flowCount2:int 0
+                ; A WIDTH-LESS ITEM THAT DOES NOT GROW SHRINKS TOO.
+                ;
+                ; Its basis is its content (CSS `flex-basis: auto` on an auto
+                ; width), measured the way the grow pass above measures it.
+                ; This pass used to look at items with a width or a basis
+                ; only, so a row of content-sized boxes wider than its line —
+                ; a chat's head at 500% browser zoom: the room's name, then a
+                ; box of people, a name and a × — never shrank: the growing
+                ; title side was left 0 wide and everything after it was drawn
+                ; over the name. -1 for every other item.
+                def autoW:[double]
                 def jr:int 0
                 while (jr < childCount) {
                     def c:EVGElement (parent.getChild(jr))
+                    def est:double -1.0
                     if (c.isAbsolute == false) {
                         flowCount2 = (flowCount2 + 1)
                         if (this.hasBaseMain(c)) {
                             fixedW2 = (fixedW2 + (this.baseMain(c)) + c.box.marginLeftPx + c.box.marginRightPx)
                         } {
-                            if (c.flex > 0.0) { totalFlex2 = (totalFlex2 + c.flex) }
+                            if ((c.flex <= 0.0) && ((c.isHidden()) == false)) {
+                                est = (this.estimateChildWidth(c ((innerWidth - c.box.marginLeftPx) - c.box.marginRightPx) true))
+                                fixedW2 = (fixedW2 + est + c.box.marginLeftPx + c.box.marginRightPx)
+                            }
                         }
                     }
+                    push autoW est
                     jr = (jr + 1)
                 }
                 def gapTotal2:double 0.0
@@ -1655,7 +1670,10 @@ class EVGLayout {
                 if (parent.clipsContent()) {
                     overflowW = 0.0
                 }
-                if ((totalFlex2 == 0.0) && (overflowW > 0.0) && (fixedW2 > 0.0)) {
+                ; An item that grows has nothing to give here: past the line
+                ; it got no share, and its basis, if any, is in fixedW2 and
+                ; shrinks with the rest.
+                if ((overflowW > 0.0) && (fixedW2 > 0.0)) {
                     ; SHRINKING IS THE SAME LOOP AS GROWING, AND IT WAS NOT.
                     ;
                     ; This used to be one weighted pass with no minimum in it
@@ -1685,9 +1703,26 @@ class EVGLayout {
                     def jm:int 0
                     while (jm < childCount) {
                         def c:EVGElement (parent.getChild(jm))
-                        def canShrink:boolean ((c.isAbsolute == false) && (this.hasBaseMain(c)))
+                        def auto:boolean ((itemAt autoW jm) >= 0.0)
+                        def canShrink:boolean ((c.isAbsolute == false) && ((this.hasBaseMain(c)) || auto))
                         push shrinkable canShrink
-                        if canShrink {
+                        if (canShrink && auto) {
+                            push basesW (itemAt autoW jm)
+                            ; A content-sized item stops where its content
+                            ; does (CSS's automatic minimum), unless it clips:
+                            ; then, as in CSS, it may go to nothing and cut its
+                            ; text with its ellipsis.
+                            if c.minWidth.isSet {
+                                push minsW c.minWidth.pixels
+                            } {
+                                if (c.clipsContent()) {
+                                    push minsW 0.0
+                                } {
+                                    push minsW (this.minIntrinsicWidthOf(c))
+                                }
+                            }
+                        }
+                        if (canShrink && (auto == false)) {
                             push basesW (this.baseMain(c))
                             ; ONLY AN EXPLICIT `min-width` FLOORS THIS PASS.
                             ;
@@ -1716,7 +1751,8 @@ class EVGLayout {
                             } {
                                 push minsW 0.0
                             }
-                        } {
+                        }
+                        if (canShrink == false) {
                             push basesW 0.0
                             push minsW 0.0
                         }
