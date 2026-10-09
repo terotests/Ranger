@@ -380,6 +380,26 @@ class EVGStyleStateTest {
         c.eqInt("a child half way through" (EVGStyleStateTest.bgRed(kid)) 50)
     }
 
+    sfn testCompoundClass:void (c:StyleCheck) {
+        print "--- classes written together ---"
+        def css:string ".node { background-color: rgb(10,0,0) } .node.end { background-color: rgb(200,0,0) } .end.node:hover { background-color: rgb(255,0,0) }"
+        def s:EVGStyleSheet (EVGStyleStateTest.sheetOf(css))
+        c.eqInt("three rules, none rejected" (s.getErrorCount()) 0)
+        def one:EVGElement (EVGElement.createDiv())
+        one.className = "node"
+        s.applyTree(one "")
+        c.eqInt("one class: only its own rule" (EVGStyleStateTest.bgRed(one)) 10)
+        def both:EVGElement (EVGElement.createDiv())
+        both.className = "end node big"
+        s.applyTree(both "")
+        c.eqInt("both classes: the rule for both" (EVGStyleStateTest.bgRed(both)) 200)
+        both.isHovered = true
+        s.applyTree(both "")
+        c.eqInt("and its hover, in either order" (EVGStyleStateTest.bgRed(both)) 255)
+        def tag:EVGStyleSheet (EVGStyleStateTest.sheetOf("div.node { color: red }"))
+        c.eqInt("a tag before a class is still refused, and said" (tag.getErrorCount()) 1)
+    }
+
     sfn main:void () {
         def c (new StyleCheck())
         print "=== EVG stylesheet: states and transitions ==="
@@ -396,6 +416,7 @@ class EVGStyleStateTest {
         EVGStyleStateTest.testNoTransitionDeclared(c)
         EVGStyleStateTest.testOpacity(c)
         EVGStyleStateTest.testSubtree(c)
+        EVGStyleStateTest.testCompoundClass(c)
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {
