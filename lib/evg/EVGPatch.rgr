@@ -731,6 +731,7 @@ class EVGPatch {
         ; in a box measured by an ESTIMATE wraps the moment the estimate is a
         ; pixel short, and "markdown" comes back as "markdo".
         if ((name == "transform-origin") || (name == "white-space")) { return 1 }
+        if (name == "text-overflow") { return 1 }
         if (name == "background-gradient") { return 1 }
         ; The vector vocabulary. Left out of the first draft, and running the
         ; converter over the showcase said what that cost: every chart, every
@@ -839,6 +840,7 @@ class EVGPatch {
         push a "transform"
         push a "transform-origin"
         push a "white-space"
+        push a "text-overflow"
         push a "transition"
         push a "background-gradient"
         push a "svg"
@@ -982,6 +984,7 @@ class EVGPatch {
         if (n == "transform")              { return el.transformSpec }
         if (n == "transform-origin")       { return el.transformOriginSpec }
         if (n == "white-space")            { return el.whiteSpace }
+        if (n == "text-overflow")          { return el.textOverflow }
         if (n == "transition")             { return el.transitionSpec }
         if (n == "background-gradient")    { return el.backgroundGradient }
         if (n == "svg")                    { return el.svgSource }
@@ -1252,6 +1255,10 @@ class EVGPatch {
         }
         if (n == "white-space") {
             el.whiteSpace = "normal"
+            return true
+        }
+        if (n == "text-overflow") {
+            el.textOverflow = "clip"
             return true
         }
         if (n == "transition") {

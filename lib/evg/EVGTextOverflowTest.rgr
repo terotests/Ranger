@@ -1,0 +1,146 @@
+; SPDX-License-Identifier: MIT
+
+; ==============================================================================
+; EVGTextOverflowTest — `text-overflow: ellipsis`
+; ==============================================================================
+;
+; A one-line label (`white-space: nowrap`) longer than its box used to be
+; drawn whole, past the box: in a chat card the name of a presentation ran
+; over the Open button beside it and out of the card. CSS's answer is
+;
+;   .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+;
+; and this is what is asserted:
+;
+;   1. The line drawn for an overlong label is no wider than the box and ends
+;      in "…"; the element's `textContent` is still the whole text.
+;   2. Text that fits is drawn as it is.
+;   3. Without `overflow` other than `visible` nothing is cut (CSS: the
+;      property applies to a box that clips).
+;   4. The sheet sets it; it is not inherited.
+;   5. The cut is at a grapheme cluster: an emoji is never split.
+;   6. A box narrower than "…" still shows "…".
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGLayout.rgr"
+Import "EVGStyleSheet.rgr"
+Import "EVGDisplayList.rgr"
+Import "EVGTextEngine.rgr"
+
+class TextOverflowCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    ; a card 200px wide holding one label with the given rules
+    fn page:EVGElement (css:string text:string) {
+        def root (EVGElement.createDiv())
+        root.className = "card"
+        def lab (EVGElement.createSpan())
+        lab.id = "name"
+        lab.className = "name"
+        lab.textContent = text
+        lab.elementType = 1
+        root.addChild(lab)
+        def sheet (new EVGStyleSheet())
+        sheet.parse(css)
+        sheet.setViewport(400.0 300.0 false)
+        sheet.applyTree(root "")
+        return root
+    }
+
+    ; the text lines the display list draws, joined with "|"
+    fn drawn:string (root:EVGElement eng:EVGTextEngine) {
+        def lay (new EVGLayout())
+        lay.setPageSize(400.0 300.0)
+        lay.layout(root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine(eng)
+        dl.build(root)
+        def out:string ""
+        def i:int 0
+        while (i < (dl.count())) {
+            def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == 3) {
+                if ((strlen out) > 0) {
+                    out = (out + "|")
+                }
+                out = (out + c.text)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn run:void () {
+        def eng:EVGTextEngine ((new EVGLayout()).getTextEngine())
+        def base:string ".card { display: flex; flex-direction: column; width: 200px; }\n"
+        def cut:string (base + ".name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n")
+        def long:string "Quarterly business review for the northern sales region 2026"
+
+        print "-- an overlong one-line label is cut with an ellipsis"
+        def r1:EVGElement (this.page(cut long))
+        def d1:string (this.drawn(r1 eng))
+        def lab1:EVGElement (itemAt r1.children 0)
+        def w1:double ((eng.measureRun(d1 (lab1.effectiveFontFamily()) 14.0)).width)
+        this.ok(("ends in … (" + d1 + ")") ((indexOf d1 "…") == ((strlen d1) - 1)))
+        this.ok(("no wider than the box: " + (to_string w1)) (w1 <= 200.5))
+        this.ok("a prefix of the text" ((indexOf long (substring d1 0 ((strlen d1) - 1))) == 0))
+        this.ok("the element keeps the whole text" (lab1.textContent == long))
+        this.ok("and its box is the card's" (lab1.calculatedWidth <= 200.5))
+
+        print "-- text that fits is left alone"
+        def r2:EVGElement (this.page(cut "Retry plan"))
+        this.ok("short text drawn whole" ((this.drawn(r2 eng)) == "Retry plan"))
+
+        print "-- only on a box that clips, as in CSS"
+        def r3:EVGElement (this.page((base + ".name { white-space: nowrap; text-overflow: ellipsis; }\n") long))
+        this.ok("overflow: visible draws the whole line" ((this.drawn(r3 eng)) == long))
+
+        print "-- clip is the default and the value is not inherited"
+        def r4:EVGElement (this.page((base + ".card { text-overflow: ellipsis; overflow: hidden; } .name { white-space: nowrap; overflow: hidden; }\n") long))
+        def lab4:EVGElement (itemAt r4.children 0)
+        this.ok("the child keeps clip" (lab4.textOverflow == "clip"))
+        this.ok("and is drawn whole" ((this.drawn(r4 eng)) == long))
+        this.ok("the sheet set it on the parent" (r4.textOverflow == "ellipsis"))
+
+        print "-- cut between clusters, never inside one"
+        def emo:string "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        def r5:EVGElement (this.page(cut emo))
+        def d5:string (this.drawn(r5 eng))
+        def body5:string (substring d5 0 ((strlen d5) - 1))
+        this.ok(("an even number of UTF-16 units before …: " + (to_string (strlen body5))) ((((strlen body5) % 2) == 0) && ((strlen body5) > 0)))
+        this.ok("and an emoji prefix" ((indexOf emo body5) == 0))
+
+        print "-- a box too narrow for any letter still shows …"
+        this.ok("…" ((eng.ellipsizeSpaced(long "Noto Sans" 14.0 2.0 0.0)) == "…"))
+        this.ok("trailing space before … is dropped" ((indexOf (eng.ellipsizeSpaced("ab      cdefghijklmnopqrstuvwxyz" "Noto Sans" 14.0 ((eng.measureRun("ab   …" "Noto Sans" 14.0)).width) 0.0)) " …") < 0))
+
+        print ""
+        print ((("Passed: " + (to_string passed)) + "  Failed: ") + (to_string failed))
+        if (failed > 0) {
+            print "FAILED"
+        } {
+            print "OK"
+        }
+    }
+
+    sfn m@(main):void () {
+        def c (new TextOverflowCheck())
+        c.run()
+    }
+}

@@ -563,6 +563,13 @@ class EVGHostTree {
             }
             def avail:double (el.box.getInnerWidth(w))
             def lines:[string] (textEngine.breakToStrings(el.textContent face fs avail))
+            if (el.ellipsizes()) {
+                def cutLines:[string]
+                for lines ln:string ci {
+                    push cutLines (textEngine.ellipsizeSpaced(ln face fs avail 0.0))
+                }
+                lines = cutLines
+            }
             op.lines = lines
             def lx:[double]
             def ly:[double]

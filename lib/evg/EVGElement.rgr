@@ -652,6 +652,13 @@ class EVGElement {
     ; INHERITED, as CSS has it, so `white-space: nowrap` on the field reaches
     ; the run inside it without every child having to say so.
     def whiteSpace:string "normal"
+    ; `text-overflow`: `clip` (the default) or `ellipsis`. As in CSS it acts
+    ; only where the box clips (`overflow` other than `visible`): a line
+    ; wider than the content box is drawn cut at a cluster boundary with "…"
+    ; after it, instead of running past the box. NOT inherited. The text
+    ; itself is not changed — accessibility, selection and copying still read
+    ; `textContent` whole; only what the painters draw is shortened.
+    def textOverflow:string "clip"
     def color:EVGColor
     ; What to paint glyphs that came from a FALLBACK face — emoji, in
     ; practice — when they should not be the colour of the text around them.
@@ -1584,6 +1591,12 @@ class EVGElement {
     ; and a program can scroll it even though a pointer cannot.
     fn clipsContent:boolean () {
         return (overflow != "visible")
+    }
+
+    ; Does this element draw an overlong line of its own text cut with "…"?
+    ; `text-overflow: ellipsis` on a box that clips, as CSS has it.
+    fn ellipsizes:boolean () {
+        return ((textOverflow == "ellipsis") && (this.clipsContent()))
     }
 
     ; The visible box, the DOM's `clientHeight`/`clientWidth`: everything
@@ -3365,6 +3378,7 @@ class EVGElement {
         ; forced a fresh layout.
         textShiftY = other.textShiftY
         whiteSpace = other.whiteSpace
+        textOverflow = other.textOverflow
         color = other.color
         emojiColor = other.emojiColor
         textContent = other.textContent
@@ -4633,6 +4647,10 @@ class EVGElement {
         }
         if ((name == "white-space") || (name == "whiteSpace")) {
             whiteSpace = (trim value)
+            return
+        }
+        if ((name == "text-overflow") || (name == "textOverflow")) {
+            textOverflow = (trim value)
             return
         }
         if ((name == "line-height") || (name == "lineHeight")) {

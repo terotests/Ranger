@@ -282,6 +282,47 @@ class EVGTextEngine {
         return (itemAt runStore (unwrap hit))
     }
 
+    ; One line as `text-overflow: ellipsis` draws it in `maxWidth`: the line
+    ; itself when it fits, else the longest run of whole grapheme clusters
+    ; that fits with "…" after it (trailing spaces dropped, so the dots sit
+    ; on the last word), else "…" alone — CSS shows the ellipsis even when
+    ; not one character fits beside it. Cut by cluster, never inside one, so
+    ; an emoji or a letter with its accents is kept or dropped whole.
+    fn ellipsizeSpaced:string (line:string fontFamily:string fontSize:double maxWidth:double spacing:double) {
+        def eps:double (EVGTextEngine.fitEpsilon())
+        if (((this.measureRunSpaced(line fontFamily fontSize spacing)).width) <= (maxWidth + eps)) {
+            return line
+        }
+        def cps:[int] (EVGCodepoint.toArray(line))
+        def starts:[int] (EVGGrapheme.boundaries(cps))
+        ; starts[k] is where cluster k begins; the last entry is the length
+        def clusters:int ((array_length starts) - 1)
+        def lo:int 0
+        def hi:int clusters
+        while (lo < hi) {
+            def mid:int (idiv ((lo + hi) + 1) 2)
+            def cand:string ((trim (EVGTextEngine.cpSlice(cps (itemAt starts mid)))) + "…")
+            if (((this.measureRunSpaced(cand fontFamily fontSize spacing)).width) <= (maxWidth + eps)) {
+                lo = mid
+            } {
+                hi = (mid - 1)
+            }
+        }
+        def head:string (trim (EVGTextEngine.cpSlice(cps (itemAt starts lo))))
+        return (head + "…")
+    }
+
+    ; The first `n` codepoints as a string.
+    sfn cpSlice:string (cps:[int] n:int) {
+        def out:string ""
+        def k:int 0
+        while (k < n) {
+            out = out + (EVGCodepoint.toStr((itemAt cps k)))
+            k = (k + 1)
+        }
+        return out
+    }
+
     fn lineHeightFor:double (fontFamily:string fontSize:double) {
         return (measurer.getLineHeight(fontFamily fontSize))
     }
