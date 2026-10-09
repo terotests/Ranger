@@ -2949,10 +2949,17 @@ class EVGDisplayList {
             ; a property of WHICH line this is, and the strings cannot say.
             def broken:[EVGTextLine] (textEngine.breakLinesSpaced(el.textContent face fs (el.wrapWidth(avail)) el.letterSpacing))
             def lines:[string]
+            ; `text-overflow: ellipsis`: a line wider than the box is drawn
+            ; cut with "…" (EVGElement.ellipsizes, EVGTextEngine.ellipsizeSpaced)
+            def cut:boolean (el.ellipsizes())
             def bi:int 0
             while (bi < (array_length broken)) {
                 def bl:EVGTextLine (itemAt broken bi)
-                push lines bl.text
+                if cut {
+                    push lines (textEngine.ellipsizeSpaced(bl.text face fs avail el.letterSpacing))
+                } {
+                    push lines bl.text
+                }
                 bi = (bi + 1)
             }
             def tr:int 0
