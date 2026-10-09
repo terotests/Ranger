@@ -77,6 +77,12 @@ class VlLegend {
     def labelAlign:string "left"
     def labelBaseline:string "middle"
     def labelLimit:double 160.0
+    ; A document's legend (`VlRuntime.autoLabelAngle`) spaces its entries by
+    ; the width each label is drawn at. The reference's 0.8 em a character
+    ; is half as wide again as the text: a key of two entries over a plot
+    ; ("orient": "top") spread across a portrait page, and a chart grown to
+    ; its column was held to the key's width.
+    def drawnLabels:boolean false
     def labelOffset:double 4.0
     def labelFont:string "sans-serif"
     def labelFontSize:double 10.0
@@ -429,7 +435,7 @@ class VlLegend {
             ; third below, so a key of wedges spaced as if they were dots came
             ; out ten pixels long by its last row.
             def box:VlBounds (VlViewBox.ofItem("symbol" e.item))
-            box.union((VlBounds.ofText((e.labelItem.text("text")) (e.labelItem.number("fontSize")) (e.labelItem.text("align")) (e.labelItem.text("baseline")) (e.labelItem.number("x")) sy)))
+            box.union((VlBounds.ofTextMeasured((e.labelItem.text("text")) (e.labelItem.number("fontSize")) (e.labelItem.text("align")) (e.labelItem.text("baseline")) (e.labelItem.number("x")) sy drawnLabels)))
             push boxes box
         }
 

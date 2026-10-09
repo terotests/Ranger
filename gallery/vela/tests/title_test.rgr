@@ -271,6 +271,43 @@ class VlTitleTest {
         return out
     }
 
+    ; A key over the plot (`"orient": "top"`) in a document: its entries
+    ; are spaced by the width each label is drawn at. Spaced by the
+    ; reference's 0.8 em a character, two entries spread across a portrait
+    ; page and a chart grown to its column was held to the key's width.
+    fn topKey:void () {
+        def ref:double (this.secondEntryX(false))
+        def doc:double (this.secondEntryX(true))
+        this.checkTrue(("the reference spaces by 0.8 em a character: " + (to_string ref)) (ref > (VlText.estimateWidth("Kahvi + pulla" 15.0))))
+        this.checkTrue(("a document spaces by the drawn width: " + (to_string doc)) ((doc < ref) && (doc > (VlText.drawWidth("Kahvi + pulla" 15.0)))))
+        this.checkTrue("…a fifth closer at least" (doc < (ref * 0.8)))
+    }
+
+    ; where the second entry's label starts, from the first entry's
+    fn secondEntryX:double (auto:boolean) {
+        def spec:string "{\"width\":300,\"height\":200,\"config\":{\"legend\":{\"labelFontSize\":15}},\"data\":{\"values\":[{\"d\":\"Ma\",\"t\":\"Kahvi + pulla\",\"v\":2},{\"d\":\"Ma\",\"t\":\"Pelkka kahvi\",\"v\":3}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"d\",\"type\":\"nominal\"},\"y\":{\"field\":\"v\",\"type\":\"quantitative\"},\"color\":{\"field\":\"t\",\"type\":\"nominal\",\"title\":null,\"legend\":{\"orient\":\"top\"}}}}"
+        def p (new VlJsonParser())
+        def compiler (new VlCompile())
+        compiler.autoLabelAngle = auto
+        def vg:VlJson (compiler.compileSpec((p.parse(spec))))
+        def rt (new VlRuntime())
+        rt.autoLabelAngle = auto
+        def list:VlCommandList (VlSceneCommands.build((rt.run(vg))))
+        def first:double -1.0
+        def second:double -1.0
+        for list.commands c:VlDrawCommand ci {
+            if (c.op == "text") {
+                if (c.text == "Kahvi + pulla") {
+                    first = c.x
+                }
+                if (c.text == "Pelkka kahvi") {
+                    second = c.x
+                }
+            }
+        }
+        return (second - first)
+    }
+
     sfn main:void () {
         def t (new VlTitleTest())
         t.fits()
@@ -279,6 +316,7 @@ class VlTitleTest {
         t.ageAxis()
         t.schemes()
         t.wraps()
+        t.topKey()
         print ((((to_string (t.checks - t.failures)) + "/") + (to_string t.checks)) + " title checks passed")
     }
 }
