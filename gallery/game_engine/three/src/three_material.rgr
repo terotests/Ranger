@@ -44,6 +44,8 @@ class ThreeMaterial {
     ; environment reflection (envMap): the scene's cube map, mixed by reflectivity
     def reflective:boolean false
     def reflectivity:double 0.9
+    ; how much more the surface mirrors at grazing angles (Schlick), 0 none
+    def envFresnel:double 0.0
 
     ; Shading path the übershader takes: 0 unlit, 1 lambert, 2 phong. Overridden
     ; per subclass (Ranger runs no constructor, so a method beats a field default).
@@ -113,6 +115,10 @@ class ThreeMaterial {
     }
     fn setReflectivity:ThreeMaterial (v:double) {
         this.reflectivity = v
+        return this
+    }
+    fn setEnvFresnel:ThreeMaterial (v:double) {
+        this.envFresnel = v
         return this
     }
 }
