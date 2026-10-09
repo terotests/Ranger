@@ -2811,6 +2811,7 @@ class VlRuntime {
             def ldef:VlJson (this.resolveSignalMembers((config.mergedLegend((legends.at(k))))))
             def legend (new VlLegend())
             legend.locale = scope.locale
+            legend.drawnLabels = autoLabelAngle
             def named:boolean false
             for legend.channelOrder channel:string ci {
                 def scaleName:string (ldef.stringOr(channel ""))

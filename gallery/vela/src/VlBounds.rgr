@@ -146,7 +146,16 @@ class VlBounds {
     ; line; nothing here produces one yet, and a wrong guess would be worse than
     ; the missing case.
     sfn ofText:VlBounds (text:string fontSize:double align:string baseline:string x:double y:double) {
+        return (VlBounds.ofTextMeasured(text fontSize align baseline x y false))
+    }
+
+    ; `ofText`, with the width the string is DRAWN at (`VlText.drawWidth`)
+    ; when `drawn` is set rather than the reference's 0.8 em a character.
+    sfn ofTextMeasured:VlBounds (text:string fontSize:double align:string baseline:string x:double y:double drawn:boolean) {
         def w:double (VlText.estimateWidth(text fontSize))
+        if drawn {
+            w = (VlText.drawWidth(text fontSize))
+        }
         def h:double fontSize
         ; A label written on several lines is as wide as its WIDEST line, not
         ; as wide as all of them run together. Measured whole, two labels that
@@ -158,6 +167,9 @@ class VlBounds {
             w = 0.0
             for lines one:string oi {
                 def wide:double (VlText.estimateWidth(one fontSize))
+                if drawn {
+                    wide = (VlText.drawWidth(one fontSize))
+                }
                 if (wide > w) {
                     w = wide
                 }
