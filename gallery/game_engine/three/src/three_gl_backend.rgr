@@ -59,6 +59,10 @@ class ThreeGLBackend extends ThreeRenderBackend {
         gpu_begin w h r g b
     }
 
+    fn setClearAlpha:void (a:double) {
+        gpu_set_clear_alpha a
+    }
+
     ; ambient rgb + up to 4 directional lights, packed into float32 buffers.
     fn setLights:void (ambR:double ambG:double ambB:double dirCount:int dirs:[double] cols:[double]) {
         def ambBuf:buffer (buffer_alloc 12)
@@ -383,10 +387,10 @@ class ThreeGLBackend extends ThreeRenderBackend {
         return out
     }
 
-    ; 12 float32: colRGB, specRGB, shininess, shadingMode, side, hasTex,
-    ; reflectivity, hasEnv.
+    ; 13 float32: colRGB, specRGB, shininess, shadingMode, side, hasTex,
+    ; reflectivity, hasEnv, envFresnel.
     fn materialBytes:buffer (mat:ThreeMaterial th:int) {
-        def out:buffer (buffer_alloc 48)
+        def out:buffer (buffer_alloc 52)
         ByteReader.encodeF32(out 0 mat.colorR)
         ByteReader.encodeF32(out 4 mat.colorG)
         ByteReader.encodeF32(out 8 mat.colorB)
@@ -407,6 +411,7 @@ class ThreeGLBackend extends ThreeRenderBackend {
             hasEnvF = 1.0
         }
         ByteReader.encodeF32(out 44 hasEnvF)
+        ByteReader.encodeF32(out 48 mat.envFresnel)
         return out
     }
 }

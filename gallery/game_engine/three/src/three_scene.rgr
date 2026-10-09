@@ -21,6 +21,9 @@ class ThreeScene extends ThreeObject3D {
     ; reflections on reflective materials.
     def hasEnvCube:boolean false
     def envCube:ThreeCubeTexture (new ThreeCubeTexture)
+    ; the cube is also drawn behind the scene (setEnvironmentMap); false when it
+    ; only lights reflections (setEnvironment, Three.js `scene.environment`)
+    def envBackground:boolean true
 
     fn setBackground:ThreeScene (r:double g:double b:double) {
         this.hasBackground = true
@@ -32,6 +35,15 @@ class ThreeScene extends ThreeObject3D {
     fn setEnvironmentMap:ThreeScene (c:ThreeCubeTexture) {
         this.envCube = c
         this.hasEnvCube = true
+        this.envBackground = true
+        return this
+    }
+    ; Reflections only, as Three.js `scene.environment`: reflective materials
+    ; mirror the cube, nothing is drawn behind the scene.
+    fn setEnvironment:ThreeScene (c:ThreeCubeTexture) {
+        this.envCube = c
+        this.hasEnvCube = true
+        this.envBackground = false
         return this
     }
 }
