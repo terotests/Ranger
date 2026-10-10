@@ -22,6 +22,18 @@ class ThreePerspectiveCamera extends ThreeObject3D {
     def projectionMatrix:ThreeMatrix4 (new ThreeMatrix4)
     def projectionMatrixInverse:ThreeMatrix4 (new ThreeMatrix4)
     def matrixWorldInverse:ThreeMatrix4 (new ThreeMatrix4)
+    ; Three.js `camera.view` (setViewOffset): the camera's own frustum is a
+    ; fullWidth x fullHeight picture, and the one drawn is the part at
+    ; (offsetX, offsetY) of size width x height. The part may reach past the
+    ; full picture (negative offsets, a larger size): the frustum grows and
+    ; nothing in the full picture moves or changes scale.
+    def viewEnabled:boolean false
+    def viewFullWidth:double 1.0
+    def viewFullHeight:double 1.0
+    def viewOffsetX:double 0.0
+    def viewOffsetY:double 0.0
+    def viewWidth:double 1.0
+    def viewHeight:double 1.0
 
     ; convenience matching `new PerspectiveCamera(fov, aspect, near, far)`.
     fn setPerspective:ThreePerspectiveCamera (fov:double aspect:double near:double far:double) {
@@ -29,6 +41,25 @@ class ThreePerspectiveCamera extends ThreeObject3D {
         this.aspect = aspect
         this.near = near
         this.far = far
+        this.updateProjectionMatrix()
+        return this
+    }
+
+    fn setViewOffset:ThreePerspectiveCamera (fullWidth:double fullHeight:double x:double y:double width:double height:double) {
+        this.aspect = (fullWidth / fullHeight)
+        this.viewEnabled = true
+        this.viewFullWidth = fullWidth
+        this.viewFullHeight = fullHeight
+        this.viewOffsetX = x
+        this.viewOffsetY = y
+        this.viewWidth = width
+        this.viewHeight = height
+        this.updateProjectionMatrix()
+        return this
+    }
+
+    fn clearViewOffset:ThreePerspectiveCamera () {
+        this.viewEnabled = false
         this.updateProjectionMatrix()
         return this
     }
@@ -42,6 +73,12 @@ class ThreePerspectiveCamera extends ThreeObject3D {
         def height:double (2.0 * top)
         def width:double (this.aspect * height)
         def left:double ((0.0 - 0.5) * width)
+        if this.viewEnabled {
+            left = (left + ((this.viewOffsetX * width) / this.viewFullWidth))
+            top = (top - ((this.viewOffsetY * height) / this.viewFullHeight))
+            width = (width * (this.viewWidth / this.viewFullWidth))
+            height = (height * (this.viewHeight / this.viewFullHeight))
+        }
         this.projectionMatrix.makePerspective(left (left + width) top (top - height) near this.far)
         this.projectionMatrixInverse.copy(this.projectionMatrix)
         this.projectionMatrixInverse.invert()
