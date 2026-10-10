@@ -479,6 +479,20 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       ctx = (unwrap node.evalCtx)
     }
 
+    ; Rust: a call already moved to a temporary before the statement is that
+    ; temporary wherever it is written. Writers that reach the call without
+    ; checking for one evaluated it a second time.
+    if ((strlen node.rust_use_tmpvar) > 0) {
+      if (node.hasFnCall || node.expression) {
+        if ((ctx.getTargetLangName()) == "rust") {
+          wr.out(node.rust_use_tmpvar false)
+          node.rust_use_tmpvar = ""
+          this.finishWalkNode(wr)
+          return
+        }
+      }
+    }
+
     ; if! node.flow_done {
     ;   print "^^ flow not done here"
     ; }

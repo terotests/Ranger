@@ -2383,7 +2383,15 @@ extension RangerRustClassWriter {
   }
 
   fn rustExtractSelfCallConflicts:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; a node already moved to a temporary is written as that name: hoisting
+    ; anything inside it again would run its calls a second time
+    if ((strlen node.rust_use_tmpvar) > 0) {
+      return
+    }
     def real:CodeNode (this.rustUnwrapParens(node))
+    if ((strlen real.rust_use_tmpvar) > 0) {
+      return
+    }
     this.rustHoistFieldReceiver(real ctx wr)
     ; EVERY call, not only one written `this.m(…)`. A borrow held in an
     ; argument is held for the whole call whoever the receiver is, and
