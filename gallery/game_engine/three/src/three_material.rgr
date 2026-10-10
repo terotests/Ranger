@@ -47,6 +47,21 @@ class ThreeMaterial {
     ; how much more the surface mirrors at grazing angles (Schlick), 0 none
     def envFresnel:double 0.0
 
+    ; How the colour meets what is already drawn (ThreeBlending): 1 normal (only
+    ; when transparent, as in Three.js), 2 additive (light adds up: glow), 0 none.
+    def blending:int 1
+    ; false: the surface does not hide what is drawn after it (glass, glow)
+    def depthWrite:boolean true
+    ; false: drawn over everything already there
+    def depthTest:boolean true
+    ; light the surface gives off itself (lit materials), times emissiveIntensity
+    def emissiveR:double 0.0
+    def emissiveG:double 0.0
+    def emissiveB:double 0.0
+    def emissiveIntensity:double 1.0
+    ; false: the scene's fog does not reach this material
+    def fog:boolean true
+
     ; Shading path the übershader takes: 0 unlit, 1 lambert, 2 phong. Overridden
     ; per subclass (Ranger runs no constructor, so a method beats a field default).
     fn shadingMode:int () {
@@ -120,5 +135,47 @@ class ThreeMaterial {
     fn setEnvFresnel:ThreeMaterial (v:double) {
         this.envFresnel = v
         return this
+    }
+    fn setOpacity:ThreeMaterial (v:double) {
+        this.opacity = v
+        return this
+    }
+    fn setTransparent:ThreeMaterial (b:boolean) {
+        this.transparent = b
+        return this
+    }
+    fn setBlending:ThreeMaterial (mode:int) {
+        this.blending = mode
+        return this
+    }
+    fn setDepthWrite:ThreeMaterial (b:boolean) {
+        this.depthWrite = b
+        return this
+    }
+    fn setDepthTest:ThreeMaterial (b:boolean) {
+        this.depthTest = b
+        return this
+    }
+    fn setEmissive:ThreeMaterial (r:double g:double b:double) {
+        this.emissiveR = r
+        this.emissiveG = g
+        this.emissiveB = b
+        return this
+    }
+    fn setEmissiveIntensity:ThreeMaterial (v:double) {
+        this.emissiveIntensity = v
+        return this
+    }
+    fn setFog:ThreeMaterial (b:boolean) {
+        this.fog = b
+        return this
+    }
+    ; Blending as the GPU does it for this material: 0 none, 1 normal, 2 additive.
+    ; Normal blending needs `transparent` (Three.js WebGLState.setMaterial).
+    fn blendMode:int () {
+        if ((blending == 1) && (transparent == false)) {
+            return 0
+        }
+        return blending
     }
 }

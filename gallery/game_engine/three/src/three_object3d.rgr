@@ -36,6 +36,8 @@ class ThreeObject3D {
     ; when set by lookAt(), the local matrix uses `quaternion` directly instead of
     ; re-deriving it from the Euler `rotation` each frame.
     def quatDriven:boolean false
+    ; drawing order among transparent objects (lower first), as Three.js
+    def renderOrder:int 0
 
     fn add:ThreeObject3D (child:ThreeObject3D) {
         push this.children child
@@ -101,6 +103,12 @@ class ThreeObject3D {
     ; Base Object3D draws nothing; ThreeMesh overrides this (polymorphic dispatch
     ; on the node variable — the renderer walks the tree and calls it per node).
     fn renderInto:void (backend:ThreeRenderBackend viewProj:ThreeMatrix4) {
+    }
+
+    ; True when this node draws see-through (a mesh with a transparent
+    ; material): the renderer draws it after every opaque one, farthest first.
+    fn drawsTransparent:boolean () {
+        return false
     }
 
     ; Bounding-box accumulation (so Box3 stays pure math and needs no Object3D

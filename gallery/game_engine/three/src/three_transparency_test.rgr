@@ -1,0 +1,167 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; three_transparency_test — see-through materials, glow and fog.
+; ==============================================================================
+; The renderer draws transparent meshes after the opaque ones, farthest first
+; (renderOrder before depth), and hands the backend the scene's fog; the GL
+; backend packs opacity, blending, depth flags, emissive and fog per material.
+; A recording backend stands in for the GPU.
+; ==============================================================================
+
+Import "three_webgl_renderer.rgr"
+Import "three_gl_backend.rgr"
+Import "three_mesh.rgr"
+Import "three_mesh_basic_material.rgr"
+Import "three_mesh_phong_material.rgr"
+Import "three_box_geometry.rgr"
+Import "three_scene.rgr"
+Import "three_fog.rgr"
+Import "three_constants.rgr"
+Import "three_perspective_camera.rgr"
+Import "../../model3d/ByteReader.rgr"
+
+; the names of the materials drawn, in order, and the fog it was told
+class ThreeRecordingBackend extends ThreeRenderBackend {
+    def drawn:[string]
+    def fogOn:boolean false
+    def fogNear:double 0.0
+    def fogFar:double 0.0
+    def fogMode:int (0 - 1)
+    fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
+        push drawn mat.name
+    }
+    fn setFog:void (on:boolean r:double g:double b:double near:double far:double density:double mode:int) {
+        fogOn = on
+        fogNear = near
+        fogFar = far
+        fogMode = mode
+    }
+}
+
+class ThreeTransparencyCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        this.ok((name + " got=" + (to_string got)) (d < 0.0005))
+    }
+}
+
+class ThreeTransparencyTest {
+    sfn box:ThreeMesh (name:string z:double transparent:boolean) {
+        def mat:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+        mat.name = name
+        mat.transparent = transparent
+        def m:ThreeMesh (new ThreeMesh)
+        m.setGeometry((new ThreeBoxGeometry))
+        m.setMaterial(mat)
+        m.position.set(0.0 0.0 z)
+        return m
+    }
+
+    sfn f32:double (b:buffer at:int) {
+        return (ByteReader.decodeF32((buffer_get b at) (buffer_get b (at + 1)) (buffer_get b (at + 2)) (buffer_get b (at + 3))))
+    }
+
+    sfn m@(main):void () {
+        def ck:ThreeTransparencyCheck (new ThreeTransparencyCheck)
+        print "== transparency / blending / fog =="
+
+        ; material defaults and the blend the GPU uses
+        def mat:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
+        ck.ok("default blending is normal" (mat.blending == (ThreeBlending.NormalBlending())))
+        ck.ok("normal blending of an opaque material is none" ((mat.blendMode()) == 0))
+        mat.setTransparent(true)
+        ck.ok("normal blending once transparent" ((mat.blendMode()) == 1))
+        mat.setTransparent(false)
+        mat.setBlending((ThreeBlending.AdditiveBlending()))
+        ck.ok("additive blends even when opaque" ((mat.blendMode()) == 2))
+        mat.setOpacity(0.25).setDepthWrite(false).setEmissive(0.2 0.4 0.8).setEmissiveIntensity(2.0).setFog(false)
+
+        ; the bytes the GL draw reads
+        def gl:ThreeGLBackend (new ThreeGLBackend)
+        def mb:buffer (gl.materialBytes(mat 0))
+        ck.ok("material bytes: 21 floats" ((buffer_length mb) == 84))
+        ck.near("bytes: opacity" (ThreeTransparencyTest.f32(mb 52)) 0.25)
+        ck.near("bytes: additive" (ThreeTransparencyTest.f32(mb 56)) 2.0)
+        ck.near("bytes: no depth write" (ThreeTransparencyTest.f32(mb 60)) 0.0)
+        ck.near("bytes: depth test" (ThreeTransparencyTest.f32(mb 64)) 1.0)
+        ck.near("bytes: emissive r * intensity" (ThreeTransparencyTest.f32(mb 68)) 0.4)
+        ck.near("bytes: emissive b * intensity" (ThreeTransparencyTest.f32(mb 76)) 1.6)
+        ck.near("bytes: no fog" (ThreeTransparencyTest.f32(mb 80)) 0.0)
+
+        ; drawing order: opaque in scene order, then transparent farthest first
+        def scene:ThreeScene (new ThreeScene)
+        scene.add((ThreeTransparencyTest.box("glass-near" (0.0 - 2.0) true)))
+        scene.add((ThreeTransparencyTest.box("wall" (0.0 - 9.0) false)))
+        scene.add((ThreeTransparencyTest.box("glass-far" (0.0 - 8.0) true)))
+        scene.add((ThreeTransparencyTest.box("glass-mid" (0.0 - 5.0) true)))
+        scene.add((ThreeTransparencyTest.box("floor" (0.0 - 3.0) false)))
+        def cam:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        cam.setPerspective(50.0 1.0 0.1 100.0)
+        cam.position.set(0.0 0.0 5.0)
+        def rec:ThreeRecordingBackend (new ThreeRecordingBackend)
+        def r:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+        r.setBackend(rec)
+        r.render(scene cam)
+        def got:string (join rec.drawn ",")
+        ck.ok(("opaque first, then glass far to near: " + got) (got == "wall,floor,glass-far,glass-mid,glass-near"))
+
+        ; renderOrder before depth
+        def near:ThreeObject3D (scene.getChild(0))
+        near.renderOrder = (0 - 1)
+        def rec2:ThreeRecordingBackend (new ThreeRecordingBackend)
+        r.setBackend(rec2)
+        r.render(scene cam)
+        def got2:string (join rec2.drawn ",")
+        ck.ok(("renderOrder first: " + got2) (got2 == "wall,floor,glass-near,glass-far,glass-mid"))
+
+        ; a hidden transparent mesh is not drawn
+        near.visible = false
+        def rec3:ThreeRecordingBackend (new ThreeRecordingBackend)
+        r.setBackend(rec3)
+        r.render(scene cam)
+        ck.ok("hidden glass not drawn" ((indexOf rec3.drawn "glass-near") < 0))
+        ck.ok("no fog without scene.fog" (rec3.fogOn == false))
+
+        ; fog reaches the backend
+        scene.setFog((ThreeFog.linear(0.0 0.0 0.1 10.0 60.0)))
+        def rec4:ThreeRecordingBackend (new ThreeRecordingBackend)
+        r.setBackend(rec4)
+        r.render(scene cam)
+        ck.ok("linear fog told" (rec4.fogOn && (rec4.fogMode == 0)))
+        ck.near("fog near" rec4.fogNear 10.0)
+        ck.near("fog far" rec4.fogFar 60.0)
+
+        ; fog factors (the shader's formulas)
+        def lin:ThreeFog (ThreeFog.linear(0.0 0.0 0.0 10.0 30.0))
+        ck.near("linear: none before near" (lin.factor(5.0)) 0.0)
+        ck.near("linear: half way" (lin.factor(20.0)) 0.5)
+        ck.near("linear: all after far" (lin.factor(99.0)) 1.0)
+        def ex:ThreeFog (ThreeFog.exponential(0.0 0.0 0.0 0.05))
+        ck.near("exp2 at 20: 1 - e^-1" (ex.factor(20.0)) 0.632121)
+        ck.near("e^-0 = 1" (ThreeFog.expNeg(0.0)) 1.0)
+        ck.near("e^-2.5" (ThreeFog.expNeg(2.5)) 0.082085)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

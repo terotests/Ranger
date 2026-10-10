@@ -78,6 +78,7 @@ run_suite three_light_probe_volume_test
 run_suite three_cube_texture_test
 run_suite three_sky_test
 run_suite three_mesh_test
+run_suite three_transparency_test
 run_suite three_cube_demo_test
 run_suite three_gl_backend_test
 # The single-truth host registry (THREE_BRIDGE.md): every front-end commands this

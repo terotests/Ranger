@@ -466,6 +466,119 @@ class ThreeTubeGeometry extends ThreeBufferGeometry {
     }
 }
 
+; A tube along any 3-D path (Three.js TubeGeometry): the cross-section is
+; carried along by parallel transport (computeFrenetFrames), so it neither
+; flattens where the path turns vertical nor twists. `points` flattened
+; [x0,y0,z0, …]; open ends. build() above keeps its flat frame for paths in
+; the XZ plane.
+class ThreePathTubeGeometry extends ThreeBufferGeometry {
+    def isTubeGeometry:boolean true
+
+    fn build:ThreePathTubeGeometry (points:[double] radius:double radialSeg:int) {
+        def twoPi:double 6.283185307179586
+        def np:int (idiv (array_length points) 3)
+        if (np < 2) { return this }
+        ; the first normal: perpendicular to the first tangent, from the axis
+        ; it is least along (Three's choice)
+        def nx:double 0.0
+        def ny:double 0.0
+        def nz:double 0.0
+        def i:int 0
+        while (i < np) {
+            def i0:int (i - 1)
+            def i1:int (i + 1)
+            if (i0 < 0) { i0 = 0 }
+            if (i1 >= np) { i1 = (np - 1) }
+            def tx:double ((itemAt points (i1 * 3)) - (itemAt points (i0 * 3)))
+            def ty:double ((itemAt points ((i1 * 3) + 1)) - (itemAt points ((i0 * 3) + 1)))
+            def tz:double ((itemAt points ((i1 * 3) + 2)) - (itemAt points ((i0 * 3) + 2)))
+            def tl:double (sqrt(((tx * tx) + (ty * ty)) + (tz * tz)))
+            if (tl < 0.000001) {
+                tx = 1.0
+                ty = 0.0
+                tz = 0.0
+                tl = 1.0
+            }
+            tx = (tx / tl)
+            ty = (ty / tl)
+            tz = (tz / tl)
+            if (i == 0) {
+                def ax:double (fabs tx)
+                def ay:double (fabs ty)
+                def az:double (fabs tz)
+                ; the axis the tangent is least along, crossed with it
+                def ux:double 0.0
+                def uy:double 0.0
+                def uz:double 0.0
+                if ((ax <= ay) && (ax <= az)) {
+                    ux = 1.0
+                } {
+                    if (ay <= az) {
+                        uy = 1.0
+                    } {
+                        uz = 1.0
+                    }
+                }
+                ; n = normalize(t x u) x t
+                def cx:double ((ty * uz) - (tz * uy))
+                def cy:double ((tz * ux) - (tx * uz))
+                def cz:double ((tx * uy) - (ty * ux))
+                nx = ((cy * tz) - (cz * ty))
+                ny = ((cz * tx) - (cx * tz))
+                nz = ((cx * ty) - (cy * tx))
+            } {
+                ; transport: remove the part along the new tangent
+                def dd:double (((nx * tx) + (ny * ty)) + (nz * tz))
+                nx = (nx - (dd * tx))
+                ny = (ny - (dd * ty))
+                nz = (nz - (dd * tz))
+            }
+            def nl:double (sqrt(((nx * nx) + (ny * ny)) + (nz * nz)))
+            if (nl < 0.000001) {
+                nl = 1.0
+            }
+            nx = (nx / nl)
+            ny = (ny / nl)
+            nz = (nz / nl)
+            ; b = t x n
+            def bx:double ((ty * nz) - (tz * ny))
+            def by:double ((tz * nx) - (tx * nz))
+            def bz:double ((tx * ny) - (ty * nx))
+            def px:double (itemAt points (i * 3))
+            def py:double (itemAt points ((i * 3) + 1))
+            def pz:double (itemAt points ((i * 3) + 2))
+            def j:int 0
+            while (j <= radialSeg) {
+                def v:double (((to_double j) / (to_double radialSeg)) * twoPi)
+                def cv:double (cos(v))
+                def sv:double (sin(v))
+                def ox:double ((cv * nx) + (sv * bx))
+                def oy:double ((cv * ny) + (sv * by))
+                def oz:double ((cv * nz) + (sv * bz))
+                this.pushVertex((px + (radius * ox)) (py + (radius * oy)) (pz + (radius * oz)) ox oy oz ((to_double i) / (to_double (np - 1))) ((to_double j) / (to_double radialSeg)))
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        def r1:int (radialSeg + 1)
+        def jj:int 0
+        while (jj < (np - 1)) {
+            def ii:int 0
+            while (ii < radialSeg) {
+                def a:int ((r1 * jj) + ii)
+                def b:int ((r1 * (jj + 1)) + ii)
+                def c:int ((r1 * (jj + 1)) + (ii + 1))
+                def d:int ((r1 * jj) + (ii + 1))
+                this.pushTriangle(a b d)
+                this.pushTriangle(b c d)
+                ii = (ii + 1)
+            }
+            jj = (jj + 1)
+        }
+        return this
+    }
+}
+
 ; A flat 2D polygon (points in the XZ plane, flattened [x0,z0,x1,z1,…]) extruded
 ; to `depth` in +Y — a prism. Fan-triangulated top + bottom + side quads. Used for
 ; arbitrary flat parts (slingshot/rebound triangles, irregular inserts) that the

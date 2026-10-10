@@ -17,3 +17,16 @@ class ThreeColorSpace {
         return "srgb-linear"
     }
 }
+
+; Material blending (Three.js NoBlending / NormalBlending / AdditiveBlending).
+class ThreeBlending {
+    sfn NoBlending:int () {
+        return 0
+    }
+    sfn NormalBlending:int () {
+        return 1
+    }
+    sfn AdditiveBlending:int () {
+        return 2
+    }
+}
