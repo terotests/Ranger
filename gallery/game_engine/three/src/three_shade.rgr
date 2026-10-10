@@ -1,0 +1,369 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; three_shade — the übershader's colour for one surface point, in Ranger.
+; ==============================================================================
+;
+; The GL backend lights each fragment in GLSL (three_gl_shaders.rgr, the
+; fragment main()). This is the same computation, term for term, so a backend
+; without a GPU (three_lit_software_backend.rgr) draws what the browser draws:
+;
+;   unlit (MeshBasicMaterial)   the colour, sRGB-encoded when the output is
+;   lambert / phong             ambient + directional + point lights (Three's
+;                               distance/decay falloff), Blinn-Phong specular
+;                               for phong, the environment cube mixed in by
+;                               reflectivity (Schlick when envFresnel > 0),
+;                               then tone mapping and the sRGB encoding
+;
+; Per frame the backend hands over the lights, the camera position, the tone
+; mapping, the output colour space and the environment; per point `shade`
+; leaves the colour in r, g, b (0..1, encoded for the screen). Normal maps and
+; light-probe volumes are not taken (they stay GL-only).
+; ==============================================================================
+
+Import "three_material.rgr"
+Import "three_cube_texture.rgr"
+Import "three_tone_mapping.rgr"
+Import "../../../../lib/core/RgNum.rgr"
+
+class ThreeShade {
+    def ambR:double 0.0
+    def ambG:double 0.0
+    def ambB:double 0.0
+    def dirCount:int 0
+    def dirs:[double]
+    def dirCols:[double]
+    def pointCount:int 0
+    def points:[double]
+    def pointCols:[double]
+    def pointRange:[double]
+    def camX:double 0.0
+    def camY:double 0.0
+    def camZ:double 0.0
+    def srgb:boolean false
+    def toneMode:int 0
+    def exposure:double 1.0
+    def hasEnv:boolean false
+    def env:ThreeCubeTexture (new ThreeCubeTexture)
+
+    ; the last colour shaded
+    def r:double 0.0
+    def g:double 0.0
+    def b:double 0.0
+
+    fn setLights:void (ar:double ag:double ab:double count:int d:[double] cols:[double]) {
+        ambR = ar
+        ambG = ag
+        ambB = ab
+        dirCount = count
+        dirs = d
+        dirCols = cols
+    }
+    fn setPointLights:void (count:int pos:[double] cols:[double] range:[double]) {
+        pointCount = count
+        points = pos
+        pointCols = cols
+        pointRange = range
+    }
+    fn setView:void (x:double y:double z:double) {
+        camX = x
+        camY = y
+        camZ = z
+    }
+    fn setOutputSRGB:void (on:boolean) {
+        srgb = on
+    }
+    fn setToneMapping:void (mode:int exp:double) {
+        toneMode = mode
+        exposure = exp
+    }
+    ; the cube reflective materials mirror; none: they reflect black, as an
+    ; unbound samplerCube does
+    fn setEnvironment:void (cube:ThreeCubeTexture on:boolean) {
+        env = cube
+        hasEnv = (on && ((cube.faceCount()) == 6))
+    }
+
+    ; base^e for base >= 0, the GLSL pow
+    sfn powf:double (base:double e:double) {
+        if (base <= 0.0) {
+            return 0.0
+        }
+        return (RgNum.pow(base e))
+    }
+
+    sfn clamp01:double (v:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        if (v > 1.0) {
+            return 1.0
+        }
+        return v
+    }
+
+    ; the environment's colour in direction (dx, dy, dz), 0..1 as stored
+    ; (ThreeCubeTexture.faceDir read backwards: the major axis picks the face)
+    def envR:double 0.0
+    def envG:double 0.0
+    def envB:double 0.0
+    fn sampleEnv:void (dx:double dy:double dz:double) {
+        envR = 0.0
+        envG = 0.0
+        envB = 0.0
+        if (hasEnv == false) {
+            return
+        }
+        def ax:double dx
+        if (ax < 0.0) {
+            ax = (0.0 - ax)
+        }
+        def ay:double dy
+        if (ay < 0.0) {
+            ay = (0.0 - ay)
+        }
+        def az:double dz
+        if (az < 0.0) {
+            az = (0.0 - az)
+        }
+        def f:int 0
+        def u:double 0.0
+        def v:double 0.0
+        if ((ax >= ay) && (ax >= az)) {
+            if (ax == 0.0) {
+                return
+            }
+            if (dx > 0.0) {
+                f = 0
+                u = ((0.0 - dz) / ax)
+            } {
+                f = 1
+                u = (dz / ax)
+            }
+            v = ((0.0 - dy) / ax)
+        } {
+            if (ay >= az) {
+                if (dy > 0.0) {
+                    f = 2
+                    v = (dz / ay)
+                } {
+                    f = 3
+                    v = ((0.0 - dz) / ay)
+                }
+                u = (dx / ay)
+            } {
+                if (dz > 0.0) {
+                    f = 4
+                    u = (dx / az)
+                } {
+                    f = 5
+                    u = ((0.0 - dx) / az)
+                }
+                v = ((0.0 - dy) / az)
+            }
+        }
+        def n:int env.size
+        def xx:int (to_int ((((u + 1.0) * 0.5) * (to_double n))))
+        def yy:int (to_int ((((v + 1.0) * 0.5) * (to_double n))))
+        if (xx < 0) {
+            xx = 0
+        }
+        if (xx > (n - 1)) {
+            xx = (n - 1)
+        }
+        if (yy < 0) {
+            yy = 0
+        }
+        if (yy > (n - 1)) {
+            yy = (n - 1)
+        }
+        def face:buffer (env.face(f))
+        def o:int (((yy * n) + xx) * 4)
+        envR = ((to_double (buffer_get face o)) / 255.0)
+        envG = ((to_double (buffer_get face (o + 1))) / 255.0)
+        envB = ((to_double (buffer_get face (o + 2))) / 255.0)
+    }
+
+    fn toneMap:double (c:double) {
+        if (toneMode == 0) {
+            return c
+        }
+        return (ThreeToneMapping.mapChannel(toneMode c exposure))
+    }
+
+    fn encode:double (c:double) {
+        if srgb {
+            return (ThreeShade.powf((ThreeShade.clamp01(c)) (1.0 / 2.2)))
+        }
+        return c
+    }
+
+    ; The colour at world point (wx, wy, wz) with surface normal (nx, ny, nz)
+    ; (any length), base colour (br, bg, bb) (the material's colour times its
+    ; texture), and sf of the light reaching it past the shadow map (1 lit).
+    fn shade:void (mat:ThreeMaterial br:double bg:double bb:double nx:double ny:double nz:double wx:double wy:double wz:double sf:double) {
+        def mode:int (mat.shadingMode())
+        if (mode == 0) {
+            r = (this.encode(br))
+            g = (this.encode(bg))
+            b = (this.encode(bb))
+            return
+        }
+        def nl:double (sqrt((((nx * nx) + (ny * ny)) + (nz * nz))))
+        if (nl < 0.0000001) {
+            nl = 1.0
+        }
+        def n0:double (nx / nl)
+        def n1:double (ny / nl)
+        def n2:double (nz / nl)
+        def v0:double (camX - wx)
+        def v1:double (camY - wy)
+        def v2:double (camZ - wz)
+        def vl:double (sqrt((((v0 * v0) + (v1 * v1)) + (v2 * v2))))
+        if (vl < 0.0000001) {
+            vl = 1.0
+        }
+        v0 = (v0 / vl)
+        v1 = (v1 / vl)
+        v2 = (v2 / vl)
+        def ndv:double (((n0 * v0) + (n1 * v1)) + (n2 * v2))
+        if ((mat.side > 1) && (ndv < 0.0)) {
+            n0 = (0.0 - n0)
+            n1 = (0.0 - n1)
+            n2 = (0.0 - n2)
+            ndv = (0.0 - ndv)
+        }
+        def cr:double (ambR * br)
+        def cg:double (ambG * bg)
+        def cb:double (ambB * bb)
+        def sr:double 0.0
+        def sg:double 0.0
+        def sb:double 0.0
+        def phong:boolean (mode > 1)
+        def i:int 0
+        while (i < dirCount) {
+            def l0:double (itemAt dirs (i * 3))
+            def l1:double (itemAt dirs ((i * 3) + 1))
+            def l2:double (itemAt dirs ((i * 3) + 2))
+            def ll:double (sqrt((((l0 * l0) + (l1 * l1)) + (l2 * l2))))
+            if (ll > 0.0000001) {
+                l0 = (l0 / ll)
+                l1 = (l1 / ll)
+                l2 = (l2 / ll)
+            }
+            def ndl:double (((n0 * l0) + (n1 * l1)) + (n2 * l2))
+            if (ndl < 0.0) {
+                ndl = 0.0
+            }
+            def lr:double (itemAt dirCols (i * 3))
+            def lg:double (itemAt dirCols ((i * 3) + 1))
+            def lb:double (itemAt dirCols ((i * 3) + 2))
+            cr = (cr + (((sf * lr) * br) * ndl))
+            cg = (cg + (((sf * lg) * bg) * ndl))
+            cb = (cb + (((sf * lb) * bb) * ndl))
+            if (phong && (ndl > 0.0)) {
+                def s:double (this.highlight(n0 n1 n2 l0 l1 l2 v0 v1 v2 mat.shininess))
+                sr = (sr + (((sf * lr) * mat.specularR) * s))
+                sg = (sg + (((sf * lg) * mat.specularG) * s))
+                sb = (sb + (((sf * lb) * mat.specularB) * s))
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < pointCount) {
+            def t0:double ((itemAt points (k * 3)) - wx)
+            def t1:double ((itemAt points ((k * 3) + 1)) - wy)
+            def t2:double ((itemAt points ((k * 3) + 2)) - wz)
+            def d:double (sqrt((((t0 * t0) + (t1 * t1)) + (t2 * t2))))
+            def dd:double d
+            if (dd < 0.0001) {
+                dd = 0.0001
+            }
+            def p0:double (t0 / dd)
+            def p1:double (t1 / dd)
+            def p2:double (t2 / dd)
+            def reach:double (itemAt pointRange (k * 2))
+            def decay:double (itemAt pointRange ((k * 2) + 1))
+            def fall:double (ThreeShade.powf(d decay))
+            if (decay == 0.0) {
+                fall = 1.0
+            }
+            if (fall < 0.01) {
+                fall = 0.01
+            }
+            def att:double (1.0 / fall)
+            if (reach > 0.0) {
+                def q:double (ThreeShade.clamp01((1.0 - (ThreeShade.powf((d / reach) 4.0)))))
+                att = ((att * q) * q)
+            }
+            def ndl2:double (((n0 * p0) + (n1 * p1)) + (n2 * p2))
+            if (ndl2 < 0.0) {
+                ndl2 = 0.0
+            }
+            def pr:double (itemAt pointCols (k * 3))
+            def pg:double (itemAt pointCols ((k * 3) + 1))
+            def pb:double (itemAt pointCols ((k * 3) + 2))
+            cr = (cr + (((pr * br) * ndl2) * att))
+            cg = (cg + (((pg * bg) * ndl2) * att))
+            cb = (cb + (((pb * bb) * ndl2) * att))
+            if (phong && (ndl2 > 0.0)) {
+                def s2:double ((this.highlight(n0 n1 n2 p0 p1 p2 v0 v1 v2 mat.shininess)) * att)
+                sr = (sr + ((pr * mat.specularR) * s2))
+                sg = (sg + ((pg * mat.specularG) * s2))
+                sb = (sb + ((pb * mat.specularB) * s2))
+            }
+            k = (k + 1)
+        }
+        if mat.reflective {
+            ; R = reflect(-V, N) = -V + 2 (N.V) N
+            def rx:double ((0.0 - v0) + ((2.0 * ndv) * n0))
+            def ry:double ((0.0 - v1) + ((2.0 * ndv) * n1))
+            def rz:double ((0.0 - v2) + ((2.0 * ndv) * n2))
+            this.sampleEnv(rx ry rz)
+            def er:double envR
+            def eg:double envG
+            def eb:double envB
+            if srgb {
+                er = (ThreeShade.powf(er 2.2))
+                eg = (ThreeShade.powf(eg 2.2))
+                eb = (ThreeShade.powf(eb 2.2))
+            }
+            def refl:double mat.reflectivity
+            if (mat.envFresnel > 0.0) {
+                def c:double (1.0 - ndv)
+                if (ndv < 0.0) {
+                    c = 1.0
+                }
+                def c5:double ((((c * c) * c) * c) * c)
+                def fr:double (ThreeShade.clamp01((refl + (((1.0 - refl) * mat.envFresnel) * c5))))
+                cr = (((cr * (1.0 - fr)) + (er * fr)) + sr)
+                cg = (((cg * (1.0 - fr)) + (eg * fr)) + sg)
+                cb = (((cb * (1.0 - fr)) + (eb * fr)) + sb)
+            } {
+                cr = (((cr + sr) * (1.0 - refl)) + (er * refl))
+                cg = (((cg + sg) * (1.0 - refl)) + (eg * refl))
+                cb = (((cb + sb) * (1.0 - refl)) + (eb * refl))
+            }
+        } {
+            cr = (cr + sr)
+            cg = (cg + sg)
+            cb = (cb + sb)
+        }
+        r = (this.encode((this.toneMap(cr))))
+        g = (this.encode((this.toneMap(cg))))
+        b = (this.encode((this.toneMap(cb))))
+    }
+
+    ; Blinn-Phong: (N.H)^shininess with H the half vector of L and V
+    fn highlight:double (n0:double n1:double n2:double l0:double l1:double l2:double v0:double v1:double v2:double shininess:double) {
+        def h0:double (l0 + v0)
+        def h1:double (l1 + v1)
+        def h2:double (l2 + v2)
+        def hl:double (sqrt((((h0 * h0) + (h1 * h1)) + (h2 * h2))))
+        if (hl < 0.0000001) {
+            return 0.0
+        }
+        def ndh:double ((((n0 * h0) + (n1 * h1)) + (n2 * h2)) / hl)
+        return (ThreeShade.powf(ndh shininess))
+    }
+}

@@ -1,0 +1,261 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; three_lit_software_test — ThreeShade (the übershader in Ranger) and the lit
+; software backend: lights, specular, falloff, reflections, culling, near-plane
+; clipping, shadows, clear alpha.
+; ==============================================================================
+
+Import "three_shade.rgr"
+Import "three_lit_software_backend.rgr"
+Import "three_light.rgr"
+Import "three_scene.rgr"
+Import "three_mesh.rgr"
+Import "three_box_geometry.rgr"
+Import "three_mesh_phong_material.rgr"
+Import "three_mesh_lambert_material.rgr"
+Import "three_mesh_basic_material.rgr"
+Import "three_perspective_camera.rgr"
+Import "three_webgl_renderer.rgr"
+
+class ThreeLitCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        this.ok((name + " (" + (to_string got) + ")") (d < 0.002))
+    }
+}
+
+class ThreeLitSoftwareTest {
+    ; a square of side 2s in the plane y (flat) or z (upright) facing +y / +z,
+    ; or the other way round when `back`
+    sfn quad:ThreeBufferGeometry (s:double at:double flat:boolean back:boolean) {
+        def g:ThreeBufferGeometry (new ThreeBufferGeometry)
+        def n:double 1.0
+        if back {
+            n = (0.0 - 1.0)
+        }
+        if flat {
+            g.pushVertex((0.0 - s) at s 0.0 n 0.0 0.0 0.0)
+            g.pushVertex(s at s 0.0 n 0.0 1.0 0.0)
+            g.pushVertex(s at (0.0 - s) 0.0 n 0.0 1.0 1.0)
+            g.pushVertex((0.0 - s) at (0.0 - s) 0.0 n 0.0 0.0 1.0)
+        } {
+            g.pushVertex((0.0 - s) (0.0 - s) at 0.0 0.0 n 0.0 0.0)
+            g.pushVertex(s (0.0 - s) at 0.0 0.0 n 1.0 0.0)
+            g.pushVertex(s s at 0.0 0.0 n 1.0 1.0)
+            g.pushVertex((0.0 - s) s at 0.0 0.0 n 0.0 1.0)
+        }
+        if back {
+            g.pushTriangle(0 2 1)
+            g.pushTriangle(0 3 2)
+        } {
+            g.pushTriangle(0 1 2)
+            g.pushTriangle(0 2 3)
+        }
+        return g
+    }
+
+    sfn camera:ThreePerspectiveCamera (x:double y:double z:double) {
+        def cam:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        cam.setPerspective(50.0 1.0 0.1 100.0)
+        cam.position.set(x y z)
+        cam.lookAt(0.0 0.0 0.0)
+        return cam
+    }
+
+    sfn draw:ThreeLitSoftwareBackend (scene:ThreeScene cam:ThreePerspectiveCamera shadows:boolean) {
+        def lit:ThreeLitSoftwareBackend (new ThreeLitSoftwareBackend)
+        def r:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+        r.setBackend(lit)
+        r.setSize(64 64)
+        r.setClearColor(0.0 0.0 0.0)
+        r.setClearAlpha(0.0)
+        r.setShadowMapEnabled(shadows)
+        r.render(scene cam)
+        return lit
+    }
+
+    sfn px:int (lit:ThreeLitSoftwareBackend x:int y:int c:int) {
+        return (buffer_get (lit.rgba()) ((((y * 64) + x) * 4) + c))
+    }
+
+    sfn m@(main):void () {
+        def ck:ThreeLitCheck (new ThreeLitCheck)
+        print "== ThreeShade =="
+        def sh:ThreeShade (new ThreeShade)
+        def lam:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
+        sh.setLights(0.2 0.2 0.2 1 ([] _:double (0.0 0.0 1.0)) ([] _:double (1.0 1.0 1.0)))
+        sh.setView(0.0 0.0 5.0)
+        sh.shade(lam 0.5 0.5 0.5 0.0 0.0 1.0 0.0 0.0 0.0 1.0)
+        ck.near("lambert: ambient * base + light * base * N.L" sh.r 0.6)
+        sh.shade(lam 0.5 0.5 0.5 0.0 0.0 1.0 0.0 0.0 0.0 0.0)
+        ck.near("lambert: in shadow only the ambient" sh.r 0.1)
+        sh.setOutputSRGB(true)
+        sh.shade(lam 0.5 0.5 0.5 0.0 0.0 1.0 0.0 0.0 0.0 1.0)
+        ck.near("sRGB output: 0.6^(1/2.2)" sh.r 0.79275)
+        sh.setOutputSRGB(false)
+        sh.shade(lam 0.5 0.5 0.5 0.0 0.0 (0.0 - 1.0) 0.0 0.0 0.0 1.0)
+        ck.near("a face turned from the light: ambient" sh.r 0.1)
+        lam.side = 2
+        sh.shade(lam 0.5 0.5 0.5 0.0 0.0 (0.0 - 1.0) 0.0 0.0 0.0 1.0)
+        ck.near("double-sided: its back faces the viewer and is lit" sh.r 0.6)
+        lam.side = 0
+
+        def ph:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
+        sh.setLights(0.0 0.0 0.0 1 ([] _:double (0.0 0.0 1.0)) ([] _:double (1.0 1.0 1.0)))
+        sh.shade(ph 0.5 0.5 0.5 0.0 0.0 1.0 0.0 0.0 0.0 1.0)
+        ck.near("phong: the highlight adds the specular colour" sh.r 0.5666)
+        sh.setLights(0.0 0.0 0.0 1 ([] _:double (1.0 0.0 1.0)) ([] _:double (1.0 1.0 1.0)))
+        sh.shade(ph 0.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0)
+        ; H halfway between (0.707, 0, 0.707) and (0, 0, 1): N.H = cos(22.5°)
+        ck.near("phong: (N.H)^shininess off the mirror angle" sh.r (0.0666 * (RgNum.pow(0.9238795 30.0))))
+
+        sh.setLights(0.0 0.0 0.0 0 ([] _:double ()) ([] _:double ()))
+        sh.setPointLights(1 ([] _:double (0.0 0.0 2.0)) ([] _:double (1.0 1.0 1.0)) ([] _:double (0.0 2.0)))
+        sh.shade(lam 1.0 1.0 1.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0)
+        ck.near("point light: 1/d^decay" sh.r 0.25)
+        sh.setPointLights(1 ([] _:double (0.0 0.0 2.0)) ([] _:double (1.0 1.0 1.0)) ([] _:double (4.0 2.0)))
+        sh.shade(lam 1.0 1.0 1.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0)
+        ck.near("point light: Three's smooth cut at distance" sh.r (0.25 * 0.87890625))
+        sh.setPointLights(0 ([] _:double ()) ([] _:double ()) ([] _:double ()))
+
+        ; a cube red on +X, black elsewhere, mirrored by a surface facing +X
+        def cube:ThreeCubeTexture (new ThreeCubeTexture)
+        cube.size = 2
+        def f:int 0
+        while (f < 6) {
+            def fb:buffer (buffer_alloc 16)
+            def p:int 0
+            while (p < 4) {
+                if (f == 0) {
+                    buffer_set fb (p * 4) 255
+                }
+                buffer_set fb ((p * 4) + 3) 255
+                p = (p + 1)
+            }
+            push cube.faces fb
+            f = (f + 1)
+        }
+        sh.setEnvironment(cube true)
+        sh.setView(5.0 0.0 0.0)
+        def mirror:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
+        mirror.reflective = true
+        mirror.reflectivity = 1.0
+        sh.shade(mirror 0.3 0.3 0.3 1.0 0.0 0.0 0.0 0.0 0.0 1.0)
+        ck.near("reflection: the cube's +X face" sh.r 1.0)
+        ck.near("reflection: nothing of the base" sh.g 0.0)
+        sh.setView(0.0 5.0 0.0)
+        sh.shade(mirror 0.3 0.3 0.3 0.0 1.0 0.0 0.0 0.0 0.0 1.0)
+        ck.near("reflection: the black +Y face" sh.r 0.0)
+
+        print "== lit software backend =="
+        def scene:ThreeScene (new ThreeScene)
+        def amb:ThreeAmbientLight (new ThreeAmbientLight)
+        amb.setColorHex(16777215)
+        amb.setIntensity(0.2)
+        scene.add(amb)
+        def sun:ThreeDirectionalLight (new ThreeDirectionalLight)
+        sun.setColorHex(16777215)
+        sun.setIntensity(1.0)
+        sun.setDirection(0.0 0.0 1.0)
+        scene.add(sun)
+        def box:ThreeMesh (new ThreeMesh)
+        box.setGeometry(((new ThreeBoxGeometry).setSize(1.0 1.0 1.0)))
+        def grey:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
+        grey.setColor(0.5 0.5 0.5)
+        box.setMaterial(grey)
+        scene.add(box)
+        def lit:ThreeLitSoftwareBackend (ThreeLitSoftwareTest.draw(scene (ThreeLitSoftwareTest.camera(0.0 0.0 3.0)) false))
+        ck.ok("frame 64x64 RGBA" ((buffer_length (lit.rgba())) == ((64 * 64) * 4)))
+        ck.ok(("box face lit: 0.6 -> 153, got " + (to_string (ThreeLitSoftwareTest.px(lit 32 32 0)))) ((ThreeLitSoftwareTest.px(lit 32 32 0)) == 153))
+        ck.ok("box face opaque" ((ThreeLitSoftwareTest.px(lit 32 32 3)) == 255))
+        ck.ok("clear alpha 0 where nothing is" ((ThreeLitSoftwareTest.px(lit 0 0 3)) == 0))
+        ck.ok("raw() is RGB" ((buffer_length (lit.raw())) == ((64 * 64) * 3)))
+
+        ; culling: a face turned away is not drawn unless double-sided
+        def s2:ThreeScene (new ThreeScene)
+        def away:ThreeMesh (new ThreeMesh)
+        away.setGeometry((ThreeLitSoftwareTest.quad(1.0 0.0 false true)))
+        def red:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+        red.setColor(1.0 0.0 0.0)
+        away.setMaterial(red)
+        s2.add(away)
+        def l2:ThreeLitSoftwareBackend (ThreeLitSoftwareTest.draw(s2 (ThreeLitSoftwareTest.camera(0.0 0.0 3.0)) false))
+        ck.ok("a back face is culled" ((ThreeLitSoftwareTest.px(l2 32 32 3)) == 0))
+        red.side = 2
+        def l3:ThreeLitSoftwareBackend (ThreeLitSoftwareTest.draw(s2 (ThreeLitSoftwareTest.camera(0.0 0.0 3.0)) false))
+        ck.ok("double-sided: drawn" ((ThreeLitSoftwareTest.px(l3 32 32 0)) == 255))
+        def toward:ThreeMesh (new ThreeMesh)
+        toward.setGeometry((ThreeLitSoftwareTest.quad(1.0 0.0 false false)))
+        def blue:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+        blue.setColor(0.0 0.0 1.0)
+        toward.setMaterial(blue)
+        def s3:ThreeScene (new ThreeScene)
+        s3.add(toward)
+        def l4:ThreeLitSoftwareBackend (ThreeLitSoftwareTest.draw(s3 (ThreeLitSoftwareTest.camera(0.0 0.0 3.0)) false))
+        ck.ok("a front face is drawn" ((ThreeLitSoftwareTest.px(l4 32 32 2)) == 255))
+
+        ; near plane: a floor running behind the camera is clipped, not dropped
+        def s4:ThreeScene (new ThreeScene)
+        def floor:ThreeMesh (new ThreeMesh)
+        floor.setGeometry((ThreeLitSoftwareTest.quad(50.0 (0.0 - 1.0) true false)))
+        floor.setMaterial(blue)
+        s4.add(floor)
+        def fcam:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        fcam.setPerspective(50.0 1.0 0.1 100.0)
+        def l5:ThreeLitSoftwareBackend (ThreeLitSoftwareTest.draw(s4 fcam false))
+        ck.ok("floor below the camera drawn to the frame's bottom" ((ThreeLitSoftwareTest.px(l5 32 63 3)) == 255))
+        ck.ok("floor: nothing above the horizon" ((ThreeLitSoftwareTest.px(l5 32 2 3)) == 0))
+
+        ; shadow: a box over a floor, the sun straight above
+        def s5:ThreeScene (new ThreeScene)
+        def a5:ThreeAmbientLight (new ThreeAmbientLight)
+        a5.setColorHex(16777215)
+        a5.setIntensity(0.2)
+        s5.add(a5)
+        def top:ThreeDirectionalLight (new ThreeDirectionalLight)
+        top.setColorHex(16777215)
+        top.setIntensity(1.0)
+        top.setDirection(0.5 10.0 0.5)
+        top.setCastShadow(true)
+        top.setShadowExtent((0.0 - 5.0) 5.0 5.0 (0.0 - 5.0) 0.1 40.0)
+        s5.add(top)
+        def ground:ThreeMesh (new ThreeMesh)
+        ground.setGeometry((ThreeLitSoftwareTest.quad(5.0 0.0 true false)))
+        def white:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
+        ground.setMaterial(white)
+        s5.add(ground)
+        def caster:ThreeMesh (new ThreeMesh)
+        caster.setGeometry(((new ThreeBoxGeometry).setSize(1.0 1.0 1.0)))
+        caster.setMaterial(grey)
+        caster.position.set(0.0 1.5 0.0)
+        caster.castShadow = true
+        s5.add(caster)
+        def l6:ThreeLitSoftwareBackend (ThreeLitSoftwareTest.draw(s5 (ThreeLitSoftwareTest.camera(0.0 6.0 6.0)) true))
+        ck.ok("shadow: under the box" ((l6.shadowAt(0.0 0.0 0.0)) < 0.5))
+        ck.near("shadow: away from the box" (l6.shadowAt(3.0 0.0 0.0)) 1.0)
+        ck.ok(("shadow: the floor under the box only ambient (51), got " + (to_string (ThreeLitSoftwareTest.px(l6 32 32 0)))) ((ThreeLitSoftwareTest.px(l6 32 32 0)) == 51))
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}
