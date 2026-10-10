@@ -1,0 +1,333 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; CLikeLanguage.rgr — colours for a dozen languages, from tables
+; ==============================================================================
+;
+; A presentation that imports a C++ header, a .proto, a SQL migration or a
+; Python script wants it in colour, and none of those deserves a plugin of its
+; own the size of JsLanguage: what makes them look right is knowing which
+; words are keywords and what a comment and a string look like. So each one
+; here is a `CLikeSpec` — a table — handed to the one lexer in CLikeTokens.rgr.
+;
+; Colouring only. `diagnose` and `quickDiagnose` return nothing, on purpose:
+; a lexer that has not parsed the file has no business underlining it, and a
+; wrong squiggle on a slide is worse than none. `complete` is the shared
+; "words already in this file, plus the keywords" list, which costs nothing
+; and is only asked for when the editor is not read only.
+;
+; Picked by file name like the other plugins (`handlesFile`), so a host adds
+; the ones it wants to a LanguageRegistry — or all of them with
+; `CLikeLanguage.addAllTo(registry)`.
+; ==============================================================================
+
+Import "EditorLanguage.rgr"
+Import "CLikeTokens.rgr"
+Import "Completion.rgr"
+
+class CLikeLanguage {
+    Extends(EditorLanguage)
+
+    def spec:CLikeSpec (new CLikeSpec)
+    def lexer:CLikeTokenizer (new CLikeTokenizer)
+
+    Constructor () {
+    }
+
+    sfn withSpec:CLikeLanguage (spec:CLikeSpec) {
+        def lang:CLikeLanguage (new CLikeLanguage)
+        lang.spec = spec
+        lang.lexer = (CLikeTokenizer.withSpec(spec))
+        return lang
+    }
+
+    fn id:string () {
+        return spec.id
+    }
+
+    fn label:string () {
+        return spec.label
+    }
+
+    ; By the end of the name, ignoring case: `Schema.FBS` is FlatBuffers too.
+    fn handlesFile:boolean (name:string) {
+        def lower:string (to_lowercase name)
+        def i:int 0
+        def n:int (array_length spec.suffixes)
+        while (i < n) {
+            if (EditorLanguage.hasSuffix(lower (itemAt spec.suffixes i))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn tokenize:[CodeTokenLine] (lines:[string]) {
+        return (lexer.tokenize(lines))
+    }
+
+    ; One line on its own, starting outside any comment — what a test or a
+    ; host colouring a single snippet wants.
+    fn tokenizeLine:CodeTokenLine (line:string) {
+        lexer.carry = -1
+        return (lexer.tokenizeLine(line))
+    }
+
+    fn complete:[Completion] (lines:[string] line:int col:int) {
+        def out:[Completion]
+        if ((line < 0) || (line >= (array_length lines))) {
+            return out
+        }
+        def text:string (itemAt lines line)
+        def prefix:string (EditorLanguage.prefixAt(text col))
+        if ((strlen prefix) < 2) {
+            return out
+        }
+        def i:int 0
+        def n:int (array_length spec.keywords)
+        while (i < n) {
+            def kw:string (itemAt spec.keywords i)
+            if ((EditorLanguage.matchesPrefix(kw prefix)) && (kw != prefix)) {
+                push out (Completion.create(kw "keyword" (CompletionKind.keyword()) 0))
+            }
+            i = (i + 1)
+        }
+        def words:[string] (EditorLanguage.wordsIn(lines prefix 400))
+        def j:int 0
+        def m:int (array_length words)
+        while (j < m) {
+            def w:string (itemAt words j)
+            if (EditorLanguage.matchesPrefix(w prefix)) {
+                push out (Completion.create(w "in this file" (CompletionKind.word()) 1))
+            }
+            j = (j + 1)
+        }
+        return out
+    }
+
+    ; --- the presets -----------------------------------------------------------
+    ; Each one a table. Keyword lists are the languages' reserved words; the
+    ; type lists are the primitive types and the handful of standard names a
+    ; reader expects to see lit (`std`, `String`, `Vec`, `printf`).
+
+    sfn words:[string] (spaced:string) {
+        def out:[string]
+        def parts:[string] (strsplit spaced " ")
+        def i:int 0
+        def n:int (array_length parts)
+        while (i < n) {
+            def p:string (itemAt parts i)
+            if ((strlen p) > 0) {
+                push out p
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn slashComments:void (spec:CLikeSpec) {
+        spec.addSpan((CLikeSpan.lineComment("//")))
+        spec.addSpan((CLikeSpan.blockComment("/*" "*/")))
+    }
+
+    sfn cpp:CLikeLanguage () {
+        def s:CLikeSpec (new CLikeSpec)
+        s.id = "cpp"
+        s.label = "C / C++"
+        s.suffixes = (CLikeLanguage.words(".c .cc .cpp .cxx .c++ .h .hpp .hh .hxx .inl .ipp"))
+        s.keywords = (CLikeLanguage.words("alignas alignof and asm auto break case catch class co_await co_return co_yield concept const consteval constexpr constinit const_cast continue decltype default delete do dynamic_cast else enum explicit export extern false final for friend goto if inline mutable namespace new noexcept not nullptr operator or override private protected public register reinterpret_cast requires return sizeof static static_assert static_cast struct switch template this thread_local throw true try typedef typeid typename union using virtual volatile while xor NULL"))
+        s.types = (CLikeLanguage.words("void bool char char8_t char16_t char32_t wchar_t short int long float double signed unsigned size_t ssize_t ptrdiff_t intptr_t uintptr_t int8_t int16_t int32_t int64_t uint8_t uint16_t uint32_t uint64_t std string string_view vector map unordered_map set unordered_set array optional variant unique_ptr shared_ptr weak_ptr pair tuple function printf fprintf sprintf snprintf malloc calloc realloc free memcpy memset strlen assert"))
+        s.hashDirectives = true
+        CLikeLanguage.slashComments(s)
+        s.addSpan((CLikeSpan.longString("R\"(" ")\"")))
+        s.addSpan((CLikeSpan.quoted("\"")))
+        s.addSpan((CLikeSpan.quoted("'")))
+        s.annotations = false
+        return (CLikeLanguage.withSpec(s))
+    }
+
+    sfn flatbuffers:CLikeLanguage () {
+        def s:CLikeSpec (new CLikeSpec)
+        s.id = "flatbuffers"
+        s.label = "FlatBuffers schema"
+        s.suffixes = (CLikeLanguage.words(".fbs"))
+        s.keywords = (CLikeLanguage.words("namespace table struct enum union root_type file_identifier file_extension include attribute rpc_service true false"))
+        s.types = (CLikeLanguage.words("bool byte ubyte short ushort int uint long ulong float double int8 uint8 int16 uint16 int32 uint32 int64 uint64 float32 float64 string"))
+        CLikeLanguage.slashComments(s)
+        s.addSpan((CLikeSpan.quoted("\"")))
+        s.annotations = false
+        return (CLikeLanguage.withSpec(s))
+    }
+
+    sfn protobuf:CLikeLanguage () {
+        def s:CLikeSpec (new CLikeSpec)
+        s.id = "protobuf"
+        s.label = "Protocol Buffers"
+        s.suffixes = (CLikeLanguage.words(".proto"))
+        s.keywords = (CLikeLanguage.words("syntax edition package import public weak option message enum service rpc returns stream oneof map repeated optional required reserved extend extensions to max true false"))
+        s.types = (CLikeLanguage.words("double float int32 int64 uint32 uint64 sint32 sint64 fixed32 fixed64 sfixed32 sfixed64 bool string bytes"))
+        CLikeLanguage.slashComments(s)
+        s.addSpan((CLikeSpan.quoted("\"")))
+        s.addSpan((CLikeSpan.quoted("'")))
+        s.annotations = false
+        return (CLikeLanguage.withSpec(s))
+    }
+
+    sfn go:CLikeLanguage () {
+        def s:CLikeSpec (new CLikeSpec)
+        s.id = "go"
+        s.label = "Go"
+        s.suffixes = (CLikeLanguage.words(".go"))
+        s.keywords = (CLikeLanguage.words("break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var true false nil iota"))
+        s.types = (CLikeLanguage.words("bool byte complex64 complex128 error float32 float64 int int8 int16 int32 int64 rune string uint uint8 uint16 uint32 uint64 uintptr any append cap clear close complex copy delete imag len make max min new panic print println real recover fmt"))
+        CLikeLanguage.slashComments(s)
+        s.addSpan((CLikeSpan.longString("`" "`")))
+        s.addSpan((CLikeSpan.quoted("\"")))
+        s.addSpan((CLikeSpan.quoted("'")))
+        s.annotations = false
+        return (CLikeLanguage.withSpec(s))
+    }
+
+    sfn rust:CLikeLanguage () {
+        def s:CLikeSpec (new CLikeSpec)
+        s.id = "rust"
+        s.label = "Rust"
+        s.suffixes = (CLikeLanguage.words(".rs"))
+        s.keywords = (CLikeLanguage.words("as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type union unsafe use where while"))
+        s.types = (CLikeLanguage.words("bool char str i8 i16 i32 i64 i128 isize u8 u16 u32 u64 u128 usize f32 f64 String Vec Option Some None Result Ok Err Box Rc Arc RefCell Cell HashMap HashSet BTreeMap println print eprintln format vec panic assert assert_eq matches"))
+        s.lifetimes = true
+        CLikeLanguage.slashComments(s)
+        s.addSpan((CLikeSpan.longString("r#\"" "\"#")))
+        s.addSpan((CLikeSpan.longString("\"" "\"")))
+        s.addSpan((CLikeSpan.quoted("'")))
+        s.annotations = false
+        ; A Rust string may run over lines, and escapes inside it.
+        def str:CLikeSpan (itemAt s.spans 3)
+        str.escape = true
+        return (CLikeLanguage.withSpec(s))
+    }
+
+    sfn java:CLikeLanguage () {
+        def s:CLikeSpec (new CLikeSpec)
+        s.id = "java"
+        s.label = "Java"
+        s.suffixes = (CLikeLanguage.words(".java"))
+        s.keywords = (CLikeLanguage.words("abstract assert break case catch class const continue default do else enum extends final finally for goto if implements import instanceof interface native new package private protected public record return sealed permits static strictfp super switch synchronized this throw throws transient try var void volatile while yield true false null"))
+        s.types = (CLikeLanguage.words("boolean byte char short int long float double String Object Integer Long Double Boolean List ArrayList Map HashMap Set HashSet Optional System Math"))
+        CLikeLanguage.slashComments(s)
+        s.addSpan((CLikeSpan.longString("\"\"\"" "\"\"\"")))
+        s.addSpan((CLikeSpan.quoted("\"")))
+        s.addSpan((CLikeSpan.quoted("'")))
+        return (CLikeLanguage.withSpec(s))
+    }
+
+    sfn kotlin:CLikeLanguage () {
+        def s:CLikeSpec (new CLikeSpec)
+        s.id = "kotlin"
+        s.label = "Kotlin"
+        s.suffixes = (CLikeLanguage.words(".kt .kts"))
+        s.keywords = (CLikeLanguage.words("as break class continue do else false for fun if in interface is null object package return super this throw true try typealias typeof val var when while by catch constructor delegate dynamic field file finally get import init param property receiver set setparam where actual abstract annotation companion const crossinline data enum expect external final infix inline inner internal lateinit noinline open operator out override private protected public reified sealed suspend tailrec vararg"))
+        s.types = (CLikeLanguage.words("Any Unit Nothing Boolean Byte Short Int Long Float Double Char String Array List MutableList Map MutableMap Set MutableSet listOf mutableListOf mapOf mutableMapOf setOf println print"))
+        CLikeLanguage.slashComments(s)
+        s.addSpan((CLikeSpan.longString("\"\"\"" "\"\"\"")))
+        s.addSpan((CLikeSpan.quoted("\"")))
+        s.addSpan((CLikeSpan.quoted("'")))
+        return (CLikeLanguage.withSpec(s))
+    }
+
+    sfn csharp:CLikeLanguage () {
+        def s:CLikeSpec (new CLikeSpec)
+        s.id = "csharp"
+        s.label = "C#"
+        s.suffixes = (CLikeLanguage.words(".cs"))
+        s.keywords = (CLikeLanguage.words("abstract as base break case catch checked class const continue default delegate do else enum event explicit extern false finally fixed for foreach goto if implicit in interface internal is lock namespace new null operator out override params private protected public readonly record ref return sealed sizeof stackalloc static struct switch this throw true try typeof unchecked unsafe using virtual volatile while async await var get set init value yield when where"))
+        s.types = (CLikeLanguage.words("bool byte sbyte char decimal double float int uint long ulong short ushort object string void dynamic nint nuint String Object List Dictionary HashSet Task Console Math"))
+        s.hashDirectives = true
+        CLikeLanguage.slashComments(s)
+        s.addSpan((CLikeSpan.literal("@\"")))
+        s.addSpan((CLikeSpan.quoted("\"")))
+        s.addSpan((CLikeSpan.quoted("'")))
+        ; C# attributes are `[Serializable]`, not `@…`.
+        s.annotations = false
+        return (CLikeLanguage.withSpec(s))
+    }
+
+    sfn sql:CLikeLanguage () {
+        def s:CLikeSpec (new CLikeSpec)
+        s.id = "sql"
+        s.label = "SQL"
+        s.suffixes = (CLikeLanguage.words(".sql"))
+        s.caseInsensitive = true
+        s.keywords = (CLikeLanguage.words("select from where and or not in is null like between exists as on join inner left right full outer cross natural using group by order having limit offset fetch first next rows only union all intersect except distinct insert into values update set delete create table view index unique primary key foreign references constraint check default drop alter add column rename to if begin commit rollback transaction case when then else end with recursive returning asc desc true false cast grant revoke trigger function procedure return returns declare language replace temporary temp"))
+        s.types = (CLikeLanguage.words("int integer smallint bigint tinyint serial bigserial decimal numeric real float double precision boolean bool char varchar text blob bytea date time timestamp timestamptz interval json jsonb uuid count sum avg min max coalesce nullif now lower upper length substr substring round abs"))
+        s.addSpan((CLikeSpan.lineComment("--")))
+        s.addSpan((CLikeSpan.blockComment("/*" "*/")))
+        s.addSpan((CLikeSpan.literal("'")))
+        ; A double-quoted name is an identifier, but quoted is quoted: it is
+        ; coloured as a string, which is what a reader scanning for literals
+        ; needs to tell it apart from a keyword.
+        s.addSpan((CLikeSpan.literal("\"")))
+        s.annotations = false
+        return (CLikeLanguage.withSpec(s))
+    }
+
+    sfn python:CLikeLanguage () {
+        def s:CLikeSpec (new CLikeSpec)
+        s.id = "python"
+        s.label = "Python"
+        s.suffixes = (CLikeLanguage.words(".py .pyi"))
+        s.keywords = (CLikeLanguage.words("False None True and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield match case self"))
+        s.types = (CLikeLanguage.words("int float complex str bytes bool list dict set frozenset tuple object type print len range enumerate zip map filter sorted reversed isinstance getattr setattr hasattr open min max sum abs any all super Exception ValueError TypeError KeyError"))
+        s.addSpan((CLikeSpan.lineComment("#")))
+        s.addSpan((CLikeSpan.longString("\"\"\"" "\"\"\"")))
+        s.addSpan((CLikeSpan.longString("'''" "'''")))
+        s.addSpan((CLikeSpan.quoted("\"")))
+        s.addSpan((CLikeSpan.quoted("'")))
+        return (CLikeLanguage.withSpec(s))
+    }
+
+    sfn shell:CLikeLanguage () {
+        def s:CLikeSpec (new CLikeSpec)
+        s.id = "shell"
+        s.label = "Shell"
+        s.suffixes = (CLikeLanguage.words(".sh .bash .zsh"))
+        s.keywords = (CLikeLanguage.words("if then else elif fi case esac for while until do done in function select time return exit break continue local export readonly declare set unset shift source alias"))
+        s.types = (CLikeLanguage.words("echo printf cd ls cat grep sed awk find xargs mkdir rm cp mv test read eval exec trap wait kill true false"))
+        def hash:CLikeSpan (CLikeSpan.lineComment("#"))
+        hash.wordStart = true
+        s.addSpan(hash)
+        s.addSpan((CLikeSpan.quoted("\"")))
+        s.addSpan((CLikeSpan.literal("'")))
+        s.annotations = false
+        return (CLikeLanguage.withSpec(s))
+    }
+
+    ; Every preset, in the order a registry should ask them. None of them
+    ; claims another's suffix, so the order only matters for a host that adds
+    ; its own.
+    sfn all:[CLikeLanguage] () {
+        def out:[CLikeLanguage]
+        push out (CLikeLanguage.cpp())
+        push out (CLikeLanguage.flatbuffers())
+        push out (CLikeLanguage.protobuf())
+        push out (CLikeLanguage.go())
+        push out (CLikeLanguage.rust())
+        push out (CLikeLanguage.java())
+        push out (CLikeLanguage.kotlin())
+        push out (CLikeLanguage.csharp())
+        push out (CLikeLanguage.sql())
+        push out (CLikeLanguage.python())
+        push out (CLikeLanguage.shell())
+        return out
+    }
+
+    sfn addAllTo:void (reg:LanguageRegistry) {
+        def list:[CLikeLanguage] (CLikeLanguage.all())
+        def i:int 0
+        while (i < (array_length list)) {
+            reg.add((itemAt list i))
+            i = (i + 1)
+        }
+    }
+}
