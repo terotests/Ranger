@@ -524,6 +524,32 @@ class EVGPatchTest {
         this.same("the two texts agree" (EVGTreeJson.toText(again)) once)
     }
 
+    ; A two-stop gradient's axis is a whole number. It was written "1.00",
+    ; and the Go reader takes "1.00" for no integer at all and stopped.
+    fn testGradientAxisRoundTrip:void () {
+        print ""
+        print "-- a gradient's axis, written and read"
+        def el:EVGElement (EVGElement.createDiv())
+        el.setAttribute("gradient-from" "#102030")
+        el.setAttribute("gradient-to" "#c8d2dc")
+        el.setAttribute("gradient-dir" "1")
+        def once:string (EVGTreeJson.toText(el))
+        this.ok("written as a whole number" ((indexOf once "\"gradient-dir\":\"1\"") >= 0))
+        def back@(optional):EVGElement (EVGTreeJson.fromText(once))
+        if (null? back) {
+            this.ok("it read back" false)
+            return
+        }
+        def again:EVGElement (unwrap back)
+        this.ok("the axis survived" (again.gradientDir == 1))
+        def old (EVGElement.createDiv())
+        old.setAttribute("gradient-dir" "1.00")
+        this.ok("a file written before reads too" (old.gradientDir == 1))
+        def bad (EVGElement.createDiv())
+        bad.setAttribute("gradient-dir" "sideways")
+        this.ok("and nonsense is the default" (bad.gradientDir == 0))
+    }
+
     fn testDefaultsAreNotWritten:void () {
         print ""
         print "-- a fresh tree says almost nothing"
@@ -664,6 +690,7 @@ class EVGPatchTest {
         this.testInsert()
         this.testInsertSubtree()
         this.testMeaningRoundTrip()
+        this.testGradientAxisRoundTrip()
         this.testInsertUnknownTag()
         this.testRemoveAndRestore()
         this.testRemoveRoot()

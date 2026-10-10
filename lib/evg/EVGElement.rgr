@@ -4182,8 +4182,10 @@ class EVGElement {
         ; camelCase spellings so the TSX parser (which splits '-') can carry them.
         ; Animated glow halo strength (0..1).
         if (name == "glow") {
-            def gv@(optional):double (to_double value)
-            glowIntensity = (unwrap gv)
+            def gv@(optional):double (to_double (trim value))
+            if gv {
+                glowIntensity = (unwrap gv)
+            }
             return
         }
         ; Background art clipped to the rounded box (the .as menu's tile image).
@@ -4204,8 +4206,14 @@ class EVGElement {
             return
         }
         if ((name == "gradient-dir") || (name == "gradientDir")) {
-            def dv@(optional):int (to_int value)
-            gradientDir = (unwrap dv)
+            ; a number however it is written ("1", "1.00", "1 "): read as an
+            ; integer it was nothing in Go when the file wrote "1.00", and
+            ; unwrapped across that the reader stopped there
+            def dv@(optional):double (to_double (trim value))
+            gradientDir = 0
+            if dv {
+                gradientDir = (to_int ((unwrap dv) + 0.5))
+            }
             return
         }
 
@@ -4240,8 +4248,10 @@ class EVGElement {
             return
         }
         if (name == "opacity") {
-            def val@(optional):double (to_double value)
-            opacity = (unwrap val)
+            def val@(optional):double (to_double (trim value))
+            if val {
+                opacity = (unwrap val)
+            }
             return
         }
         ; `backdrop-filter: blur(12px)`. Only `blur()` is understood; anything
@@ -4457,13 +4467,17 @@ class EVGElement {
         ; the layout's answer, and an author writing one would only be telling
         ; the layout what it is about to work out for itself.
         if ((name == "scroll-top") || (name == "scrollTop")) {
-            def st@(optional):double (to_double value)
-            scrollTop = (unwrap st)
+            def st@(optional):double (to_double (trim value))
+            if st {
+                scrollTop = (unwrap st)
+            }
             return
         }
         if ((name == "scroll-left") || (name == "scrollLeft")) {
-            def sl@(optional):double (to_double value)
-            scrollLeft = (unwrap sl)
+            def sl@(optional):double (to_double (trim value))
+            if sl {
+                scrollLeft = (unwrap sl)
+            }
             return
         }
         
@@ -4702,13 +4716,17 @@ class EVGElement {
             return
         }
         if (name == "rotate") {
-            def val@(optional):double (to_double value)
-            rotate = (unwrap val)
+            def val@(optional):double (to_double (trim value))
+            if val {
+                rotate = (unwrap val)
+            }
             return
         }
         if (name == "scale") {
-            def val@(optional):double (to_double value)
-            scale = (unwrap val)
+            def val@(optional):double (to_double (trim value))
+            if val {
+                scale = (unwrap val)
+            }
             return
         }
         
