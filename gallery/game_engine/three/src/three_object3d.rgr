@@ -130,11 +130,18 @@ class ThreeObject3D {
     }
 
     ; Light interrogation (so the renderer can collect lights while walking the
-    ; tree without downcasting): 0 = not a light, 1 = ambient, 2 = directional.
+    ; tree without downcasting): 0 = not a light, 1 = ambient, 2 = directional,
+    ; (3 = light-probe GI fill), 4 = point (pointDistance / pointDecay).
     ; The lightR/G/B contribution is colour*intensity; direction comes from
     ; `position` for a directional light. Overridden by the ThreeLight subclasses.
     fn lightKind:int () {
         return 0
+    }
+    fn pointDistance:double () {
+        return 0.0
+    }
+    fn pointDecay:double () {
+        return 2.0
     }
     fn lightR:double () {
         return 0.0

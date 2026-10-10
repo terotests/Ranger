@@ -5,7 +5,8 @@
 ; ==============================================================================
 ; ThreeLight is an Object3D with a colour + intensity. AmbientLight lights every
 ; surface uniformly; DirectionalLight lights from a direction (its position, used
-; as the direction toward the light, as in the teapot example). The lightKind /
+; as the direction toward the light, as in the teapot example); PointLight from
+; its place in the world, fading with distance as Three's does. The lightKind /
 ; lightR/G/B overrides let the renderer collect lights while walking the tree.
 ; ==============================================================================
 
@@ -78,5 +79,31 @@ class ThreeDirectionalLight extends ThreeLight {
     }
     fn setShadowExtent:void (l:double r:double t:double b:double n:double f:double) {
         this.shadow.setExtent(l r t b n f)
+    }
+}
+
+; Light from a point in all directions (Three.js PointLight): what is lit gets
+; colour * intensity / d^decay, and none beyond `distance` (0: no limit), the
+; fall-off reaching zero smoothly there as in Three.
+class ThreePointLight extends ThreeLight {
+    def isPointLight:boolean true
+    def distance:double 0.0
+    def decay:double 2.0
+    fn lightKind:int () {
+        return 4
+    }
+    fn setDistance:ThreePointLight (d:double) {
+        this.distance = d
+        return this
+    }
+    fn setDecay:ThreePointLight (d:double) {
+        this.decay = d
+        return this
+    }
+    fn pointDistance:double () {
+        return this.distance
+    }
+    fn pointDecay:double () {
+        return this.decay
     }
 }

@@ -6,6 +6,37 @@
 
 Import "three_color.rgr"
 Import "three_light.rgr"
+Import "three_scene.rgr"
+Import "three_mesh.rgr"
+Import "three_box_geometry.rgr"
+Import "three_mesh_phong_material.rgr"
+Import "three_perspective_camera.rgr"
+Import "three_webgl_renderer.rgr"
+
+; What the renderer handed its backend: point lights, meshes drawn, the
+; output colour space.
+class ThreeLightRecorder extends ThreeRenderBackend {
+    def points:int (0 - 1)
+    def pos:[double]
+    def range:[double]
+    def dirs:int 0
+    def meshes:int 0
+    def srgb:boolean false
+    fn setLights:void (ambR:double ambG:double ambB:double dirCount:int d:[double] cols:[double]) {
+        dirs = dirCount
+    }
+    fn setPointLights:void (pointCount:int p:[double] cols:[double] r:[double]) {
+        points = pointCount
+        pos = p
+        range = r
+    }
+    fn setOutputSRGB:void (on:boolean) {
+        srgb = on
+    }
+    fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
+        meshes = (meshes + 1)
+    }
+}
 
 class ThreeLightCheck {
     def passed:int 0
@@ -57,6 +88,50 @@ class ThreeLightTest {
         ck.ok("directional isDirectionalLight" dir.isDirectionalLight)
         ck.near("directional dir.x (inherited position)" dir.position.x 0.32)
         ck.near("directional dir.z" dir.position.z 0.7)
+
+        ; a point light in a moved group lights from where it is in the world
+        def pt:ThreePointLight (new ThreePointLight)
+        pt.setColorHex(16777215)
+        pt.setIntensity(3.0)
+        pt.setDistance(10.0)
+        pt.position.set(1.0 0.0 0.0)
+        ck.ok("point isPointLight" pt.isPointLight)
+        ck.ok("point lightKind 4" ((pt.lightKind()) == 4))
+        ck.near("point decay default 2 (Three)" pt.decay 2.0)
+        def scene:ThreeScene (new ThreeScene)
+        def g:ThreeObject3D (new ThreeObject3D)
+        g.position.set(0.0 2.0 0.0)
+        g.add(pt)
+        scene.add(g)
+        def hidden:ThreeObject3D (new ThreeObject3D)
+        hidden.visible = false
+        def box:ThreeMesh (new ThreeMesh)
+        box.setGeometry((new ThreeBoxGeometry))
+        box.setMaterial((new ThreeMeshPhongMaterial))
+        hidden.add(box)
+        def hiddenSun:ThreeDirectionalLight (new ThreeDirectionalLight)
+        hidden.add(hiddenSun)
+        scene.add(hidden)
+        def shown:ThreeMesh (new ThreeMesh)
+        shown.setGeometry((new ThreeBoxGeometry))
+        shown.setMaterial((new ThreeMeshPhongMaterial))
+        scene.add(shown)
+        def rec:ThreeLightRecorder (new ThreeLightRecorder)
+        def r:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+        r.setBackend(rec)
+        r.setOutputSRGB(true)
+        def cam:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        r.render(scene cam)
+        ck.ok("renderer: one point light" (rec.points == 1))
+        if (rec.points == 1) {
+            ck.near("point light at its world x" (itemAt rec.pos 0) 1.0)
+            ck.near("point light at its world y (its group's)" (itemAt rec.pos 1) 2.0)
+            ck.near("point light distance" (itemAt rec.range 0) 10.0)
+            ck.near("point light decay" (itemAt rec.range 1) 2.0)
+        }
+        ck.ok("renderer: a hidden group's mesh is not drawn" (rec.meshes == 1))
+        ck.ok("renderer: a hidden group's light does not light" (rec.dirs == 0))
+        ck.ok("renderer: sRGB output handed on" rec.srgb)
 
         print "== summary =="
         print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))

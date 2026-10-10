@@ -51,6 +51,14 @@ class ThreeWebGLRenderer {
     def accDirs:[double]
     def accCols:[double]
     def accCount:int 0
+    def accPts:[double]
+    def accPtCols:[double]
+    def accPtRange:[double]
+    def accPtCount:int 0
+    ; Three's outputColorSpace: true (SRGBColorSpace) encodes the frame for the
+    ; screen, with material and light colours given in linear light; false
+    ; (the default here) draws the colours as given.
+    def outputSRGB:boolean false
 
     ; shadow pass: the first shadow-casting light found while walking the scene,
     ; and its light-space view-projection (fed to the depth pass + the lit pass).
@@ -90,6 +98,10 @@ class ThreeWebGLRenderer {
         toneMappingExposure = exposure
         return this
     }
+    fn setOutputSRGB:ThreeWebGLRenderer (on:boolean) {
+        outputSRGB = on
+        return this
+    }
     fn setShadowMapEnabled:ThreeWebGLRenderer (enabled:boolean) {
         shadowMapEnabled = enabled
         return this
@@ -121,6 +133,7 @@ class ThreeWebGLRenderer {
         this.applyLights(scene be)
         be.setView(camera.position.x camera.position.y camera.position.z)
         be.setToneMapping(toneMapping toneMappingExposure)
+        be.setOutputSRGB(outputSRGB)
 
         ; shadow map (two-pass): render the casters' depth from the light, then feed
         ; that depth map + the light view-projection to the lit pass below.
@@ -180,12 +193,39 @@ class ThreeWebGLRenderer {
         accDirs = emptyD
         accCols = emptyC
         accCount = 0
+        def emptyP:[double]
+        def emptyPC:[double]
+        def emptyPR:[double]
+        accPts = emptyP
+        accPtCols = emptyPC
+        accPtRange = emptyPR
+        accPtCount = 0
         this.walkLights(scene)
         be.setLights(accAmbR accAmbG accAmbB accCount accDirs accCols)
+        be.setPointLights(accPtCount accPts accPtCols accPtRange)
     }
 
+    ; A hidden object hides what is in it: its lights too.
     fn walkLights:void (node:ThreeObject3D) {
+        if (node.visible == false) {
+            return
+        }
         def k:int (node.lightKind())
+        if (k == 4) {
+            if (accPtCount < 4) {
+                ; where the light is in the world (scene.updateMatrixWorld ran)
+                def at:ThreeVector3 (node.matrixWorld.transformPoint((ThreeVector3.of(0.0 0.0 0.0))))
+                push accPts at.x
+                push accPts at.y
+                push accPts at.z
+                push accPtCols (node.lightR())
+                push accPtCols (node.lightG())
+                push accPtCols (node.lightB())
+                push accPtRange (node.pointDistance())
+                push accPtRange (node.pointDecay())
+                accPtCount = (accPtCount + 1)
+            }
+        }
         ; kind 1 = AmbientLight, kind 3 = LightProbeGrid GI fill — both add a
         ; uniform ambient term (the probe volume's baked irradiance).
         if ((k == 1) || (k == 3)) {
@@ -264,6 +304,9 @@ class ThreeWebGLRenderer {
 
     ; depth pass: draw every caster's depth from the light (uses shadowVP).
     fn renderDepth:void (obj:ThreeObject3D be:ThreeRenderBackend) {
+        if (obj.visible == false) {
+            return
+        }
         obj.renderDepthInto(be shadowVP)
         def i:int 0
         def n:int (obj.childCount())
@@ -274,7 +317,11 @@ class ThreeWebGLRenderer {
         }
     }
 
+    ; A hidden object (visible = false) is not drawn, nor anything in it.
     fn renderObject:void (obj:ThreeObject3D be:ThreeRenderBackend vp:ThreeMatrix4) {
+        if (obj.visible == false) {
+            return
+        }
         obj.renderInto(be vp)
         def i:int 0
         def n:int (obj.childCount())
