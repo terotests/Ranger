@@ -34,6 +34,14 @@ class ThreeRenderBackend {
     ; (colour*intensity) are cols[i*3..].
     fn setLights:void (ambR:double ambG:double ambB:double dirCount:int dirs:[double] cols:[double]) {
     }
+    ; Per-frame point lights: pointCount lights at world positions pos[i*3..],
+    ; colours (colour*intensity) cols[i*3..] and [distance, decay] range[i*2..].
+    fn setPointLights:void (pointCount:int pos:[double] cols:[double] range:[double]) {
+    }
+    ; The output colour space: true encodes the result as sRGB for the screen
+    ; (the host then gives colours and lights in linear light, as Three does).
+    fn setOutputSRGB:void (on:boolean) {
+    }
     ; Camera world position (for Phong specular view vector).
     fn setView:void (camX:double camY:double camZ:double) {
     }

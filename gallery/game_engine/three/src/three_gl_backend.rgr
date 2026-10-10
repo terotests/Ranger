@@ -91,6 +91,48 @@ class ThreeGLBackend extends ThreeRenderBackend {
         gpu_set_lights ambBuf dbuf cbuf c4
     }
 
+    ; up to 4 point lights, packed like setLights' directional ones.
+    fn setPointLights:void (pointCount:int pos:[double] cols:[double] range:[double]) {
+        def pbuf:buffer (buffer_alloc 48)
+        def cbuf:buffer (buffer_alloc 48)
+        def rbuf:buffer (buffer_alloc 32)
+        def n:int (pointCount * 3)
+        def i:int 0
+        while (i < 12) {
+            def pv:double 0.0
+            def cv:double 0.0
+            if (i < n) {
+                pv = (itemAt pos i)
+                cv = (itemAt cols i)
+            }
+            ByteReader.encodeF32(pbuf (i * 4) pv)
+            ByteReader.encodeF32(cbuf (i * 4) cv)
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < 8) {
+            def rv:double 0.0
+            if (k < (pointCount * 2)) {
+                rv = (itemAt range k)
+            }
+            ByteReader.encodeF32(rbuf (k * 4) rv)
+            k = (k + 1)
+        }
+        def c4:int pointCount
+        if (c4 > 4) {
+            c4 = 4
+        }
+        gpu_set_points pbuf cbuf rbuf c4
+    }
+
+    fn setOutputSRGB:void (on:boolean) {
+        if on {
+            gpu_set_output 1
+        } {
+            gpu_set_output 0
+        }
+    }
+
     fn setView:void (camX:double camY:double camZ:double) {
         gpu_set_view camX camY camZ
     }
