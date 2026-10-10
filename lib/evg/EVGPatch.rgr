@@ -1117,7 +1117,7 @@ class EVGPatch {
         if (n == "flex-shrink") { return (EVGDisplayList.num(el.flexShrink)) }
         if (n == "rotate")      { return (EVGDisplayList.num(el.rotate)) }
         if (n == "scale")       { return (EVGDisplayList.num(el.scale)) }
-        if (n == "gradient-dir") { return (EVGDisplayList.num((to_double el.gradientDir))) }
+        if (n == "gradient-dir") { return (to_string el.gradientDir) }
         if (n == "stroke-width")      { return (EVGDisplayList.num(el.strokeWidth)) }
         if (n == "stroke-dashoffset") { return (EVGDisplayList.num(el.strokeDashOffset)) }
 
