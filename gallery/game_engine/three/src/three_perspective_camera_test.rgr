@@ -62,6 +62,23 @@ class ThreePerspectiveCameraTest {
         cam2.setPerspective(70.0 2.0 0.1 100.0)
         ck.near("aspect 2 halves persp[0]" (cam2.projectionMatrix.eGet(0)) (e0 / 2.0))
 
+        ; view offset: a 200x100 frame drawn inside a 400x300 picture at (100, 50)
+        ; keeps the frame's projection; the picture's frustum is the frame's
+        ; grown (Three.js setViewOffset with a part larger than the whole)
+        def cam3:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        cam3.setPerspective(50.0 2.0 0.1 100.0)
+        def f0:double (cam3.projectionMatrix.eGet(0))
+        def f5:double (cam3.projectionMatrix.eGet(5))
+        cam3.setViewOffset(200.0 100.0 (0.0 - 100.0) (0.0 - 50.0) 400.0 300.0)
+        ck.near("view: x scale by 200/400" (cam3.projectionMatrix.eGet(0)) (f0 * 0.5))
+        ck.near("view: y scale by 100/300" (cam3.projectionMatrix.eGet(5)) (f5 / 3.0))
+        ; the frame sits at x 100..300 of 400: centred, so no x shift
+        ck.near("view: centred x" (cam3.projectionMatrix.eGet(8)) 0.0)
+        ; y: frame 50..150 of 300 (from the top): its centre is 1/6 above the middle
+        ck.near("view: y shift" (cam3.projectionMatrix.eGet(9)) (0.0 - (1.0 / 3.0)))
+        cam3.clearViewOffset()
+        ck.near("clearViewOffset restores" (cam3.projectionMatrix.eGet(0)) f0)
+
         ; view matrix: camera at z=2 maps world origin to (0,0,-2) in view space
         cam.position.set(0.0 0.0 2.0)
         cam.updateViewMatrix()
