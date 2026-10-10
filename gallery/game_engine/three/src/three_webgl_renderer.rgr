@@ -65,6 +65,11 @@ class ThreeWebGLRenderer {
     def shadowFound:boolean false
     def shadowVP:ThreeMatrix4 (new ThreeMatrix4)
 
+    ; the frame's transparent meshes (drawn after the opaque ones, farthest
+    ; first) and their depth in the picture, as Three.js's transparent list
+    def transp:[ThreeObject3D]
+    def transpZ:[double]
+
     ; inject a GPU (e.g. WebGL) backend; default is the software rasteriser.
     fn setBackend:ThreeWebGLRenderer (b:ThreeRenderBackend) {
         backend = b
@@ -134,6 +139,15 @@ class ThreeWebGLRenderer {
         be.setView(camera.position.x camera.position.y camera.position.z)
         be.setToneMapping(toneMapping toneMappingExposure)
         be.setOutputSRGB(outputSRGB)
+        if scene.hasFog {
+            def fm:int 0
+            if scene.fog.exp2 {
+                fm = 1
+            }
+            be.setFog(true scene.fog.colorR scene.fog.colorG scene.fog.colorB scene.fog.near scene.fog.far scene.fog.density fm)
+        } {
+            be.setFog(false 0.0 0.0 0.0 0.0 0.0 0.0 0)
+        }
 
         ; shadow map (two-pass): render the casters' depth from the light, then feed
         ; that depth map + the light view-projection to the lit pass below.
@@ -178,7 +192,12 @@ class ThreeWebGLRenderer {
         this.renderGI(scene be)
         ; atmosphere sky (Preetham dome): drawn first, behind everything.
         this.renderSky(scene be vp)
+        def noT:[ThreeObject3D]
+        def noZ:[double]
+        transp = noT
+        transpZ = noZ
         this.renderObject(scene be vp)
+        this.renderTransparent(be vp)
         be.endFrame()
     }
 
@@ -318,11 +337,19 @@ class ThreeWebGLRenderer {
     }
 
     ; A hidden object (visible = false) is not drawn, nor anything in it.
+    ; A transparent one waits for renderTransparent.
     fn renderObject:void (obj:ThreeObject3D be:ThreeRenderBackend vp:ThreeMatrix4) {
         if (obj.visible == false) {
             return
         }
-        obj.renderInto(be vp)
+        if (obj.drawsTransparent()) {
+            def at:ThreeVector3 (obj.matrixWorld.transformPoint((ThreeVector3.of(0.0 0.0 0.0))))
+            def p:ThreeVector3 (vp.transformPoint(at))
+            push transp obj
+            push transpZ p.z
+        } {
+            obj.renderInto(be vp)
+        }
         def i:int 0
         def n:int (obj.childCount())
         while (i < n) {
@@ -330,6 +357,45 @@ class ThreeWebGLRenderer {
             this.renderObject(c be vp)
             i = (i + 1)
         }
+    }
+
+    ; The transparent meshes after the opaque ones: by renderOrder, then the
+    ; farthest first (Three.js reversePainterSortStable), so nearer glass blends
+    ; over what is behind it. Equal ones keep the scene's order.
+    fn renderTransparent:void (be:ThreeRenderBackend vp:ThreeMatrix4) {
+        def order:[int] (this.transparentOrder())
+        def i:int 0
+        while (i < (array_length order)) {
+            def o:ThreeObject3D (itemAt transp (itemAt order i))
+            o.renderInto(be vp)
+            i = (i + 1)
+        }
+    }
+
+    ; transp's indexes in drawing order (a stable insertion sort).
+    fn transparentOrder:[int] () {
+        def order:[int]
+        def n:int (array_length transp)
+        def i:int 0
+        while (i < n) {
+            def j:int (array_length order)
+            push order i
+            while ((j > 0) && (this.drawsBefore(i (itemAt order (j - 1))))) {
+                set order j (itemAt order (j - 1))
+                j = (j - 1)
+            }
+            set order j i
+            i = (i + 1)
+        }
+        return order
+    }
+    fn drawsBefore:boolean (a:int b:int) {
+        def oa:ThreeObject3D (itemAt transp a)
+        def ob:ThreeObject3D (itemAt transp b)
+        if (oa.renderOrder != ob.renderOrder) {
+            return (oa.renderOrder < ob.renderOrder)
+        }
+        return ((itemAt transpZ a) > (itemAt transpZ b))
     }
 
     ; the rendered RGB frame from the active backend (software path).

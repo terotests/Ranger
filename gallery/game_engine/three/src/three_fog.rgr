@@ -1,0 +1,89 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; three_fog — scene fog (Three.js src/scenes/Fog.js and FogExp2.js).
+; ==============================================================================
+; Linear fog (Fog): nothing at `near`, the fog colour alone from `far` on.
+; Exponential fog (FogExp2): 1 - exp(-(density * d)^2). The distance is from
+; the camera to the surface (Three.js measures the view-space depth; the two
+; agree in the middle of the picture and differ a little at its sides).
+; ==============================================================================
+
+class ThreeFog {
+    def isFog:boolean true
+    def colorR:double 1.0
+    def colorG:double 1.0
+    def colorB:double 1.0
+    def near:double 1.0
+    def far:double 1000.0
+    ; FogExp2 when true (density), Fog when false (near, far)
+    def exp2:boolean false
+    def density:double 0.00025
+
+    sfn linear:ThreeFog (r:double g:double b:double near:double far:double) {
+        def f:ThreeFog (new ThreeFog)
+        f.colorR = r
+        f.colorG = g
+        f.colorB = b
+        f.near = near
+        f.far = far
+        return f
+    }
+    sfn exponential:ThreeFog (r:double g:double b:double density:double) {
+        def f:ThreeFog (new ThreeFog)
+        f.colorR = r
+        f.colorG = g
+        f.colorB = b
+        f.exp2 = true
+        f.density = density
+        return f
+    }
+
+    ; e^-x for x >= 0 (Ranger has no exp): halved until small, a few Taylor
+    ; terms, squared back.
+    sfn expNeg:double (x:double) {
+        if (x <= 0.0) {
+            return 1.0
+        }
+        if (x > 60.0) {
+            return 0.0
+        }
+        def y:double x
+        def n:int 0
+        while (y > 0.125) {
+            y = (y * 0.5)
+            n = (n + 1)
+        }
+        def r:double (1.0 - (y * (1.0 - ((y * 0.5) * (1.0 - ((y / 3.0) * (1.0 - (y * 0.25))))))))
+        while (n > 0) {
+            r = (r * r)
+            n = (n - 1)
+        }
+        return r
+    }
+
+    ; How much of the fog colour covers a surface `d` away, 0..1 (the shader's
+    ; formula, for the software path and the tests).
+    fn factor:double (d:double) {
+        def f:double 0.0
+        if exp2 {
+            def k:double (density * d)
+            f = (1.0 - (ThreeFog.expNeg((k * k))))
+        } {
+            if (far <= near) {
+                if (d >= far) {
+                    return 1.0
+                }
+                return 0.0
+            }
+            f = ((d - near) / (far - near))
+        }
+        if (f < 0.0) {
+            return 0.0
+        }
+        if (f > 1.0) {
+            return 1.0
+        }
+        return f
+    }
+}

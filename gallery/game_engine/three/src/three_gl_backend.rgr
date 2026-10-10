@@ -133,6 +133,15 @@ class ThreeGLBackend extends ThreeRenderBackend {
         }
     }
 
+    ; the scene's fog: mode 0 off, 1 linear (near, far), 2 exponential (density)
+    fn setFog:void (on:boolean r:double g:double b:double near:double far:double density:double mode:int) {
+        def m:double 0.0
+        if on {
+            m = (to_double (mode + 1))
+        }
+        gpu_set_fog m r g b near far density
+    }
+
     fn setView:void (camX:double camY:double camZ:double) {
         gpu_set_view camX camY camZ
     }
@@ -429,10 +438,11 @@ class ThreeGLBackend extends ThreeRenderBackend {
         return out
     }
 
-    ; 13 float32: colRGB, specRGB, shininess, shadingMode, side, hasTex,
-    ; reflectivity, hasEnv, envFresnel.
+    ; 21 float32: colRGB, specRGB, shininess, shadingMode, side, hasTex,
+    ; reflectivity, hasEnv, envFresnel, opacity, blend mode (0 none, 1 normal,
+    ; 2 additive), depthWrite, depthTest, emissiveRGB * intensity, fog.
     fn materialBytes:buffer (mat:ThreeMaterial th:int) {
-        def out:buffer (buffer_alloc 52)
+        def out:buffer (buffer_alloc 84)
         ByteReader.encodeF32(out 0 mat.colorR)
         ByteReader.encodeF32(out 4 mat.colorG)
         ByteReader.encodeF32(out 8 mat.colorB)
@@ -454,6 +464,20 @@ class ThreeGLBackend extends ThreeRenderBackend {
         }
         ByteReader.encodeF32(out 44 hasEnvF)
         ByteReader.encodeF32(out 48 mat.envFresnel)
+        ByteReader.encodeF32(out 52 mat.opacity)
+        ByteReader.encodeF32(out 56 (to_double (mat.blendMode())))
+        ByteReader.encodeF32(out 60 (ThreeGLBackend.flag(mat.depthWrite)))
+        ByteReader.encodeF32(out 64 (ThreeGLBackend.flag(mat.depthTest)))
+        ByteReader.encodeF32(out 68 (mat.emissiveR * mat.emissiveIntensity))
+        ByteReader.encodeF32(out 72 (mat.emissiveG * mat.emissiveIntensity))
+        ByteReader.encodeF32(out 76 (mat.emissiveB * mat.emissiveIntensity))
+        ByteReader.encodeF32(out 80 (ThreeGLBackend.flag(mat.fog)))
         return out
+    }
+    sfn flag:double (b:boolean) {
+        if b {
+            return 1.0
+        }
+        return 0.0
     }
 }

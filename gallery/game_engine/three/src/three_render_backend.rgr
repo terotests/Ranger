@@ -49,6 +49,10 @@ class ThreeRenderBackend {
     ; the GL backend feeds these to the übershader epilogue.
     fn setToneMapping:void (mode:int exposure:double) {
     }
+    ; The scene's fog for the frame (on=false: none). mode 0 linear (near, far),
+    ; 1 exponential (density). Colour in the frame's output colours.
+    fn setFog:void (on:boolean r:double g:double b:double near:double far:double density:double mode:int) {
+    }
     ; Draw one mesh: geometry, its world (model) matrix, its full MVP, and the
     ; material (colour/specular/shininess/map/side/shading path).
     fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {

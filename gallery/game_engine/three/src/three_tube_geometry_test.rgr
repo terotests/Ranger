@@ -96,6 +96,43 @@ class ThreeTubeGeometryTest {
         ck.ok("single-point path is empty" ((g2.vertexCount()) == 0))
 
         print "== summary =="
+        ; a path that turns straight up: the tube keeps its width there
+        def up:[double] ([] _:double (0.0 0.0 0.0  1.0 0.0 0.0  1.0 1.0 0.0  1.0 2.0 0.0))
+        def g3:ThreePathTubeGeometry (new ThreePathTubeGeometry)
+        g3.build(up 0.1 8)
+        ck.ok("path tube vertex count" ((g3.vertexCount()) == (4 * 9)))
+        ck.ok("path tube index count" ((g3.indexCount()) == ((3 * 8) * 6)))
+        def wideOk:boolean true
+        def k:int 0
+        while (k < 4) {
+            ; every ring stays radius away from its path point, all around
+            def jr:int 0
+            while (jr < 9) {
+                def vi:int ((k * 9) + jr)
+                def dx:double ((g3.getPosition(vi 0)) - (itemAt up (k * 3)))
+                def dy:double ((g3.getPosition(vi 1)) - (itemAt up ((k * 3) + 1)))
+                def dz:double ((g3.getPosition(vi 2)) - (itemAt up ((k * 3) + 2)))
+                def dl:double (sqrt(((dx * dx) + (dy * dy)) + (dz * dz)))
+                if ((dl < 0.099) || (dl > 0.101)) {
+                    wideOk = false
+                }
+                jr = (jr + 1)
+            }
+            k = (k + 1)
+        }
+        ck.ok("path tube: radius kept where the path goes vertical" wideOk)
+        ; on the vertical run the ring lies flat (no y spread)
+        def flatOk:boolean true
+        def jf:int 0
+        while (jf < 9) {
+            def vy:double (g3.getPosition((27 + jf) 1))
+            if ((vy < 1.999) || (vy > 2.001)) {
+                flatOk = false
+            }
+            jf = (jf + 1)
+        }
+        ck.ok("path tube: the top ring is across the vertical path" flatOk)
+
         print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
         if (ck.failed == 0) {
             print "ALL PASS"
