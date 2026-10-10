@@ -52828,6 +52828,60 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           wr.out("", true);
         }
       }
+      let ifVariable = {};
+      // Loop start
+      for ( const ownVar of cl.variables) {
+        ifVariable[ownVar.name] = true;
+      }
+      // Loop start
+      for ( let ipi = 0; ipi < this.goAncestors(cl, ctx).length; ipi++) {
+        var ifParent = this.goAncestors(cl, ctx)[ipi];
+        const ipC = ctx.findClass(ifParent);
+        // Loop start
+        for ( const ip of ipC.variables) {
+          if ( ( typeof(ifVariable[ip.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(ifVariable, ip.name) ) ) {
+            continue;
+          }
+          ifVariable[ip.name] = true;
+          wr.out("Get_", false);
+          wr.out(ip.compiledName + "() ", false);
+          if ( ip.nameNode.hasFlag("optional") ) {
+            wr.out("*GoNullable", false);
+          } else {
+            this.writeTypeDef(ip.nameNode, ctx, wr);
+          }
+          wr.out("", true);
+          wr.out("Set_", false);
+          wr.out(ip.compiledName + "(value ", false);
+          if ( ip.nameNode.hasFlag("optional") ) {
+            wr.out("*GoNullable", false);
+          } else {
+            this.writeTypeDef(ip.nameNode, ctx, wr);
+          }
+          wr.out(") ", true);
+        }
+        // Loop start
+        for ( let ipf = 0; ipf < ipC.defined_variants.length; ipf++) {
+          var ipFn = ipC.defined_variants[ipf];
+          const ipVs = ( Object.prototype.hasOwnProperty.call(ipC.method_variants, ipFn) ? ipC.method_variants[ipFn] : undefined );
+          // Loop start
+          for ( const ipVariant of ipVs.variants) {
+            if ( ( typeof(declaredIfFunction[ipVariant.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredIfFunction, ipVariant.name) ) ) {
+              continue;
+            }
+            declaredIfFunction[ipVariant.name] = true;
+            wr.out(ipVariant.compiledName + "(", false);
+            this.writeArgsDef(ipVariant, ctx, wr);
+            wr.out(") ", false);
+            if ( ipVariant.nameNode.hasFlag("optional") ) {
+              wr.out("*GoNullable", false);
+            } else {
+              this.writeTypeDef(ipVariant.nameNode, ctx, wr);
+            }
+            wr.out("", true);
+          }
+        }
+      }
       wr.indent(-1);
       wr.out("}", true);
     }
@@ -73432,12 +73486,25 @@ class LiveCompiler  {
           const idx_18 = cmdArg.int_value;
           if ( node.children.length > idx_18 ) {
             const arg_18 = node.children[idx_18];
+            let tn_1 = arg_18;
             if ( arg_18.hasParamDesc ) {
-              if ( arg_18.paramDesc.nameNode.isAPrimitiveType() == false ) {
-                wr.out("*", false);
+              tn_1 = arg_18.paramDesc.nameNode;
+            }
+            let elem = tn_1.array_type;
+            if ( tn_1.eval_type != 0 && tn_1.eval_array_type.length > 0 ) {
+              elem = tn_1.eval_array_type;
+            }
+            if ( elem.length > 0 ) {
+              if ( ctx.isPrimitiveType(elem) == false ) {
+                if ( ctx.isDefinedClass(elem) ) {
+                  const ec = ctx.findClass(elem);
+                  if ( ec.is_union == false && ec.doesInherit() == false ) {
+                    wr.out("*", false);
+                  }
+                }
               }
             } else {
-              if ( arg_18.isAPrimitiveType() == false ) {
+              if ( tn_1.isAPrimitiveType() == false ) {
                 wr.out("*", false);
               }
             }
@@ -73760,23 +73827,23 @@ class LiveCompiler  {
           const idx_32 = cmdArg.int_value;
           if ( node.children.length >= idx_32 ) {
             const arg_30 = node.children[idx_32];
-            let tn_1 = "";
+            let tn_2 = "";
             const p_4 = this.findParamDesc(arg_30, ctx, wr);
             if ( (typeof(p_4) !== "undefined" && p_4 != null )  ) {
               const pDesc = p_4;
               const nnOpt = pDesc.nameNode;
               if ( (typeof(nnOpt) !== "undefined" && nnOpt != null )  ) {
                 const nameNode = nnOpt;
-                tn_1 = nameNode.array_type;
+                tn_2 = nameNode.array_type;
               }
             }
-            if ( tn_1.length == 0 ) {
-              tn_1 = arg_30.eval_array_type;
+            if ( tn_2.length == 0 ) {
+              tn_2 = arg_30.eval_array_type;
             }
-            if ( tn_1.length == 0 ) {
-              tn_1 = arg_30.array_type;
+            if ( tn_2.length == 0 ) {
+              tn_2 = arg_30.array_type;
             }
-            wr.out(this.langWriter.getObjectTypeString(tn_1, ctx), false);
+            wr.out(this.langWriter.getObjectTypeString(tn_2, ctx), false);
           }
           break;
       };

@@ -2703,6 +2703,56 @@ class RangerGolangClassWriter {
           wr.out("" true)
         }
       }     
+      ; what the class inherits is in its interface too: a value of a
+      ; subclass's interface type is a value of its parent's (the struct
+      ; already has the inherited fields and methods)
+      def ifVariable:[string:boolean]
+      for cl.variables ownVar:RangerAppParamDesc ovi {
+        set ifVariable ownVar.name true
+      }
+      for (this.goAncestors((unwrap cl) ctx)) ifParent:string ipi {
+        def ipC:RangerAppClassDesc (ctx.findClass(ifParent))
+        for ipC.variables ip:RangerAppParamDesc ipv {
+          if(has ifVariable ip.name) {
+            continue
+          }
+          set ifVariable ip.name true
+          wr.out("Get_" false)
+          wr.out((ip.compiledName + "() ") false)
+          if (ip.nameNode.hasFlag("optional")) {
+            wr.out("*GoNullable" false)
+          } {
+            this.writeTypeDef(( unwrap ip.nameNode )ctx wr)
+          }
+          wr.out("" true)
+          wr.out("Set_" false)
+          wr.out(ip.compiledName + "(value " , false )
+          if (ip.nameNode.hasFlag("optional")) {
+            wr.out("*GoNullable" false)
+          } {
+            this.writeTypeDef(( unwrap ip.nameNode )ctx wr)
+          }
+          wr.out(") " true)
+        }
+        for ipC.defined_variants ipFn:string ipf {
+          def ipVs:RangerAppMethodVariants (get ipC.method_variants ipFn)
+          for ipVs.variants ipVariant:RangerAppFunctionDesc ipk {
+            if(has declaredIfFunction ipVariant.name) {
+              continue
+            }
+            set declaredIfFunction ipVariant.name true
+            wr.out( ipVariant.compiledName + "(" , false)
+            this.writeArgsDef(ipVariant ctx wr)
+            wr.out(") " false)
+            if (ipVariant.nameNode.hasFlag("optional")) {
+              wr.out("*GoNullable" false)
+            } {
+              this.writeTypeDef(( unwrap ipVariant.nameNode ) ctx wr)
+            }
+            wr.out("" true)
+          }
+        }
+      }
       wr.indent(-1)
       wr.out("}" true)    
       
