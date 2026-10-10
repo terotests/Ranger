@@ -195,6 +195,22 @@ class PrintFinishingTest {
         c.ok("an RGB job with RGB pictures is clean" ((r.conformanceIssues()) == 0))
     }
 
+    sfn testAlpha:void (c:PrintCheck) {
+        print "-- see-through pictures --"
+        def solid (new ImageBuffer())
+        solid.init(2 2)
+        c.ok("an opaque picture needs no mask" ((buffer_length (EVGPDFRenderer.alphaOf(solid))) == 0))
+        def glass (new ImageBuffer())
+        glass.init(2 2)
+        glass.setPixelRGBA(1 0 10 20 30 0)
+        glass.setPixelRGBA(0 1 10 20 30 128)
+        def mask:buffer (EVGPDFRenderer.alphaOf(glass))
+        c.ok("one mask byte a pixel" ((buffer_length mask) == 4))
+        c.ok("opaque stays opaque" ((buffer_get mask 0) == 255))
+        c.ok("clear stays clear" ((buffer_get mask 1) == 0))
+        c.ok("half stays half" ((buffer_get mask 2) == 128))
+    }
+
     sfn main:void () {
         print "== print finishing =="
         def c (new PrintCheck())
@@ -203,6 +219,7 @@ class PrintFinishingTest {
         PrintFinishingTest.testIdentification(c)
         PrintFinishingTest.testEscaping(c)
         PrintFinishingTest.testHonesty(c)
+        PrintFinishingTest.testAlpha(c)
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

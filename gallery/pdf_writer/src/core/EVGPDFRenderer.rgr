@@ -273,6 +273,33 @@ class EVGPDFRenderer {
         return (f.fontFamily + "/" + f.fontStyle)
     }
 
+    ; The alpha of `img`, one byte a pixel from the top, for an image's
+    ; /SMask; empty when every pixel is opaque (no mask is written).
+    sfn alphaOf:buffer (img:ImageBuffer) {
+        def n:int (img.width * img.height)
+        if ((buffer_length img.pixels) < (n * 4)) {
+            return (buffer_alloc 0)
+        }
+        def i:int 0
+        def seeThrough:boolean false
+        while ((i < n) && (seeThrough == false)) {
+            if ((buffer_get img.pixels ((i * 4) + 3)) < 255) {
+                seeThrough = true
+            }
+            i = (i + 1)
+        }
+        if (seeThrough == false) {
+            return (buffer_alloc 0)
+        }
+        def out:buffer (buffer_alloc n)
+        def j:int 0
+        while (j < n) {
+            buffer_set out j (buffer_get img.pixels ((j * 4) + 3))
+            j = (j + 1)
+        }
+        return out
+    }
+
     fn registerImage:void (src:string pixels:ImageBuffer) {
         set suppliedImages src pixels
     }
@@ -1167,6 +1194,11 @@ class EVGPDFRenderer {
                 
                 embImg.width = newW
                 embImg.height = newH
+                ; A picture with see-through pixels (a PNG with alpha, a 3-D
+                ; world drawn over the slide) keeps them: JPEG has no alpha,
+                ; so the alpha goes in a soft mask, the object right after.
+                def mask:buffer (EVGPDFRenderer.alphaOf(imgBuffer))
+                def masked:boolean ((buffer_length mask) > 0)
                 
                 push objectOffsets (pdf.size())
                 pdf.writeString((to_string nextObjNum) + " 0 obj\n")
@@ -1178,6 +1210,9 @@ class EVGPDFRenderer {
                 rgbImages = (rgbImages + 1)
                 pdf.writeString(" /BitsPerComponent 8")
                 pdf.writeString(" /Filter /DCTDecode")
+                if masked {
+                    pdf.writeString(" /SMask " + (to_string (nextObjNum + 1)) + " 0 R")
+                }
                 pdf.writeString(" /Length " + (to_string encodedLen))
                 pdf.writeString(" >>\n")
                 pdf.writeString("stream\n")
@@ -1188,6 +1223,12 @@ class EVGPDFRenderer {
                 embImg.objNum = nextObjNum
                 embImg.pdfName = "/Im" + (to_string (imgIdx + 1))
                 nextObjNum = nextObjNum + 1
+                if masked {
+                    push objectOffsets (pdf.size())
+                    pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                    this.writeStream(pdf mask (" /Type /XObject /Subtype /Image /Width " + (to_string newW) + " /Height " + (to_string newH) + " /ColorSpace /DeviceGray /BitsPerComponent 8"))
+                    nextObjNum = nextObjNum + 1
+                }
                 
                 print ("Embedded image: " + embImg.src + " (" + (to_string newW) + "x" + (to_string newH) + ")")
             } {
