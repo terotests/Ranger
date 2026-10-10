@@ -1,0 +1,445 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; CLikeTokens.rgr — one lexer for the languages that are mostly alike
+; ==============================================================================
+;
+; C, C++, Go, Rust, Java, Kotlin, C#, protobuf, FlatBuffers, SQL, Python and
+; shell differ in their keywords and in how they spell a comment and a string,
+; and for COLOURING that is nearly all they differ in. So this is one lexer and
+; a table: the table says which words are keywords, which are types, what opens
+; a comment and what quotes a string, and the lexer does the same walk for all
+; of them. A new language is a new table (see CLikeLanguage.rgr), not a new
+; lexer.
+;
+; It colours; it does not understand. A keyword used as a field name is still
+; painted as a keyword, a generic `<` is punctuation, and nothing here knows
+; whether a file compiles. That is the right amount for a file shown read-only
+; on a slide, and the wrong amount for anything that has to be correct — which
+; is why `CLikeLanguage.diagnose` says nothing at all rather than guessing.
+;
+; Spans that may cross a line — a block comment, a Python triple-quoted
+; string, a Go raw string — leave the lexer in a state the next line starts
+; in, the same way JsTokens carries `/* … */`.
+; ==============================================================================
+
+Import "CodeTokens.rgr"
+
+; Something with an opening and a closing spelling, coloured as one run: a
+; comment or a string. `close` empty means "to the end of the line" (`//`,
+; `#`, `--`). `escape` lets a backslash hide the next character, so `"a\"b"`
+; is one string. `multiline` lets the span continue onto the next line when it
+; has not closed. `wordStart` asks for the opener to begin a word — shell's
+; `#` is a comment after a space and not inside `${#list[@]}` or `$#`.
+class CLikeSpan {
+    def open:string ""
+    def close:string ""
+    def kind:int 5
+    def escape:boolean false
+    def multiline:boolean false
+    def wordStart:boolean false
+
+    Constructor () {
+    }
+
+    sfn lineComment:CLikeSpan (open:string) {
+        def s:CLikeSpan (new CLikeSpan)
+        s.open = open
+        s.close = ""
+        s.kind = (CodeTokenKind.comment())
+        return s
+    }
+
+    sfn blockComment:CLikeSpan (open:string close:string) {
+        def s:CLikeSpan (new CLikeSpan)
+        s.open = open
+        s.close = close
+        s.kind = (CodeTokenKind.comment())
+        s.multiline = true
+        return s
+    }
+
+    ; A quoted string that ends on its own line, with backslash escapes.
+    sfn quoted:CLikeSpan (quote:string) {
+        def s:CLikeSpan (new CLikeSpan)
+        s.open = quote
+        s.close = quote
+        s.kind = (CodeTokenKind.text())
+        s.escape = true
+        return s
+    }
+
+    ; A string the backslash does not reach into: shell's '…', SQL's '…'
+    ; (where a quote is doubled instead, which this reads as two strings
+    ; side by side — the same colour, so the same picture).
+    sfn literal:CLikeSpan (quote:string) {
+        def s:CLikeSpan (new CLikeSpan)
+        s.open = quote
+        s.close = quote
+        s.kind = (CodeTokenKind.text())
+        return s
+    }
+
+    ; A string that may run over lines: Python's """…""", Go's `…`,
+    ; Kotlin's and Java's text blocks.
+    sfn longString:CLikeSpan (open:string close:string) {
+        def s:CLikeSpan (new CLikeSpan)
+        s.open = open
+        s.close = close
+        s.kind = (CodeTokenKind.text())
+        s.multiline = true
+        return s
+    }
+}
+
+; The table. Everything a language is, as far as colouring goes.
+class CLikeSpec {
+    def id:string "clike"
+    def label:string "C-like"
+    ; File name endings this language claims, lower case with the dot.
+    def suffixes:[string]
+    def keywords:[string]
+    ; Types and well-known builtins, painted in the builtin colour: `int`,
+    ; `string`, `uint32`, `printf`, `COUNT`.
+    def types:[string]
+    ; Comments and strings, tried in this order at every position — so a
+    ; longer opener that starts like a shorter one (`"""` and `"`) goes
+    ; first.
+    def spans:[CLikeSpan]
+    ; SQL: `SELECT`, `select` and `Select` are one keyword.
+    def caseInsensitive:boolean false
+    ; C, C++ and C#: `#include`, `#define`, `#pragma` at the start of a line
+    ; are keywords, and `<stdio.h>` after an include is a string.
+    def hashDirectives:boolean false
+    ; Rust: `'a` is a lifetime, and only `'x'` or `'\n'` is a character.
+    ; Without this a `'` opens a string like any other quote.
+    def lifetimes:boolean false
+    ; Java, Kotlin, Python, C#, TypeScript-like: `@Override`, `@dataclass`.
+    def annotations:boolean true
+
+    Constructor () {
+    }
+
+    fn addSpan:void (s:CLikeSpan) {
+        push spans s
+    }
+}
+
+class CLikeTokenizer {
+    def spec:CLikeSpec (new CLikeSpec)
+    ; Which entry of `spec.spans` the next line starts inside, or -1. Carried
+    ; from one line to the next within one `tokenize` call.
+    def carry:int -1
+    ; word -> token kind, built once from the table: one lookup per word
+    ; rather than a walk down a list of a hundred keywords.
+    def kinds:[string:int]
+    def kindsBuilt:boolean false
+
+    Constructor () {
+    }
+
+    sfn withSpec:CLikeTokenizer (spec:CLikeSpec) {
+        def t:CLikeTokenizer (new CLikeTokenizer)
+        t.spec = spec
+        return t
+    }
+
+    fn buildKinds:void () {
+        if kindsBuilt {
+            return
+        }
+        ; Types first and keywords second, so a word in both lists (`string`
+        ; in some tables) is a keyword.
+        def i:int 0
+        def n:int (array_length spec.types)
+        while (i < n) {
+            def w:string (this.norm((itemAt spec.types i)))
+            set kinds w (CodeTokenKind.builtin())
+            i = (i + 1)
+        }
+        i = 0
+        n = (array_length spec.keywords)
+        while (i < n) {
+            def w2:string (this.norm((itemAt spec.keywords i)))
+            set kinds w2 (CodeTokenKind.keyword())
+            i = (i + 1)
+        }
+        kindsBuilt = true
+    }
+
+    fn norm:string (word:string) {
+        if spec.caseInsensitive {
+            return (to_lowercase word)
+        }
+        return word
+    }
+
+    fn wordKind:int (word:string) {
+        this.buildKinds()
+        def key:string (this.norm(word))
+        if (has kinds key) {
+            def k:int (unwrap (get kinds key))
+            return k
+        }
+        return (CodeTokenKind.ident())
+    }
+
+    fn tokenize:[CodeTokenLine] (lines:[string]) {
+        def out:[CodeTokenLine]
+        carry = -1
+        def i:int 0
+        def n:int (array_length lines)
+        while (i < n) {
+            push out (this.tokenizeLine((itemAt lines i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; True when `s` has `what` at `at`.
+    sfn startsAt:boolean (s:string at:int what:string) {
+        def wn:int (strlen what)
+        if (wn == 0) {
+            return false
+        }
+        if ((at + wn) > (strlen s)) {
+            return false
+        }
+        return ((substring s at (at + wn)) == what)
+    }
+
+    ; Where the span that opened before `from` closes: the index just past
+    ; its closing spelling, or -1 when it does not close on this line.
+    fn spanEnd:int (line:string from:int span:CLikeSpan) {
+        def n:int (strlen line)
+        if ((strlen span.close) == 0) {
+            return n
+        }
+        def i:int from
+        while (i < n) {
+            if span.escape {
+                if ((charAt line i) == 92) {
+                    i = (i + 2)
+                    continue
+                }
+            }
+            if (CLikeTokenizer.startsAt(line i span.close)) {
+                return (i + (strlen span.close))
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The span whose opener is at `i`, or -1.
+    fn spanAt:int (line:string i:int) {
+        def k:int 0
+        def n:int (array_length spec.spans)
+        while (k < n) {
+            def s:CLikeSpan (itemAt spec.spans k)
+            if (CLikeTokenizer.startsAt(line i s.open)) {
+                def ok:boolean true
+                if (s.wordStart && (i > 0)) {
+                    def prev:int (charAt line (i - 1))
+                    if ((prev != 32) && ((prev != 9) && (prev != 59))) {
+                        ok = false
+                    }
+                }
+                if ok {
+                    return k
+                }
+            }
+            k = (k + 1)
+        }
+        return -1
+    }
+
+    fn tokenizeLine:CodeTokenLine (line:string) {
+        def out:CodeTokenLine (new CodeTokenLine)
+        def n:int (strlen line)
+        def i:int 0
+        ; A span left open by the line before: this line starts inside it.
+        if (carry >= 0) {
+            def open:CLikeSpan (itemAt spec.spans carry)
+            def stop:int (this.spanEnd(line 0 open))
+            if (stop < 0) {
+                if (n > 0) {
+                    push out.tokens (CodeToken.create(0 n open.kind))
+                }
+                return out
+            }
+            if (stop > 0) {
+                push out.tokens (CodeToken.create(0 stop open.kind))
+            }
+            carry = -1
+            i = stop
+        }
+        def firstInk:boolean true
+        while (i < n) {
+            def ch:int (charAt line i)
+            if ((ch == 32) || (ch == 9)) {
+                i = (i + 1)
+                continue
+            }
+            def lineStart:boolean firstInk
+            firstInk = false
+            ; Rust's lifetimes before the quote is taken as a string.
+            if (spec.lifetimes && (ch == 39)) {
+                def life:int (this.lifetimeEnd(line i))
+                if (life > 0) {
+                    push out.tokens (CodeToken.create(i (life - i) (CodeTokenKind.attr())))
+                    i = life
+                    continue
+                }
+            }
+            def si:int (this.spanAt(line i))
+            if (si >= 0) {
+                def span:CLikeSpan (itemAt spec.spans si)
+                def bodyAt:int (i + (strlen span.open))
+                def end:int (this.spanEnd(line bodyAt span))
+                if (end < 0) {
+                    ; Unclosed: to the end of this line, and on into the next
+                    ; when the span may cross lines.
+                    if span.multiline {
+                        carry = si
+                    }
+                    end = n
+                }
+                push out.tokens (CodeToken.create(i (end - i) span.kind))
+                i = end
+                continue
+            }
+            if (spec.hashDirectives && (lineStart && (ch == 35))) {
+                def dEnd:int (this.readWord(line (i + 1)))
+                push out.tokens (CodeToken.create(i (dEnd - i) (CodeTokenKind.keyword())))
+                def word:string (substring line (i + 1) dEnd)
+                i = dEnd
+                ; `#include <vector>`: the header name is a string, as it is
+                ; with quotes.
+                if (word == "include") {
+                    def j:int i
+                    while ((j < n) && ((charAt line j) == 32)) {
+                        j = (j + 1)
+                    }
+                    if ((j < n) && ((charAt line j) == 60)) {
+                        def gt:int (indexOf (substring line j n) ">")
+                        if (gt > 0) {
+                            push out.tokens (CodeToken.create(j (gt + 1) (CodeTokenKind.text())))
+                            i = ((j + gt) + 1)
+                        }
+                    }
+                }
+                continue
+            }
+            if (CLikeTokenizer.isDigit(ch)) {
+                def numEnd:int (this.readNumber(line i))
+                push out.tokens (CodeToken.create(i (numEnd - i) (CodeTokenKind.number())))
+                i = numEnd
+                continue
+            }
+            if (CLikeTokenizer.isWordStart(ch)) {
+                def wordEnd:int (this.readWord(line i))
+                def w:string (substring line i wordEnd)
+                push out.tokens (CodeToken.create(i (wordEnd - i) (this.wordKind(w))))
+                i = wordEnd
+                continue
+            }
+            if (spec.annotations && (ch == 64)) {
+                if ((i + 1) < n) {
+                    if (CLikeTokenizer.isWordStart((charAt line (i + 1)))) {
+                        def aEnd:int (this.readWord(line (i + 1)))
+                        push out.tokens (CodeToken.create(i (aEnd - i) (CodeTokenKind.attr())))
+                        i = aEnd
+                        continue
+                    }
+                }
+            }
+            push out.tokens (CodeToken.create(i 1 (CodeTokenKind.punct())))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; `'a` followed by anything but a closing quote is a lifetime; `'x'` and
+    ; `'\n'` are characters and go to the string span. Returns the end of the
+    ; lifetime, or -1.
+    fn lifetimeEnd:int (line:string at:int) {
+        def n:int (strlen line)
+        if ((at + 1) >= n) {
+            return -1
+        }
+        def c1:int (charAt line (at + 1))
+        if ((CLikeTokenizer.isWordStart(c1)) == false) {
+            return -1
+        }
+        def stop:int (this.readWord(line (at + 1)))
+        if ((stop < n) && ((charAt line stop) == 39)) {
+            return -1
+        }
+        return stop
+    }
+
+    fn readWord:int (line:string from:int) {
+        def i:int from
+        def n:int (strlen line)
+        while (i < n) {
+            def ch:int (charAt line i)
+            if ((CLikeTokenizer.isWordStart(ch)) == false) {
+                if ((CLikeTokenizer.isDigit(ch)) == false) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Digits, then anything a number can carry in any of these languages:
+    ; `0x1F`, `1.5e3`, `10u`, `1_000_000`, `3.14f`. A sign after an `e` is
+    ; part of it too.
+    fn readNumber:int (line:string from:int) {
+        def i:int from
+        def n:int (strlen line)
+        while (i < n) {
+            def ch:int (charAt line i)
+            def ok:boolean false
+            if ((CLikeTokenizer.isDigit(ch)) || (CLikeTokenizer.isWordStart(ch))) {
+                ok = true
+            }
+            if (ch == 46) {
+                ok = true
+            }
+            if (((ch == 43) || (ch == 45)) && (i > from)) {
+                def prev:int (charAt line (i - 1))
+                if ((prev == 101) || (prev == 69)) {
+                    ok = true
+                }
+            }
+            if (ok == false) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn isDigit:boolean (ch:int) {
+        if (ch < 48) {
+            return false
+        }
+        return (ch <= 57)
+    }
+
+    sfn isWordStart:boolean (ch:int) {
+        if ((ch >= 65) && (ch <= 90)) {
+            return true
+        }
+        if ((ch >= 97) && (ch <= 122)) {
+            return true
+        }
+        if (ch == 95) {
+            return true
+        }
+        return (ch > 127)
+    }
+}

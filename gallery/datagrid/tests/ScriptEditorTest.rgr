@@ -15,6 +15,7 @@ Import "../src/script/JsTokens.rgr"
 Import "../src/script/ScriptEditor.rgr"
 Import "../src/script/lang/JsLanguage.rgr"
 Import "../src/script/lang/RangerLanguage.rgr"
+Import "../src/script/lang/CLikeLanguage.rgr"
 
 class Checker {
     def passed:int 0
@@ -609,6 +610,281 @@ class ScriptEditorTest {
         c.eqInt("the peer's name is painted" flags 1)
         co.clearPeers()
         c.eqInt("peers cleared" (array_length co.peers) 0)
+
+        print "== read only: look, select, copy, find; never change =="
+        def ro:ScriptEditor (new ScriptEditor)
+        ro.setLanguage(js)
+        ro.init("alpha beta\ngamma\n")
+        ro.moveCaret(1 5 false)
+        ro.insert("!")
+        ro.setReadOnly(true)
+        def roText:string (ro.text())
+        c.eqStr("starts with the edit made before" roText "alpha beta\ngamma!\n")
+        c.ok("typing is refused" ((ro.handleText("x")) == false))
+        ro.insert("pasted")
+        c.ok("a paste is ignored" ((ro.text()) == roText))
+        ro.backspace()
+        ro.deleteForward()
+        ro.insertNewline()
+        ro.indentSelection(false)
+        ro.indentSelection(true)
+        c.ok("backspace, delete, Enter and indent do nothing" ((ro.text()) == roText))
+        c.ok("the backspace key is handed back" ((ro.handleKey((UIKey.backspace()) false false)) == false))
+        c.ok("so is delete" ((ro.handleKey((UIKey.del()) false false)) == false))
+        c.ok("and Enter" ((ro.handleKey((UIKey.enter()) false false)) == false))
+        c.ok("and Tab, so focus can leave" ((ro.handleKey((UIKey.tab()) false false)) == false))
+        ro.undo()
+        c.ok("undo does not take back the earlier edit" ((ro.text()) == roText))
+        c.ok("nor does Ctrl+Z" ((ro.handleCtrlChar(122)) == false))
+        ro.redo()
+        c.ok("and redo changes nothing" ((ro.text()) == roText))
+        c.ok("Ctrl+Space opens nothing" ((ro.requestCompletions()) == false))
+        c.ok("no completion list" (ro.completionOpen == false))
+        ro.moveCaret(0 0 false)
+        ro.handleKey((UIKey.right()) false false)
+        c.eqInt("the caret still moves" ro.sel.caret.col 1)
+        ro.handleKey((UIKey.right()) true true)
+        c.eqStr("and selects" (ro.selectionText()) "lpha")
+        c.eqStr("cut is not a cut" (ro.cutSelection()) "")
+        c.ok("and leaves the text" ((ro.text()) == roText))
+        c.eqStr("but the selection still copies" (ro.selectionText()) "lpha")
+        ro.selectAll()
+        c.ok("select all works" ((ro.sel.isCollapsed()) == false))
+        ro.handleText("z")
+        c.ok("typing over a selection is still nothing" ((ro.text()) == roText))
+        c.ok("Ctrl+F still finds" (ro.handleCtrlChar(102)))
+        ro.handleText("gam")
+        c.eqStr("the keys go to the query" ro.findQuery "gam")
+        c.eqInt("and the match is found" ro.sel.caret.line 1)
+        ro.handleKey((UIKey.escape()) false false)
+        c.ok("zoom still works" (ro.zoomBy(1)))
+        c.ok("the document is not dirty from anything above" ((ro.text()) == roText))
+        ro.setReadOnly(false)
+        ro.moveCaret(0 0 false)
+        ro.handleText("Q")
+        c.eqStr("and editing comes back when the flag goes" (ro.buf.lineAt(0)) "Qalpha beta")
+
+        print "== line numbers the host chooses =="
+        def ln:ScriptEditor (new ScriptEditor)
+        ln.init("a\nb\n...\nc\nd\n")
+        c.eqStr("by default row 0 is line 1" (ln.lineLabel(0)) "1")
+        c.eqStr("and row 4 is line 5" (ln.lineLabel(4)) "5")
+        c.eqStr("with no second column" (ln.oldLineLabel(0)) "")
+        def lnTr:UITextRenderer (new UITextRenderer)
+        ln.setBounds(0 0 600 300)
+        ln.syncLayout(lnTr)
+        def defaultGutter:int ln.layout.gutterW
+        ln.syncLayout(lnTr)
+        c.eqInt("the default gutter does not grow on its own" ln.layout.gutterW defaultGutter)
+        ln.setLineNumbers(([] _:int ( 11 12 0 50 51 )))
+        c.eqStr("row 0 says 11" (ln.lineLabel(0)) "11")
+        c.eqStr("the gap row says nothing" (ln.lineLabel(2)) "")
+        c.eqStr("and the row after it is 50" (ln.lineLabel(3)) "50")
+        c.eqStr("a row past the array has no number" (ln.lineLabel(5)) "")
+        ln.syncLayout(lnTr)
+        c.eqInt("two digits fit the default gutter" ln.layout.gutterW defaultGutter)
+        ln.setLineNumbers(([] _:int ( 123456 123457 0 123500 123501 )))
+        ln.syncLayout(lnTr)
+        def sixW:int (to_int ((lnTr.measureWidth("000000" (ln.layout.fontSize * 0.85))) + 0.999))
+        c.eqInt("the column is as wide as six digits" ln.numColW sixW)
+        c.ok("six digits widen the gutter" (ln.layout.gutterW > defaultGutter))
+        c.eqInt("to fit them and the margins" ln.layout.gutterW ((14 + sixW) + 8))
+        def oneCol:int ln.layout.gutterW
+        ln.setOldLineNumbers(([] _:int ( 9999999 0 0 1 2 )))
+        ln.syncLayout(lnTr)
+        c.eqStr("the old column has its own labels" (ln.oldLineLabel(0)) "9999999")
+        c.eqStr("and blanks" (ln.oldLineLabel(1)) "")
+        c.ok("a second column widens it again" (ln.layout.gutterW > oneCol))
+        c.eqInt("by the widest old number and a gap" ln.layout.gutterW ((((14 + sixW) + 8) + ln.oldNumColW) + 10))
+        def lnDl:EVGDisplayList (new EVGDisplayList)
+        ln.paint(lnDl lnTr 1)
+        def newX:double -1.0
+        def oldX:double -1.0
+        def zeroPainted:boolean false
+        for lnDl.cmds cmd:EVGDrawCmd k {
+            if (cmd.kind == 3) {
+                if (cmd.text == "123456") {
+                    newX = cmd.x
+                }
+                if (cmd.text == "9999999") {
+                    oldX = cmd.x
+                }
+                if (cmd.text == "0") {
+                    zeroPainted = true
+                }
+                if (cmd.text == "3") {
+                    zeroPainted = true
+                }
+            }
+        }
+        c.ok("the host's number is painted" (newX >= 0.0))
+        c.ok("the old number is painted to its left" ((oldX >= 0.0) && (oldX < newX)))
+        c.ok("a gap row paints no number, and 1..N is gone" (zeroPainted == false))
+        c.ok("the text starts after the gutter" ((ln.layout.contentX()) > (ln.layout.x + ln.layout.gutterW)))
+        ln.init("x\ny\n")
+        c.eqStr("init goes back to 1..N" (ln.lineLabel(1)) "2")
+        c.eqStr("and drops the old column" (ln.oldLineLabel(0)) "")
+        ln.syncLayout(lnTr)
+        c.eqInt("and the default gutter" ln.layout.gutterW defaultGutter)
+
+        print "== bands and dots the host puts on rows =="
+        def bd:ScriptEditor (new ScriptEditor)
+        bd.init("one\ntwo\nthree\nfour\n")
+        bd.setLineMarks(([] _:int ( 0 1 0 2 )))
+        def hi:EVGColor (EVGColor.rgba(250 200 10 0.25))
+        def pin:EVGColor (EVGColor.rgb(20 180 240))
+        def none:EVGColor (ScriptEditor.noColor())
+        bd.setLineBands(([] _:EVGColor ( none hi hi none )))
+        bd.setGutterDots(([] _:EVGColor ( none none pin none )))
+        c.ok("row 1 has a band" (bd.hasLineBand(1)))
+        c.ok("row 0 has none" ((bd.hasLineBand(0)) == false))
+        c.ok("row 2 has a dot" (bd.hasGutterDot(2)))
+        c.ok("a row past the array has neither" (((bd.hasLineBand(9)) || (bd.hasGutterDot(9))) == false))
+        def bdTr:UITextRenderer (new UITextRenderer)
+        bd.setBounds(0 0 600 300)
+        bd.syncLayout(bdTr)
+        bd.syncLayout(bdTr)
+        def bdDl:EVGDisplayList (new EVGDisplayList)
+        bd.paint(bdDl bdTr 1)
+        def bands:int 0
+        def dots:int 0
+        def diffBands:int 0
+        for bdDl.cmds cmd:EVGDrawCmd k {
+            if (cmd.kind == 0) {
+                if ((cmd.r == 250) && ((cmd.g == 200) && (cmd.b == 10))) {
+                    bands = (bands + 1)
+                }
+                if ((cmd.r == 20) && ((cmd.g == 180) && (cmd.radius > 0.0))) {
+                    dots = (dots + 1)
+                }
+                if ((cmd.r == 34) && ((cmd.g == 197) && (cmd.b == 94))) {
+                    diffBands = (diffBands + 1)
+                }
+            }
+        }
+        c.eqInt("two rows banded" bands 2)
+        c.eqInt("one dot" dots 1)
+        c.ok("and the diff marks are still there" (diffBands > 0))
+        def dotY:int ((bd.layout.caretPixelY(2)) + 3)
+        c.eqInt("the dot's lane hit-tests to its row" (bd.gutterDotRowAt((bd.layout.x + 18) dotY)) 2)
+        def oneY:int ((bd.layout.caretPixelY(1)) + 3)
+        c.eqInt("a row without a dot is no hit" (bd.gutterDotRowAt((bd.layout.x + 18) oneY)) -1)
+        c.eqInt("nor is the text" (bd.gutterDotRowAt(300 dotY)) -1)
+        bd.init("again\n")
+        c.ok("init clears the bands" ((bd.hasLineBand(1)) == false))
+        c.ok("and the dots" ((bd.hasGutterDot(2)) == false))
+
+        print "== C-like languages from a table =="
+        def cpp:CLikeLanguage (CLikeLanguage.cpp())
+        c.eqStr("C++ knows its name" (cpp.id()) "cpp")
+        c.ok("a .hpp is C++" (cpp.handlesFile("vec.hpp")))
+        c.ok("so is an upper-case .CPP" (cpp.handlesFile("MAIN.CPP")))
+        c.ok("an .inl too" (cpp.handlesFile("a.inl")))
+        c.ok("but not a .js" ((cpp.handlesFile("a.js")) == false))
+        def inc:CodeTokenLine (cpp.tokenizeLine("#include <vector>"))
+        c.eqInt("#include is a keyword" (ScriptEditorTest.kindAt(inc 0)) (CodeTokenKind.keyword()))
+        c.eqInt("the header is a string" (ScriptEditorTest.kindAt(inc 9)) (CodeTokenKind.text()))
+        def csrc:string "int main() { return 0x1F; } // done"
+        def cl:CodeTokenLine (cpp.tokenizeLine(csrc))
+        c.eqInt("int is a type" (ScriptEditorTest.kindAt(cl 0)) (CodeTokenKind.builtin()))
+        c.eqInt("main is a name" (ScriptEditorTest.kindAt(cl 4)) (CodeTokenKind.ident()))
+        c.eqInt("return is a keyword" (ScriptEditorTest.kindAt(cl 13)) (CodeTokenKind.keyword()))
+        c.eqInt("0x1F is a number" (ScriptEditorTest.kindAt(cl 20)) (CodeTokenKind.number()))
+        c.eqInt("// runs to the end" (ScriptEditorTest.kindAt(cl 28)) (CodeTokenKind.comment()))
+        def strSrc:string "auto s = \"a\\\"b\"; char q = 'x';"
+        def sl:CodeTokenLine (cpp.tokenizeLine(strSrc))
+        def strTok:int 0
+        while (strTok < (sl.count())) {
+            def tk:CodeToken (sl.at(strTok))
+            if (tk.start == 9) {
+                break
+            }
+            strTok = (strTok + 1)
+        }
+        c.eqInt("a string is text" (ScriptEditorTest.kindAt(sl 9)) (CodeTokenKind.text()))
+        c.eqStr("and an escaped quote does not end it" (ScriptEditorTest.textOf(strSrc sl strTok)) "\"a\\\"b\"")
+        c.eqInt("a char is text too" (ScriptEditorTest.kindAt(sl 26)) (CodeTokenKind.text()))
+        def block:[CodeTokenLine] (cpp.tokenize(([] _:string ( "int a; /* opens" "still a comment" "*/ int b;" ))))
+        def b1:CodeTokenLine (itemAt block 1)
+        c.eqInt("a block comment carries over a line" (ScriptEditorTest.kindAt(b1 0)) (CodeTokenKind.comment()))
+        def b2:CodeTokenLine (itemAt block 2)
+        c.eqInt("and ends where it closes" (ScriptEditorTest.kindAt(b2 0)) (CodeTokenKind.comment()))
+        c.eqInt("with code after it" (ScriptEditorTest.kindAt(b2 3)) (CodeTokenKind.builtin()))
+        c.eqInt("colouring only: nothing to diagnose" (array_length (cpp.diagnose("int main( {"))) 0)
+
+        def sqlLang:CLikeLanguage (CLikeLanguage.sql())
+        c.ok("a .sql file is SQL" (sqlLang.handlesFile("001_init.sql")))
+        def q:string "SELECT count(*) from Users where name = 'it''s' -- note"
+        def ql:CodeTokenLine (sqlLang.tokenizeLine(q))
+        c.eqInt("SELECT is a keyword" (ScriptEditorTest.kindAt(ql 0)) (CodeTokenKind.keyword()))
+        c.eqInt("count is a builtin" (ScriptEditorTest.kindAt(ql 7)) (CodeTokenKind.builtin()))
+        c.eqInt("lower-case from is a keyword too" (ScriptEditorTest.kindAt(ql 16)) (CodeTokenKind.keyword()))
+        c.eqInt("Users is a name" (ScriptEditorTest.kindAt(ql 21)) (CodeTokenKind.ident()))
+        c.eqInt("so is mixed-case Where" (ScriptEditorTest.kindAt((sqlLang.tokenizeLine("Where x")) 0)) (CodeTokenKind.keyword()))
+        c.eqInt("a quoted value is text" (ScriptEditorTest.kindAt(ql 40)) (CodeTokenKind.text()))
+        c.eqInt("-- is a comment" (ScriptEditorTest.kindAt(ql 48)) (CodeTokenKind.comment()))
+
+        def fbs:CLikeLanguage (CLikeLanguage.flatbuffers())
+        c.ok("a .fbs is a FlatBuffers schema" (fbs.handlesFile("monster.fbs")))
+        def fl:CodeTokenLine (fbs.tokenizeLine("table Monster { hp:short = 100; name:string; } // hero"))
+        c.eqInt("table is a keyword" (ScriptEditorTest.kindAt(fl 0)) (CodeTokenKind.keyword()))
+        c.eqInt("Monster is a name" (ScriptEditorTest.kindAt(fl 6)) (CodeTokenKind.ident()))
+        c.eqInt("short is a type" (ScriptEditorTest.kindAt(fl 19)) (CodeTokenKind.builtin()))
+        c.eqInt("100 is a number" (ScriptEditorTest.kindAt(fl 27)) (CodeTokenKind.number()))
+        c.eqInt("string is a type" (ScriptEditorTest.kindAt(fl 37)) (CodeTokenKind.builtin()))
+        c.eqInt("and the comment is one" (ScriptEditorTest.kindAt(fl 47)) (CodeTokenKind.comment()))
+        def rt:CodeTokenLine (fbs.tokenizeLine("root_type Monster;"))
+        c.eqInt("root_type is a keyword" (ScriptEditorTest.kindAt(rt 0)) (CodeTokenKind.keyword()))
+
+        def py:CLikeLanguage (CLikeLanguage.python())
+        def pyl:[CodeTokenLine] (py.tokenize(([] _:string ( "def f(x):  # note" "    \"\"\"doc" "    still doc\"\"\" ; return x" ))))
+        def py0:CodeTokenLine (itemAt pyl 0)
+        c.eqInt("Python: def is a keyword" (ScriptEditorTest.kindAt(py0 0)) (CodeTokenKind.keyword()))
+        c.eqInt("and # is a comment" (ScriptEditorTest.kindAt(py0 11)) (CodeTokenKind.comment()))
+        def py2:CodeTokenLine (itemAt pyl 2)
+        c.eqInt("a docstring carries over a line" (ScriptEditorTest.kindAt(py2 0)) (CodeTokenKind.text()))
+        c.eqInt("and code resumes after it" (ScriptEditorTest.kindAt(py2 19)) (CodeTokenKind.keyword()))
+
+        def rs:CLikeLanguage (CLikeLanguage.rust())
+        def rl:CodeTokenLine (rs.tokenizeLine("fn f<'a>(s: &'a str) -> char { 'x' }"))
+        c.eqInt("Rust: a lifetime is not a string" (ScriptEditorTest.kindAt(rl 5)) (CodeTokenKind.attr()))
+        c.eqInt("str is a type" (ScriptEditorTest.kindAt(rl 16)) (CodeTokenKind.builtin()))
+        c.eqInt("but 'x' is a char" (ScriptEditorTest.kindAt(rl 31)) (CodeTokenKind.text()))
+
+        def sh:CLikeLanguage (CLikeLanguage.shell())
+        def shl:CodeTokenLine (sh.tokenizeLine("echo ${#list[@]} # count"))
+        c.eqInt("shell: a # inside ${} is not a comment" (ScriptEditorTest.kindAt(shl 7)) (CodeTokenKind.punct()))
+        c.eqInt("but one after a space is" (ScriptEditorTest.kindAt(shl 17)) (CodeTokenKind.comment()))
+
+        def creg:LanguageRegistry (new LanguageRegistry)
+        creg.add(js)
+        CLikeLanguage.addAllTo(creg)
+        def pc:EditorLanguage (creg.forFile("engine.cc"))
+        c.eqStr("the registry finds C++" (pc.id()) "cpp")
+        def pq:EditorLanguage (creg.forFile("q.SQL"))
+        c.eqStr("and SQL, whatever the case" (pq.id()) "sql")
+        def pf:EditorLanguage (creg.forFile("schema/monster.fbs"))
+        c.eqStr("and FlatBuffers" (pf.id()) "flatbuffers")
+        def pp:EditorLanguage (creg.forFile("api.proto"))
+        c.eqStr("and protobuf" (pp.id()) "protobuf")
+        def pg:EditorLanguage (creg.forFile("main.go"))
+        c.eqStr("and Go" (pg.id()) "go")
+        def pk:EditorLanguage (creg.forFile("App.kt"))
+        c.eqStr("and Kotlin" (pk.id()) "kotlin")
+        def pcs:EditorLanguage (creg.forFile("App.cs"))
+        c.eqStr("and C#" (pcs.id()) "csharp")
+        def pj:EditorLanguage (creg.forFile("App.java"))
+        c.eqStr("and Java" (pj.id()) "java")
+        def pt:EditorLanguage (creg.forFile("app.tsx"))
+        c.eqStr("and still JavaScript for a .tsx" (pt.id()) "javascript")
+
+        def ce:ScriptEditor (new ScriptEditor)
+        ce.setLanguage((CLikeLanguage.cpp()))
+        ce.init("// header\nint x = 1;\n")
+        ce.ensureTokens()
+        def ce1:CodeTokenLine (ce.tokensFor(1))
+        c.eqInt("and the editor paints with it" (ScriptEditorTest.kindAt(ce1 0)) (CodeTokenKind.builtin()))
+        c.eqInt("with no problems reported" (ce.problemCount()) 0)
 
         print ""
         print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))

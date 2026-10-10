@@ -230,6 +230,56 @@ class ScriptEditor {
     ; Other people in this text (see EditorPeer).
     def peers:[EditorPeer]
 
+    ; --- read only ----------------------------------------------------------------
+    ; A text to look at, not to change: a source file shown on a slide, a diff
+    ; under review. Every path by which a key, a paste, a cut, an undo or a
+    ; completion reaches the buffer checks this first and does nothing — not
+    ; only the keyboard handler, because a host can call `insert`, `backspace`
+    ; or `undo` directly and a flag that only the keyboard honoured would be a
+    ; flag with holes in it. What still works is everything that only LOOKS:
+    ; the caret and the selection move, a selection copies, Ctrl+F finds,
+    ; the view scrolls and zooms, the minimap jumps.
+    ;
+    ; What the HOST does to the text is not input and is not stopped: `init`
+    ; loads another text, and `applyRemote` still applies a colleague's edit,
+    ; so a read-only viewer can watch someone else type.
+    def readOnly:boolean false
+
+    ; --- line numbers that are not 1..N ---------------------------------------------
+    ; A host that shows a PART of a file (lines 1–12 and 50–78 of it, with a
+    ; "lines 13–49 not imported" row between) or one side of a diff needs the
+    ; gutter to say which line of the ORIGINAL file each row is. `lineNumbers`
+    ; is that label per row; 0 means the row has no number (a gap row, a filler
+    ; row, a removed line in the new file's column). Empty means the ordinary
+    ; 1..N, which is what every editor that never calls `setLineNumbers` gets.
+    ;
+    ; `oldLineNumbers` is a second column to the left of the first, for a
+    ; unified diff: a removed row has an old number and no new one, an added
+    ; row the other way round, an unchanged row both. Empty means no second
+    ; column at all.
+    ;
+    ; A row past the end of a set array has no number. `init` clears both,
+    ; for the same reason it clears `lineMarks`: they describe one text.
+    def lineNumbers:[int]
+    def oldLineNumbers:[int]
+    ; The widths `fitGutter` measured for the two columns, in pixels, so the
+    ; painter places the old column without measuring everything again.
+    def numColW:int 0
+    def oldNumColW:int 0
+
+    ; --- row bands and gutter dots --------------------------------------------------
+    ; Colours the HOST puts on rows: a band across the text, painted the way
+    ; the current-line band is, for a highlighted range or a row someone has
+    ; commented on; and a dot in the gutter, for a comment pin. Both are per
+    ; row, and a fully transparent colour (`ScriptEditor.noColor()`) means
+    ; nothing on that row. They are separate from `lineMarks`, so a diff view
+    ; can have its added and removed rows and a highlighted range on top.
+    def lineBands:[EVGColor]
+    def gutterDots:[EVGColor]
+    ; How wide the dots' lane at the left of the gutter is when any row has
+    ; one. It sits right of the lane diagnostics paint their marks in.
+    def dotLaneW:int 12
+
     ; --- font size -------------------------------------------------------------
     ; The text's size, zoomed by the host (Ctrl/Cmd + plus and minus) in whole
     ; pixels between the two limits. Loading a text with `init` keeps it: a
@@ -264,7 +314,7 @@ class ScriptEditor {
         if (null? measureTr) {
             return true
         }
-        layout.syncMetrics((unwrap measureTr))
+        this.syncLayout((unwrap measureTr))
         if inView {
             layout.ensureCaretVisible(buf sel)
         }
@@ -379,9 +429,246 @@ class ScriptEditor {
         return n
     }
 
+    ; Setting the flag also takes down a completion list that was up, since
+    ; accepting from it would be an edit.
+    fn setReadOnly:void (on:boolean) {
+        readOnly = on
+        if on {
+            this.closeCompletions()
+        }
+    }
+
+    ; --- line numbers -------------------------------------------------------------
+    fn setLineNumbers:void (nums:[int]) {
+        lineNumbers = nums
+    }
+
+    fn setOldLineNumbers:void (nums:[int]) {
+        oldLineNumbers = nums
+    }
+
+    ; Back to 1..N and one column.
+    fn clearLineNumbers:void () {
+        def none:[int]
+        lineNumbers = none
+        def none2:[int]
+        oldLineNumbers = none2
+    }
+
+    ; What the gutter says on a row: "" for no number. The painter and the
+    ; tests both read this, so what is tested is what is drawn.
+    fn lineLabel:string (row:int) {
+        if ((array_length lineNumbers) == 0) {
+            return (to_string (row + 1))
+        }
+        return (ScriptEditor.labelIn(lineNumbers row))
+    }
+
+    ; The second column's label; "" on every row when there is no second
+    ; column.
+    fn oldLineLabel:string (row:int) {
+        if ((array_length oldLineNumbers) == 0) {
+            return ""
+        }
+        return (ScriptEditor.labelIn(oldLineNumbers row))
+    }
+
+    sfn labelIn:string (nums:[int] row:int) {
+        if (row < 0) {
+            return ""
+        }
+        if (row >= (array_length nums)) {
+            return ""
+        }
+        def v:int (itemAt nums row)
+        if (v <= 0) {
+            return ""
+        }
+        return (to_string v)
+    }
+
+    ; The most digits any label in the array has. Widths are measured on a
+    ; run of that many zeros rather than on every label, which is the same
+    ; answer for any font whose digits share one width (nearly all of them,
+    ; because tables need it) and one measurement instead of thousands.
+    sfn maxDigits:int (nums:[int]) {
+        def best:int 0
+        def i:int 0
+        def n:int (array_length nums)
+        while (i < n) {
+            def v:int (itemAt nums i)
+            if (v > 0) {
+                def d:int (strlen (to_string v))
+                if (d > best) {
+                    best = d
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    sfn zeros:string (n:int) {
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            str_append out "0"
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The layout's own measurement, then the gutter widened for what this
+    ; editor puts in it. Every place that used to call `layout.syncMetrics`
+    ; calls this, because a gutter measured by one and not the other would
+    ; put the hit test and the painted text in different places.
+    fn syncLayout:void (tr:UITextRenderer) {
+        layout.syncMetrics(tr)
+        this.fitGutter(tr)
+    }
+
+    ; With no host numbers and no dots this changes nothing: the layout's
+    ; gutter, room for four digits, is what every editor has always had.
+    ; With host numbers the gutter is at least that wide and as much wider
+    ; as the widest number of either column needs, plus the dots' lane.
+    fn fitGutter:void (tr:UITextRenderer) {
+        numColW = 0
+        oldNumColW = 0
+        if (layout.showLineNumbers == false) {
+            return
+        }
+        def custom:boolean ((array_length lineNumbers) > 0)
+        def hasOld:boolean ((array_length oldLineNumbers) > 0)
+        def dots:boolean (this.hasAnyGutterDot())
+        if ((custom == false) && ((hasOld == false) && (dots == false))) {
+            return
+        }
+        def numSize:double (layout.fontSize * 0.85)
+        def newDigits:int 4
+        if custom {
+            newDigits = (ScriptEditor.maxDigits(lineNumbers))
+        } {
+            newDigits = (strlen (to_string (buf.lineCount())))
+        }
+        if (newDigits > 0) {
+            numColW = (to_int ((tr.measureWidth((ScriptEditor.zeros(newDigits)) numSize)) + 0.999))
+        }
+        if hasOld {
+            def oldDigits:int (ScriptEditor.maxDigits(oldLineNumbers))
+            if (oldDigits > 0) {
+                oldNumColW = (to_int ((tr.measureWidth((ScriptEditor.zeros(oldDigits)) numSize)) + 0.999))
+            }
+        }
+        ; 14 on the left for the diff strip and the diagnostic marks, 8 on
+        ; the right before the text, 10 between the two columns.
+        def need:int ((14 + numColW) + 8)
+        if hasOld {
+            need = ((need + oldNumColW) + 10)
+        }
+        if dots {
+            need = (need + dotLaneW)
+        }
+        if (need > layout.gutterW) {
+            layout.gutterW = need
+        }
+    }
+
+    ; --- row bands and gutter dots ----------------------------------------------------
+    ; The "nothing here" colour for both arrays.
+    sfn noColor:EVGColor () {
+        return (EVGColor.rgba(0 0 0 0.0))
+    }
+
+    fn setLineBands:void (colors:[EVGColor]) {
+        lineBands = colors
+    }
+
+    fn clearLineBands:void () {
+        clear lineBands
+    }
+
+    fn setGutterDots:void (colors:[EVGColor]) {
+        gutterDots = colors
+    }
+
+    fn clearGutterDots:void () {
+        clear gutterDots
+    }
+
+    sfn colorIn:EVGColor (list:[EVGColor] row:int) {
+        if (row < 0) {
+            return (ScriptEditor.noColor())
+        }
+        if (row >= (array_length list)) {
+            return (ScriptEditor.noColor())
+        }
+        return (itemAt list row)
+    }
+
+    fn lineBandAt:EVGColor (row:int) {
+        return (ScriptEditor.colorIn(lineBands row))
+    }
+
+    fn gutterDotAt:EVGColor (row:int) {
+        return (ScriptEditor.colorIn(gutterDots row))
+    }
+
+    fn hasLineBand:boolean (row:int) {
+        def c:EVGColor (this.lineBandAt(row))
+        return ((c.alpha()) > 0.0)
+    }
+
+    fn hasGutterDot:boolean (row:int) {
+        def c:EVGColor (this.gutterDotAt(row))
+        return ((c.alpha()) > 0.0)
+    }
+
+    fn hasAnyGutterDot:boolean () {
+        def i:int 0
+        def n:int (array_length gutterDots)
+        while (i < n) {
+            def c:EVGColor (itemAt gutterDots i)
+            if ((c.alpha()) > 0.0) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The row whose gutter dot is under the pointer, or -1 — how a host
+    ; opens the comment a pin stands for. The whole lane counts, not only the
+    ; dot's pixels: a target the size of a dot is a target nobody hits.
+    fn gutterDotRowAt:int (px:int py:int) {
+        if ((this.hasAnyGutterDot()) == false) {
+            return -1
+        }
+        def laneX:int (layout.x + 14)
+        if ((px < laneX) || (px >= (laneX + dotLaneW))) {
+            return -1
+        }
+        def localY:int (py - (layout.contentY()))
+        if (localY < 0) {
+            return -1
+        }
+        def row:int (layout.scrollLine + (idiv localY layout.lineHeight))
+        if (this.hasGutterDot(row)) {
+            return row
+        }
+        return -1
+    }
+
     fn init:void (source:string) {
         def none:[int]
         lineMarks = none
+        def noNums:[int]
+        lineNumbers = noNums
+        def noOld:[int]
+        oldLineNumbers = noOld
+        def noBands:[EVGColor]
+        lineBands = noBands
+        def noDots:[EVGColor]
+        gutterDots = noDots
         buf.setText((ScriptEditor.expandTabs((ScriptEditor.withoutCarriageReturns(source)))))
         sel.setCaret(0 0)
         sel.collapseToCaret()
@@ -552,6 +839,9 @@ class ScriptEditor {
     ; Ask the plugin. Nothing here knows what a candidate is or why one sorts
     ; before another — see lang/EditorLanguage.rgr.
     fn openCompletions:boolean () {
+        if readOnly {
+            return false
+        }
         def line:int sel.caret.line
         def col:int sel.caret.col
         completions = (language.complete(buf.lines line col))
@@ -616,6 +906,9 @@ class ScriptEditor {
     ; Replace the word being typed with the picked one. Not an insertion: the
     ; three letters that opened the list are part of what is being replaced.
     fn acceptCompletion:boolean () {
+        if readOnly {
+            return false
+        }
         if (completionOpen == false) {
             return false
         }
@@ -1322,7 +1615,7 @@ class ScriptEditor {
     ; clock so a page that only repaints when something changed still blinks.
     fn paint:void (dl:EVGDisplayList tr:UITextRenderer blink:int) {
         this.rememberTr(tr)
-        layout.syncMetrics(tr)
+        this.syncLayout(tr)
         layout.rightInset = (this.minimapWidth())
         this.refreshContentWidth(tr)
         if ((this.maxScrollX()) > 0) {
@@ -1361,7 +1654,21 @@ class ScriptEditor {
                 def bandW:double textW
                 this.pushRect(dl bandX bandY bandW (to_double layout.lineHeight) theme.currentLine)
             }
-        } {
+        }
+        ; The host's bands, over the current-line band (a highlighted range is
+        ; the point of the slide; where the caret happens to be is not) and
+        ; under the selection, so a selection inside a range still shows.
+        if ((array_length lineBands) > 0) {
+            def hb:int first
+            while (hb <= last) {
+                if (this.hasLineBand(hb)) {
+                    def hy:double (to_double (layout.caretPixelY(hb)))
+                    this.pushRect(dl textX hy textW (to_double layout.lineHeight) (this.lineBandAt(hb)))
+                }
+                hb = (hb + 1)
+            }
+        }
+        if ((sel.isCollapsed()) == false) {
             this.pushClip(dl textX y0 textW textH)
             this.paintSelection(dl tr first last)
             this.popClip(dl)
@@ -1395,18 +1702,50 @@ class ScriptEditor {
             }
         }
 
+        ; The numbers, right-aligned in their column. Which number a row shows
+        ; is `lineLabel` — 1..N unless the host said otherwise — and a row with
+        ; no number paints nothing rather than a 0.
+        def numSize:double (layout.fontSize * 0.85)
+        def hasOldCol:boolean ((array_length oldLineNumbers) > 0)
         def li:int first
         while (li <= last) {
             def ty:int (layout.caretPixelY(li))
-            def num:string (to_string (li + 1))
-            def numSize:double (layout.fontSize * 0.85)
-            def nw:int (to_int (tr.measureWidth(num numSize)))
-            def nx:int (((layout.x + layout.gutterW) - nw) - 8)
             def numCol:EVGColor theme.gutterText
             if (li == caretLine) {
                 numCol = theme.gutterActive
             }
-            this.pushText(dl tr num (to_double nx) (to_double (ty + 2)) numSize numCol)
+            def num:string (this.lineLabel(li))
+            if ((strlen num) > 0) {
+                def nw:int (to_int (tr.measureWidth(num numSize)))
+                def nx:int (((layout.x + layout.gutterW) - nw) - 8)
+                this.pushText(dl tr num (to_double nx) (to_double (ty + 2)) numSize numCol)
+            }
+            if hasOldCol {
+                def old:string (this.oldLineLabel(li))
+                if ((strlen old) > 0) {
+                    def ow:int (to_int (tr.measureWidth(old numSize)))
+                    def ox:int (((((layout.x + layout.gutterW) - 8) - numColW) - 10) - ow)
+                    this.pushText(dl tr old (to_double ox) (to_double (ty + 2)) numSize numCol)
+                }
+            }
+            if (this.hasGutterDot(li)) {
+                def dotD:double 7.0
+                def dotX:double ((to_double ((layout.x + 14) + (idiv dotLaneW 2))) - (dotD * 0.5))
+                def dotY:double ((to_double ty) + (((to_double layout.lineHeight) - dotD) * 0.5))
+                def dot:EVGColor (this.gutterDotAt(li))
+                def dc:EVGDrawCmd (new EVGDrawCmd)
+                dc.kind = 0
+                dc.x = dotX
+                dc.y = dotY
+                dc.w = dotD
+                dc.h = dotD
+                dc.radius = (dotD * 0.5)
+                dc.r = (dot.red())
+                dc.g = (dot.green())
+                dc.b = (dot.blue())
+                dc.a = (dot.alpha())
+                push dl.cmds dc
+            }
             li = (li + 1)
         }
 
@@ -2247,6 +2586,9 @@ class ScriptEditor {
     }
 
     fn deleteSelection:boolean () {
+        if readOnly {
+            return false
+        }
         if (sel.isCollapsed()) {
             return false
         }
@@ -2261,6 +2603,9 @@ class ScriptEditor {
     ; Typed or pasted over a selection: one edit, so one Ctrl+Z puts the
     ; selection back (not a removal and an insertion undone one at a time).
     fn insert:void (s:string) {
+        if readOnly {
+            return
+        }
         if (sel.isCollapsed()) {
             def p:EditorPos (buf.insertText(sel.caret.line sel.caret.col s))
             this.markEdited(p)
@@ -2277,6 +2622,9 @@ class ScriptEditor {
     ; that ends in `{`, `(` or `[` — the smallest amount of help that stops a
     ; script from drifting left as it is written.
     fn insertNewline:void () {
+        if readOnly {
+            return
+        }
         this.deleteSelection()
         def line:string (buf.lineAt(sel.caret.line))
         def indent:string ""
@@ -2344,6 +2692,9 @@ class ScriptEditor {
     ; inserts two spaces at the caret (so Tab in the middle of a word does
     ; what people type); a range is always a block indent, never a replace.
     fn indentSelection:void (outdent:boolean) {
+        if readOnly {
+            return
+        }
         this.closeCompletions()
         if ((sel.isCollapsed()) && (outdent == false)) {
             this.insert("  ")
@@ -2360,6 +2711,9 @@ class ScriptEditor {
     }
 
     fn shiftLines:void (first:int last:int outdent:boolean) {
+        if readOnly {
+            return
+        }
         if (last < first) {
             return
         }
@@ -2414,6 +2768,9 @@ class ScriptEditor {
     }
 
     fn backspace:void () {
+        if readOnly {
+            return
+        }
         if (this.deleteSelection()) {
             this.refreshCompletions()
             return
@@ -2436,6 +2793,9 @@ class ScriptEditor {
     }
 
     fn deleteForward:void () {
+        if readOnly {
+            return
+        }
         if (this.deleteSelection()) {
             return
         }
@@ -2497,6 +2857,13 @@ class ScriptEditor {
 
     ; Cut is copy plus this, and the host does them in that order.
     fn cutSelection:string () {
+        ; Read only, a cut is nothing at all rather than a copy: the host puts
+        ; what this returns on the clipboard, and a "cut" that left the text in
+        ; place would tell the reader it had been removed. Copy is
+        ; `selectionText`, and it still works.
+        if readOnly {
+            return ""
+        }
         def text:string (this.selectionText())
         if ((strlen text) == 0) {
             return ""
@@ -2512,11 +2879,17 @@ class ScriptEditor {
     }
 
     fn undo:void () {
+        if readOnly {
+            return
+        }
         def p:EditorPos (buf.undo())
         this.markEdited(p)
     }
 
     fn redo:void () {
+        if readOnly {
+            return
+        }
         def p:EditorPos (buf.redo())
         this.markEdited(p)
     }
@@ -2744,6 +3117,13 @@ class ScriptEditor {
             layout.preferCol = len
             return true
         }
+        ; Read only, the editing keys are not this editor's: false hands them
+        ; back to the host, so Tab moves focus on instead of being swallowed
+        ; by an editor that will not indent (a keyboard trap with nothing
+        ; behind it).
+        if readOnly {
+            return false
+        }
         if (key == (UIKey.backspace())) {
             this.backspace()
             return true
@@ -2781,6 +3161,9 @@ class ScriptEditor {
             this.selectAll()
             return true
         }
+        if readOnly {
+            return false
+        }
         if ((ch == 122) || (ch == 90)) {
             this.undo()
             return true
@@ -2799,6 +3182,9 @@ class ScriptEditor {
         if findOpen {
             this.findType(s)
             return true
+        }
+        if readOnly {
+            return false
         }
         this.insert(s)
         ; Two word characters is the point where a guess is worth making. Under
