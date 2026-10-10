@@ -1,0 +1,55 @@
+; A parent's interface holds what it inherits; indexOf on interface lists and
+; on a call's result (tests/compiler-go-subclass-iface.test.ts).
+class Base {
+    def name:string ""
+    fn hello:string () {
+        return ("base " + name)
+    }
+}
+class Kid extends Base {
+    def age:int 0
+    fn grow:Kid () {
+        age = (age + 1)
+        return this
+    }
+}
+class Mid extends Base {
+    def mid:int 2
+}
+class Leaf extends Mid {
+    def leaf:int 3
+}
+class Plain {
+    def v:int 0
+}
+class Main {
+    sfn parts:[string] (s:string) {
+        return (strsplit s ",")
+    }
+    sfn m@(main):void () {
+        def k:Kid (new Kid)
+        k.name = "k"
+        def asBase:Base k
+        def list:[Base]
+        push list asBase
+        print ("indexOf class with subclasses: " + (to_string (indexOf list asBase)))
+        def g:Kid (k.grow())
+        def b2:Base g
+        print ("kid as base: " + (b2.hello()))
+        print ("indexOf on a call result: " + (to_string (indexOf (Main.parts("a,b,c")) "b")))
+        def ss:[string]
+        push ss "x"
+        print ("indexOf strings: " + (to_string (indexOf ss "x")))
+        def mm:Mid (new Leaf)
+        mm.name = "leaf"
+        def asB:Base mm
+        print ("a Mid as a Base: " + (asB.hello()))
+        def ms:[Mid]
+        push ms mm
+        print ("indexOf mids: " + (to_string (indexOf ms mm)))
+        def p:Plain (new Plain)
+        def ps:[Plain]
+        push ps p
+        print ("indexOf plain: " + (to_string (indexOf ps p)))
+    }
+}
