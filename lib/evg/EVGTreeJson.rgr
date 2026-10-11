@@ -116,22 +116,17 @@ class EVGTreeJson {
             out = ((((out + ",\"props\":{") + props) + "}"))
         }
         def n:int (array_length el.children)
+        ; the children joined once: appended one by one, every child copied
+        ; all of the text before it again
         if (n > 0) {
-            out = (out + ",\"children\":[")
+            def kids:[string]
             def i:int 0
             while (i < n) {
-                if (i > 0) {
-                    out = (out + ",")
-                }
-                out = (out + "\n")
-                out = (out + inner)
                 def kid:EVGElement (itemAt el.children i)
-                out = (out + (this.node(kid (depth + 1))))
+                push kids (inner + (this.node(kid (depth + 1))))
                 i = (i + 1)
             }
-            out = (out + "\n")
-            out = (out + pad)
-            out = (out + "]")
+            out = (out + ",\"children\":[\n" + (join kids ",\n") + "\n" + pad + "]")
         }
         out = (out + "}")
         return out
@@ -202,36 +197,47 @@ class EVGTreeJson {
 
     ; Quote, backslash and the three control characters a document actually
     ; contains. Everything else goes out as it came in — UTF-8 is valid JSON.
+    ; Copies the runs between escapes whole and joins the parts once: a
+    ; string built a character at a time is copied again for each one, which
+    ; for the long texts and data a design file holds cost gigabytes.
     sfn str:string (v:string) {
-        def out:string "\""
+        def parts:[string]
+        push parts "\""
+        def start:int 0
         def i:int 0
         def n:int (strlen v)
         while (i < n) {
             def c:int (charAt v i)
+            def esc:string ""
             if (c == 34) {
-                out = (out + "\\\"")
-            } {
-                if (c == 92) {
-                    out = (out + "\\\\")
-                } {
-                    if (c == 10) {
-                        out = (out + "\\n")
-                    } {
-                        if (c == 13) {
-                            out = (out + "\\r")
-                        } {
-                            if (c == 9) {
-                                out = (out + "\\t")
-                            } {
-                                out = (out + (substring v i (i + 1)))
-                            }
-                        }
-                    }
+                esc = "\\\""
+            }
+            if (c == 92) {
+                esc = "\\\\"
+            }
+            if (c == 10) {
+                esc = "\\n"
+            }
+            if (c == 13) {
+                esc = "\\r"
+            }
+            if (c == 9) {
+                esc = "\\t"
+            }
+            if ((strlen esc) > 0) {
+                if (i > start) {
+                    push parts (substring v start i)
                 }
+                push parts esc
+                start = (i + 1)
             }
             i = (i + 1)
         }
-        return (out + "\"")
+        if (n > start) {
+            push parts (substring v start n)
+        }
+        push parts "\""
+        return (join parts "")
     }
 
 
