@@ -29,6 +29,7 @@ Import "lang/EditorLanguage.rgr"
 Import "lang/CodeTokens.rgr"
 Import "lang/Completion.rgr"
 Import "lang/EditorDiagnostic.rgr"
+Import "EditorFind.rgr"
 Import "../../../text_editor/src/EditorBuffer.rgr"
 Import "../../../text_editor/src/EditorSelection.rgr"
 Import "../../../text_editor/src/EditorLayout.rgr"
@@ -69,6 +70,10 @@ class ScriptEditorTheme {
     def findEdge:EVGColor (EVGColor.rgb(65 72 104))
     def findInk:EVGColor (EVGColor.rgb(192 202 245))
     def findDim:EVGColor (EVGColor.rgb(118 128 154))
+    ; every match, the one selected, and the range find in selection keeps to
+    def findMatch:EVGColor (EVGColor.rgba(224 175 104 0.28))
+    def findCurrent:EVGColor (EVGColor.rgba(224 175 104 0.60))
+    def findScope:EVGColor (EVGColor.rgba(122 162 247 0.10))
     ; Diagnostics.
     def errorInk:EVGColor (EVGColor.rgb(247 118 142))
     def warningInk:EVGColor (EVGColor.rgb(224 175 104))
@@ -208,6 +213,11 @@ class ScriptEditor {
     def findQuery:string ""
     def findOrdinal:int 0
     def findTotal:int 0
+    def find:EditorFind (new EditorFind)
+    ; false: the host draws its own bar (an EVGUI FindBarCtl) and sends the
+    ; query, the switches and the buttons here; the editor paints only the
+    ; matches and takes no keys for the bar
+    def findBar:boolean true
 
     ; --- minimap --------------------------------------------------------------
     ; A scaled picture of the whole file on the right, the same idea as
@@ -954,6 +964,8 @@ class ScriptEditor {
     ; the panel cannot spare it. Every other measurement reads this, so a
     ; hidden map takes no space and eats no clicks.
     ; --- find ------------------------------------------------------------------
+    ; What is found is EditorFind's; this half moves the selection onto it,
+    ; paints the matches and makes the replacements as edits.
 
     ; Ctrl+F. Opening with a selection on one line takes that text as the
     ; query, which saves retyping the word you just pointed at.
@@ -966,6 +978,7 @@ class ScriptEditor {
             sel.normalized(a b)
             if (a.line == b.line) {
                 findQuery = (substring (buf.lineAt(a.line)) a.col b.col)
+                find.query = findQuery
             }
         }
         this.refreshFindCount()
@@ -980,164 +993,190 @@ class ScriptEditor {
         return findOpen
     }
 
-    ; The bar's own text entry. While it is up every keystroke arrives here
-    ; first, so a search never edits the document.
-    fn findType:void (text:string) {
-        findQuery = (findQuery + text)
-        this.findFrom(sel.caret.line sel.caret.col false true)
-        this.refreshFindCount()
+    ; A new query (typed into a bar): the match at or after where the
+    ; selection starts is selected, so typing one more letter keeps the match
+    ; under the caret instead of skipping to the next one.
+    fn setFindQuery:void (q:string) {
+        findQuery = q
+        find.query = q
+        this.findFromSelection()
     }
 
-    fn findBackspace:void () {
-        def n:int (strlen findQuery)
-        if (n > 0) {
-            findQuery = (substring findQuery 0 (n - 1))
-        }
-        this.findFrom(sel.caret.line sel.caret.col false true)
-        this.refreshFindCount()
+    fn setFindOptions:void (matchCase:boolean wholeWord:boolean regex:boolean) {
+        find.matchCase = matchCase
+        find.wholeWord = wholeWord
+        find.regex = regex
+        this.findFromSelection()
     }
 
-    fn findNext:boolean (back:boolean) {
-        if ((strlen findQuery) == 0) {
-            return false
-        }
-        def a:EditorPos (new EditorPos)
-        def b:EditorPos (new EditorPos)
-        sel.normalized(a b)
-        def col:int (a.col + 1)
-        if back {
-            col = a.col
-        }
-        def hit:boolean (this.findFrom(a.line col back false))
-        this.refreshFindCount()
-        return hit
-    }
-
-    ; Search from (line, col), wrapping once around the buffer. `atCaret`
-    ; restarts at the current match, so typing one more letter keeps the
-    ; match under the caret instead of skipping to the next one.
-    fn findFrom:boolean (line:int col:int back:boolean atCaret:boolean) {
-        def q:string (to_lowercase findQuery)
-        if ((strlen q) == 0) {
-            return false
-        }
-        def n:int (buf.lineCount())
-        if (n == 0) {
-            return false
-        }
-        def startLine:int line
-        def startCol:int col
-        if atCaret {
-            def a:EditorPos (new EditorPos)
-            def b:EditorPos (new EditorPos)
-            sel.normalized(a b)
-            startLine = a.line
-            startCol = a.col
-        }
-        def i:int 0
-        while (i <= n) {
-            def li:int startLine
-            if back {
-                li = (startLine - i)
-                while (li < 0) {
-                    li = (li + n)
-                }
-            } {
-                li = ((startLine + i) % n)
-            }
-            def text:string (to_lowercase (buf.lineAt(li)))
-            def at:int -1
-            if back {
-                def limit:int (strlen text)
-                if (i == 0) {
-                    limit = startCol
-                }
-                at = (ScriptEditor.lastIndexOfIn(text q limit))
-            } {
-                def from:int 0
-                if (i == 0) {
-                    from = startCol
-                }
-                at = (ScriptEditor.indexOfIn(text q from))
-            }
-            if (at >= 0) {
-                sel.setAnchor(li at)
-                sel.setCaret(li (at + (strlen findQuery)))
-                layout.preferCol = sel.caret.col
-                layout.ensureCaretVisible(buf sel)
-                this.ensureCaretX()
-                return true
-            }
-            i = (i + 1)
-        }
-        return false
-    }
-
-    ; "3 of 17" needs both numbers, and the ordinal is which of the matches
-    ; the selection is sitting on.
-    fn refreshFindCount:void () {
-        findTotal = 0
-        findOrdinal = 0
-        def q:string (to_lowercase findQuery)
-        if ((strlen q) == 0) {
+    ; Find in selection: on, the matches are only those inside what is
+    ; selected now (the caret's line when nothing is); off, the whole text.
+    fn setFindInSelection:void (on:boolean) {
+        if (on == false) {
+            find.clearScope()
+            this.refreshFindCount()
             return
         }
         def a:EditorPos (new EditorPos)
         def b:EditorPos (new EditorPos)
         sel.normalized(a b)
-        def n:int (buf.lineCount())
-        def li:int 0
-        while (li < n) {
-            def text:string (to_lowercase (buf.lineAt(li)))
-            def from:int 0
-            def at:int (ScriptEditor.indexOfIn(text q from))
-            while (at >= 0) {
-                findTotal = (findTotal + 1)
-                if (li == a.line) {
-                    if (at == a.col) {
-                        findOrdinal = findTotal
-                    }
-                }
-                from = (at + 1)
-                at = (ScriptEditor.indexOfIn(text q from))
+        if (sel.isCollapsed()) {
+            find.setScope(a.line 0 a.line (strlen (buf.lineAt(a.line))))
+        } {
+            ; a selection that ends at the start of a line does not take that line
+            if ((b.col == 0) && (b.line > a.line)) {
+                find.setScope(a.line a.col (b.line - 1) (strlen (buf.lineAt((b.line - 1)))))
+            } {
+                find.setScope(a.line a.col b.line b.col)
             }
-            li = (li + 1)
+        }
+        this.refreshFindCount()
+    }
+
+    fn findInSelection:boolean () {
+        return find.inScope
+    }
+
+    fn findFromSelection:void () {
+        find.scan(buf)
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        def i:int (find.indexAtOrAfter(a.line a.col))
+        if (i >= 0) {
+            this.selectMatch(i)
+        }
+        this.refreshFindCount()
+    }
+
+    ; The bar's own text entry (the editor's built-in bar). While it is up
+    ; every keystroke arrives here first, so a search never edits the document.
+    fn findType:void (text:string) {
+        this.setFindQuery((findQuery + text))
+    }
+
+    fn findBackspace:void () {
+        def n:int (strlen findQuery)
+        if (n > 0) {
+            this.setFindQuery((substring findQuery 0 (n - 1)))
         }
     }
 
-    sfn indexOfIn:int (hay:string needle:string from:int) {
-        def n:int (strlen hay)
-        def start:int from
-        if (start < 0) {
-            start = 0
-        }
-        if (start >= n) {
+    ; The match the selection is exactly on, -1 when it is on none.
+    fn selectedMatch:int () {
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        if (a.line != b.line) {
             return -1
         }
-        def at:int (indexOf (substring hay start n) needle)
-        if (at < 0) {
-            return -1
-        }
-        return (start + at)
+        return (find.indexOfRange(a.line a.col b.col))
     }
 
-    ; The last match that starts before `limit`.
-    sfn lastIndexOfIn:int (hay:string needle:string limit:int) {
-        def best:int -1
-        def at:int (ScriptEditor.indexOfIn(hay needle 0))
-        while (at >= 0) {
-            if (at >= limit) {
-                return best
-            }
-            best = at
-            at = (ScriptEditor.indexOfIn(hay needle (at + 1)))
+    fn selectMatch:void (i:int) {
+        def m:EditorFindMatch (find.at(i))
+        sel.setAnchor(m.line m.start)
+        sel.setCaret(m.line m.end)
+        layout.preferCol = sel.caret.col
+        layout.ensureCaretVisible(buf sel)
+        this.ensureCaretX()
+        find.current = i
+    }
+
+    ; Enter / F3 (back: Shift): the next match after the selection, wrapping.
+    fn findNext:boolean (back:boolean) {
+        find.scan(buf)
+        def n:int (find.count())
+        if (n == 0) {
+            this.refreshFindCount()
+            return false
         }
-        return best
+        def i:int (this.selectedMatch())
+        if (i >= 0) {
+            if back {
+                i = (((i - 1) + n) % n)
+            } {
+                i = ((i + 1) % n)
+            }
+        } {
+            def a:EditorPos (new EditorPos)
+            def b:EditorPos (new EditorPos)
+            sel.normalized(a b)
+            if back {
+                i = (find.indexBefore(a.line a.col))
+            } {
+                i = (find.indexAtOrAfter(a.line a.col))
+            }
+        }
+        this.selectMatch(i)
+        this.refreshFindCount()
+        return true
+    }
+
+    ; Replace: the match the selection is on becomes `with` and the next one
+    ; is selected; with the selection on no match it only goes to the next.
+    ; True when the text changed.
+    fn findReplace:boolean (with:string) {
+        if readOnly {
+            return false
+        }
+        find.scan(buf)
+        def i:int (this.selectedMatch())
+        if (i < 0) {
+            this.findNext(false)
+            return false
+        }
+        def m:EditorFindMatch (find.at(i))
+        def p:EditorPos (buf.replaceRange(m.line m.start m.line m.end with true))
+        this.markEdited(p)
+        find.scan(buf)
+        def j:int (find.indexAtOrAfter(p.line p.col))
+        if (j >= 0) {
+            this.selectMatch(j)
+        }
+        this.refreshFindCount()
+        return true
+    }
+
+    ; Replace all: one edit over the lines from the first match to the last,
+    ; so one Ctrl+Z takes it back. The number of matches replaced.
+    fn findReplaceAll:int (with:string) {
+        if readOnly {
+            return 0
+        }
+        find.scan(buf)
+        def n:int (find.count())
+        if (n == 0) {
+            return 0
+        }
+        def first:int (find.firstLine())
+        def last:int (find.lastLine())
+        def text:string (find.replaceAllText(buf with))
+        def p:EditorPos (buf.replaceRange(first 0 last (strlen (buf.lineAt(last))) text true))
+        this.markEdited(p)
+        ; the scope held lines that may have changed length: look in them still
+        if find.inScope {
+            find.setScope(find.scopeStartLine find.scopeStartCol p.line (strlen (buf.lineAt(p.line))))
+        }
+        this.refreshFindCount()
+        return n
+    }
+
+    ; "3 of 17" needs both numbers, and the ordinal is which of the matches
+    ; the selection is sitting on.
+    fn refreshFindCount:void () {
+        find.scan(buf)
+        find.current = (this.selectedMatch())
+        findTotal = (find.count())
+        findOrdinal = (find.current + 1)
     }
 
     fn findStatus:string () {
         if ((strlen findQuery) == 0) {
             return "find:  (type to search, Esc to close)"
+        }
+        if ((strlen find.error) > 0) {
+            return (("find: " + findQuery) + "   " + find.error)
         }
         if (findTotal == 0) {
             return (("find: " + findQuery) + "   no matches")
@@ -1145,8 +1184,67 @@ class ScriptEditor {
         return ((((("find: " + findQuery) + "   ") + (to_string findOrdinal)) + " of ") + (to_string findTotal))
     }
 
+    ; Every match on the lines shown, under the text; the one selected
+    ; stronger. The scan is redone only when the text or the query changed.
+    fn paintFindMatches:void (dl:EVGDisplayList tr:UITextRenderer first:int last:int) {
+        if ((findOpen == false) || ((strlen find.query) == 0)) {
+            return
+        }
+        if (find.scannedVersion != buf.version) {
+            this.refreshFindCount()
+        }
+        def i:int (find.indexAtOrAfter(first 0))
+        if (i < 0) {
+            return
+        }
+        def n:int (find.count())
+        def shown:int 0
+        while ((i < n) && (shown < n)) {
+            def m:EditorFindMatch (find.at(i))
+            if ((m.line > last) || (m.line < first)) {
+                return
+            }
+            def x0:int (this.caretViewX(tr m.line m.start))
+            def x1:int (this.caretViewX(tr m.line m.end))
+            def col:EVGColor theme.findMatch
+            if (i == find.current) {
+                col = theme.findCurrent
+            }
+            this.pushRect(dl (to_double x0) (to_double (layout.caretPixelY(m.line))) (to_double (x1 - x0)) (to_double layout.lineHeight) col)
+            i = (i + 1)
+            shown = (shown + 1)
+        }
+    }
+
+    ; The range find in selection looks in, as a faint band.
+    fn paintFindScope:void (dl:EVGDisplayList tr:UITextRenderer first:int last:int) {
+        if ((findOpen == false) || (find.inScope == false)) {
+            return
+        }
+        def line:int find.scopeStartLine
+        while (line <= find.scopeEndLine) {
+            if ((line >= first) && (line <= last)) {
+                def c0:int 0
+                def c1:int (strlen (buf.lineAt(line)))
+                if (line == find.scopeStartLine) {
+                    c0 = find.scopeStartCol
+                }
+                if ((line == find.scopeEndLine) && (find.scopeEndCol < c1)) {
+                    c1 = find.scopeEndCol
+                }
+                def x0:int (this.caretViewX(tr line c0))
+                def x1:int (this.caretViewX(tr line c1))
+                if (line < find.scopeEndLine) {
+                    x1 = (x1 + 6)
+                }
+                this.pushRect(dl (to_double x0) (to_double (layout.caretPixelY(line))) (to_double (x1 - x0)) (to_double layout.lineHeight) theme.findScope)
+            }
+            line = (line + 1)
+        }
+    }
+
     fn paintFind:void (dl:EVGDisplayList tr:UITextRenderer blink:int) {
-        if (findOpen == false) {
+        if ((findOpen == false) || (findBar == false)) {
             return
         }
         def barH:double ((to_double layout.lineHeight) + 10.0)
@@ -1667,6 +1765,12 @@ class ScriptEditor {
                 }
                 hb = (hb + 1)
             }
+        }
+        if findOpen {
+            this.pushClip(dl textX y0 textW textH)
+            this.paintFindScope(dl tr first last)
+            this.paintFindMatches(dl tr first last)
+            this.popClip(dl)
         }
         if ((sel.isCollapsed()) == false) {
             this.pushClip(dl textX y0 textW textH)
@@ -3007,7 +3111,7 @@ class ScriptEditor {
         ; The find bar owns Escape, Enter and Backspace while it is up; the
         ; arrows and the wheel keep working, so you can look around without
         ; losing the query.
-        if findOpen {
+        if (findOpen && findBar) {
             if (key == (UIKey.escape())) {
                 this.closeFind()
                 return true
@@ -3179,7 +3283,7 @@ class ScriptEditor {
         if ((strlen s) == 0) {
             return false
         }
-        if findOpen {
+        if (findOpen && findBar) {
             this.findType(s)
             return true
         }

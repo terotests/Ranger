@@ -1,0 +1,198 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EditorFindTest — Ctrl+F's model (EditorFind) and the editor's use of it:
+; the switches, find in selection, next/previous, replace and replace all.
+; ==============================================================================
+
+Import "../src/script/EditorFind.rgr"
+Import "../src/script/ScriptEditor.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class EditorFindTest {
+    sfn bufOf:EditorBuffer (text:string) {
+        def b:EditorBuffer (new EditorBuffer)
+        b.setText(text)
+        return b
+    }
+
+    sfn main:void () {
+        def c:Checker (new Checker)
+
+        print "== the switches =="
+        def b:EditorBuffer (EditorFindTest.bufOf("Alpha alphabet\nbeta ALPHA\nalpha_x äalpha\n"))
+        def f:EditorFind (new EditorFind)
+        f.query = "alpha"
+        f.scan(b)
+        c.eqInt("case-insensitive by default" (f.count()) 5)
+        f.matchCase = true
+        f.scan(b)
+        c.eqInt("match case" (f.count()) 3)
+        f.matchCase = false
+        f.wholeWord = true
+        f.scan(b)
+        c.eqInt("whole word: not inside alphabet, alpha_x or äalpha" (f.count()) 2)
+        def m1:EditorFindMatch (f.at(1))
+        c.eqInt("the second is on line 1" m1.line 1)
+        f.wholeWord = false
+        f.regex = true
+        f.query = "al[a-z]+a"
+        f.scan(b)
+        c.eqInt("a regex" (f.count()) 5)
+        f.query = "^al"
+        f.scan(b)
+        c.eqInt("^ is a line's start" (f.count()) 2)
+        f.query = "beta$"
+        f.scan(b)
+        c.eqInt("$ is a line's end (not 'beta ALPHA')" (f.count()) 0)
+        f.query = "A[A-Z]+"
+        f.matchCase = false
+        f.scan(b)
+        c.eqInt("a class under ignore-case" (f.count()) 5)
+        f.query = "x*"
+        f.scan(b)
+        c.eqInt("empty matches are not matches" (f.count()) 1)
+        f.query = "(ab"
+        f.scan(b)
+        c.ok("a broken pattern says why" ((strlen f.error) > 0))
+        c.eqInt("and finds nothing" (f.count()) 0)
+        c.eqStr("the status is the reason" (f.status("of" "No results")) f.error)
+
+        print "== order and wrapping =="
+        def g:EditorFind (new EditorFind)
+        g.query = "a"
+        def b2:EditorBuffer (EditorFindTest.bufOf("xa a\nb\na\n"))
+        g.scan(b2)
+        c.eqInt("three" (g.count()) 3)
+        c.eqInt("at or after (0,2) is the second" (g.indexAtOrAfter(0 2)) 1)
+        c.eqInt("after the last wraps to the first" (g.indexAtOrAfter(2 1)) 0)
+        c.eqInt("before (0,4) is the second" (g.indexBefore(0 4)) 1)
+        c.eqInt("before the first wraps to the last" (g.indexBefore(0 0)) 2)
+        c.eqStr("no current: ? of 3" (g.status("of" "No results")) "? of 3")
+        g.current = 1
+        c.eqStr("2 of 3" (g.status("of" "No results")) "2 of 3")
+        g.query = "zz"
+        g.scan(b2)
+        c.eqStr("none" (g.status("of" "No results")) "No results")
+
+        print "== find in selection =="
+        def s:EditorFind (new EditorFind)
+        s.query = "a"
+        s.setScope(0 2 2 0)
+        s.scan(b2)
+        c.eqInt("only the ones inside" (s.count()) 1)
+        def m0:EditorFindMatch (s.at(0))
+        c.eqInt("the one at (0,3)" m0.start 3)
+        s.clearScope()
+        s.scan(b2)
+        c.eqInt("off again: all" (s.count()) 3)
+
+        print "== replace all text =="
+        def r:EditorFind (new EditorFind)
+        r.query = "a"
+        def b3:EditorBuffer (EditorFindTest.bufOf("top\nxa a\nb\na!\nend\n"))
+        r.scan(b3)
+        c.eqStr("only the lines from the first match to the last" (r.replaceAllText(b3 "<>")) "x<> <>\nb\n<>!")
+        c.eqInt("first" (r.firstLine()) 1)
+        c.eqInt("last" (r.lastLine()) 3)
+
+        print "== the editor: a host's bar drives it =="
+        def ed:ScriptEditor (new ScriptEditor)
+        ed.init("let total = 1;\nlet Total = total + 2;\nreturn total;\n")
+        ed.findBar = false
+        ed.openFind()
+        ed.setFindQuery("total")
+        c.eqInt("four matches" ed.findTotal 4)
+        c.eqInt("the first is selected" ed.sel.caret.col 9)
+        c.eqInt("1 of 4" ed.findOrdinal 1)
+        ed.handleText("x")
+        c.ok("with the host's bar the keys still edit the text" ((indexOf (ed.buf.lineAt(0)) "x") >= 0))
+        ed.undo()
+        ed.moveCaret(0 0 false)
+        ed.setFindOptions(true false false)
+        c.eqInt("match case: three" ed.findTotal 3)
+        ed.setFindOptions(true true false)
+        c.eqInt("and whole word: three" ed.findTotal 3)
+        c.eqInt("a switch keeps the match at the caret" ed.sel.caret.line 0)
+        ed.findNext(false)
+        ed.findNext(false)
+        c.eqInt("next, next: line 2" ed.sel.caret.line 2)
+        ed.findNext(true)
+        c.eqInt("back: line 1" ed.sel.caret.line 1)
+        ed.findNext(true)
+        ed.findNext(true)
+        c.eqInt("back past the first wraps" ed.sel.caret.line 2)
+        c.eqInt("3 of 3" ed.findOrdinal 3)
+
+        print "== replace =="
+        ed.setFindOptions(false false false)
+        ed.moveCaret(0 0 false)
+        ed.findNext(false)
+        c.ok("replace changes the text" (ed.findReplace("sum")))
+        c.eqStr("the match became the replacement" (ed.buf.lineAt(0)) "let sum = 1;")
+        c.eqInt("the next match is selected" ed.sel.caret.line 1)
+        c.eqInt("three left" ed.findTotal 3)
+        ed.moveCaret(0 0 false)
+        c.ok("replace on no match only moves" ((ed.findReplace("sum")) == false))
+        c.eqStr("nothing changed" (ed.buf.lineAt(0)) "let sum = 1;")
+        c.eqInt("replace all" (ed.findReplaceAll("sum")) 3)
+        c.eqStr("every one" (ed.text()) "let sum = 1;\nlet sum = sum + 2;\nreturn sum;\n")
+        c.eqInt("none left" ed.findTotal 0)
+        ed.undo()
+        c.eqStr("one undo takes replace all back" (ed.text()) "let sum = 1;\nlet Total = total + 2;\nreturn total;\n")
+
+        print "== find in selection, in the editor =="
+        def es:ScriptEditor (new ScriptEditor)
+        es.init("a a\na a\na a\n")
+        es.findBar = false
+        es.openFind()
+        es.setFindQuery("a")
+        c.eqInt("six" es.findTotal 6)
+        es.sel.setAnchor(1 0)
+        es.sel.setCaret(2 0)
+        es.setFindInSelection(true)
+        c.eqInt("a selection to the start of a line takes only the line above" es.findTotal 2)
+        c.eqInt("replace all inside it" (es.findReplaceAll("b")) 2)
+        c.eqStr("only line 1" (es.text()) "a a\nb b\na a\n")
+        es.setFindInSelection(false)
+        c.eqInt("off: four left" es.findTotal 4)
+
+        print "== read-only =="
+        def ro:ScriptEditor (new ScriptEditor)
+        ro.init("aa\n")
+        ro.setReadOnly(true)
+        ro.openFind()
+        ro.setFindQuery("a")
+        c.eqInt("finds" ro.findTotal 2)
+        c.ok("but does not replace" ((ro.findReplace("b")) == false))
+        c.eqInt("nor replace all" (ro.findReplaceAll("b")) 0)
+
+        print ""
+        print ((("EditorFindTest: " + (to_string c.passed)) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed > 0) {
+            print "FAILED"
+        }
+    }
+}

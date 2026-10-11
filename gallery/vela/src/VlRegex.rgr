@@ -474,6 +474,36 @@ class VlRegex {
         return false
     }
 
+    ; The first match in `text` that starts at or after `from`: its start, or
+    ; -1 for none. Where it ends is left in `lastEnd`. A find bar asks this of
+    ; one line at a time, so `^` and `$` are that line's ends.
+    def lastEnd:int -1
+
+    fn search:int (text:string from:int) {
+        lastEnd = -1
+        if (! ok) {
+            return -1
+        }
+        subject = text
+        if ignoreCase {
+            subject = (VlRegex.lower(text))
+        }
+        subjectLength = (strlen subject)
+        def start:int from
+        if (start < 0) {
+            start = 0
+        }
+        while (start <= subjectLength) {
+            def e:int (this.matchNode(root start))
+            if (e >= 0) {
+                lastEnd = e
+                return start
+            }
+            start = (start + 1)
+        }
+        return -1
+    }
+
     ; How far the node reaches from `pos`, or -1 if it does not match there.
     ; A node that can match in more than one way is asked for each in turn by
     ; the concatenation above it, which is what makes this a backtracker; the
@@ -517,7 +547,16 @@ class VlRegex {
         }
         if (node.kind == 3) {
             if (pos < subjectLength) {
-                if (VlRegex.inClass(node (charAt subject pos))) {
+                def code:int (charAt subject pos)
+                def inSet:boolean (VlRegex.inClass(node code))
+                ; the subject is lower-cased under `i`, so [A-Z] asks for the
+                ; letter's capital too
+                if ((inSet == false) && ignoreCase) {
+                    if ((code >= 97) && (code <= 122)) {
+                        inSet = (VlRegex.inClass(node (code - 32)))
+                    }
+                }
+                if inSet {
                     push out (pos + 1)
                 }
             }
