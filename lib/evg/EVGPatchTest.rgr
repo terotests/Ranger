@@ -550,6 +550,27 @@ class EVGPatchTest {
         this.ok("and nonsense is the default" (bad.gradientDir == 0))
     }
 
+    ; Strings are written run by run: what is escaped and what is copied
+    ; must still read back the same, with an escape at either end.
+    fn testStringEscapes:void () {
+        print ""
+        print "-- quotes, backslashes and line ends in a string"
+        def el:EVGElement (EVGElement.createDiv())
+        def tricky:string ("\"start" + (strfromcode 92) + "mid" + (strfromcode 10) + "line" + (strfromcode 9) + "tab" + (strfromcode 13) + "end\"")
+        el.a11yLabel = tricky
+        def once:string (EVGTreeJson.toText(el))
+        this.same("one escaped string" (EVGTreeJson.str("a\"b")) "\"a\\\"b\"")
+        this.same("nothing to escape" (EVGTreeJson.str("plain")) "\"plain\"")
+        this.same("empty" (EVGTreeJson.str("")) "\"\"")
+        def back@(optional):EVGElement (EVGTreeJson.fromText(once))
+        if (null? back) {
+            this.ok("it read back" false)
+            return
+        }
+        def again:EVGElement (unwrap back)
+        this.same("the text survived" again.a11yLabel tricky)
+    }
+
     fn testDefaultsAreNotWritten:void () {
         print ""
         print "-- a fresh tree says almost nothing"
@@ -691,6 +712,7 @@ class EVGPatchTest {
         this.testInsertSubtree()
         this.testMeaningRoundTrip()
         this.testGradientAxisRoundTrip()
+        this.testStringEscapes()
         this.testInsertUnknownTag()
         this.testRemoveAndRestore()
         this.testRemoveRoot()
