@@ -6138,8 +6138,19 @@ class RustLower {
           }
           def rv:RsExpr (this.lowerExpr(recvN (RsType.named(head))))
           def recv:string (this.bindTemp(rv rv.ty "r"))
+          if (this.hasBoxed(mf)) {
+            return (this.boxedCall((((recv + ".") + mf.rname) + "(") mf rest rv.ty "" at))
+          }
           def codes0:[string] (this.lowerArgs(rest (this.paramTypes(mf))))
           return (RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + (join codes0 " ")) + "))") mf.ret))
+        }
+        if ((this.hasBoxed(mf)) && (false == mf.rgrCtor) && (false == s.rgr)) {
+          ; `Type::f(&mut v, …)`: the `&mut` places boxed, as for a module function
+          def bname:string (this.staticName(name))
+          if (mf.statName != "") {
+            bname = mf.statName
+          }
+          return (this.boxedCall(((((this.className(head)) + ".") + bname) + "(") mf args (RsType.named(head)) "" at))
         }
         def codes:[string] (this.lowerArgs(args (this.paramTypes(mf))))
         if mf.rgrCtor {
