@@ -143,6 +143,7 @@
     "datagrid:save:test": "bash gallery/datagrid/tools/run_save_speed_test.sh",
     "datagrid:script:artifacts": "mkdir -p gallery/datagrid/artifacts gallery/datagrid/harness/out/script && node dist/rgrc.js -es6 ./gallery/datagrid/src/dump_script_report.rgr -d=./gallery/datagrid/bin -o=dump_script_report.js -nodecli && node ./gallery/datagrid/bin/dump_script_report.js",
     "datagrid:script:editor:test": "bash scripts/rgr-suite.sh ./gallery/datagrid/tests/ScriptEditorTest.rgr ./gallery/datagrid/bin ScriptEditorTest.js",
+    "datagrid:editor:find:test": "bash scripts/rgr-suite.sh ./gallery/datagrid/tests/EditorFindTest.rgr ./gallery/datagrid/bin EditorFindTest.js",
     "datagrid:script:smoke": "npm run datagrid:module && node gallery/datagrid/web/script_smoke.mjs",
     "datagrid:script:test": "mkdir -p gallery/datagrid/harness/out/script && node dist/rgrc.js -es6 ./gallery/datagrid/tests/GridScriptTest.rgr -d=./gallery/datagrid/bin -o=GridScriptTest.js -nodecli && node ./gallery/datagrid/bin/GridScriptTest.js",
     "datagrid:sdl": "bash gallery/datagrid/platform/sdl/build.sh",
