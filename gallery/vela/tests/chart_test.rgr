@@ -478,6 +478,19 @@ class VlChartTest {
         this.check("built row by row" (w.write(values)) "{\"values\":[{\"name\":\"a\",\"value\":1},{\"name\":\"b\",\"value\":2},{\"name\":\"c\",\"value\":3}]}")
     }
 
+    ; Value labels over a grouped bar chart stand over their OWN bar: moved
+    ; along the sub-scale like the bars and centred in the sub-band, which is
+    ; what the reference writes. Centred on the whole band, both labels of a
+    ; group sat on top of one another between the two bars.
+    fn testGroupedBarLabels:void () {
+        def text:string "{\"data\":{\"values\":[{\"c\":\"A\",\"v\":1,\"s\":\"Q2\"},{\"c\":\"A\",\"v\":2,\"s\":\"Q3\"}]},"
+        text = (text + "\"encoding\":{\"x\":{\"field\":\"c\",\"type\":\"nominal\"},\"y\":{\"field\":\"v\",\"type\":\"quantitative\"},\"xOffset\":{\"field\":\"s\"}},")
+        text = (text + "\"layer\":[{\"mark\":\"bar\"},{\"mark\":\"text\",\"encoding\":{\"text\":{\"field\":\"v\"}}}]}")
+        def vg:string (VlChartTest.compiled((VlChartTest.parsed(text))))
+        def label:string "\"x\":{\"scale\":\"x\",\"field\":\"c\",\"offset\":{\"scale\":\"xOffset\",\"field\":\"s\",\"band\":0.5}}"
+        this.checkTrue("grouped bar labels over their own bar" ((indexOf vg label) >= 0))
+    }
+
     fn run:void () {
         this.testInference()
         this.testColumns()
@@ -504,6 +517,7 @@ class VlChartTest {
         this.testDualAxis()
         this.testTooltip()
         this.testTooltipFields()
+        this.testGroupedBarLabels()
         if (failures > 0) {
             print ((("FAILURES: " + (to_string failures)) + " of ") + (to_string checks))
         } {

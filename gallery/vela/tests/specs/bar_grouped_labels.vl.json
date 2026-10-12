@@ -1,0 +1,65 @@
+{
+  "data": {
+    "values": [
+      {
+        "category": "Finland",
+        "value": 110,
+        "series": "Q2"
+      },
+      {
+        "category": "Sweden",
+        "value": 150,
+        "series": "Q2"
+      },
+      {
+        "category": "Finland",
+        "value": 120,
+        "series": "Q3"
+      },
+      {
+        "category": "Sweden",
+        "value": 180,
+        "series": "Q3"
+      }
+    ]
+  },
+  "encoding": {
+    "x": {
+      "field": "category",
+      "type": "nominal",
+      "sort": null
+    },
+    "y": {
+      "field": "value",
+      "type": "quantitative",
+      "stack": null
+    },
+    "xOffset": {
+      "field": "series",
+      "sort": [
+        "Q2",
+        "Q3"
+      ]
+    }
+  },
+  "layer": [
+    {
+      "mark": {
+        "type": "bar"
+      }
+    },
+    {
+      "mark": {
+        "type": "text",
+        "baseline": "bottom",
+        "dy": -3
+      },
+      "encoding": {
+        "text": {
+          "field": "value",
+          "type": "quantitative"
+        }
+      }
+    }
+  ]
+}
