@@ -3041,8 +3041,12 @@ class ScriptEditor {
         this.ensureCaretX()
     }
 
+    ; With nothing to undo or redo the caret stays where it is.
     fn undo:void () {
         if readOnly {
+            return
+        }
+        if ((array_length buf.undoStack) == 0) {
             return
         }
         def p:EditorPos (buf.undo())
@@ -3053,8 +3057,20 @@ class ScriptEditor {
         if readOnly {
             return
         }
+        if ((array_length buf.redoStack) == 0) {
+            return
+        }
         def p:EditorPos (buf.redo())
         this.markEdited(p)
+    }
+
+    ; The next edit is written away from the caret — by a window, a popover
+    ; or a tool that moves the caret to its text and back: its Undo puts the
+    ; caret back where it is now and its Redo leaves it there, rather than
+    ; taking the caret (and what follows it) to the edit.
+    fn holdCaret:void () {
+        buf.holdLine = sel.caret.line
+        buf.holdCol = sel.caret.col
     }
 
     ; --- word and document movement -------------------------------------------
