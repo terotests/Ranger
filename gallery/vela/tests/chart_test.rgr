@@ -491,6 +491,22 @@ class VlChartTest {
         this.checkTrue("grouped bar labels over their own bar" ((indexOf vg label) >= 0))
     }
 
+    ; A bar given its width on the mark is centred in its band at that width,
+    ; like the label layered over it. Placed by its corner, a 48 px bar stood
+    ; at the left edge of a wide band while its label stood in the middle.
+    fn testBarStatedWidth:void () {
+        def text:string "{\"data\":{\"values\":[{\"p\":\"A\",\"k\":12.3},{\"p\":\"B\",\"k\":118}]},"
+        text = (text + "\"encoding\":{\"x\":{\"field\":\"p\",\"type\":\"nominal\"},\"y\":{\"field\":\"k\",\"type\":\"quantitative\"}},")
+        text = (text + "\"layer\":[{\"mark\":{\"type\":\"bar\",\"width\":48}},{\"mark\":{\"type\":\"text\",\"dy\":-8},\"encoding\":{\"text\":{\"field\":\"k\"}}}]}")
+        def vg:string (VlChartTest.compiled((VlChartTest.parsed(text))))
+        this.checkTrue("stated bar width centred in band" ((indexOf vg "\"xc\":{\"scale\":\"x\",\"field\":\"p\",\"band\":0.5},\"width\":{\"value\":48}") >= 0))
+        this.checkTrue("label centred in the same band" ((indexOf vg "\"x\":{\"scale\":\"x\",\"field\":\"p\",\"band\":0.5}") >= 0))
+        def side:string "{\"data\":{\"values\":[{\"p\":\"A\",\"k\":1}]},\"mark\":{\"type\":\"bar\",\"height\":20},"
+        side = (side + "\"encoding\":{\"y\":{\"field\":\"p\",\"type\":\"nominal\"},\"x\":{\"field\":\"k\",\"type\":\"quantitative\"}}}")
+        def vg2:string (VlChartTest.compiled((VlChartTest.parsed(side))))
+        this.checkTrue("stated bar height centred in band" ((indexOf vg2 "\"yc\":{\"scale\":\"y\",\"field\":\"p\",\"band\":0.5},\"height\":{\"value\":20}") >= 0))
+    }
+
     fn run:void () {
         this.testInference()
         this.testColumns()
@@ -518,6 +534,7 @@ class VlChartTest {
         this.testTooltip()
         this.testTooltipFields()
         this.testGroupedBarLabels()
+        this.testBarStatedWidth()
         if (failures > 0) {
             print ((("FAILURES: " + (to_string failures)) + " of ") + (to_string checks))
         } {

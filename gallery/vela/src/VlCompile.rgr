@@ -12131,9 +12131,13 @@ class VlCompile {
                 ; — as `upper_y`, which is the column, and as "Mean + stderr of
                 ; y", which is what it means — while the column the chart is
                 ; grouped by, named the same both times, is told once.
+                ; Two channels on one column are one entry only while they are
+                ; called the same: a y titled "thousand lines of code" and the
+                ; label's text on the same column are both told, as the
+                ; reference does.
                 def repeat:boolean false
                 if (at <= channelCount) {
-                    if (has seen (ch.outField())) {
+                    if ((has seen (ch.outField())) && (has namedAlready (ch.title()))) {
                         repeat = true
                     }
                 } {
@@ -12807,8 +12811,16 @@ class VlCompile {
             ; A mark told how THICK it is does not fill its band: it is
             ; centred in it at exactly that thickness, which is how a box plot
             ; drawn by hand keeps its boxes fourteen pixels deep whatever the
-            ; band underneath them is.
+            ; band underneath them is. A bar given `"width": 48` on its mark is
+            ; told the same: placed by its corner instead, it stood at the left
+            ; edge of its band while the label over it stood in the middle.
             def stated:double (this.statedSize())
+            if (stated <= 0.0) {
+                def given:VlJson (markDef.get(dimension))
+                if (given.isNumber()) {
+                    stated = given.num
+                }
+            }
             if (stated > 0.0) {
                 at.setMember("band" (VlJson.numberValue(0.5)))
                 update.setMember((axis + "c") at)
