@@ -12711,6 +12711,28 @@ class VlCompile {
         at.setMember("offset" (this.scaled((axis + "Offset") (off.outField()))))
     }
 
+    ; A mark that stands at a point inside a band with a sub-scale: placed at
+    ; the start of its band, then half way across its own sub-band.
+    fn centreInSubBand:boolean (at:VlJson axis:string) {
+        def off:VlChannel (this.channel((axis + "Offset")))
+        if (! off.defined) {
+            return false
+        }
+        def spot (VlJson.objectValue())
+        spot.setMember("scale" (VlJson.stringValue((this.sname((axis + "Offset"))))))
+        if off.hasDatum {
+            spot.setMember("value" off.value)
+        } {
+            if ((strlen (off.outField())) == 0) {
+                return false
+            }
+            spot.setMember("field" (VlJson.stringValue((off.outField()))))
+        }
+        spot.setMember("band" (VlJson.numberValue(0.5)))
+        at.setMember("offset" spot)
+        return true
+    }
+
     fn encodeAxisPair:void (update:VlJson ch:VlChannel axis:string dimension:string) {
         if (! ch.defined) {
             return
@@ -12769,7 +12791,15 @@ class VlCompile {
             }
             ; A label over a bar chart sits on the same band scale the bars do,
             ; and it does not fill the band — it stands in the middle of it.
+            ; Over a GROUPED bar chart the middle is the bar's own sub-band:
+            ; the reference moves it along the sub-scale and centres it there.
+            ; Centred on the whole band instead, the labels of every bar in a
+            ; group sat on top of one another between the bars.
             if (! (this.fillsBand())) {
+                if (this.centreInSubBand(at axis)) {
+                    update.setMember(axis at)
+                    return
+                }
                 at.setMember("band" (VlJson.numberValue(0.5)))
                 update.setMember(axis at)
                 return
