@@ -212,6 +212,14 @@ class VlTitleTest {
         this.schemeWith("pastel1" "#fbb4ae")
         this.schemeWith("pastel2" "#b3e2cd")
         this.schemeWith("set1" "#e41a1c")
+        ; Vega's schemes past the ones spelled out (Tero's donut asked for
+        ; `turbo` and got tableau10); colours as official Vega draws them
+        this.schemeWith("turbo" "rgb(45, 227, 178)")
+        this.schemeWith("Turbo" "rgb(45, 227, 178)")
+        this.schemeWith("inferno" "rgb(120, 28, 109)")
+        this.schemeWith("spectral" "rgb(253, 188, 113)")
+        this.schemeWith("category20" "#1f77b4")
+        this.schemeWith("observable10" "#4269d0")
         this.schemeWith("nosuchscheme" "#4c78a8")
     }
 
@@ -222,13 +230,13 @@ class VlTitleTest {
         def vg:VlJson (compiler.compileSpec((p.parse(spec))))
         def rt (new VlRuntime())
         def list:VlCommandList (VlSceneCommands.build((rt.run(vg))))
-        def fills:string ""
+        def fills:[string]
         for list.commands c:VlDrawCommand ci {
             if (((c.op == "rect") && ((strlen c.fill) > 0))) {
-                fills = ((fills + c.fill) + " ")
+                push fills c.fill
             }
         }
-        this.check(("scheme " + scheme + ": the first bar's colour") (? ((strlen fills) > 0) (itemAt (strsplit fills " ") 0) "none") first)
+        this.check(("scheme " + scheme + ": the first bar's colour") (? ((array_length fills) > 0) (itemAt fills 0) "none") first)
     }
 
     ; Category names down the side of a horizontal bar chart (Tero's

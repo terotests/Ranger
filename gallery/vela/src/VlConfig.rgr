@@ -407,7 +407,10 @@ class VlConfig {
         if ((name == "yellowgreenblue") || (name == "yellowGreenBlue")) {
             return true
         }
-        return ((name == "lighttealblue") || (name == "lightTealBlue"))
+        if ((name == "lighttealblue") || (name == "lightTealBlue")) {
+            return true
+        }
+        return ((strlen (VlConfig.vegaRamp(name))) > 0)
     }
 
     sfn schemeColors:[string] (name:string) {
@@ -556,7 +559,162 @@ class VlConfig {
             push out "#17becf"
             return out
         }
-        return out
+        def more:string (VlConfig.vegaDiscrete(name))
+        if ((strlen more) == 0) {
+            more = (VlConfig.vegaRamp(name))
+        }
+        return (VlConfig.ramp(more))
+    }
+
+    ; Vega's continuous colour schemes (vega-scale's palettes, see
+    ; VEGA_LICENSE) that the cases above do not spell out, by name in any
+    ; case — `turbo`, `inferno`, `spectral`, `redYellowGreen`… — as their
+    ; stops. A scheme the reference has must not fall back to the default
+    ; palette here: a chart asking for `turbo` came out in tableau10.
+    sfn vegaRamp:string (name:string) {
+        def n:string (to_lowercase name)
+        if (n == "bluegreen") {
+            return "d5efedc1e8e0a7ddd18bd2be70c6a958ba9144ad77319c5d2089460e7736036429"
+        }
+        if (n == "bluepurple") {
+            return "ccddecbad0e4a8c2dd9ab0d4919cc98d85be8b6db28a55a6873c99822287730f71"
+        }
+        if (n == "greenblue") {
+            return "d3eecec5e8c3b1e1bb9bd8bb82cec269c2ca51b2cd3c9fc7288abd1675b10b60a1"
+        }
+        if (n == "orangered") {
+            return "fddcaffdcf9bfdc18afdad77fb9562f67d53ee6545e24932d32d1ebf130da70403"
+        }
+        if (n == "purpleblue") {
+            return "dbdaebc8cee4b1c3de97b7d87bacd15b9fc93a90c01e7fb70b70ab056199045281"
+        }
+        if (n == "purplebluegreen") {
+            return "dbd8eac8cee4b0c3de93b7d872acd1549fc83892bb1c88a3097f8702736b016353"
+        }
+        if (n == "purplered") {
+            return "dcc9e2d3b3d7ce9eccd186c0da6bb2e14da0e23189d91e6fc61159ab07498f023a"
+        }
+        if (n == "redpurple") {
+            return "fccfccfcbec0faa9b8f98faff571a5ec539ddb3695c41b8aa908808d0179700174"
+        }
+        if (n == "yellowgreen") {
+            return "e4f4acd1eca0b9e2949ed68880c97c62bb6e47aa5e3297502083440e723b036034"
+        }
+        if (n == "yelloworangebrown") {
+            return "feeaa1fedd84fecc63feb746fca031f68921eb7215db5e0bc54c05ab3d038f3204"
+        }
+        if (n == "yelloworangered") {
+            return "fee087fed16ffebd59fea849fd903efc7335f9522bee3423de1b20ca0b22af0225"
+        }
+        if (n == "brownbluegreen") {
+            return "704108a0651ac79548e3c78af3e6c6eef1eac9e9e48ed1c74da79e187a72025147"
+        }
+        if (n == "purplegreen") {
+            return "5b1667834792a67fb6c9aed3e6d6e8eff0efd9efd5aedda971bb75368e490e5e29"
+        }
+        if (n == "purpleorange") {
+            return "4114696647968f83b7b9b4d6dadbebf3eeeafce0bafbbf74e8932fc5690d994a07"
+        }
+        if (n == "redblue") {
+            return "8c0d25bf363adf745ef4ae91fbdbc9f2efeed2e5ef9dcae15da2cb2f78b3134b85"
+        }
+        if (n == "redgrey") {
+            return "8c0d25bf363adf745ef4ae91fcdccbfaf4f1e2e2e2c0c0c0969696646464343434"
+        }
+        if (n == "redyellowblue") {
+            return "a50026d4322cf16e43fcac64fedd90faf8c1dcf1ecabd6e875abd04a74b4313695"
+        }
+        if (n == "redyellowgreen") {
+            return "a50026d4322cf16e43fcac63fedd8df9f7aed7ee8ea4d86e64bc6122964f006837"
+        }
+        if (n == "pinkyellowgreen") {
+            return "8e0152c0267edd72adf0b3d6faddedf5f3efe1f2cab6de8780bb474f9125276419"
+        }
+        if (n == "spectral") {
+            return "9e0142d13c4bf0704afcac63fedd8dfbf8b0e0f3a1a9dda269bda94288b55e4fa2"
+        }
+        if (n == "inferno") {
+            return "0000040403130c0826170c3b240c4f330a5f420a68500d6c5d126e6b176e781c6d86216b932667a12b62ae305cbb3755c73e4cd24644dd513ae65c30ed6925f3771af8850ffb9506fca50afcb519fac62df6d645f2e661f3f484fcffa4"
+        }
+        if (n == "plasma") {
+            return "0d088723069033059742039d5002a25d01a66a00a87801a88405a7900da49c179ea72198b12a90ba3488c33d80cb4779d35171da5a69e16462e76e5bed7953f2834cf68f44fa9a3dfca636fdb32ffec029fcce25f9dc24f5ea27f0f921"
+        }
+        if (n == "cividis") {
+            return "00205100235800265d002961012b65042e670831690d346b11366c16396d1c3c6e213f6e26426e2c456e31476e374a6e3c4d6e42506e47536d4c566d51586e555b6e5a5e6e5e616e62646f66676f6a6a706e6d717270717573727976737c79747f7c75827f758682768985778c8877908b78938e789691789a94789e9778a19b78a59e77a9a177aea575b2a874b6ab73bbaf71c0b26fc5b66dc9b96acebd68d3c065d8c462ddc85fe2cb5ce7cf58ebd355f0d652f3da4ff7de4cfae249fce647"
+        }
+        if (n == "sinebow") {
+            return "ff4040fc582af47218e78d0bd5a703bfbf00a7d5038de70b72f41858fc2a40ff402afc5818f4720be78d03d5a700bfbf03a7d50b8de71872f42a58fc4040ff582afc7218f48d0be7a703d5bf00bfd503a7e70b8df41872fc2a58ff4040"
+        }
+        if (n == "turbo") {
+            return "23171b32204a3e2a71453493493eae4b49c54a53d7485ee44569ee4074f53c7ff8378af93295f72e9ff42ba9ef28b3e926bce125c5d925cdcf27d5c629dcbc2de3b232e9a738ee9d3ff39347f68950f9805afc7765fd6e70fe667cfd5e88fc5795fb51a1f84badf545b9f140c5ec3cd0e637dae034e4d931ecd12ef4c92bfac029ffb626ffad24ffa223ff9821ff8d1fff821dff771cfd6c1af76118f05616e84b14df4111d5380fcb2f0dc0260ab61f07ac1805a313029b0f00950c00910b00"
+        }
+        if (n == "browns") {
+            return "eedbbdecca96e9b97ae4a865dc9856d18954c7784cc0673fb85536ad44339f3632"
+        }
+        if (n == "tealblues") {
+            return "bce4d89dd3d181c3cb65b3c245a2b9368fae347da0306a932c5985"
+        }
+        if (n == "teals") {
+            return "bbdfdfa2d4d58ac9c975bcbb61b0af4da5a43799982b8b8c1e7f7f127273006667"
+        }
+        if (n == "warmgreys") {
+            return "dcd4d0cec5c1c0b8b4b3aaa7a59c9998908c8b827f7e7673726866665c5a59504e"
+        }
+        if (n == "goldgreen") {
+            return "f4d166d5ca60b6c35c98bb597cb25760a6564b9c533f8f4f33834a257740146c36"
+        }
+        if (n == "goldorange") {
+            return "f4d166f8be5cf8aa4cf5983bf3852aef701be2621fd65322c54923b142239e3a26"
+        }
+        if (n == "goldred") {
+            return "f4d166f6be59f9aa51fc964ef6834bee734ae56249db5247cf4244c43141b71d3e"
+        }
+        if (n == "lightgreyred") {
+            return "efe9e6e1dad7d5cbc8c8bdb9bbaea9cd967ddc7b43e15f19df4011dc000b"
+        }
+        if (n == "lightgreyteal") {
+            return "e4eaead6dcddc8ced2b7c2c7a6b4bc64b0bf22a6c32295c11f85be1876bc"
+        }
+        if (n == "lightmulti") {
+            return "e0f1f2c4e9d0b0de9fd0e181f6e072f6c053f3993ef77440ef4a3c"
+        }
+        if (n == "lightorange") {
+            return "f2e7daf7d5baf9c499fab184fa9c73f68967ef7860e8645bde515bd43d5b"
+        }
+        if (n == "darkblue") {
+            return "3232322d46681a5c930074af008cbf05a7ce25c0dd38daed50f3faffffff"
+        }
+        if (n == "darkgold") {
+            return "3c3c3c584b37725e348c7631ae8b2bcfa424ecc31ef9de30fff184ffffff"
+        }
+        if (n == "darkgreen") {
+            return "3a3a3a215748006f4d048942489e4276b340a6c63dd2d836ffeb2cffffaa"
+        }
+        if (n == "darkmulti") {
+            return "3737371f5287197d8c29a86995ce3fffe800ffffff"
+        }
+        if (n == "darkred") {
+            return "3434347036339e3c38cc4037e75d1eec8620eeab29f0ce32ffeb2c"
+        }
+        return ""
+    }
+
+    ; …and its categorical ones the cases above do not spell out.
+    sfn vegaDiscrete:string (name:string) {
+        def n:string (to_lowercase name)
+        if (n == "category20") {
+            return "1f77b4aec7e8ff7f0effbb782ca02c98df8ad62728ff98969467bdc5b0d58c564bc49c94e377c2f7b6d27f7f7fc7c7c7bcbd22dbdb8d17becf9edae5"
+        }
+        if (n == "category20c") {
+            return "3182bd6baed69ecae1c6dbefe6550dfd8d3cfdae6bfdd0a231a35474c476a1d99bc7e9c0756bb19e9ac8bcbddcdadaeb636363969696bdbdbdd9d9d9"
+        }
+        if (n == "tableau20") {
+            return "4c78a89ecae9f58518ffbf7954a24b88d27ab79a20f2cf5b43989483bcb6e45756ff9d9879706ebab0acd67195fcbfd2b279a2d6a5c99e765fd8b5a5"
+        }
+        if (n == "observable10") {
+            return "4269d0efb118ff725c6cc5b03ca951ff8ab7a463f297bbf59c6b4e9498a0"
+        }
+        return ""
     }
 
     ; A mark's `style` is a name or a list of them, applied in order.
