@@ -2724,17 +2724,22 @@ class ScriptEditor {
 
     ; Enter keeps the indent it found, and opens one more level after a line
     ; that ends in `{`, `(` or `[` — the smallest amount of help that stops a
-    ; script from drifting left as it is written.
+    ; script from drifting left as it is written. Only the indent BEFORE the
+    ; caret is copied: Enter at the start of "    foo" must not give the new
+    ; line its own four spaces on top of the four it carries down. A line
+    ; that is nothing but indent up to the caret gives it up to the new line
+    ; instead of keeping it, so blank lines are left empty, not full of
+    ; spaces that Backspace then has to eat.
     fn insertNewline:void () {
         if readOnly {
             return
         }
         this.deleteSelection()
         def line:string (buf.lineAt(sel.caret.line))
+        def col:int sel.caret.col
         def indent:string ""
         def i:int 0
-        def n:int (strlen line)
-        while (i < n) {
+        while (i < col) {
             def ch:int (charAt line i)
             if (ch == 32) {
                 indent = (indent + " ")
@@ -2747,7 +2752,7 @@ class ScriptEditor {
             }
             i = (i + 1)
         }
-        def upto:string (substring line 0 sel.caret.col)
+        def upto:string (substring line 0 col)
         def trimmed:string (trim upto)
         def tn:int (strlen trimmed)
         if (tn > 0) {
@@ -2760,7 +2765,34 @@ class ScriptEditor {
             }
         }
         def opened:string ("\n" + indent)
+        if ((tn == 0) && (col > 0)) {
+            def p:EditorPos (buf.replaceRange(sel.caret.line 0 sel.caret.line col opened true))
+            this.markEdited(p)
+            return
+        }
         this.insert(opened)
+    }
+
+    ; How far one Backspace reaches back over the indent before the caret: to
+    ; the previous indent stop (two spaces, the unit Tab inserts). 0 when the
+    ; caret is not inside a run of leading spaces, and the key takes one
+    ; character as usual.
+    sfn indentBackspace:int (line:string col:int) {
+        if (col <= 0) {
+            return 0
+        }
+        def i:int 0
+        while (i < col) {
+            if ((charAt line i) != 32) {
+                return 0
+            }
+            i = (i + 1)
+        }
+        def rest:int (col % 2)
+        if (rest == 0) {
+            return 2
+        }
+        return rest
     }
 
     ; How many leading characters one outdent step removes: a tab, or up to
@@ -2890,6 +2922,15 @@ class ScriptEditor {
             this.markEdited(p)
             return
         }
+        ; In the indent, one press is one indent step, so an indented empty
+        ; line empties in as many presses as Tab took to fill it.
+        def stepBack:int (ScriptEditor.indentBackspace((buf.lineAt(line)) col))
+        if (stepBack > 0) {
+            def p3:EditorPos (buf.deleteRange(line (col - stepBack) line col))
+            this.markEdited(p3)
+            this.refreshCompletions()
+            return
+        }
         def before:EditorPos (buf.moveCodepoint(line col -1))
         def p2:EditorPos (buf.deleteRange(before.line before.col line col))
         this.markEdited(p2)
@@ -2919,7 +2960,25 @@ class ScriptEditor {
         this.markEdited(p2)
     }
 
+    ; Down on the last line goes to its end, as in every text field; Down at
+    ; the end of a last line that has text opens an empty line under it, so
+    ; there is always somewhere to go past a long last line without hunting
+    ; for its end and pressing Enter.
     fn moveVertical:void (delta:int extend:boolean) {
+        def lastLine:int ((buf.lineCount()) - 1)
+        if ((delta > 0) && (sel.caret.line == lastLine)) {
+            def endCol:int (strlen (buf.lineAt(lastLine)))
+            if ((sel.caret.col < endCol) || extend) {
+                this.moveCaret(lastLine endCol extend)
+                layout.preferCol = endCol
+                return
+            }
+            if ((endCol > 0) && (readOnly == false)) {
+                this.insert("\n")
+                layout.preferCol = 0
+            }
+            return
+        }
         def want:int layout.preferCol
         if (want < sel.caret.col) {
             want = sel.caret.col
