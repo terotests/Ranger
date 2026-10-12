@@ -1,0 +1,24 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "description": "Bars given their width on the mark, with a value label layered over each. The bar is centred in its band, under its label.",
+  "data": {
+    "values": [
+      {"p": "Ranger docx", "k": 12.3},
+      {"p": "wordcraft", "k": 118}
+    ]
+  },
+  "encoding": {
+    "x": {"field": "p", "type": "nominal", "title": null, "axis": {"labelAngle": 0}},
+    "y": {"field": "k", "type": "quantitative", "title": "thousand lines of code"}
+  },
+  "layer": [
+    {
+      "mark": {"type": "bar", "width": 48},
+      "encoding": {"color": {"field": "p", "type": "nominal", "legend": null}}
+    },
+    {
+      "mark": {"type": "text", "align": "center", "dy": -8},
+      "encoding": {"text": {"field": "k", "type": "quantitative"}}
+    }
+  ]
+}
