@@ -50,6 +50,12 @@ class EditorUndoOp {
     def endCol:int 0
     def deleted:string ""
     def inserted:string ""
+    ; Where the caret was before the edit, when the edit was written away
+    ; from it (a window, a popover, a tool): Undo puts the caret back there
+    ; and Redo keeps it, so the place being worked on stays in view.
+    ; -1: the edit was made at the caret, which goes to the edit.
+    def caretLine:int -1
+    def caretCol:int 0
 
     Constructor () {
     }
@@ -61,6 +67,10 @@ class EditorBuffer {
     def undoStack:[EditorUndoOp]
     def redoStack:[EditorUndoOp]
     def maxUndo:int 200
+    ; the caret the next recorded edit keeps for its Undo and Redo
+    ; (EditorUndoOp.caretLine); -1 = none. Used once.
+    def holdLine:int -1
+    def holdCol:int 0
     def version:int 0
     ; Style applied to newly typed / inserted text (canvas-editor range style).
     def typingBold:boolean false
@@ -426,6 +436,9 @@ class EditorBuffer {
             op.endCol = caretCol
             op.deleted = deleted
             op.inserted = text
+            op.caretLine = holdLine
+            op.caretCol = holdCol
+            holdLine = -1
             this.pushUndo(op)
         }
 
@@ -502,6 +515,11 @@ class EditorBuffer {
         ; Reverse: remove inserted, put deleted back.
         def after:EditorPos (this.replaceRange(op.startLine op.startCol op.endLine op.endCol op.deleted false))
         push redoStack op
+        if (op.caretLine >= 0) {
+            def back:EditorPos (EditorPos.create(op.caretLine op.caretCol))
+            this.clampPos(back)
+            return back
+        }
         if ((strlen op.deleted) == 0) {
             return (EditorPos.create(op.startLine op.startCol))
         }
@@ -525,7 +543,15 @@ class EditorBuffer {
         u.endCol = after.col
         u.deleted = op.deleted
         u.inserted = op.inserted
+        u.caretLine = op.caretLine
+        u.caretCol = op.caretCol
         push undoStack u
+        if (op.caretLine >= 0) {
+            ; the caret it was written away from, moved by the change
+            def kept:EditorPos (EditorBuffer.mapPos((EditorPos.create(op.caretLine op.caretCol)) (EditorPos.create(op.startLine op.startCol)) endDel op.inserted false))
+            this.clampPos(kept)
+            return kept
+        }
         return after
     }
 
@@ -832,6 +858,19 @@ class EditorBuffer {
             if isUndo {
                 e.endLine = na1.line
                 e.endCol = na1.col
+            }
+            ; the caret kept with the step sits in the text before it: the
+            ; colleague's edit there is nx0..nx1 for an undo step, x0..x1
+            ; for a redo step
+            if (e.caretLine >= 0) {
+                def kc:EditorPos (EditorPos.create(e.caretLine e.caretCol))
+                if isUndo {
+                    kc = (EditorBuffer.mapPos(kc nx0 nx1 text false))
+                } {
+                    kc = (EditorBuffer.mapPos(kc x0 x1 text false))
+                }
+                e.caretLine = kc.line
+                e.caretCol = kc.col
             }
             x0 = nx0
             x1 = nx1
