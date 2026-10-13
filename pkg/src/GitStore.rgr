@@ -7,6 +7,7 @@
 
 Import "GitSha1.rgr"
 Import "GitPack.rgr"
+Import "GitObject.rgr"
 
 class GitEntry {
     def name:string ""
@@ -46,44 +47,24 @@ class GitStore {
         return (GitPackIO.lookup(pack sha))
     }
 
+    ; names are UTF-8 (GitObjects.parseTree), so a checkout keeps "ä.txt"
     fn parseTree:GitTree (payload:buffer) {
         def t (new GitTree)
-        def n:int (buffer_length payload)
-        def at:int 0
-        while (at < n) {
-            def modeStart:int at
-            while (at < n) {
-                if ((buffer_get payload at) == 32) {
-                    break
-                }
-                at = (at + 1)
-            }
-            def mode:string (GitSha1.ascii(payload modeStart (at - modeStart)))
-            at = (at + 1)
-            def nameStart:int at
-            while (at < n) {
-                if ((buffer_get payload at) == 0) {
-                    break
-                }
-                at = (at + 1)
-            }
-            def name:string (GitSha1.ascii(payload nameStart (at - nameStart)))
-            at = (at + 1)
-            if ((at + 20) > n) {
-                break
-            }
-            def sha:string (GitSha1.toHex((GitSha1.copyRange(payload at 20))))
-            at = (at + 20)
+        def items:[GitTreeItem] (GitObjects.parseTree(payload))
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:GitTreeItem (itemAt items i)
             def e (new GitEntry)
-            e.name = name
-            e.sha = sha
-            e.mode = mode
-            if ((strlen mode) > 0) {
-                if ((substring mode 0 1) == "4") {
+            e.name = it.name
+            e.sha = it.sha
+            e.mode = it.mode
+            if ((strlen it.mode) > 0) {
+                if ((substring it.mode 0 1) == "4") {
                     e.isTree = true
                 }
             }
             push t.entries e
+            i = (i + 1)
         }
         return t
     }

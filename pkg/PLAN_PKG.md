@@ -70,6 +70,13 @@ That is the same stance as ZIP and Zstandard in this gallery.
   `rgrc install` is `compiler/PkgFetch.rgr` driving it; `bin/git-http.mjs`
   is the only Node in the path. No second package to install.
 
+- **S10 — writing.** `lib/zip/Deflate.rgr`, loose objects, trees of a file
+  list, commits (UTF-8 identities), pack + idx v2 writer, object by offset
+  through an idx, refs and bare-repository layout, `GitWalk` (what a push
+  sends), receive-pack request and report-status. Checked by
+  `tools/git-write-check.mjs` with git fsck / verify-pack / receive-pack on
+  es6, Go and Python. First user: Sliqtly's Git storage (compiled to Go).
+
 ## Non-goals (still)
 
 - Semver solver

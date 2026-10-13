@@ -1,0 +1,769 @@
+; SPDX-License-Identifier: MIT
+
+; Deflate.rgr - DEFLATE compression (RFC 1951), the writer beside Inflate.rgr
+;
+; LZ77 over a 32 KiB window (hash chains, one-step lazy matching), then
+; per block the smallest of the three encodings the format has: stored,
+; fixed Huffman or dynamic Huffman. Code lengths are limited to 15 bits
+; (7 for the code-length code) by halving the counts and building again.
+;
+; Written from RFC 1951, not from zlib's deflate.c. Output is raw DEFLATE;
+; a zlib or gzip wrapper is the caller's (pkg/src/GitZlib.rgr).
+
+class DeflateTables {
+    def lenBase:[int]
+    def lenExtra:[int]
+    def distBase:[int]
+    def distExtra:[int]
+    ; the order the code-length code's lengths are written in
+    def clOrder:[int]
+
+    Constructor () {
+        lenBase = ([] _:int (3 4 5 6 7 8 9 10 11 13 15 17 19 23 27 31 35 43 51 59 67 83 99 115 131 163 195 227 258))
+        lenExtra = ([] _:int (0 0 0 0 0 0 0 0 1 1 1 1 2 2 2 2 3 3 3 3 4 4 4 4 5 5 5 5 0))
+        distBase = ([] _:int (1 2 3 4 5 7 9 13 17 25 33 49 65 97 129 193 257 385 513 769 1025 1537 2049 3073 4097 6145 8193 12289 16385 24577))
+        distExtra = ([] _:int (0 0 0 0 1 1 2 2 3 3 4 4 5 5 6 6 7 7 8 8 9 9 10 10 11 11 12 12 13 13))
+        clOrder = ([] _:int (16 17 18 0 8 7 9 6 10 5 11 4 12 3 13 2 14 1 15))
+    }
+
+    ; index 0..28 of a match length 3..258 (symbol = 257 + index)
+    fn lenIndex:int (len:int) {
+        if (len >= 258) {
+            return 28
+        }
+        def k:int 27
+        while (k > 0) {
+            if ((itemAt lenBase k) <= len) {
+                return k
+            }
+            k = (k - 1)
+        }
+        return 0
+    }
+
+    ; distance code 0..29 of a distance 1..32768
+    fn distIndex:int (dist:int) {
+        def k:int 29
+        while (k > 0) {
+            if ((itemAt distBase k) <= dist) {
+                return k
+            }
+            k = (k - 1)
+        }
+        return 0
+    }
+}
+
+class DeflateHuffman {
+    ; code lengths for freqs, none longer than limit; a used symbol gets at
+    ; least 1, an unused one 0. Fewer than two used symbols: the first two
+    ; (or the used one and another) get length 1, so the code is complete.
+    sfn lengths:[int] (freqs:[int] limit:int) {
+        def n:int (array_length freqs)
+        def f:[int]
+        def used:int 0
+        def i:int 0
+        while (i < n) {
+            def v:int (itemAt freqs i)
+            push f v
+            if (v > 0) {
+                used = (used + 1)
+            }
+            i = (i + 1)
+        }
+        def out:[int]
+        i = 0
+        while (i < n) {
+            push out 0
+            i = (i + 1)
+        }
+        if (used < 2) {
+            def given:int 0
+            i = 0
+            while (i < n) {
+                if ((itemAt f i) > 0) {
+                    set out i 1
+                    given = (given + 1)
+                }
+                i = (i + 1)
+            }
+            i = 0
+            while ((i < n) && (given < 2)) {
+                if ((itemAt out i) == 0) {
+                    set out i 1
+                    given = (given + 1)
+                }
+                i = (i + 1)
+            }
+            return out
+        }
+        while true {
+            def depth:[int] (DeflateHuffman.build(f))
+            def maxLen:int 0
+            i = 0
+            while (i < n) {
+                if ((itemAt depth i) > maxLen) {
+                    maxLen = (itemAt depth i)
+                }
+                i = (i + 1)
+            }
+            if (maxLen <= limit) {
+                return depth
+            }
+            i = 0
+            while (i < n) {
+                def v2:int (itemAt f i)
+                if (v2 > 0) {
+                    set f i (idiv (v2 + 1) 2)
+                }
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; Huffman tree depths: two lightest nodes joined until one is left
+    sfn build:[int] (f:[int]) {
+        def n:int (array_length f)
+        def weight:[int]
+        def parent:[int]
+        def alive:[boolean]
+        def i:int 0
+        while (i < n) {
+            push weight (itemAt f i)
+            push parent (0 - 1)
+            push alive ((itemAt f i) > 0)
+            i = (i + 1)
+        }
+        def left:int 0
+        i = 0
+        while (i < n) {
+            if (itemAt alive i) {
+                left = (left + 1)
+            }
+            i = (i + 1)
+        }
+        while (left > 1) {
+            def a:int (0 - 1)
+            def b:int (0 - 1)
+            def total:int (array_length weight)
+            def j:int 0
+            while (j < total) {
+                if (itemAt alive j) {
+                    def w:int (itemAt weight j)
+                    if (a < 0) {
+                        a = j
+                    } {
+                        if (w < (itemAt weight a)) {
+                            b = a
+                            a = j
+                        } {
+                            if (b < 0) {
+                                b = j
+                            } {
+                                if (w < (itemAt weight b)) {
+                                    b = j
+                                }
+                            }
+                        }
+                    }
+                }
+                j = (j + 1)
+            }
+            def node:int (array_length weight)
+            push weight ((itemAt weight a) + (itemAt weight b))
+            push parent (0 - 1)
+            push alive true
+            set alive a false
+            set alive b false
+            set parent a node
+            set parent b node
+            left = (left - 1)
+        }
+        def depth:[int]
+        i = 0
+        while (i < n) {
+            def d:int 0
+            if ((itemAt f i) > 0) {
+                def p:int (itemAt parent i)
+                while (p >= 0) {
+                    d = (d + 1)
+                    p = (itemAt parent p)
+                }
+            }
+            push depth d
+            i = (i + 1)
+        }
+        return depth
+    }
+
+    ; canonical codes for lengths (RFC 1951 3.2.2), already bit-reversed so
+    ; they can be written LSB first
+    sfn codes:[int] (lens:[int]) {
+        def n:int (array_length lens)
+        def blCount:[int]
+        def i:int 0
+        while (i < 16) {
+            push blCount 0
+            i = (i + 1)
+        }
+        i = 0
+        while (i < n) {
+            def l:int (itemAt lens i)
+            if (l > 0) {
+                set blCount l ((itemAt blCount l) + 1)
+            }
+            i = (i + 1)
+        }
+        def next:[int]
+        push next 0
+        def code:int 0
+        def bits:int 1
+        while (bits < 16) {
+            code = (bit_shl (code + (itemAt blCount (bits - 1))) 1)
+            push next code
+            bits = (bits + 1)
+        }
+        def out:[int]
+        i = 0
+        while (i < n) {
+            def l2:int (itemAt lens i)
+            if (l2 > 0) {
+                def c:int (itemAt next l2)
+                set next l2 (c + 1)
+                push out (DeflateHuffman.reverse(c l2))
+            } {
+                push out 0
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn reverse:int (code:int len:int) {
+        def r:int 0
+        def i:int 0
+        def c:int code
+        while (i < len) {
+            r = (bit_or (bit_shl r 1) (bit_and c 1))
+            c = (bit_ushr c 1)
+            i = (i + 1)
+        }
+        return r
+    }
+}
+
+class Deflate {
+    def data:buffer (buffer_alloc 0)
+    def n:int 0
+    def tables:DeflateTables (new DeflateTables())
+    ; output
+    def bytes:[int]
+    def bitBuf:int 0
+    def bitCnt:int 0
+    ; LZ77 tokens: tokLen 0 = the literal tokVal; else a match of tokLen
+    ; bytes tokVal back
+    def tokLen:[int]
+    def tokVal:[int]
+    ; input position where each token starts
+    def tokPos:[int]
+    ; hash chains: newest position per 3-byte hash, and the one before it
+    ; per position (mod 32768)
+    def head:[int]
+    def prev:[int]
+    ; positions below this are in the hash chains already
+    def nextIns:int 0
+    ; longest(): the match found, 0 when none
+    def foundLen:int 0
+    def foundDist:int 0
+
+    Constructor () {
+        n = 0
+    }
+
+    ; raw DEFLATE of data
+    sfn compress:buffer (src:buffer) {
+        def d (new Deflate())
+        return d.run(src)
+    }
+
+    fn run:buffer (src:buffer) {
+        data = src
+        n = (buffer_length src)
+        this.tokenize()
+        def count:int (array_length tokLen)
+        def per:int 16384
+        def start:int 0
+        if (count == 0) {
+            ; one final fixed block holding only end-of-block (code 0000000)
+            this.putBits(1 1)
+            this.putBits(1 2)
+            this.putBits(0 7)
+        }
+        while (start < count) {
+            def end:int (start + per)
+            if (end > count) {
+                end = count
+            }
+            this.block(start end (end == count))
+            start = end
+        }
+        this.flushBits()
+        def out:buffer (buffer_alloc (array_length bytes))
+        def i:int 0
+        while (i < (array_length bytes)) {
+            buffer_set out i (itemAt bytes i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn putBits:void (value:int count:int) {
+        bitBuf = (bit_or bitBuf (bit_shl value bitCnt))
+        bitCnt = (bitCnt + count)
+        while (bitCnt >= 8) {
+            push bytes (bit_and bitBuf 255)
+            bitBuf = (bit_ushr bitBuf 8)
+            bitCnt = (bitCnt - 8)
+        }
+    }
+
+    fn flushBits:void () {
+        if (bitCnt > 0) {
+            push bytes (bit_and bitBuf 255)
+        }
+        bitBuf = 0
+        bitCnt = 0
+    }
+
+    fn hashAt:int (i:int) {
+        def a:int (buffer_get data i)
+        def b:int (buffer_get data (i + 1))
+        def c:int (buffer_get data (i + 2))
+        return (bit_and (bit_xor (bit_xor (bit_shl a 10) (bit_shl b 5)) c) 32767)
+    }
+
+    fn tokenize:void () {
+        def i:int 0
+        while (i < 32768) {
+            push head (0 - 1)
+            push prev (0 - 1)
+            i = (i + 1)
+        }
+        i = 0
+        while (i < n) {
+            this.longest(i)
+            def len:int foundLen
+            def dist:int foundDist
+            if (len >= 3) {
+                ; lazy: a longer match one byte on wins, this byte goes as is
+                if ((len < 32) && ((i + 1) < n)) {
+                    this.insert(i)
+                    this.longest((i + 1))
+                    if (foundLen > len) {
+                        push tokLen 0
+                        push tokVal (buffer_get data i)
+                        push tokPos i
+                        i = (i + 1)
+                        len = foundLen
+                        dist = foundDist
+                    }
+                } {
+                    this.insert(i)
+                }
+                push tokLen len
+                push tokVal dist
+                push tokPos i
+                def k:int 0
+                while (k < len) {
+                    this.insert((i + k))
+                    k = (k + 1)
+                }
+                i = (i + len)
+            } {
+                this.insert(i)
+                push tokLen 0
+                push tokVal (buffer_get data i)
+                push tokPos i
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn insert:void (i:int) {
+        if ((i + 2) >= n) {
+            return
+        }
+        ; positions go in once, in order (the lazy step looks one ahead)
+        if (i < nextIns) {
+            return
+        }
+        nextIns = (i + 1)
+        def h:int (this.hashAt(i))
+        def slot:int (bit_and i 32767)
+        set prev slot (itemAt head h)
+        set head h i
+    }
+
+    fn longest:void (i:int) {
+        foundLen = 0
+        foundDist = 0
+        if ((i + 2) >= n) {
+            return
+        }
+        def maxLen:int (n - i)
+        if (maxLen > 258) {
+            maxLen = 258
+        }
+        def cand:int (itemAt head (this.hashAt(i)))
+        def chain:int 0
+        def best:int 0
+        def bestDist:int 0
+        while ((cand >= 0) && (chain < 128)) {
+            if (cand >= i) {
+                break
+            }
+            def dist:int (i - cand)
+            if (dist > 32768) {
+                break
+            }
+            if ((buffer_get data (cand + best)) == (buffer_get data (i + best))) {
+                def l:int 0
+                while ((l < maxLen) && ((buffer_get data (cand + l)) == (buffer_get data (i + l)))) {
+                    l = (l + 1)
+                }
+                if (l > best) {
+                    best = l
+                    bestDist = dist
+                    if (l >= maxLen) {
+                        break
+                    }
+                }
+            }
+            def nextCand:int (itemAt prev (bit_and cand 32767))
+            if (nextCand >= cand) {
+                break
+            }
+            cand = nextCand
+            chain = (chain + 1)
+        }
+        if (best >= 3) {
+            foundLen = best
+            foundDist = bestDist
+        }
+    }
+
+    ; input bytes covered by tokens [from, to)
+    fn byteSpan:[int] (from:int to:int) {
+        def span:[int]
+        def a:int (itemAt tokPos from)
+        def b:int n
+        if (to < (array_length tokPos)) {
+            b = (itemAt tokPos to)
+        }
+        push span a
+        push span b
+        return span
+    }
+
+    fn block:void (from:int to:int last:boolean) {
+        def litF:[int]
+        def distF:[int]
+        def i:int 0
+        while (i < 286) {
+            push litF 0
+            i = (i + 1)
+        }
+        i = 0
+        while (i < 30) {
+            push distF 0
+            i = (i + 1)
+        }
+        def extraBits:int 0
+        i = from
+        while (i < to) {
+            def len:int (itemAt tokLen i)
+            if (len == 0) {
+                def lit:int (itemAt tokVal i)
+                set litF lit ((itemAt litF lit) + 1)
+            } {
+                def li:int (tables.lenIndex(len))
+                set litF (257 + li) ((itemAt litF (257 + li)) + 1)
+                def di:int (tables.distIndex((itemAt tokVal i)))
+                set distF di ((itemAt distF di) + 1)
+                extraBits = (extraBits + (itemAt tables.lenExtra li) + (itemAt tables.distExtra di))
+            }
+            i = (i + 1)
+        }
+        set litF 256 1
+
+        ; fixed Huffman cost
+        def fixedLit:[int] (this.fixedLitLens())
+        def fixedCost:int (3 + extraBits)
+        i = 0
+        while (i < 286) {
+            fixedCost = (fixedCost + ((itemAt litF i) * (itemAt fixedLit i)))
+            i = (i + 1)
+        }
+        i = 0
+        while (i < 30) {
+            fixedCost = (fixedCost + ((itemAt distF i) * 5))
+            i = (i + 1)
+        }
+
+        ; dynamic Huffman cost
+        def litLens:[int] (DeflateHuffman.lengths(litF 15))
+        def distLens:[int] (DeflateHuffman.lengths(distF 15))
+        def hlit:int 286
+        while ((hlit > 257) && ((itemAt litLens (hlit - 1)) == 0)) {
+            hlit = (hlit - 1)
+        }
+        def hdist:int 30
+        while ((hdist > 1) && ((itemAt distLens (hdist - 1)) == 0)) {
+            hdist = (hdist - 1)
+        }
+        def all:[int]
+        i = 0
+        while (i < hlit) {
+            push all (itemAt litLens i)
+            i = (i + 1)
+        }
+        i = 0
+        while (i < hdist) {
+            push all (itemAt distLens i)
+            i = (i + 1)
+        }
+        ; run-length coded lengths: symbol, then its extra value
+        def rleSym:[int]
+        def rleExtra:[int]
+        this.rle(all rleSym rleExtra)
+        def clF:[int]
+        i = 0
+        while (i < 19) {
+            push clF 0
+            i = (i + 1)
+        }
+        i = 0
+        while (i < (array_length rleSym)) {
+            def s:int (itemAt rleSym i)
+            set clF s ((itemAt clF s) + 1)
+            i = (i + 1)
+        }
+        def clLens:[int] (DeflateHuffman.lengths(clF 7))
+        def hclen:int 19
+        while ((hclen > 4) && ((itemAt clLens (itemAt tables.clOrder (hclen - 1))) == 0)) {
+            hclen = (hclen - 1)
+        }
+        def dynCost:int (3 + 14 + (3 * hclen) + extraBits)
+        i = 0
+        while (i < (array_length rleSym)) {
+            def s2:int (itemAt rleSym i)
+            dynCost = (dynCost + (itemAt clLens s2))
+            if (s2 == 16) {
+                dynCost = (dynCost + 2)
+            }
+            if (s2 == 17) {
+                dynCost = (dynCost + 3)
+            }
+            if (s2 == 18) {
+                dynCost = (dynCost + 7)
+            }
+            i = (i + 1)
+        }
+        i = 0
+        while (i < 286) {
+            dynCost = (dynCost + ((itemAt litF i) * (itemAt litLens i)))
+            i = (i + 1)
+        }
+        i = 0
+        while (i < 30) {
+            dynCost = (dynCost + ((itemAt distF i) * (itemAt distLens i)))
+            i = (i + 1)
+        }
+
+        def span:[int] (this.byteSpan(from to))
+        def rawLen:int ((itemAt span 1) - (itemAt span 0))
+        ; stored: header + padding (at most 7) + LEN/NLEN per 65535 bytes
+        def storedCost:int ((rawLen * 8) + (40 * ((idiv rawLen 65535) + 1)) + 10)
+
+        if ((storedCost <= fixedCost) && (storedCost <= dynCost)) {
+            this.stored((itemAt span 0) (itemAt span 1) last)
+            return
+        }
+        def finalBit:int 0
+        if last {
+            finalBit = 1
+        }
+        if (fixedCost <= dynCost) {
+            this.putBits(finalBit 1)
+            this.putBits(1 2)
+            def fixedDist:[int]
+            i = 0
+            while (i < 30) {
+                push fixedDist 5
+                i = (i + 1)
+            }
+            this.tokens(from to fixedLit fixedDist)
+            return
+        }
+        this.putBits(finalBit 1)
+        this.putBits(2 2)
+        this.putBits((hlit - 257) 5)
+        this.putBits((hdist - 1) 5)
+        this.putBits((hclen - 4) 4)
+        i = 0
+        while (i < hclen) {
+            this.putBits((itemAt clLens (itemAt tables.clOrder i)) 3)
+            i = (i + 1)
+        }
+        def clCodes:[int] (DeflateHuffman.codes(clLens))
+        i = 0
+        while (i < (array_length rleSym)) {
+            def s3:int (itemAt rleSym i)
+            this.putBits((itemAt clCodes s3) (itemAt clLens s3))
+            if (s3 == 16) {
+                this.putBits((itemAt rleExtra i) 2)
+            }
+            if (s3 == 17) {
+                this.putBits((itemAt rleExtra i) 3)
+            }
+            if (s3 == 18) {
+                this.putBits((itemAt rleExtra i) 7)
+            }
+            i = (i + 1)
+        }
+        this.tokens(from to litLens distLens)
+    }
+
+    fn fixedLitLens:[int] () {
+        def lens:[int]
+        def i:int 0
+        while (i < 288) {
+            def l:int 8
+            if ((i >= 144) && (i < 256)) {
+                l = 9
+            }
+            if ((i >= 256) && (i < 280)) {
+                l = 7
+            }
+            push lens l
+            i = (i + 1)
+        }
+        return lens
+    }
+
+    ; code lengths as code-length-code symbols (16 repeat, 17/18 zeros)
+    fn rle:void (lens:[int] syms:[int] extras:[int]) {
+        def total:int (array_length lens)
+        def i:int 0
+        while (i < total) {
+            def l:int (itemAt lens i)
+            def run:int 1
+            while (((i + run) < total) && ((itemAt lens (i + run)) == l)) {
+                run = (run + 1)
+            }
+            if (l == 0) {
+                def left:int run
+                while (left >= 11) {
+                    def take:int left
+                    if (take > 138) {
+                        take = 138
+                    }
+                    push syms 18
+                    push extras (take - 11)
+                    left = (left - take)
+                }
+                if (left >= 3) {
+                    push syms 17
+                    push extras (left - 3)
+                    left = 0
+                }
+                while (left > 0) {
+                    push syms 0
+                    push extras 0
+                    left = (left - 1)
+                }
+            } {
+                push syms l
+                push extras 0
+                def left2:int (run - 1)
+                while (left2 >= 3) {
+                    def take2:int left2
+                    if (take2 > 6) {
+                        take2 = 6
+                    }
+                    push syms 16
+                    push extras (take2 - 3)
+                    left2 = (left2 - take2)
+                }
+                while (left2 > 0) {
+                    push syms l
+                    push extras 0
+                    left2 = (left2 - 1)
+                }
+            }
+            i = (i + run)
+        }
+    }
+
+    fn tokens:void (from:int to:int litLens:[int] distLens:[int]) {
+        def litCodes:[int] (DeflateHuffman.codes(litLens))
+        def distCodes:[int] (DeflateHuffman.codes(distLens))
+        def i:int from
+        while (i < to) {
+            def len:int (itemAt tokLen i)
+            if (len == 0) {
+                def lit:int (itemAt tokVal i)
+                this.putBits((itemAt litCodes lit) (itemAt litLens lit))
+            } {
+                def li:int (tables.lenIndex(len))
+                def sym:int (257 + li)
+                this.putBits((itemAt litCodes sym) (itemAt litLens sym))
+                def le:int (itemAt tables.lenExtra li)
+                if (le > 0) {
+                    this.putBits((len - (itemAt tables.lenBase li)) le)
+                }
+                def dist:int (itemAt tokVal i)
+                def di:int (tables.distIndex(dist))
+                this.putBits((itemAt distCodes di) (itemAt distLens di))
+                def de:int (itemAt tables.distExtra di)
+                if (de > 0) {
+                    this.putBits((dist - (itemAt tables.distBase di)) de)
+                }
+            }
+            i = (i + 1)
+        }
+        this.putBits((itemAt litCodes 256) (itemAt litLens 256))
+    }
+
+    ; input bytes [a, b) as stored blocks
+    fn stored:void (a:int b:int last:boolean) {
+        def at:int a
+        def first:boolean true
+        while (first || (at < b)) {
+            first = false
+            def take:int (b - at)
+            if (take > 65535) {
+                take = 65535
+            }
+            def fin:int 0
+            if (last && ((at + take) >= b)) {
+                fin = 1
+            }
+            this.putBits(fin 1)
+            this.putBits(0 2)
+            this.flushBits()
+            push bytes (bit_and take 255)
+            push bytes (bit_ushr take 8)
+            def nlen:int (65535 - take)
+            push bytes (bit_and nlen 255)
+            push bytes (bit_ushr nlen 8)
+            def k:int 0
+            while (k < take) {
+                push bytes (buffer_get data (at + k))
+                k = (k + 1)
+            }
+            at = (at + take)
+        }
+    }
+}

@@ -1,0 +1,410 @@
+; SPDX-License-Identifier: MIT
+
+; Writing Git: objects, trees, commits, loose files, packs + idx, the
+; receive-pack request and report. Run by pkg/tools/git-write-check.mjs,
+; which makes the fixtures with real git and checks what this wrote with
+; git fsck / cat-file / receive-pack:
+;
+;   GitWriteTest <work> write    build written.git, packed.git, push*.req
+;   GitWriteTest <work> read     read fixture.git (packed by git gc)
+;   GitWriteTest <work> report   parse git receive-pack's push*.res
+
+Import "../src/GitSha1.rgr"
+Import "../src/GitZlib.rgr"
+Import "../src/GitPkt.rgr"
+Import "../src/GitPack.rgr"
+Import "../src/GitObject.rgr"
+Import "../src/GitPackFile.rgr"
+Import "../src/GitPush.rgr"
+
+class GitWriteTest {
+    def passed:int 0
+    def failed:int 0
+    def work:string ""
+    ; every object written, by id
+    def kinds:[string:string]
+    def payloads:[string:buffer]
+
+    sfn main:void () {
+        def t (new GitWriteTest)
+        t.work = (shell_arg 0)
+        def mode:string (shell_arg 1)
+        if (mode == "write") {
+            t.testUnits()
+            t.testWrite()
+        }
+        if (mode == "read") {
+            t.testRead()
+        }
+        if (mode == "report") {
+            t.testReport()
+        }
+        if (t.failed == 0) {
+            print ("ALL PASS  " + (to_string t.passed))
+        } {
+            print ("FAILED  " + (to_string t.failed) + " of " + (to_string (t.passed + t.failed)))
+        }
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.check((name + " (got " + got + " want " + want + ")") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.check((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn sameBytes:boolean (a:buffer b:buffer) {
+        def n:int (buffer_length a)
+        if (n != (buffer_length b)) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            if ((buffer_get a i) != (buffer_get b i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn fileAt:buffer (path:string) {
+        def slash:int (lastIndexOf path "/")
+        return (buffer_read_file (substring path 0 slash) (substring path (slash + 1) (strlen path)))
+    }
+
+    fn writeAt:void (path:string data:buffer) {
+        def slash:int (lastIndexOf path "/")
+        create_dir (substring path 0 slash)
+        buffer_write_file (substring path 0 slash) (substring path (slash + 1) (strlen path)) data
+    }
+
+    fn writeText:void (path:string text:string) {
+        this.writeAt(path (GitObjects.utf8(text)))
+    }
+
+    ; ---- units ----------------------------------------------------------
+
+    fn testUnits:void () {
+        print "git write: zlib"
+        def text:buffer (GitObjects.utf8("Hyvää päivää, Git! Hyvää päivää, Git! Hyvää päivää, Git!\n"))
+        def z (new GitZlib)
+        def back:buffer (z.inflate((GitZlib.deflate(text))))
+        this.check("deflate → inflate" (this.sameBytes(back text)))
+        def empty:buffer (buffer_alloc 0)
+        def back0:buffer (z.inflate((GitZlib.deflate(empty))))
+        this.eqInt("empty roundtrip" (buffer_length back0) 0)
+        this.eqInt("adler32 of Wikipedia" (GitZlib.adler32((GitObjects.utf8("Wikipedia")))) 300286872)
+
+        print "git write: objects"
+        ; `git hash-object` of "hello\n" and of nothing
+        this.eqStr("blob id" (GitObjects.id("blob" (GitObjects.utf8("hello\n")))) "ce013625030ba8dba906f756967f9e9ca394464a")
+        this.eqStr("empty tree id" (GitObjects.id("tree" (buffer_alloc 0))) "4b825dc642cb6eb9a060e54bf8d69288fbee4904")
+        def raw:GitRaw (GitObjects.readLoose((GitObjects.loose("blob" (GitObjects.utf8("hello\n"))))))
+        this.check("loose roundtrip" (raw.ok && (raw.kind == "blob") && ((GitObjects.text(raw.payload)) == "hello\n")))
+        this.eqStr("loose path" (GitObjects.loosePath("ce013625030ba8dba906f756967f9e9ca394464a")) "objects/ce/013625030ba8dba906f756967f9e9ca394464a")
+
+        ; Git's order: "a.txt" < "a" (a tree, compared as "a/") < "a0"
+        def items:[GitTreeItem]
+        def names:[string] ([] _:string ("a0" "a" "a.txt"))
+        def i:int 0
+        while (i < 3) {
+            def e (new GitTreeItem)
+            e.name = (itemAt names i)
+            e.sha = "ce013625030ba8dba906f756967f9e9ca394464a"
+            if (e.name == "a") {
+                e.mode = "40000"
+            }
+            push items e
+            i = (i + 1)
+        }
+        def parsed:[GitTreeItem] (GitObjects.parseTree((GitObjects.treePayload(items))))
+        def order:string ""
+        i = 0
+        while (i < (array_length parsed)) {
+            order = (order + (itemAt parsed i).name + ",")
+            i = (i + 1)
+        }
+        this.eqStr("tree order" order "a.txt,a,a0,")
+
+        def c (new GitCommit)
+        c.tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+        c.author.name = "Äijä <x> Örkki"
+        c.author.email = "aija@example.com"
+        c.author.time = 1760320000
+        c.author.tz = "+0300"
+        c.committer = c.author
+        c.message = "Ensimmäinen versio"
+        def back2:GitCommit (GitObjects.parseCommit((GitObjects.commitPayload(c))))
+        this.eqStr("commit author" back2.author.name "Äijä x Örkki")
+        this.eqInt("commit time" back2.author.time 1760320000)
+        this.eqStr("commit tz" back2.author.tz "+0300")
+        this.eqStr("commit message" back2.message "Ensimmäinen versio\n")
+        this.eqStr("commit tree" back2.tree c.tree)
+
+        print "git write: pkt / report"
+        ; an empty repository's receive-pack advertisement ("|" is the NUL)
+        def advBytes:buffer (GitPktIO.encodeLine("0000000000000000000000000000000000000000 capabilities^{}|report-status delete-refs side-band-64k ofs-delta agent=git/2.43.0\n"))
+        def ai:int 0
+        while (ai < (buffer_length advBytes)) {
+            if ((buffer_get advBytes ai) == 124) {
+                buffer_set advBytes ai 0
+            }
+            ai = (ai + 1)
+        }
+        def advParts:[buffer]
+        push advParts advBytes
+        push advParts (GitPktIO.encodeFlush())
+        def adv:GitAdvertisement (GitPktIO.parseAdvertisement((GitObjects.concat(advParts))))
+        this.eqInt("empty remote has no refs" (array_length adv.refs) 0)
+        this.eqStr("caps" (GitPush.caps(adv "ranger-git")) "report-status side-band-64k agent=ranger-git")
+    }
+
+    ; ---- write ----------------------------------------------------------
+
+    fn put:string (repo:string kind:string payload:buffer) {
+        def sha:string (GitObjects.id(kind payload))
+        set kinds sha kind
+        set payloads sha payload
+        this.writeAt((repo + "/" + (GitObjects.loosePath(sha))) (GitObjects.loose(kind payload)))
+        return sha
+    }
+
+    fn file:GitTreeItem (repo:string path:string data:buffer) {
+        def f (new GitTreeItem)
+        f.name = path
+        f.sha = this.put(repo "blob" data)
+        return f
+    }
+
+    fn initBare:void (repo:string) {
+        def dirs:[string] (GitRepoLayout.bareDirs())
+        def i:int 0
+        while (i < (array_length dirs)) {
+            create_dir (repo + "/" + (itemAt dirs i))
+            i = (i + 1)
+        }
+        def files:[GitRepoFile] (GitRepoLayout.bareFiles("main"))
+        i = 0
+        while (i < (array_length files)) {
+            def f:GitRepoFile (itemAt files i)
+            this.writeText((repo + "/" + f.path) f.text)
+            i = (i + 1)
+        }
+    }
+
+    fn commitOf:string (repo:string files:[GitTreeItem] parents:[string] message:string) {
+        def ts:GitTreeSet (GitTrees.build(files))
+        def i:int 0
+        while (i < (array_length ts.shas)) {
+            this.put(repo "tree" (itemAt ts.payloads i))
+            i = (i + 1)
+        }
+        def c (new GitCommit)
+        c.tree = ts.root
+        c.parents = parents
+        c.author.name = "Tero Äijälä"
+        c.author.email = "tero@users.noreply.example"
+        c.author.time = 1760320000
+        c.author.tz = "+0300"
+        c.committer.name = "Sliqtly server"
+        c.committer.email = "server@sliqtly.invalid"
+        c.committer.time = 1760320060
+        c.committer.tz = "+0000"
+        c.message = message
+        return this.put(repo "commit" (GitObjects.commitPayload(c)))
+    }
+
+    fn png:buffer () {
+        def b:buffer (buffer_alloc 300)
+        def i:int 0
+        while (i < 300) {
+            buffer_set b i (bit_and (i * 37) 255)
+            i = (i + 1)
+        }
+        return b
+    }
+
+    fn testWrite:void () {
+        print "git write: loose repository"
+        def repo:string (work + "/written.git")
+        this.initBare(repo)
+        def deck1:string "# Hyvää päivää ✓\n\nEnsimmäinen dia.\n"
+        def files1:[GitTreeItem]
+        push files1 (this.file(repo "decks/abc/deck.md" (GitObjects.utf8(deck1))))
+        push files1 (this.file(repo "decks/abc/media/dot.png" (this.png())))
+        push files1 (this.file(repo "decks/abc/data/tyhjä.csv" (buffer_alloc 0)))
+        push files1 (this.file(repo "rooms/general.json" (GitObjects.utf8("{\"name\":\"General\"}\n"))))
+        push files1 (this.file(repo "README.md" (GitObjects.utf8("# Sliqtly\n"))))
+        def none:[string]
+        def c1:string (this.commitOf(repo files1 none "Pakka \"Hyvää päivää\": luotu\n\nCo-authored-by: Äijä <aija@example.com>\n"))
+
+        def deck2:string (deck1 + "\n## Toinen dia\n\nLisää tekstiä.\n")
+        def files2:[GitTreeItem]
+        push files2 (this.file(repo "decks/abc/deck.md" (GitObjects.utf8(deck2))))
+        def k:int 1
+        while (k < (array_length files1)) {
+            push files2 (itemAt files1 k)
+            k = (k + 1)
+        }
+        def p1:[string]
+        push p1 c1
+        def c2:string (this.commitOf(repo files2 p1 "Pakka \"Hyvää päivää\": 1 dia lisätty"))
+        this.writeText((repo + "/refs/heads/main") (GitRepoLayout.refFileText(c2)))
+        this.check("ref file reads back" ((GitRepoLayout.refFileSha((GitRepoLayout.refFileText(c2)))) == c2))
+        this.eqStr("HEAD is symbolic" (GitRepoLayout.symbolicTarget("ref: refs/heads/main\n")) "refs/heads/main")
+        def back:GitRaw (GitObjects.readLoose((this.fileAt((repo + "/" + (GitObjects.loosePath(c2)))))))
+        this.check("commit 2 reads back" (back.ok && (back.kind == "commit")))
+        this.writeText((work + "/written.meta") ("c1 " + c1 + "\nc2 " + c2 + "\n"))
+
+        print "git write: walk + pack + idx"
+        def remote0:[string]
+        def tips:[string]
+        push tips c2
+        def all:GitPackWriter (this.walk(tips remote0))
+        ; 2 commits, 2 root trees, 2 decks trees, 2 abc trees, media, data,
+        ; rooms trees, 6 blobs (two deck.md)
+        this.eqInt("full pack objects" (all.count()) 17)
+        def packed:string (work + "/packed.git")
+        this.initBare(packed)
+        def pack:buffer (all.finish())
+        def idx:buffer (all.idx())
+        this.writeAt((packed + "/objects/pack/pack-" + all.packSha + ".pack") pack)
+        this.writeAt((packed + "/objects/pack/pack-" + all.packSha + ".idx") idx)
+        this.writeText((packed + "/refs/heads/main") (GitRepoLayout.refFileText(c2)))
+        def ix:GitIdxFile (GitIdxIO.parse(idx))
+        this.check("own idx parses" ix.ok)
+        this.eqInt("own idx count" (array_length ix.shas) 17)
+        def got:GitRaw (GitPackReader.find(pack ix c1))
+        this.check("own pack finds commit 1" (got.ok && (this.sameBytes(got.payload (unwrap (get payloads c1))))))
+        def whole:GitPack (GitPackIO.parse(pack))
+        this.check("own pack parses whole" (whole.ok && (whole.count == 17)))
+
+        print "git write: push requests"
+        def adv:GitAdvertisement (GitPktIO.parseAdvertisement((this.fileAt((work + "/adv-empty.bin")))))
+        this.check("advertisement parses" adv.ok)
+        def caps:string (GitPush.caps(adv "ranger-git/0"))
+        def first:[string]
+        push first c1
+        def w1:GitPackWriter (this.walk(first remote0))
+        ; commit, 6 trees, 5 blobs
+        this.eqInt("first push objects" (w1.count()) 12)
+        def u1 (new GitRefUpdate)
+        u1.name = "refs/heads/main"
+        u1.newSha = c1
+        def ups1:[GitRefUpdate]
+        push ups1 u1
+        this.writeAt((work + "/push1.req") (GitPush.request(ups1 caps (w1.finish()))))
+        def w2:GitPackWriter (this.walk(tips first))
+        ; commit 2, root, decks, abc trees, the new deck.md
+        this.eqInt("second push objects" (w2.count()) 5)
+        def u2 (new GitRefUpdate)
+        u2.name = "refs/heads/main"
+        u2.oldSha = c1
+        u2.newSha = c2
+        def ups2:[GitRefUpdate]
+        push ups2 u2
+        this.writeAt((work + "/push2.req") (GitPush.request(ups2 caps (w2.finish()))))
+    }
+
+    fn walk:GitPackWriter (tips:[string] remote:[string]) {
+        def w (new GitWalk(tips remote))
+        def sha:string (w.need())
+        while ((strlen sha) > 0) {
+            if (has kinds sha) {
+                w.give(sha (unwrap (get kinds sha)) (unwrap (get payloads sha)))
+            } {
+                w.missing(sha)
+            }
+            sha = (w.need())
+        }
+        this.check("walk ok" w.ok)
+        return (w.pack())
+    }
+
+    ; ---- read -----------------------------------------------------------
+
+    fn testRead:void () {
+        print "git read: pack + idx written by git gc"
+        def meta:string (GitObjects.text((this.fileAt((work + "/fixture.meta")))))
+        def lines:[string] (strsplit meta "\n")
+        def packName:string ""
+        def head:string ""
+        def objs:[string]
+        def i:int 0
+        while (i < (array_length lines)) {
+            def parts:[string] (strsplit (itemAt lines i) " ")
+            if ((array_length parts) >= 2) {
+                def key:string (itemAt parts 0)
+                if (key == "pack") {
+                    packName = (itemAt parts 1)
+                }
+                if (key == "head") {
+                    head = (itemAt parts 1)
+                }
+                if (key == "obj") {
+                    push objs (itemAt parts 1)
+                }
+            }
+            i = (i + 1)
+        }
+        def dir:string (work + "/fixture.git/objects/pack/")
+        def idx:GitIdxFile (GitIdxIO.parse((this.fileAt((dir + packName + ".idx")))))
+        this.check("git idx parses" idx.ok)
+        this.eqInt("git idx count" (array_length idx.shas) (array_length objs))
+        def pack:buffer (this.fileAt((dir + packName + ".pack")))
+        def same:int 0
+        i = 0
+        while (i < (array_length objs)) {
+            def sha:string (itemAt objs i)
+            def raw:GitRaw (GitPackReader.find(pack idx sha))
+            def want:buffer (this.fileAt((work + "/expect/" + sha)))
+            if (raw.ok && (this.sameBytes(raw.payload want)) && ((GitObjects.id(raw.kind raw.payload)) == sha)) {
+                same = (same + 1)
+            } {
+                print ("         " + sha + " " + raw.err)
+            }
+            i = (i + 1)
+        }
+        this.eqInt("objects read by offset" same (array_length objs))
+        def hc:GitRaw (GitPackReader.find(pack idx head))
+        def c:GitCommit (GitObjects.parseCommit(hc.payload))
+        this.eqStr("git commit author (UTF-8)" c.author.name "Äijä Örkki")
+        this.check("git commit has a parent" ((array_length c.parents) == 1))
+        def packed:[GitRef] (GitRepoLayout.parsePacked((GitObjects.text((this.fileAt((work + "/fixture.git/packed-refs")))))))
+        def mainSha:string ""
+        i = 0
+        while (i < (array_length packed)) {
+            def r:GitRef (itemAt packed i)
+            if (r.name == "refs/heads/main") {
+                mainSha = r.sha
+            }
+            i = (i + 1)
+        }
+        this.eqStr("packed-refs main" mainSha head)
+    }
+
+    ; ---- report ---------------------------------------------------------
+
+    fn testReport:void () {
+        print "git push: report-status from git receive-pack"
+        def r1:GitPushReport (GitPush.parseReport((this.fileAt((work + "/push1.res")))))
+        this.check(("push 1 ok " + r1.err) (r1.ok && (r1.refOk("refs/heads/main"))))
+        def r2:GitPushReport (GitPush.parseReport((this.fileAt((work + "/push2.res")))))
+        this.check(("push 2 ok " + r2.err) (r2.ok && (r2.refOk("refs/heads/main"))))
+        def r3:GitPushReport (GitPush.parseReport((this.fileAt((work + "/push-stale.res")))))
+        this.check("stale push refused" ((r3.ok == false) && ((r3.refOk("refs/heads/main")) == false)))
+        print ("         refused: " + r3.err)
+    }
+}

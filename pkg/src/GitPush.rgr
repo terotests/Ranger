@@ -1,0 +1,465 @@
+; SPDX-License-Identifier: MIT
+
+; Writing to a repository: refs as files, a new bare repository's files,
+; which objects a push has to send, and the git-receive-pack request and
+; its report-status answer (smart HTTP or --stateless-rpc).
+;
+; Written from gitprotocol-pack / gitprotocol-http / gitrepository-layout,
+; not from Git's C sources. Bytes in, bytes out: the host reads and writes
+; the files and does the HTTPS (with whatever Authorization it has).
+
+Import "GitSha1.rgr"
+Import "GitPkt.rgr"
+Import "GitObject.rgr"
+Import "GitPackFile.rgr"
+
+; a file a new repository needs (path relative to the repository)
+class GitRepoFile {
+    def path:string ""
+    def text:string ""
+}
+
+class GitRepoLayout {
+    ; the files and folders of a new bare repository whose HEAD is branch
+    sfn bareFiles:[GitRepoFile] (branch:string) {
+        def out:[GitRepoFile]
+        def head (new GitRepoFile)
+        head.path = "HEAD"
+        head.text = ("ref: refs/heads/" + branch + "\n")
+        push out head
+        def cfg (new GitRepoFile)
+        cfg.path = "config"
+        cfg.text = "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = true\n"
+        push out cfg
+        def desc (new GitRepoFile)
+        desc.path = "description"
+        desc.text = "Unnamed repository; edit this file 'description' to name the repository.\n"
+        push out desc
+        return out
+    }
+
+    sfn bareDirs:[string] () {
+        return ([] _:string ("objects" "objects/info" "objects/pack" "refs" "refs/heads" "refs/tags"))
+    }
+
+    ; a loose ref file's text → its id, "" when it is not one
+    sfn refFileSha:string (text:string) {
+        def t:string (trim text)
+        if ((strlen t) == 40) {
+            return t
+        }
+        return ""
+    }
+
+    ; "ref: refs/heads/main" → "refs/heads/main", "" when not symbolic
+    sfn symbolicTarget:string (text:string) {
+        def t:string (trim text)
+        if ((strlen t) > 5) {
+            if ((substring t 0 5) == "ref: ") {
+                return (trim (substring t 5 (strlen t)))
+            }
+        }
+        return ""
+    }
+
+    sfn refFileText:string (sha:string) {
+        return (sha + "\n")
+    }
+
+    ; packed-refs: `sha SP name` lines, `^sha` peels the tag above, # comments
+    sfn parsePacked:[GitRef] (text:string) {
+        def out:[GitRef]
+        def lines:[string] (strsplit text "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (trim (itemAt lines i))
+            if ((strlen line) >= 41) {
+                def c0:string (substring line 0 1)
+                if (c0 == "^") {
+                    def k:int ((array_length out) - 1)
+                    if (k >= 0) {
+                        def last:GitRef (itemAt out k)
+                        last.peeled = (substring line 1 41)
+                    }
+                } {
+                    if (c0 != "#") {
+                        def r (new GitRef)
+                        r.sha = (substring line 0 40)
+                        r.name = (trim (substring line 41 (strlen line)))
+                        push out r
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+; which objects a push sends: everything reachable from the new commits
+; that the remote's commits do not already reach. The walk asks the host for
+; objects one at a time (need → give), so it works over loose objects,
+; packs, a database, whatever the host keeps them in.
+class GitWalk {
+    def ok:boolean true
+    def err:string ""
+    ; the remote has these and everything they reach
+    def have:[string:boolean]
+    ; to send, in the order found (commits, then what they reach)
+    def send:[string]
+    def sendKind:[string:string]
+    def sendPayload:[string:buffer]
+    ; the remote's side, read first, then the new side
+    def haveQueue:[string]
+    def haveAt:int 0
+    def sendQueue:[string]
+    def sendAt:int 0
+    def queued:[string:boolean]
+    ; ids of commits to stop at
+    def stop:[string:boolean]
+    ; what the last need() answered is for: "have" or "send"
+    def side:string ""
+
+    ; tips: the commits being pushed; remote: the commits the remote's refs
+    ; name (an empty remote: none)
+    Constructor (tips:[string] remote:[string]) {
+        def i:int 0
+        while (i < (array_length remote)) {
+            def r:string (itemAt remote i)
+            if ((strlen r) == 40) {
+                if (r != "0000000000000000000000000000000000000000") {
+                    set stop r true
+                    this.enqueue(r "have")
+                }
+            }
+            i = (i + 1)
+        }
+        i = 0
+        while (i < (array_length tips)) {
+            this.enqueue((itemAt tips i) "send")
+            i = (i + 1)
+        }
+    }
+
+    fn enqueue:void (sha:string why:string) {
+        def key:string (why + ":" + sha)
+        if (has queued key) {
+            return
+        }
+        set queued key true
+        if (why == "have") {
+            push haveQueue sha
+        } {
+            push sendQueue sha
+        }
+    }
+
+    ; the next object the walk needs, "" when it is done. The remote's side
+    ; is read completely before the new side, so "have" is whole by the
+    ; time a new object is looked at.
+    fn need:string () {
+        if (haveAt < (array_length haveQueue)) {
+            side = "have"
+            return (itemAt haveQueue haveAt)
+        }
+        while (sendAt < (array_length sendQueue)) {
+            def sha:string (itemAt sendQueue sendAt)
+            if ((has have sha) || (has sendKind sha)) {
+                sendAt = (sendAt + 1)
+            } {
+                side = "send"
+                return sha
+            }
+        }
+        side = ""
+        return ""
+    }
+
+    ; the host's answer for need(): the object's kind and payload
+    fn give:void (sha:string kind:string payload:buffer) {
+        if (side == "have") {
+            haveAt = (haveAt + 1)
+            set have sha true
+            if (kind == "commit") {
+                def c:GitCommit (GitObjects.parseCommit(payload))
+                this.enqueue(c.tree "have")
+            }
+            if (kind == "tree") {
+                def items:[GitTreeItem] (GitObjects.parseTree(payload))
+                def i:int 0
+                while (i < (array_length items)) {
+                    def e:GitTreeItem (itemAt items i)
+                    if (e.isTree()) {
+                        this.enqueue(e.sha "have")
+                    } {
+                        ; a blob the remote has; its bytes are not needed
+                        set have e.sha true
+                    }
+                    i = (i + 1)
+                }
+            }
+            return
+        }
+        sendAt = (sendAt + 1)
+        push send sha
+        set sendKind sha kind
+        set sendPayload sha payload
+        if (kind == "commit") {
+            def c2:GitCommit (GitObjects.parseCommit(payload))
+            this.enqueue(c2.tree "send")
+            def p:int 0
+            while (p < (array_length c2.parents)) {
+                def parent:string (itemAt c2.parents p)
+                if ((has stop parent) == false) {
+                    this.enqueue(parent "send")
+                }
+                p = (p + 1)
+            }
+        }
+        if (kind == "tree") {
+            def items2:[GitTreeItem] (GitObjects.parseTree(payload))
+            def j:int 0
+            while (j < (array_length items2)) {
+                def e2:GitTreeItem (itemAt items2 j)
+                ; a submodule's commit lives in another repository
+                if (e2.mode != "160000") {
+                    this.enqueue(e2.sha "send")
+                }
+                j = (j + 1)
+            }
+        }
+    }
+
+    ; the host has no such object. On the remote's side that only means
+    ; less is known to skip; on the new side the push cannot be made.
+    fn missing:void (sha:string) {
+        if (side == "have") {
+            haveAt = (haveAt + 1)
+            return
+        }
+        sendAt = (sendAt + 1)
+        ok = false
+        err = ("object missing: " + sha)
+    }
+
+    ; the pack to send (call when need() is "")
+    fn pack:GitPackWriter () {
+        def w (new GitPackWriter)
+        def i:int 0
+        while (i < (array_length send)) {
+            def sha:string (itemAt send i)
+            w.add((unwrap (get sendKind sha)) (unwrap (get sendPayload sha)))
+            i = (i + 1)
+        }
+        return w
+    }
+}
+
+; one ref to change: old "" or 40 zeros = create, new "" or 40 zeros = delete
+class GitRefUpdate {
+    def name:string ""
+    def oldSha:string ""
+    def newSha:string ""
+}
+
+class GitRefStatus {
+    def name:string ""
+    def ok:boolean false
+    def reason:string ""
+}
+
+class GitPushReport {
+    def ok:boolean true
+    def err:string ""
+    ; "ok" or the remote's reason the pack was refused
+    def unpack:string ""
+    def refs:[GitRefStatus]
+    ; side-band progress, when the remote sent any
+    def progress:string ""
+
+    fn refOk:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length refs)) {
+            def r:GitRefStatus (itemAt refs i)
+            if (r.name == name) {
+                return r.ok
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}
+
+class GitPush {
+    sfn zeros:string () {
+        return "0000000000000000000000000000000000000000"
+    }
+
+    sfn orZeros:string (sha:string) {
+        if ((strlen sha) == 40) {
+            return sha
+        }
+        return (GitPush.zeros())
+    }
+
+    ; capabilities to ask for: report-status always, side-band-64k when the
+    ; remote offers it, and an agent
+    sfn caps:string (adv:GitAdvertisement agent:string) {
+        def out:string "report-status"
+        if (GitPktIO.hasToken(adv.caps "side-band-64k")) {
+            out = (out + " side-band-64k")
+        }
+        if ((strlen agent) > 0) {
+            out = (out + " agent=" + agent)
+        }
+        return out
+    }
+
+    ; the git-receive-pack request: commands, flush, then the pack (none
+    ; when every update is a delete)
+    sfn request:buffer (updates:[GitRefUpdate] caps:string pack:buffer) {
+        def parts:[buffer]
+        def onlyDeletes:boolean true
+        def i:int 0
+        while (i < (array_length updates)) {
+            def u:GitRefUpdate (itemAt updates i)
+            def newSha:string (GitPush.orZeros(u.newSha))
+            if (newSha != (GitPush.zeros())) {
+                onlyDeletes = false
+            }
+            def line:string ((GitPush.orZeros(u.oldSha)) + " " + newSha + " " + u.name)
+            if (i == 0) {
+                ; the first command carries the capabilities after a NUL
+                def text:buffer (GitObjects.utf8(line))
+                def capsBuf:buffer (GitObjects.utf8((caps + "\n")))
+                def tn:int (buffer_length text)
+                def cn:int (buffer_length capsBuf)
+                def len:int ((4 + tn) + (1 + cn))
+                def pkt:buffer (buffer_alloc len)
+                def h:string (GitPktIO.hex4(len))
+                def k:int 0
+                while (k < 4) {
+                    buffer_set pkt k (charAt h k)
+                    k = (k + 1)
+                }
+                buffer_copy pkt 4 text 0 tn
+                buffer_set pkt (4 + tn) 0
+                buffer_copy pkt (5 + tn) capsBuf 0 cn
+                push parts pkt
+            } {
+                push parts (GitPktIO.encodeLine((line + "\n")))
+            }
+            i = (i + 1)
+        }
+        push parts (GitPktIO.encodeFlush())
+        if (onlyDeletes == false) {
+            push parts pack
+        }
+        return (GitObjects.concat(parts))
+    }
+
+    ; the answer: `unpack ok|<reason>`, then `ok <ref>` / `ng <ref> <reason>`
+    ; per command; inside side-band channel 1 when side-band was asked for
+    sfn parseReport:GitPushReport (data:buffer) {
+        def rep (new GitPushReport)
+        def pkt:GitPkt (GitPktIO.parse(data))
+        if (pkt.ok == false) {
+            rep.ok = false
+            rep.err = pkt.err
+            return rep
+        }
+        def lines:[string]
+        def sideband:boolean false
+        def inner:[buffer]
+        def i:int 0
+        while (i < (array_length pkt.raw)) {
+            if ((itemAt pkt.isFlush i) == false) {
+                def body:buffer (itemAt pkt.raw i)
+                def bn:int (buffer_length body)
+                if (bn > 0) {
+                    def ch:int (buffer_get body 0)
+                    if ((ch == 1) || (ch == 2) || (ch == 3)) {
+                        sideband = true
+                        def rest:buffer (GitSha1.copyRange(body 1 (bn - 1)))
+                        if (ch == 1) {
+                            push inner rest
+                        }
+                        if (ch == 2) {
+                            rep.progress = (rep.progress + (GitObjects.text(rest)))
+                        }
+                        if (ch == 3) {
+                            rep.ok = false
+                            rep.err = (trim (GitObjects.text(rest)))
+                        }
+                    } {
+                        push lines (GitObjects.text(body))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if sideband {
+            def innerPkt:GitPkt (GitPktIO.parse((GitObjects.concat(inner))))
+            if (innerPkt.ok == false) {
+                rep.ok = false
+                rep.err = innerPkt.err
+                return rep
+            }
+            def j:int 0
+            while (j < (array_length innerPkt.raw)) {
+                if ((itemAt innerPkt.isFlush j) == false) {
+                    push lines (GitObjects.text((itemAt innerPkt.raw j)))
+                }
+                j = (j + 1)
+            }
+        }
+        i = 0
+        while (i < (array_length lines)) {
+            def line:string (GitPktIO.trimNl((itemAt lines i)))
+            if ((strlen line) > 7) {
+                if ((substring line 0 7) == "unpack ") {
+                    rep.unpack = (substring line 7 (strlen line))
+                }
+            }
+            if ((strlen line) > 3) {
+                def tag:string (substring line 0 3)
+                if ((tag == "ok ") || (tag == "ng ")) {
+                    def st (new GitRefStatus)
+                    def rest2:string (substring line 3 (strlen line))
+                    if (tag == "ok ") {
+                        st.ok = true
+                        st.name = rest2
+                    } {
+                        def sp:int (indexOf rest2 " ")
+                        if (sp > 0) {
+                            st.name = (substring rest2 0 sp)
+                            st.reason = (substring rest2 (sp + 1) (strlen rest2))
+                        } {
+                            st.name = rest2
+                        }
+                    }
+                    push rep.refs st
+                }
+            }
+            i = (i + 1)
+        }
+        if (rep.unpack != "ok") {
+            rep.ok = false
+            if ((strlen rep.err) == 0) {
+                rep.err = ("unpack: " + rep.unpack)
+            }
+        }
+        i = 0
+        while (i < (array_length rep.refs)) {
+            def r:GitRefStatus (itemAt rep.refs i)
+            if (r.ok == false) {
+                rep.ok = false
+                if ((strlen rep.err) == 0) {
+                    rep.err = (r.name + ": " + r.reason)
+                }
+            }
+            i = (i + 1)
+        }
+        return rep
+    }
+}
