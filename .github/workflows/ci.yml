@@ -130,6 +130,12 @@ jobs:
         if: needs.changes.outputs.gallery_only != 'true'
         run: npm run test:go
 
+      # pkg/ Git writer: objects, packs and pushes checked with real git
+      # (fsck --strict, verify-pack, receive-pack), on es6 and Go
+      - name: Git writer against git
+        if: needs.changes.outputs.gallery_only != 'true'
+        run: npm run pkg:git-write
+
   test-python:
     needs: changes
     runs-on: ubuntu-latest

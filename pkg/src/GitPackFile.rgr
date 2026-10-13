@@ -1,0 +1,342 @@
+; SPDX-License-Identifier: MIT
+
+; A pack as a repository keeps it: writing a pack v2 of whole objects, its
+; .idx v2 beside it, and reading one object out of a pack by offset (deltas
+; resolved) without parsing the rest. GitPack.rgr parses a whole pack as
+; it arrives from a fetch; this is the random-access side.
+;
+; Written from gitformat-pack (pack and idx v2), not from Git's C sources.
+; Offsets past 2 GiB (the idx large-offset table) are read but not written.
+
+Import "GitSha1.rgr"
+Import "GitZlib.rgr"
+Import "GitPack.rgr"
+Import "GitObject.rgr"
+
+class GitCrc32 {
+    def table:[int]
+
+    Constructor () {
+        def poly:int (bit_or (bit_shl 60856 16) 33568)
+        def n:int 0
+        while (n < 256) {
+            def c:int n
+            def k:int 0
+            while (k < 8) {
+                if ((bit_and c 1) != 0) {
+                    c = (bit_and (bit_xor poly (bit_ushr c 1)) (GitSha1.mask32()))
+                } {
+                    c = (bit_ushr c 1)
+                }
+                k = (k + 1)
+            }
+            push table c
+            n = (n + 1)
+        }
+    }
+
+    ; CRC-32 (ISO-HDLC, as zlib and the idx use it) of data[start, start+count)
+    fn of:int (data:buffer start:int count:int) {
+        def c:int (GitSha1.mask32())
+        def i:int 0
+        while (i < count) {
+            def b:int (buffer_get data (start + i))
+            def t:int (itemAt table (bit_and (bit_xor c b) 255))
+            c = (bit_and (bit_xor t (bit_ushr c 8)) (GitSha1.mask32()))
+            i = (i + 1)
+        }
+        return (bit_and (bit_xor c (GitSha1.mask32())) (GitSha1.mask32()))
+    }
+}
+
+class GitIdxFile {
+    def ok:boolean true
+    def err:string ""
+    ; in id order
+    def shas:[string]
+    def offsets:[int]
+    def crcs:[int]
+    def packSha:string ""
+    def bySha:[string:int]
+
+    ; the object's offset in the pack, -1 when the pack does not have it
+    fn offsetOf:int (sha:string) {
+        if (has bySha sha) {
+            def at:int (unwrap (get bySha sha))
+            return (itemAt offsets at)
+        }
+        return (0 - 1)
+    }
+}
+
+class GitIdxIO {
+    sfn parse:GitIdxFile (data:buffer) {
+        def idx (new GitIdxFile)
+        def n:int (buffer_length data)
+        if (n < (8 + 1024 + 40)) {
+            idx.ok = false
+            idx.err = "idx too small"
+            return idx
+        }
+        if (((buffer_get data 0) != 255) || ((GitSha1.ascii(data 1 3)) != "tOc")) {
+            idx.ok = false
+            idx.err = "not an idx v2 (no \\377tOc)"
+            return idx
+        }
+        if ((GitSha1.u32be(data 4)) != 2) {
+            idx.ok = false
+            idx.err = "unsupported idx version"
+            return idx
+        }
+        def count:int (GitSha1.u32be(data (8 + (255 * 4))))
+        def shaAt:int (8 + 1024)
+        def crcAt:int (shaAt + (count * 20))
+        def offAt:int (crcAt + (count * 4))
+        def largeAt:int (offAt + (count * 4))
+        if ((largeAt + 40) > n) {
+            idx.ok = false
+            idx.err = "idx truncated"
+            return idx
+        }
+        def i:int 0
+        while (i < count) {
+            def sha:string (GitSha1.toHex((GitSha1.copyRange(data (shaAt + (i * 20)) 20))))
+            push idx.shas sha
+            set idx.bySha sha i
+            push idx.crcs (GitSha1.u32be(data (crcAt + (i * 4))))
+            def hiByte:int (buffer_get data (offAt + (i * 4)))
+            if ((bit_and hiByte 128) != 0) {
+                ; index into the 8-byte large-offset table
+                def li:int (bit_and (GitSha1.u32be(data (offAt + (i * 4)))) 2147483647)
+                def at:int (largeAt + (li * 8))
+                def hi:int (GitSha1.u32be(data at))
+                def lo:int (GitSha1.u32be(data (at + 4)))
+                push idx.offsets ((hi * 4294967296) + lo)
+            } {
+                push idx.offsets (GitSha1.u32be(data (offAt + (i * 4))))
+            }
+            i = (i + 1)
+        }
+        idx.packSha = (GitSha1.toHex((GitSha1.copyRange(data (n - 40) 20))))
+        return idx
+    }
+
+    ; an idx v2 for the given objects of the pack whose trailer is packSha
+    sfn write:buffer (shas:[string] offsets:[int] crcs:[int] packSha:string) {
+        def n:int (array_length shas)
+        def keys:[buffer]
+        def i:int 0
+        while (i < n) {
+            push keys (GitSha1.fromHex((itemAt shas i)))
+            i = (i + 1)
+        }
+        def order:[int] (GitObjects.sortOrder(keys))
+        def size:int (((8 + 1024) + (n * 28)) + 40)
+        def out:buffer (buffer_alloc size)
+        buffer_set out 0 255
+        buffer_set out 1 116
+        buffer_set out 2 79
+        buffer_set out 3 99
+        GitSha1.writeU32be(out 4 2)
+        ; fanout: objects whose first byte is <= b
+        def fan:int 0
+        def b:int 0
+        def k:int 0
+        while (b < 256) {
+            while ((k < n) && ((buffer_get (itemAt keys (itemAt order k)) 0) <= b)) {
+                k = (k + 1)
+            }
+            fan = k
+            GitSha1.writeU32be(out (8 + (b * 4)) fan)
+            b = (b + 1)
+        }
+        def shaAt:int (8 + 1024)
+        def crcAt:int (shaAt + (n * 20))
+        def offAt:int (crcAt + (n * 4))
+        i = 0
+        while (i < n) {
+            def j:int (itemAt order i)
+            buffer_copy out (shaAt + (i * 20)) (itemAt keys j) 0 20
+            GitSha1.writeU32be(out (crcAt + (i * 4)) (itemAt crcs j))
+            GitSha1.writeU32be(out (offAt + (i * 4)) (itemAt offsets j))
+            i = (i + 1)
+        }
+        def tail:int (offAt + (n * 4))
+        buffer_copy out tail (GitSha1.fromHex(packSha)) 0 20
+        def body:buffer (GitSha1.copyRange(out 0 (tail + 20)))
+        buffer_copy out (tail + 20) (GitSha1.hash(body)) 0 20
+        return out
+    }
+}
+
+; builds a pack of whole (undeltified) objects
+class GitPackWriter {
+    def parts:[buffer]
+    def size:int 12
+    def shas:[string]
+    def offsets:[int]
+    def crcs:[int]
+    def seen:[string:boolean]
+    def crc:GitCrc32 (new GitCrc32())
+    ; the pack's trailer, once finish has run
+    def packSha:string ""
+
+    ; adds the object (once; a second add of the same id is ignored) → its id
+    fn add:string (kind:string payload:buffer) {
+        def sha:string (GitObjects.id(kind payload))
+        if (has seen sha) {
+            return sha
+        }
+        set seen sha true
+        def code:int (GitObjects.kindCode(kind))
+        def len:int (buffer_length payload)
+        def head:[int]
+        def first:int (bit_or (bit_shl code 4) (bit_and len 15))
+        def rest:int (bit_ushr len 4)
+        if (rest > 0) {
+            first = (bit_or first 128)
+        }
+        push head first
+        while (rest > 0) {
+            def byte:int (bit_and rest 127)
+            rest = (bit_ushr rest 7)
+            if (rest > 0) {
+                byte = (bit_or byte 128)
+            }
+            push head byte
+        }
+        def z:buffer (GitZlib.deflate(payload))
+        def hn:int (array_length head)
+        def zn:int (buffer_length z)
+        def entry:buffer (buffer_alloc (hn + zn))
+        def i:int 0
+        while (i < hn) {
+            buffer_set entry i (itemAt head i)
+            i = (i + 1)
+        }
+        buffer_copy entry hn z 0 zn
+        push shas sha
+        push offsets size
+        push crcs (crc.of(entry 0 (hn + zn)))
+        push parts entry
+        size = (size + hn + zn)
+        return sha
+    }
+
+    fn count:int () {
+        return (array_length shas)
+    }
+
+    ; the pack's bytes: header, entries, SHA-1 trailer
+    fn finish:buffer () {
+        def head:buffer (buffer_alloc 12)
+        buffer_set head 0 80
+        buffer_set head 1 65
+        buffer_set head 2 67
+        buffer_set head 3 75
+        GitSha1.writeU32be(head 4 2)
+        GitSha1.writeU32be(head 8 (array_length shas))
+        def all:[buffer]
+        push all head
+        def i:int 0
+        while (i < (array_length parts)) {
+            push all (itemAt parts i)
+            i = (i + 1)
+        }
+        def body:buffer (GitObjects.concat(all))
+        def sum:buffer (GitSha1.hash(body))
+        packSha = (GitSha1.toHex(sum))
+        def tail:[buffer]
+        push tail body
+        push tail sum
+        return (GitObjects.concat(tail))
+    }
+
+    ; the .idx of the finished pack
+    fn idx:buffer () {
+        return (GitIdxIO.write(shas offsets crcs packSha))
+    }
+}
+
+; one object out of a pack by offset, deltas resolved
+class GitPackReader {
+    sfn objectAt:GitRaw (data:buffer off:int idx:GitIdxFile) {
+        return (GitPackReader.at(data off idx 0))
+    }
+
+    sfn find:GitRaw (data:buffer idx:GitIdxFile sha:string) {
+        def off:int (idx.offsetOf(sha))
+        if (off < 0) {
+            def none (new GitRaw)
+            none.ok = false
+            none.err = ("not in pack: " + sha)
+            return none
+        }
+        return (GitPackReader.at(data off idx 0))
+    }
+
+    sfn at:GitRaw (data:buffer off:int idx:GitIdxFile depth:int) {
+        def raw (new GitRaw)
+        def n:int (buffer_length data)
+        if ((off < 12) || (off >= (n - 20))) {
+            raw.ok = false
+            raw.err = ("pack offset out of range: " + (to_string off))
+            return raw
+        }
+        if (depth > 64) {
+            raw.ok = false
+            raw.err = "delta chain too deep"
+            return raw
+        }
+        def at:int off
+        def c:int (buffer_get data at)
+        at = (at + 1)
+        def kind:int (bit_and (bit_ushr c 4) 7)
+        while ((bit_and c 128) != 0) {
+            c = (buffer_get data at)
+            at = (at + 1)
+        }
+        def base@(optional):GitRaw
+        if (kind == 6) {
+            def oc:int (buffer_get data at)
+            at = (at + 1)
+            def back:int (bit_and oc 127)
+            while ((bit_and oc 128) != 0) {
+                oc = (buffer_get data at)
+                at = (at + 1)
+                back = (((back + 1) * 128) + (bit_and oc 127))
+            }
+            base = (GitPackReader.at(data (off - back) idx (depth + 1)))
+        }
+        if (kind == 7) {
+            def baseSha:string (GitSha1.toHex((GitSha1.copyRange(data at 20))))
+            at = (at + 20)
+            def boff:int (idx.offsetOf(baseSha))
+            if (boff < 0) {
+                raw.ok = false
+                raw.err = ("delta base not in pack: " + baseSha)
+                return raw
+            }
+            base = (GitPackReader.at(data boff idx (depth + 1)))
+        }
+        def z (new GitZlib)
+        def body:buffer (z.inflateAt(data at))
+        if (z.ok == false) {
+            raw.ok = false
+            raw.err = z.err
+            return raw
+        }
+        if (null? base) {
+            raw.kind = (GitPackIO.kindName(kind))
+            raw.payload = body
+            return raw
+        }
+        def b:GitRaw (unwrap base)
+        if (b.ok == false) {
+            return b
+        }
+        raw.kind = b.kind
+        raw.payload = (GitDelta.apply(b.payload body))
+        return raw
+    }
+}

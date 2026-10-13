@@ -3,9 +3,11 @@
 ; RFC 1950 zlib wrapper around gallery/zip's DEFLATE inflater.
 ; Git pack objects and loose objects are zlib streams, not raw DEFLATE
 ; (ZIP's method 8 is raw). The compressed size is not stored: inflate
-; until BFINAL, then skip the Adler-32 trailer.
+; until BFINAL, then skip the Adler-32 trailer. Writing (loose objects,
+; packs) goes through lib/zip/Deflate.rgr.
 
 Import "../../lib/zip/Inflate.rgr"
+Import "../../lib/zip/Deflate.rgr"
 
 class GitZlib {
     def ok:boolean true
@@ -56,5 +58,37 @@ class GitZlib {
 
     fn inflate:buffer (data:buffer) {
         return this.inflateAt(data 0)
+    }
+
+    ; a zlib stream of data: header 78 9C, DEFLATE, Adler-32 (big-endian)
+    sfn deflate:buffer (data:buffer) {
+        def raw:buffer (Deflate.compress(data))
+        def rn:int (buffer_length raw)
+        def out:buffer (buffer_alloc (rn + 6))
+        buffer_set out 0 120
+        buffer_set out 1 156
+        buffer_copy out 2 raw 0 rn
+        def a:int (GitZlib.adler32(data))
+        def hi:int (bit_ushr a 16)
+        def lo:int (bit_and a 65535)
+        buffer_set out (rn + 2) (bit_ushr hi 8)
+        buffer_set out (rn + 3) (bit_and hi 255)
+        buffer_set out (rn + 4) (bit_ushr lo 8)
+        buffer_set out (rn + 5) (bit_and lo 255)
+        return out
+    }
+
+    ; Adler-32 (RFC 1950) as hi * 65536 + lo
+    sfn adler32:int (data:buffer) {
+        def s1:int 1
+        def s2:int 0
+        def n:int (buffer_length data)
+        def i:int 0
+        while (i < n) {
+            s1 = ((s1 + (buffer_get data i)) % 65521)
+            s2 = ((s2 + s1) % 65521)
+            i = (i + 1)
+        }
+        return ((s2 * 65536) + s1)
     }
 }

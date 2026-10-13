@@ -42,7 +42,10 @@ parses Git.
 `rgrc`, so `rgrc install` needs nothing else installed. See
 [LICENSING.md](../LICENSING.md).
 
-Public clones only: no credentials, no SSH, no `git://`.
+Fetching is public clones only: no credentials, no SSH, no `git://`.
+Writing (objects, trees, commits, packs, a push) is bytes in, bytes out; a
+host that has a token sends the push over its own HTTPS (see
+[Writing a repository](#writing-a-repository)).
 
 ## Quick start
 
@@ -181,10 +184,14 @@ Gallery `PackageResolver` is the same idea for tools (`pkg_tool resolve`,
 | File | |
 | --- | --- |
 | `src/GitSha1.rgr` | SHA-1, hex, big-endian helpers |
-| `src/GitZlib.rgr` | RFC 1950 around `gallery/zip` inflate |
+| `src/GitZlib.rgr` | RFC 1950 around `lib/zip` inflate and deflate |
 | `src/GitPkt.rgr` | pkt-line, advertisement, want, side-band |
 | `src/GitPack.rgr` | pack v2 + deltas |
 | `src/GitStore.rgr` | tree walk, in-memory / disk checkout |
+| `src/GitObject.rgr` | blob / tree / commit payloads, loose objects, trees of a file list |
+| `src/GitPackFile.rgr` | pack + idx v2 writer, object by offset through an idx, CRC-32 |
+| `src/GitPush.rgr` | bare-repo layout, refs, objects a push sends, receive-pack request / report |
+| `../lib/zip/Deflate.rgr` | DEFLATE writer (stored / fixed / dynamic Huffman per block) |
 | `src/PkgJson.rgr` | small JSON reader |
 | `src/PkgManifest.rgr` | `ranger.json` / `ranger.lock` |
 | `src/PkgResolver.rgr` | `pkg:` and relative imports, lock, vendor |
@@ -194,6 +201,7 @@ Gallery `PackageResolver` is the same idea for tools (`pkg_tool resolve`,
 | `../bin/git-http.mjs` | HTTPS GET/POST only; ships beside `rgrc` |
 | `tools/clone.mjs` | advertise → want → pack → checkout, by hand |
 | `tools/make-fixtures.mjs` | corpus from git / Node crypto |
+| `tools/git-write-check.mjs` | the writer against real git (fsck, verify-pack, receive-pack) |
 
 ## Commands
 
@@ -237,6 +245,32 @@ compiles `pkg:` imports with no Ranger tree in sight.
 There is no daemon, no login, no `publish`, no registry. A later registry
 can be a JSON index of git URLs; the protocol here would not change.
 
+## Writing a repository
+
+Nothing in the writer touches a disk or a socket. It answers which bytes go
+where, and the host writes them (atomically, with its own locking) or sends
+them (with its own `Authorization`):
+
+```text
+GitRepoLayout.bareDirs / bareFiles("main")   a new bare repository
+GitObjects.loose(kind, payload)              → objects/xx/… (GitObjects.loosePath)
+GitTrees.build([path, mode, blob id])        every tree of a file list, root last
+GitObjects.commitPayload(GitCommit)          tree, parents, author, committer, message
+GitRepoLayout.refFileText(sha)               → refs/heads/main
+GitWalk(tips, remote heads)                  need() / give() until need() is "":
+                                             the objects the remote does not have
+GitWalk.pack() → GitPackWriter.finish/idx    pack v2 + idx v2 (whole objects)
+GitPush.request(updates, caps, pack)         POST …/git-receive-pack
+GitPush.parseReport(answer)                  unpack ok, ok / ng per ref
+GitIdxIO.parse + GitPackReader.find          one object out of a stored pack
+```
+
+Names, messages and identities are UTF-8 on every target (`lib/core`
+RgText). Packs are written without deltas; Git's copy/insert delta is the
+same shape as RangerDiff's byte delta, so a delta writer can come later.
+`pkg/tools/git-write-check.mjs` runs all of it on es6, Go and Python and
+has real git check the result; the commit ids must match across targets.
+
 ## Where it runs
 
 This library is MIT and compiled into the compiler, so the whole flow is one
@@ -253,7 +287,9 @@ parses nothing and is shipped in `dist/` beside `rgrc.js`.
 
 - Semver ranges (`^1.2`, `>=3 <4`)
 - Package namespaces / colliding `class Button`
-- Auth, SSH, incremental `have` against a stored pack
+- SSH, `git://`, fetch with credentials (a push carries whatever
+  Authorization its host adds)
+- Delta objects in written packs, `gc` / repack, the index file of a work tree
 - `rgrc pkg add <git-url>` — editing `ranger.json` from the command line
 - Copying `node_modules`-style trees by default — cache + optional `vendor`
 
@@ -266,6 +302,7 @@ proves nothing.
 ```bash
 npm run pkg:test
 npm run pkg:test:targets   # every Ranger language; run where the toolchain is installed
+npm run pkg:git-write      # the writer, checked by git itself (es6 + Go)
 ```
 
 **License: MIT.** The Git client is platform, not application IP — see

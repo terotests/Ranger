@@ -1,0 +1,527 @@
+; SPDX-License-Identifier: MIT
+
+; Git objects as bytes, both ways: blob / tree / commit payloads, the
+; `type SP size NUL` frame, loose objects (zlib of the frame) and the trees
+; of a whole file list. Names, messages and identities are UTF-8 on every
+; target (lib/core RgText), whatever the target's own strings are.
+;
+; Written from gitformat-* and git-commit-tree's documented format, not
+; from Git's C sources. Nothing here touches a disk: the host writes the
+; bytes where loosePath says.
+
+Import "GitSha1.rgr"
+Import "GitZlib.rgr"
+Import "../../lib/core/RgText.rgr"
+
+; one entry of a tree; in GitTrees.build, name is the whole path
+class GitTreeItem {
+    def name:string ""
+    ; 100644 file, 100755 executable, 120000 symlink, 40000 tree, 160000 gitlink
+    def mode:string "100644"
+    def sha:string ""
+
+    fn isTree:boolean () {
+        return (mode == "40000")
+    }
+}
+
+class GitIdent {
+    def name:string ""
+    def email:string ""
+    ; seconds since 1970 (UTC)
+    def time:int 0
+    ; "+0300", "-0500"
+    def tz:string "+0000"
+}
+
+class GitCommit {
+    def ok:boolean true
+    def err:string ""
+    def tree:string ""
+    def parents:[string]
+    def author:GitIdent (new GitIdent)
+    def committer:GitIdent (new GitIdent)
+    def message:string ""
+}
+
+; an object read back: its kind ("blob", "tree", "commit", "tag") and payload
+class GitRaw {
+    def ok:boolean true
+    def err:string ""
+    def kind:string ""
+    def payload:buffer (buffer_alloc 0)
+}
+
+; what GitTrees.build made: every tree object (payload + id), the root last
+class GitTreeSet {
+    def root:string ""
+    def shas:[string]
+    def payloads:[buffer]
+}
+
+class GitObjects {
+    sfn utf8:buffer (s:string) {
+        def bytes:[int] (RgText.toUtf8Bytes(s))
+        def n:int (array_length bytes)
+        def out:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set out i (itemAt bytes i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn text:string (b:buffer) {
+        return (GitObjects.textRange(b 0 (buffer_length b)))
+    }
+
+    sfn textRange:string (b:buffer start:int count:int) {
+        def bytes:[int]
+        def i:int 0
+        while (i < count) {
+            push bytes (buffer_get b (start + i))
+            i = (i + 1)
+        }
+        return (RgText.fromUtf8Bytes(bytes))
+    }
+
+    sfn concat:buffer (parts:[buffer]) {
+        def total:int 0
+        def i:int 0
+        while (i < (array_length parts)) {
+            total = (total + (buffer_length (itemAt parts i)))
+            i = (i + 1)
+        }
+        def out:buffer (buffer_alloc total)
+        def at:int 0
+        i = 0
+        while (i < (array_length parts)) {
+            def p:buffer (itemAt parts i)
+            def pn:int (buffer_length p)
+            if (pn > 0) {
+                buffer_copy out at p 0 pn
+            }
+            at = (at + pn)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; a decimal integer ("-" allowed first); stops at the first non-digit
+    sfn decimal:int (s:string) {
+        def n:int (strlen s)
+        def v:int 0
+        def i:int 0
+        def neg:boolean false
+        if ((n > 0) && ((charAt s 0) == 45)) {
+            neg = true
+            i = 1
+        }
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c < 48) || (c > 57)) {
+                break
+            }
+            v = ((v * 10) + (c - 48))
+            i = (i + 1)
+        }
+        if neg {
+            return (0 - v)
+        }
+        return v
+    }
+
+    ; kind 1..4 of a pack entry for a kind name; 0 when unknown
+    sfn kindCode:int (kind:string) {
+        if (kind == "commit") {
+            return 1
+        }
+        if (kind == "tree") {
+            return 2
+        }
+        if (kind == "blob") {
+            return 3
+        }
+        if (kind == "tag") {
+            return 4
+        }
+        return 0
+    }
+
+    ; `kind SP size NUL payload`, the bytes an object id is the SHA-1 of
+    sfn frame:buffer (kind:string payload:buffer) {
+        def head:buffer (GitObjects.utf8((kind + " " + (to_string (buffer_length payload)))))
+        def nul:buffer (buffer_alloc 1)
+        buffer_set nul 0 0
+        def parts:[buffer]
+        push parts head
+        push parts nul
+        push parts payload
+        return (GitObjects.concat(parts))
+    }
+
+    sfn id:string (kind:string payload:buffer) {
+        return (GitSha1.objectId(kind payload))
+    }
+
+    ; a loose object file's bytes
+    sfn loose:buffer (kind:string payload:buffer) {
+        return (GitZlib.deflate((GitObjects.frame(kind payload))))
+    }
+
+    ; where a loose object lives, relative to the repository (.git or bare)
+    sfn loosePath:string (sha:string) {
+        return ("objects/" + (substring sha 0 2) + "/" + (substring sha 2 40))
+    }
+
+    sfn readLoose:GitRaw (bytes:buffer) {
+        def z (new GitZlib)
+        def framed:buffer (z.inflate(bytes))
+        def raw (new GitRaw)
+        if (z.ok == false) {
+            raw.ok = false
+            raw.err = z.err
+            return raw
+        }
+        return (GitObjects.unframe(framed))
+    }
+
+    sfn unframe:GitRaw (framed:buffer) {
+        def raw (new GitRaw)
+        def n:int (buffer_length framed)
+        def sp:int 0
+        while ((sp < n) && ((buffer_get framed sp) != 32)) {
+            sp = (sp + 1)
+        }
+        def nul:int sp
+        while ((nul < n) && ((buffer_get framed nul) != 0)) {
+            nul = (nul + 1)
+        }
+        if (nul >= n) {
+            raw.ok = false
+            raw.err = "object header has no NUL"
+            return raw
+        }
+        raw.kind = (GitSha1.ascii(framed 0 sp))
+        def size:int (GitObjects.decimal((GitSha1.ascii(framed (sp + 1) ((nul - sp) - 1)))))
+        if (size != ((n - nul) - 1)) {
+            raw.ok = false
+            raw.err = ("object size " + (to_string size) + " but " + (to_string ((n - nul) - 1)) + " bytes follow")
+            return raw
+        }
+        raw.payload = (GitSha1.copyRange(framed (nul + 1) size))
+        return raw
+    }
+
+    ; ---- trees ----------------------------------------------------------
+
+    ; Git orders a tree's entries by name bytes, a tree's name as if it
+    ; ended in "/"
+    sfn sortKey:buffer (e:GitTreeItem) {
+        if (e.isTree()) {
+            return (GitObjects.utf8((e.name + "/")))
+        }
+        return (GitObjects.utf8(e.name))
+    }
+
+    sfn compareBytes:int (a:buffer b:buffer) {
+        def na:int (buffer_length a)
+        def nb:int (buffer_length b)
+        def i:int 0
+        while ((i < na) && (i < nb)) {
+            def x:int (buffer_get a i)
+            def y:int (buffer_get b i)
+            if (x != y) {
+                return (x - y)
+            }
+            i = (i + 1)
+        }
+        return (na - nb)
+    }
+
+    ; entries in Git's order
+    sfn sortItems:[GitTreeItem] (items:[GitTreeItem]) {
+        def keys:[buffer]
+        def i:int 0
+        while (i < (array_length items)) {
+            push keys (GitObjects.sortKey((itemAt items i)))
+            i = (i + 1)
+        }
+        def order:[int] (GitObjects.sortOrder(keys))
+        def out:[GitTreeItem]
+        i = 0
+        while (i < (array_length order)) {
+            push out (itemAt items (itemAt order i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; the indexes of keys in byte order (a stable merge sort)
+    sfn sortOrder:[int] (keys:[buffer]) {
+        def n:int (array_length keys)
+        def order:[int]
+        def tmp:[int]
+        def i:int 0
+        while (i < n) {
+            push order i
+            push tmp 0
+            i = (i + 1)
+        }
+        def width:int 1
+        while (width < n) {
+            def lo:int 0
+            while (lo < n) {
+                def mid:int (lo + width)
+                if (mid > n) {
+                    mid = n
+                }
+                def hi:int (lo + (2 * width))
+                if (hi > n) {
+                    hi = n
+                }
+                def a:int lo
+                def b:int mid
+                def k:int lo
+                while (k < hi) {
+                    def takeA:boolean false
+                    if (a < mid) {
+                        if (b >= hi) {
+                            takeA = true
+                        } {
+                            if ((GitObjects.compareBytes((itemAt keys (itemAt order a)) (itemAt keys (itemAt order b)))) <= 0) {
+                                takeA = true
+                            }
+                        }
+                    }
+                    if takeA {
+                        set tmp k (itemAt order a)
+                        a = (a + 1)
+                    } {
+                        set tmp k (itemAt order b)
+                        b = (b + 1)
+                    }
+                    k = (k + 1)
+                }
+                lo = hi
+            }
+            i = 0
+            while (i < n) {
+                set order i (itemAt tmp i)
+                i = (i + 1)
+            }
+            width = (width * 2)
+        }
+        return order
+    }
+
+    ; a tree's payload: `mode SP name NUL sha(20)` per entry, in Git's order
+    sfn treePayload:buffer (items:[GitTreeItem]) {
+        def sorted:[GitTreeItem] (GitObjects.sortItems(items))
+        def parts:[buffer]
+        def nul:buffer (buffer_alloc 1)
+        buffer_set nul 0 0
+        def i:int 0
+        while (i < (array_length sorted)) {
+            def e:GitTreeItem (itemAt sorted i)
+            push parts (GitObjects.utf8((e.mode + " " + e.name)))
+            push parts nul
+            push parts (GitSha1.fromHex(e.sha))
+            i = (i + 1)
+        }
+        return (GitObjects.concat(parts))
+    }
+
+    sfn parseTree:[GitTreeItem] (payload:buffer) {
+        def out:[GitTreeItem]
+        def n:int (buffer_length payload)
+        def at:int 0
+        while (at < n) {
+            def modeStart:int at
+            while ((at < n) && ((buffer_get payload at) != 32)) {
+                at = (at + 1)
+            }
+            def mode:string (GitSha1.ascii(payload modeStart (at - modeStart)))
+            at = (at + 1)
+            def nameStart:int at
+            while ((at < n) && ((buffer_get payload at) != 0)) {
+                at = (at + 1)
+            }
+            def name:string (GitObjects.textRange(payload nameStart (at - nameStart)))
+            at = (at + 1)
+            if ((at + 20) > n) {
+                break
+            }
+            def e (new GitTreeItem)
+            e.mode = mode
+            e.name = name
+            e.sha = (GitSha1.toHex((GitSha1.copyRange(payload at 20))))
+            at = (at + 20)
+            push out e
+        }
+        return out
+    }
+
+    ; ---- commits --------------------------------------------------------
+
+    ; a name or e-mail as an identity line can hold it: no <, >, newline
+    sfn identPart:string (s:string) {
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c != 60) && (c != 62) && (c != 10) && (c != 13) && (c != 0)) {
+                out = (out + (substring s i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return (trim out)
+    }
+
+    sfn identLine:string (who:GitIdent) {
+        return ((GitObjects.identPart(who.name)) + " <" + (GitObjects.identPart(who.email)) + "> " + (to_string who.time) + " " + who.tz)
+    }
+
+    sfn commitPayload:buffer (c:GitCommit) {
+        def text:string ("tree " + c.tree + "\n")
+        def i:int 0
+        while (i < (array_length c.parents)) {
+            text = (text + "parent " + (itemAt c.parents i) + "\n")
+            i = (i + 1)
+        }
+        text = (text + "author " + (GitObjects.identLine(c.author)) + "\n")
+        text = (text + "committer " + (GitObjects.identLine(c.committer)) + "\n")
+        text = (text + "\n" + c.message)
+        def ml:int (strlen c.message)
+        if (ml == 0) {
+            text = (text + "\n")
+        } {
+            if ((substring c.message (ml - 1) ml) != "\n") {
+                text = (text + "\n")
+            }
+        }
+        return (GitObjects.utf8(text))
+    }
+
+    sfn parseIdent:GitIdent (line:string) {
+        def who (new GitIdent)
+        def lt:int (indexOf line "<")
+        def gt:int (lastIndexOf line ">")
+        if ((lt < 0) || (gt < lt)) {
+            who.name = line
+            return who
+        }
+        who.name = (trim (substring line 0 lt))
+        who.email = (substring line (lt + 1) gt)
+        def rest:string (trim (substring line (gt + 1) (strlen line)))
+        def parts:[string] (strsplit rest " ")
+        if ((array_length parts) >= 1) {
+            who.time = (GitObjects.decimal((itemAt parts 0)))
+        }
+        if ((array_length parts) >= 2) {
+            who.tz = (itemAt parts 1)
+        }
+        return who
+    }
+
+    sfn parseCommit:GitCommit (payload:buffer) {
+        def c (new GitCommit)
+        def text:string (GitObjects.text(payload))
+        def blank:int (indexOf text "\n\n")
+        def head:string text
+        if (blank >= 0) {
+            head = (substring text 0 blank)
+            c.message = (substring text (blank + 2) (strlen text))
+        }
+        def lines:[string] (strsplit head "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            def sp:int (indexOf line " ")
+            if (sp > 0) {
+                def key:string (substring line 0 sp)
+                def val:string (substring line (sp + 1) (strlen line))
+                if (key == "tree") {
+                    c.tree = val
+                }
+                if (key == "parent") {
+                    push c.parents val
+                }
+                if (key == "author") {
+                    c.author = (GitObjects.parseIdent(val))
+                }
+                if (key == "committer") {
+                    c.committer = (GitObjects.parseIdent(val))
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen c.tree) != 40) {
+            c.ok = false
+            c.err = "commit has no tree"
+        }
+        return c
+    }
+}
+
+; the trees of a flat file list ("decks/a/deck.md" → decks, decks/a, root)
+class GitTrees {
+    ; files: name = the path ("/" between folders), mode, sha. Every tree
+    ; object is in the result, the root last; the host writes the ones it
+    ; does not have yet.
+    sfn build:GitTreeSet (files:[GitTreeItem]) {
+        def ts (new GitTreeSet)
+        ; sorted by path, everything under one folder is one run
+        def sorted:[GitTreeItem] (GitObjects.sortItems(files))
+        ts.root = (GitTrees.dir(sorted 0 (array_length sorted) "" ts))
+        return ts
+    }
+
+    ; the tree of sorted[from, to), every path of which starts with prefix
+    sfn dir:string (sorted:[GitTreeItem] from:int to:int prefix:string ts:GitTreeSet) {
+        def entries:[GitTreeItem]
+        def pl:int (strlen prefix)
+        def i:int from
+        while (i < to) {
+            def f:GitTreeItem (itemAt sorted i)
+            def rest:string (substring f.name pl (strlen f.name))
+            def slash:int (indexOf rest "/")
+            if (slash < 0) {
+                def e (new GitTreeItem)
+                e.name = rest
+                e.mode = f.mode
+                e.sha = f.sha
+                push entries e
+                i = (i + 1)
+            } {
+                def seg:string (substring rest 0 slash)
+                def sub:string (prefix + seg + "/")
+                def sl:int (strlen sub)
+                def j:int (i + 1)
+                while (j < to) {
+                    def g:GitTreeItem (itemAt sorted j)
+                    if ((strlen g.name) <= sl) {
+                        break
+                    }
+                    if ((substring g.name 0 sl) != sub) {
+                        break
+                    }
+                    j = (j + 1)
+                }
+                def t (new GitTreeItem)
+                t.name = seg
+                t.mode = "40000"
+                t.sha = (GitTrees.dir(sorted i j sub ts))
+                push entries t
+                i = j
+            }
+        }
+        def payload:buffer (GitObjects.treePayload(entries))
+        def sha:string (GitObjects.id("tree" payload))
+        push ts.shas sha
+        push ts.payloads payload
+        return sha
+    }
+}
