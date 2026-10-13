@@ -4,7 +4,7 @@ There are three OOXML editors in this gallery:
 
 | Editor | Format | Lives in |
 | --- | --- | --- |
-| [`docx_viewer`](../docx_viewer/README.md) | `.docx` | WordprocessingML → `RichDocument` → paginated layout → EVG |
+| [`docx_viewer`](https://github.com/terotests/RangerDocx) (fetched by `npm run deps`) | `.docx` | WordprocessingML → `RichDocument` → paginated layout → EVG |
 | [`datagrid`](../datagrid/README.md) | `.xlsx` | SpreadsheetML → `WorkbookModel` → virtualized grid → EVG |
 | [`pptx`](https://github.com/terotests/RangerPPTX) (moved to terotests/RangerPPTX; clone it to `gallery/pptx`) | `.pptx` | PresentationML → `PptxModel` → theme resolve → EVG |
 
