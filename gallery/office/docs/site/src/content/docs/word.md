@@ -70,7 +70,7 @@ picture, a page turn, typing, and a chart pasted from the spreadsheet.
 
 It is not a full Word clone. There is no lossless round-trip writer yet.
 Limitations are listed in
-[`gallery/docx_viewer/README.md`](https://github.com/terotests/Ranger/blob/master/gallery/docx_viewer/README.md).
+[`README.md`](https://github.com/terotests/RangerDocx/blob/main/README.md).
 
 ## Tests
 
@@ -84,7 +84,7 @@ npm run docx_viewer:oracles       # python-docx ↔ inspectJson
 
 | Path | Role |
 | --- | --- |
-| [`gallery/docx_viewer/`](https://github.com/terotests/Ranger/tree/master/gallery/docx_viewer) | Parser, layout, ink, editor, web host |
+| [`terotests/RangerDocx`](https://github.com/terotests/RangerDocx) | Parser, layout, ink, editor, web host |
 | [`gallery/docx_viewer/docs/PLAN.md`](../../../../../../../legacy/docs/PLAN.md) | Design notes |
 | [`gallery/office/`](https://github.com/terotests/Ranger/tree/master/gallery/office) | Shared fonts, metrics, style flags |
 

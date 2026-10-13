@@ -222,7 +222,7 @@ gallery/evg_window/ AGPL  package "evg_window" → pkg:evg, pkg:image, game_engi
 gallery/ui/         AGPL
 gallery/datagrid/   AGPL  fetched from terotests/EVGSheets by npm run deps
 gallery/pptx/       AGPL
-gallery/docx_viewer/ AGPL
+gallery/docx_viewer/ AGPL  fetched from terotests/RangerDocx by npm run deps
 ```
 
 `gallery/` may import `lib/` and `compiler/`. `lib/` and `compiler/` never

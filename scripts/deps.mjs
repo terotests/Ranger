@@ -28,6 +28,9 @@
 // pinned under "sources" in ranger.json, not "dependencies", and this script
 // fetches it with git. Changing it: commit to EVGSheets, put the commit in
 // ranger.json "sources", npm run deps.
+//
+// The Word viewer and editor (gallery/docx_viewer) is the whole of
+// terotests/RangerDocx (subdir "."), pinned and fetched the same way.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -49,6 +52,7 @@ const PLACES = {
   cer: "gallery/cer",
   vela: "gallery/vela",
   datagrid: "gallery/datagrid",
+  docx_viewer: "gallery/docx_viewer",
 };
 // What --from=<checkout> copies: the packages whose repository that
 // checkout is, found by the subdirectories the lock names.
@@ -88,7 +92,7 @@ function readStamp(dir) {
 function copyTree(src, dst) {
   fs.mkdirSync(dst, { recursive: true });
   for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
-    if (ent.name === ".git" || ent.name === "node_modules") continue;
+    if (ent.name === ".git" || ent.name === "node_modules" || ent.name === ".ranger-fetched") continue;
     const s = path.join(src, ent.name);
     const d = path.join(dst, ent.name);
     if (ent.isDirectory()) copyTree(s, d);

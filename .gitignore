@@ -235,7 +235,8 @@ gallery/evgui/
 gallery/evgsheets/
 
 # Fetched by npm run deps from the commits ranger.json pins (terotests/evg,
-# terotests/componentengine, terotests/VelaCharts, terotests/EVGSheets): they
+# terotests/componentengine, terotests/VelaCharts, terotests/EVGSheets,
+# terotests/RangerDocx): they
 # are not edited here.
 # See scripts/deps.mjs.
 /lib/evg/
@@ -245,6 +246,7 @@ gallery/evgsheets/
 /gallery/cer/
 /gallery/vela/
 /gallery/datagrid/
+/gallery/docx_viewer/
 /gallery/*.previous/
 
 # Moved out of Ranger, cloned here to build what imports them:
