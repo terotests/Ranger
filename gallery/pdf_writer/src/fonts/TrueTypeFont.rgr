@@ -570,15 +570,19 @@ class TrueTypeFont {
         return defaultWidth
     }
     
+    ; The widths of characters 0-255 are kept as they are asked for, not all
+    ; at load: a layout loads a dozen faces and measures in two or three, and
+    ; finding 256 glyphs in each face it never used was most of the load
+    ; (a server laying a deck out per request spent a fifth of its time
+    ; there). -1: not looked up yet.
     fn buildCharWidthCache:void () {
-        ; Pre-compute widths for ASCII characters (0-255)
+        def cw:[int]
         def i:int 0
         while (i < 256) {
-            def glyphIdx:int (this.getGlyphIndex(i))
-            def width:int (this.getGlyphWidth(glyphIdx))
-            push charWidths width
+            push cw (0 - 1)
             i = i + 1
         }
+        charWidths = cw
         charWidthsLoaded = true
     }
     
@@ -589,7 +593,13 @@ class TrueTypeFont {
         ; index the 256-entry cache out of range (std::out_of_range on the native
         ; build). Negative / >=256 codes fall through to the cmap glyph lookup.
         if (charWidthsLoaded && (charCode >= 0) && (charCode < 256)) {
-            return (itemAt charWidths charCode)
+            def kept:int (itemAt charWidths charCode)
+            if (kept >= 0) {
+                return kept
+            }
+            def w:int (this.getGlyphWidth((this.getGlyphIndex(charCode))))
+            set charWidths charCode w
+            return w
         }
         def glyphIdx:int (this.getGlyphIndex(charCode))
         return (this.getGlyphWidth(glyphIdx))
