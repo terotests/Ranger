@@ -50,6 +50,7 @@ class CssCoreTest {
         this.testCascade()
         this.testValues()
         this.testBadInput()
+        this.testText()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -289,5 +290,37 @@ class CssCoreTest {
             d = (0.0 - d)
         }
         return (d < 0.01)
+    }
+
+    ; --- the text helpers: runs copied whole, letters beyond ASCII kept ------
+    fn testText:void () {
+        print "--- text ---"
+        this.eqStr("comments go" (CssSheet.stripComments("a /* x */b/**/c")) "a bc")
+        this.eqStr("an unclosed comment ends the text" (CssSheet.stripComments("a { } /* never")) "a { } ")
+        this.eqStr("letters beyond ASCII stay" (CssSheet.stripComments(".é { content: \"→ ä\" } /* ö */")) ".é { content: \"→ ä\" } ")
+        def parts:[string] (CssSheet.splitOn(".a, .ä,,b" 44))
+        this.eqInt("split on commas" (array_length parts) 4)
+        this.eqStr("keeps ä" (itemAt parts 1) " .ä")
+        this.eqStr("and empty parts" (itemAt parts 2) "")
+        def words:[string] (CssSheet.splitWhitespace("  a\tbé \n c "))
+        this.eqInt("split on spaces" (array_length words) 3)
+        this.eqStr("keeps é" (itemAt words 1) "bé")
+        this.eqStr("lower" (CssSheet.lower("ÄBc-D")) "Äbc-d")
+        this.eqStr("lower as is" (CssSheet.lower("ok")) "ok")
+        def sheet (new CssSheet())
+        sheet.parse(".kääntö { color: red }")
+        def r:CssRule (itemAt sheet.rules 0)
+        def sel:CssSelector (itemAt r.selectors 0)
+        def part:CssSelectorPart (itemAt sel.parts 0)
+        this.eqStr("a class beyond ASCII" (itemAt part.classes 0) "kääntö")
+        def big:string ""
+        def k:int 0
+        def chunks:[string]
+        while (k < 4000) {
+            push chunks ".r { color: red } /* note */ "
+            k = (k + 1)
+        }
+        big = (join chunks "")
+        this.eqInt("a long sheet" (strlen (CssSheet.stripComments(big))) (4000 * 19))
     }
 }

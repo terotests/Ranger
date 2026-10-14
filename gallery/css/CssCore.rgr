@@ -422,7 +422,7 @@ class CssSheet {
         def n:int (strlen word)
         def i:int 0
         def kind:int 0
-        def buf:string ""
+        def from:int 0
         while (i < n) {
             def c:int (charAt word i)
             ; A combinator this layer does not implement. Marking the whole
@@ -442,18 +442,16 @@ class CssSheet {
                 return part
             }
             if ((c == 46) || (c == 35)) {
-                CssSheet.flushPart(part kind buf)
-                buf = ""
+                CssSheet.flushPart(part kind (substring word from i))
+                from = (i + 1)
                 kind = 1
                 if (c == 35) {
                     kind = 2
                 }
-            } {
-                buf = (buf + (strfromcode c))
             }
             i = (i + 1)
         }
-        CssSheet.flushPart(part kind buf)
+        CssSheet.flushPart(part kind (substring word from n))
         return part
     }
 
@@ -505,44 +503,44 @@ class CssSheet {
 
     ; --- text helpers ---------------------------------------------------------
 
+    ; The text without its /* … */ comments. The text between comments is
+    ; copied a run at a time (substring), never a character at a time: one
+    ; character appended per step is quadratic on targets whose strings do
+    ; not grow in place, and on Go `charAt` is a byte, which `strfromcode`
+    ; would make a character of its own (é became two).
     sfn stripComments:string (css:string) {
-        def out:string ""
+        def parts:[string]
         def n:int (strlen css)
+        def from:int 0
         def i:int 0
         while (i < n) {
-            def c:int (charAt css i)
             def isStart:boolean false
-            if (c == 47) {
-                if ((i + 1) < n) {
-                    if ((charAt css (i + 1)) == 42) {
-                        isStart = true
-                    }
+            if (((charAt css i) == 47) && ((i + 1) < n)) {
+                if ((charAt css (i + 1)) == 42) {
+                    isStart = true
                 }
             }
             if isStart {
+                push parts (substring css from i)
                 def j:int (i + 2)
-                def done:boolean false
-                while ((j + 1) < n) {
-                    if ((charAt css j) == 42) {
-                        if ((charAt css (j + 1)) == 47) {
-                            i = (j + 2)
-                            done = true
-                            j = n
-                        }
+                def end:int (0 - 1)
+                while (((j + 1) < n) && (end < 0)) {
+                    if (((charAt css j) == 42) && ((charAt css (j + 1)) == 47)) {
+                        end = (j + 2)
                     }
-                    if (done == false) {
-                        j = (j + 1)
-                    }
+                    j = (j + 1)
                 }
-                if (done == false) {
-                    return out
+                if (end < 0) {
+                    return (join parts "")
                 }
+                i = end
+                from = end
             } {
-                out = (out + (strfromcode c))
                 i = (i + 1)
             }
         }
-        return out
+        push parts (substring css from n)
+        return (join parts "")
     }
 
     sfn findChar:int (s:string from:int ch:int) {
@@ -579,42 +577,37 @@ class CssSheet {
 
     sfn splitOn:[string] (s:string sep:int) {
         def out:[string]
-        def buf:string ""
         def n:int (strlen s)
+        def from:int 0
         def i:int 0
         while (i < n) {
-            def c:int (charAt s i)
-            if (c == sep) {
-                push out buf
-                buf = ""
-            } {
-                buf = (buf + (strfromcode c))
+            if ((charAt s i) == sep) {
+                push out (substring s from i)
+                from = (i + 1)
             }
             i = (i + 1)
         }
-        push out buf
+        push out (substring s from n)
         return out
     }
 
     sfn splitWhitespace:[string] (s:string) {
         def out:[string]
-        def buf:string ""
         def n:int (strlen s)
+        def from:int 0
         def i:int 0
         while (i < n) {
             def c:int (charAt s i)
             if ((((c == 32) || (c == 9)) || (c == 10)) || (c == 13)) {
-                if ((strlen buf) > 0) {
-                    push out buf
-                    buf = ""
+                if (i > from) {
+                    push out (substring s from i)
                 }
-            } {
-                buf = (buf + (strfromcode c))
+                from = (i + 1)
             }
             i = (i + 1)
         }
-        if ((strlen buf) > 0) {
-            push out buf
+        if (n > from) {
+            push out (substring s from n)
         }
         return out
     }
@@ -646,19 +639,26 @@ class CssSheet {
         return ""
     }
 
+    ; ASCII letters only, as CSS compares names
     sfn lower:string (s:string) {
-        def out:string ""
+        def parts:[string]
         def n:int (strlen s)
+        def from:int 0
         def i:int 0
         while (i < n) {
             def c:int (charAt s i)
             if ((c >= 65) && (c <= 90)) {
-                c = (c + 32)
+                push parts (substring s from i)
+                push parts (strfromcode (c + 32))
+                from = (i + 1)
             }
-            out = (out + (strfromcode c))
             i = (i + 1)
         }
-        return out
+        if (from == 0) {
+            return s
+        }
+        push parts (substring s from n)
+        return (join parts "")
     }
 
     sfn indexOfText:int (s:string want:string) {
