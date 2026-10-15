@@ -348,6 +348,11 @@ class EVGA11yNode {
     ; the one on screen. 0 means the node is not in a levelled structure.
     def level:int 0
 
+    ; The language of the node's words ("fi", "en-GB"), "" for the page's
+    ; own. A slide in Finnish under an English interface is read with an
+    ; English voice without it.
+    def lang:string ""
+
     ; Text fields: caret and selection as offsets into `value`.
     def caret:int 0
     def selStart:int 0
@@ -624,6 +629,9 @@ class EVGA11yTree {
         }
         if (n.level != 0) {
             out = (out + ",\"level\":" + (to_string n.level))
+        }
+        if ((strlen n.lang) > 0) {
+            out = (out + ",\"lang\":" + (EVGA11yTree.jsonString(n.lang)))
         }
         if (n.setSize != 0) {
             out = (out + ",\"size\":" + (to_string n.setSize))

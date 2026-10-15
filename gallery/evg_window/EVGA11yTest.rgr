@@ -335,6 +335,10 @@ class EVGA11yTest {
         c.ok("carries a generation" (EVGA11yTest.hasSub(js "\"gen\":")))
         c.ok("spells roles in ARIA" (EVGA11yTest.hasSub(js "\"role\":\"textbox\"")))
         c.ok("says nothing about unchecked things" ((EVGA11yTest.hasSub(js "\"checked\"")) == false))
+        c.ok("says nothing of a language the page already has" ((EVGA11yTest.hasSub(js "\"lang\"")) == false))
+        def fi:EVGA11yNode (t.label("words-fi" t.rootId "Hyvää huomenta"))
+        fi.lang = "fi"
+        c.ok("carries a node's own language" (EVGA11yTest.hasSub((t.toJson()) "\"lang\":\"fi\"")))
 
         print "== an accessible tree derived from the element tree =="
         ; The point of this section: NOTHING below was described twice. The
