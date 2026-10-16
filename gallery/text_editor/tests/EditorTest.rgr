@@ -89,6 +89,40 @@ class EditorTest {
         def r:EditorPos (buf.redo())
         c.eqStr("redo replace" (buf.getText()) "aZZf")
 
+        print "== typing is undone a word at a time =="
+        def tb (new EditorBuffer())
+        tb.setText("")
+        def words:string "one two"
+        def wi:int 0
+        while (wi < (strlen words)) {
+            tb.insertText(0 wi (substring words wi (wi + 1)))
+            wi = (wi + 1)
+        }
+        tb.undo()
+        c.eqStr("undo takes the last word" (tb.getText()) "one ")
+        tb.undo()
+        c.eqStr("…then the word with its space" (tb.getText()) "")
+        tb.redo()
+        tb.redo()
+        c.eqStr("redo brings both back" (tb.getText()) "one two")
+        tb.insertText(0 7 "s")
+        tb.undo()
+        c.eqStr("a letter after a redo is its own step" (tb.getText()) "one two")
+        tb.setText("ab")
+        tb.insertText(0 2 "c")
+        tb.insertText(0 0 "x")
+        tb.undo()
+        c.eqStr("a letter elsewhere is its own step" (tb.getText()) "abc")
+        tb.insertText(0 3 "d")
+        tb.closeTyping()
+        tb.insertText(0 4 "e")
+        tb.undo()
+        c.eqStr("closeTyping ends the run" (tb.getText()) "abcd")
+        tb.insertText(0 4 "\n")
+        tb.insertText(1 0 "f")
+        tb.undo()
+        c.eqStr("Enter is a step of its own" (tb.getText()) "abcd\n")
+
         print "== codepoint caret motion =="
         def grin:string (EVGCodepoint.toStr(128512))
         buf.setText(("a" + grin) + "b")
