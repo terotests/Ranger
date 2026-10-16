@@ -109,7 +109,7 @@ class PrintFinishingTest {
         def r (new EVGPDFRenderer())
         c.ok("nothing is claimed by default" ((r.wantsFinishing()) == false))
         c.ok("and the header is unchanged" ((r.headerLine()) == "%PDF-1.5\n"))
-        def plainCatalog:string (r.catalogBody(3 0 0))
+        def plainCatalog:string (r.catalogBody(3 0 0 0))
         c.ok("an ordinary catalog carries no metadata" ((PrintFinishingTest.hasSub(plainCatalog "/Metadata")) == false))
 
         r.setPdfxProfile("X-4")
@@ -135,7 +135,7 @@ class PrintFinishingTest {
         c.ok("Trapped is stated" (PrintFinishingTest.hasSub(info "/Trapped /False")))
         c.ok("and the author is there" (PrintFinishingTest.hasSub(info "(An Author)")))
 
-        def catalog:string (r.catalogBody(3 8 9))
+        def catalog:string (r.catalogBody(3 8 9 0))
         c.ok("the catalog points at the metadata" (PrintFinishingTest.hasSub(catalog "/Metadata 8 0 R")))
         c.ok("and at the intent" (PrintFinishingTest.hasSub(catalog "/OutputIntents [9 0 R]")))
         def trailer:string (r.trailerBody(12 3 10))
@@ -174,6 +174,75 @@ class PrintFinishingTest {
         def wide:string (EVGPDFRenderer.pdfTextString("lehtiä"))
         c.ok("anything else becomes UTF-16 with a BOM" (PrintFinishingTest.hasSub(wide "<FEFF")))
         c.ok("with the umlaut encoded" (PrintFinishingTest.hasSub(wide "00E4")))
+        ; by character, not by unit: an ä is two bytes to Go's `charAt`
+        c.ok("one unit per character" (wide == "<FEFF006C006500680074006900E4>"))
+        def astral:string (EVGPDFRenderer.pdfTextString("a😀"))
+        c.ok("past U+FFFF a surrogate pair" (astral == "<FEFF0061D83DDE00>"))
+        c.ok("the XMP references the character, not its bytes" ((EVGPDFRenderer.xmlEscape("ä😀")) == "&#228;&#128512;"))
+    }
+
+    ; A two-page document: a page link, a web link, bookmarks and a title,
+    ; as the bytes of the file.
+    sfn testNavigation:void (c:PrintCheck) {
+        print "-- links, bookmarks and the title --"
+        def root (EVGElement.createDiv())
+        root.tagName = "print"
+        def section (EVGElement.createDiv())
+        section.tagName = "section"
+        section.width = (EVGUnit.px(200.0))
+        section.height = (EVGUnit.px(100.0))
+        section.box.marginTop = (EVGUnit.px(0.0))
+        section.box.marginRight = (EVGUnit.px(0.0))
+        section.box.marginBottom = (EVGUnit.px(0.0))
+        section.box.marginLeft = (EVGUnit.px(0.0))
+        root.addChild(section)
+        def pi:int 0
+        while (pi < 2) {
+            def pg (EVGElement.createDiv())
+            pg.tagName = "page"
+            pg.position = "relative"
+            def a (EVGElement.createDiv())
+            a.position = "absolute"
+            a.left = (EVGUnit.px(10.0))
+            a.top = (EVGUnit.px(10.0))
+            a.width = (EVGUnit.px(50.0))
+            a.height = (EVGUnit.px(12.0))
+            if (pi == 0) {
+                a.href = "#page=2"
+            } {
+                a.href = "https://example.com/hä (1)"
+            }
+            pg.addChild(a)
+            section.addChild(pg)
+            pi = (pi + 1)
+        }
+        def r (new EVGPDFRenderer())
+        r.init(r)
+        r.setPageSize(200.0 100.0)
+        r.setDocumentInfo("Kesän esitys" "Tero")
+        r.addBookmark("Alku" 0)
+        r.addBookmark("Loppu" 1)
+        r.addBookmark("nowhere" 7)
+        def pdf:string (buffer_to_string (r.render(root)))
+        c.ok("a page link is a GoTo" (PrintFinishingTest.hasSub(pdf "/S /GoTo /D [")))
+        c.ok("to the second page, whole" (PrintFinishingTest.hasSub(pdf " 0 R /Fit] >>")))
+        c.ok("a web link is a URI" (PrintFinishingTest.hasSub(pdf "/S /URI /URI (https://example.com/h%C3%A4%20\\(1\\))")))
+        c.ok("the title is UTF-16 with a BOM" (PrintFinishingTest.hasSub(pdf "/Title <FEFF004B0065007300E4006E0020006500730069007400790073>")))
+        c.ok("the author is there" (PrintFinishingTest.hasSub(pdf "/Author (Tero)")))
+        c.ok("an ordinary file claims nothing about trapping" ((PrintFinishingTest.hasSub(pdf "/Trapped")) == false))
+        c.ok("the catalog has the outline" (PrintFinishingTest.hasSub(pdf "/Outlines ")))
+        c.ok("and opens with it" (PrintFinishingTest.hasSub(pdf "/PageMode /UseOutlines")))
+        c.ok("two bookmarks: one past the end is left out" (PrintFinishingTest.hasSub(pdf "/Type /Outlines /First")))
+        c.ok("counted" (PrintFinishingTest.hasSub(pdf "/Count 2 >>")))
+        c.ok("the first one" (PrintFinishingTest.hasSub(pdf "/Title (Alku)")))
+        c.ok("the dropped one is not written" ((PrintFinishingTest.hasSub(pdf "nowhere")) == false))
+        c.ok("the trailer points at the info" (PrintFinishingTest.hasSub(pdf "/Info ")))
+
+        def plain (new EVGPDFRenderer())
+        c.ok("no title, no info" ((plain.wantsInfo()) == false))
+        c.ok("past the last page a link is a URI" ((EVGPDFRenderer.pageOfLink("#page=3" 2)) == -1))
+        c.ok("page 1 is the first" ((EVGPDFRenderer.pageOfLink("#page=1" 2)) == 0))
+        c.ok("not a number, no page" ((EVGPDFRenderer.pageOfLink("#page=x" 2)) == -1))
     }
 
     sfn testHonesty:void (c:PrintCheck) {
@@ -218,6 +287,7 @@ class PrintFinishingTest {
         PrintFinishingTest.testOperators(c)
         PrintFinishingTest.testIdentification(c)
         PrintFinishingTest.testEscaping(c)
+        PrintFinishingTest.testNavigation(c)
         PrintFinishingTest.testHonesty(c)
         PrintFinishingTest.testAlpha(c)
         print ""
