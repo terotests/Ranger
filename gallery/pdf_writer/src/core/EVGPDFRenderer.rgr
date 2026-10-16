@@ -192,6 +192,10 @@ class EVGPDFRenderer {
     def linkW:[double]
     def linkH:[double]
     def curLinkPage:int 0
+    ; The bookmarks (the reader's outline): a title and the page (0 = first)
+    ; it opens, in reading order, one level deep.
+    def outlineTitle:[string]
+    def outlinePage:[int]
     ; Fallback faces reached through a Type0/Identity-H resource, named /E1..
     ; alongside the WinAnsi /F1.. ones. Kept separate rather than converting
     ; every font to Identity-H: that would change the byte encoding, the
@@ -1256,6 +1260,8 @@ class EVGPDFRenderer {
         ; Write page objects
         def pageObjNumList:[int]
         def pagesRefNum:int (nextObjNum + numPages)  ; Calculate where Pages object will be
+        ; a link to a page of this file needs that page's object number
+        def firstPageObj:int nextObjNum
         
         def pi2:int 0
         while (pi2 < numPages) {
@@ -1269,7 +1275,7 @@ class EVGPDFRenderer {
             def bx1:string (this.pageBoxes(pgWidth pgHeight))
             pdf.writeString(bx1)
             pdf.writeString(" /Contents " + (to_string contentObjN) + " 0 R")
-            pdf.writeString((this.annotsFor(pi2)))
+            pdf.writeString((this.annotsFor(pi2 firstPageObj numPages)))
             pdf.writeString(" /Resources <<")
             pdf.writeString(" /Font <<")
             def ffi:int 0
@@ -1322,11 +1328,14 @@ class EVGPDFRenderer {
         pdf.writeString("endobj\n\n")
         pagesObjNum = nextObjNum
         nextObjNum = nextObjNum + 1
+        def outlinesObjNum:int (this.writeOutline(pdf objectOffsets pageObjNumList))
         
         ; --- print finishing ---
-        ; The XMP packet, the output intent and the document information. They
-        ; are written only when the file claims to be a print file, so an
-        ; ordinary PDF is byte-for-byte what it was before any of this existed.
+        ; The XMP packet and the output intent are written only when the file
+        ; claims to be a print file, and the document information when there
+        ; is any to write (a title, an author) or the file is a print file, so
+        ; an ordinary PDF without them is byte-for-byte what it was before any
+        ; of this existed.
         def metadataObjNum:int 0
         def intentObjNum:int 0
         def infoObjNum:int 0
@@ -1347,7 +1356,8 @@ class EVGPDFRenderer {
             pdf.writeString("endobj\n\n")
             intentObjNum = nextObjNum
             nextObjNum = nextObjNum + 1
-
+        }
+        if (this.wantsInfo()) {
             push objectOffsets (pdf.size())
             pdf.writeString((to_string nextObjNum) + " 0 obj\n")
             pdf.writeString((this.infoBody()))
@@ -1359,7 +1369,7 @@ class EVGPDFRenderer {
         ; Catalog object
         push objectOffsets (pdf.size())
         pdf.writeString((to_string nextObjNum) + " 0 obj\n")
-        pdf.writeString((this.catalogBody(pagesObjNum metadataObjNum intentObjNum)))
+        pdf.writeString((this.catalogBody(pagesObjNum metadataObjNum intentObjNum outlinesObjNum)))
         pdf.writeString("endobj\n\n")
         def catalogObjNum:int nextObjNum
         nextObjNum = nextObjNum + 1
@@ -1692,7 +1702,7 @@ class EVGPDFRenderer {
         def bx2:string (this.pageBoxes(pageWidth pageHeight))
         pdf.writeString(bx2)
         pdf.writeString(" /Contents " + (to_string contentObjNum) + " 0 R")
-        pdf.writeString((this.annotsFor(0)))
+        pdf.writeString((this.annotsFor(0 nextObjNum 1)))
         pdf.writeString(" /Resources <<")
         ; Add font references
         pdf.writeString(" /Font <<")
@@ -1735,11 +1745,16 @@ class EVGPDFRenderer {
         pdf.writeString("endobj\n\n")
         pagesObjNum = nextObjNum
         nextObjNum = nextObjNum + 1
+        def onePage:[int]
+        push onePage pageObjNum
+        def outlinesObjNum:int (this.writeOutline(pdf objectOffsets onePage))
         
         ; --- print finishing ---
-        ; The XMP packet, the output intent and the document information. They
-        ; are written only when the file claims to be a print file, so an
-        ; ordinary PDF is byte-for-byte what it was before any of this existed.
+        ; The XMP packet and the output intent are written only when the file
+        ; claims to be a print file, and the document information when there
+        ; is any to write (a title, an author) or the file is a print file, so
+        ; an ordinary PDF without them is byte-for-byte what it was before any
+        ; of this existed.
         def metadataObjNum:int 0
         def intentObjNum:int 0
         def infoObjNum:int 0
@@ -1760,7 +1775,8 @@ class EVGPDFRenderer {
             pdf.writeString("endobj\n\n")
             intentObjNum = nextObjNum
             nextObjNum = nextObjNum + 1
-
+        }
+        if (this.wantsInfo()) {
             push objectOffsets (pdf.size())
             pdf.writeString((to_string nextObjNum) + " 0 obj\n")
             pdf.writeString((this.infoBody()))
@@ -1772,7 +1788,7 @@ class EVGPDFRenderer {
         ; Object 7: Catalog
         push objectOffsets (pdf.size())
         pdf.writeString((to_string nextObjNum) + " 0 obj\n")
-        pdf.writeString((this.catalogBody(pagesObjNum metadataObjNum intentObjNum)))
+        pdf.writeString((this.catalogBody(pagesObjNum metadataObjNum intentObjNum outlinesObjNum)))
         pdf.writeString("endobj\n\n")
         def catalogObjNum:int nextObjNum
         nextObjNum = nextObjNum + 1
@@ -3617,7 +3633,12 @@ class EVGPDFRenderer {
     ; ones. That is legal, and it means adding links changes no object number
     ; and therefore nothing in the xref table — a file with no links is
     ; byte-for-byte the file it was before any of this existed.
-    fn annotsFor:string (page:int) {
+    ;
+    ; `#page=N` (the fragment a PDF viewer reads as "page N of this file",
+    ; 1 = first) goes to that page of this file: a GoTo to page object
+    ; `firstPageObj + N - 1`, which needs the pages to be numbered in a run.
+    ; Any other address is a URI.
+    fn annotsFor:string (page:int firstPageObj:int numPages:int) {
         def n:int (array_length linkPage)
         def any:boolean false
         def out:string " /Annots ["
@@ -3639,7 +3660,13 @@ class EVGPDFRenderer {
                 ; reason `/Border [0 0 0]` is on essentially every link in
                 ; every PDF ever produced.
                 out = (out + " /Border [0 0 0]")
-                out = (out + " /A << /S /URI /URI (" + (this.escapeUri((itemAt linkUrl i))) + ") >> >>")
+                def url:string (itemAt linkUrl i)
+                def to:int (EVGPDFRenderer.pageOfLink(url numPages))
+                if (to >= 0) {
+                    out = (out + " /A << /S /GoTo /D [" + (to_string (firstPageObj + to)) + " 0 R /Fit] >> >>")
+                } {
+                    out = (out + " /A << /S /URI /URI (" + (this.escapeUri(url)) + ") >> >>")
+                }
             }
             i = (i + 1)
         }
@@ -3649,17 +3676,47 @@ class EVGPDFRenderer {
         return (out + " ]")
     }
 
-    ; A URI inside a PDF literal string. Only three characters have to go:
-    ; the two parentheses and the backslash. Everything above ASCII is left
-    ; alone, because a URI that reaches here with raw non-ASCII in it is
-    ; already not a URI — percent-encoding is the author's job and re-encoding
-    ; it here would double it.
+    ; The page of this file a link goes to (0 = first), -1 when it goes
+    ; elsewhere: `#page=N` with N one of the `numPages` pages.
+    sfn pageOfLink:int (url:string numPages:int) {
+        if ((indexOf url "#page=") != 0) {
+            return -1
+        }
+        def digits:string (substring url 6 (strlen url))
+        def len:int (strlen digits)
+        if ((len == 0) || (len > 6)) {
+            return -1
+        }
+        def v:int 0
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt digits i)
+            if ((c < 48) || (c > 57)) {
+                return -1
+            }
+            v = ((v * 10) + (c - 48))
+            i = (i + 1)
+        }
+        if ((v < 1) || (v > numPages)) {
+            return -1
+        }
+        return (v - 1)
+    }
+
+    ; A URI inside a PDF literal string. The two parentheses and the
+    ; backslash are escaped. A character outside printable ASCII (an ä in a
+    ; path, a space) is written as the %XX of its UTF-8 bytes, the way a
+    ; browser turns such an address into a URI: the string is bytes, and the
+    ; raw character would go in as a truncated unit on one target and as
+    ; bytes no reader decodes on another. A `%` already there is left alone,
+    ; so an address that is already encoded is not encoded twice.
     fn escapeUri:string (url:string) {
         def out:string ""
-        def n:int (strlen url)
+        def cps:[int] (to_chars url)
+        def n:int (array_length cps)
         def i:int 0
         while (i < n) {
-            def ch:int (charAt url i)
+            def ch:int (itemAt cps i)
             if (ch == 40) {
                 out = (out + "\\(")
             } {
@@ -3669,13 +3726,44 @@ class EVGPDFRenderer {
                     if (ch == 92) {
                         out = (out + "\\\\")
                     } {
-                        if (ch >= 32) {
+                        if ((ch > 32) && (ch < 127)) {
                             out = (out + (strfromcode ch))
+                        } {
+                            out = (out + (EVGPDFRenderer.percentUtf8(ch)))
                         }
                     }
                 }
             }
             i = (i + 1)
+        }
+        return out
+    }
+
+    ; One code point as the %XX of its UTF-8 bytes.
+    sfn percentUtf8:string (cp:int) {
+        def bytes:[int]
+        if (cp < 128) {
+            push bytes cp
+        } {
+            if (cp < 2048) {
+                push bytes (192 + (idiv cp 64))
+                push bytes (128 + (cp % 64))
+            } {
+                if (cp < 65536) {
+                    push bytes (224 + (idiv cp 4096))
+                    push bytes (128 + ((idiv cp 64) % 64))
+                    push bytes (128 + (cp % 64))
+                } {
+                    push bytes (240 + (idiv cp 262144))
+                    push bytes (128 + ((idiv cp 4096) % 64))
+                    push bytes (128 + ((idiv cp 64) % 64))
+                    push bytes (128 + (cp % 64))
+                }
+            }
+        }
+        def out:string ""
+        for bytes b:int bi {
+            out = (out + "%" + (substring (EVGPDFRenderer.hex4(b)) 2 4))
         }
         return out
     }
@@ -3885,6 +3973,64 @@ class EVGPDFRenderer {
         docAuthor = author
     }
 
+    ; A bookmark in the reader's outline: `title` opens page `page` (0 =
+    ; first). Bookmarks are kept in the order they are added.
+    fn addBookmark:void (title:string page:int) {
+        push outlineTitle title
+        push outlinePage page
+    }
+
+    fn clearBookmarks:void () {
+        clear outlineTitle
+        clear outlinePage
+    }
+
+    ; The outline: its root and one item per bookmark whose page is in the
+    ; file, written as consecutive objects after the pages (`pageObjs`, in
+    ; page order). The root's object number, 0 when there are no bookmarks,
+    ; for the catalog.
+    fn writeOutline:int (pdf:GrowableBuffer objectOffsets:[int] pageObjs:[int]) {
+        def titles:[string]
+        def dests:[int]
+        def i:int 0
+        while (i < (array_length outlineTitle)) {
+            def pg:int (itemAt outlinePage i)
+            if ((pg >= 0) && (pg < (array_length pageObjs))) {
+                push titles (itemAt outlineTitle i)
+                push dests (itemAt pageObjs pg)
+            }
+            i = (i + 1)
+        }
+        def n:int (array_length titles)
+        if (n == 0) {
+            return 0
+        }
+        def root:int nextObjNum
+        push objectOffsets (pdf.size())
+        pdf.writeString((to_string root) + " 0 obj\n")
+        pdf.writeString("<< /Type /Outlines /First " + (to_string (root + 1)) + " 0 R /Last " + (to_string (root + n)) + " 0 R /Count " + (to_string n) + " >>\n")
+        pdf.writeString("endobj\n\n")
+        nextObjNum = (nextObjNum + 1)
+        def k:int 0
+        while (k < n) {
+            def me:int (root + (k + 1))
+            push objectOffsets (pdf.size())
+            pdf.writeString((to_string me) + " 0 obj\n")
+            pdf.writeString("<< /Title " + (EVGPDFRenderer.pdfTextString((itemAt titles k))) + " /Parent " + (to_string root) + " 0 R")
+            if (k > 0) {
+                pdf.writeString(" /Prev " + (to_string (me - 1)) + " 0 R")
+            }
+            if (k < (n - 1)) {
+                pdf.writeString(" /Next " + (to_string (me + 1)) + " 0 R")
+            }
+            pdf.writeString(" /Dest [" + (to_string (itemAt dests k)) + " 0 R /Fit] >>\n")
+            pdf.writeString("endobj\n\n")
+            nextObjNum = (nextObjNum + 1)
+            k = (k + 1)
+        }
+        return root
+    }
+
     fn isCmyk:boolean () {
         return (colorMode == "cmyk")
     }
@@ -4039,6 +4185,15 @@ class EVGPDFRenderer {
         return ((strlen pdfxProfile) > 0)
     }
 
+    ; The document information dictionary: a print file always has one, any
+    ; other file when it has a title or an author to say.
+    fn wantsInfo:boolean () {
+        if (this.wantsFinishing()) {
+            return true
+        }
+        return (((strlen docTitle) > 0) || ((strlen docAuthor) > 0))
+    }
+
     sfn pdfString:string (v:string) {
         def out:string ""
         def n:int (strlen v)
@@ -4070,12 +4225,14 @@ class EVGPDFRenderer {
     ; stream as a single mangled byte inside a packet that declares itself
     ; UTF-8. Numeric character references keep the text correct and keep the
     ; packet ASCII, which also makes its /Length arithmetic trivially right.
+    ;
+    ; Walked as code points (`to_chars`) for the reason pdfTextString gives:
+    ; by `charAt` unit an ä is one UTF-16 unit on JavaScript and two UTF-8
+    ; bytes on Go, and only the code point is the same character on both.
     sfn xmlEscape:string (v:string) {
         def out:string ""
-        def n:int (strlen v)
-        def i:int 0
-        while (i < n) {
-            def code:int (charAt v i)
+        def cps:[int] (to_chars v)
+        for cps code:int i {
             if (code == 38) {
                 out = (out + "&amp;")
             } {
@@ -4086,30 +4243,13 @@ class EVGPDFRenderer {
                         out = (out + "&gt;")
                     } {
                         if (code < 127) {
-                            out = (out + (substring v i (i + 1)))
+                            out = (out + (strfromcode code))
                         } {
-                            ; A surrogate pair is one character, and referencing
-                            ; the halves separately is not valid XML.
-                            def point:int code
-                            def isHigh:boolean ((code >= 55296) && (code <= 56319))
-                            if isHigh {
-                                if ((i + 1) < n) {
-                                    def low:int (charAt v (i + 1))
-                                    def isLow:boolean ((low >= 56320) && (low <= 57343))
-                                    if isLow {
-                                        def hi:int ((code - 55296) * 1024)
-                                        def lo:int (low - 56320)
-                                        point = ((hi + lo) + 65536)
-                                        i = (i + 1)
-                                    }
-                                }
-                            }
-                            out = (out + "&#" + (to_string point) + ";")
+                            out = (out + "&#" + (to_string code) + ";")
                         }
                     }
                 }
             }
-            i = (i + 1)
         }
         return out
     }
@@ -4118,26 +4258,31 @@ class EVGPDFRenderer {
     ; UTF-16BE with a byte-order mark, which is the only encoding a PDF reader
     ; is required to understand for text outside PDFDocEncoding. Writing the raw
     ; units would put one truncated byte per character into the file.
+    ;
+    ; The string is walked as CODE POINTS (`to_chars`), not as `charAt`
+    ; units: those are UTF-16 units on JavaScript but UTF-8 bytes on Go, where
+    ; an ä walked by unit came out as two wrong UTF-16 characters. A point
+    ; past U+FFFF is written as its surrogate pair.
     sfn pdfTextString:string (v:string) {
-        def n:int (strlen v)
+        def cps:[int] (to_chars v)
         def ascii:boolean true
-        def i:int 0
-        while (i < n) {
-            def code:int (charAt v i)
+        for cps code:int i {
             if (code > 126) {
                 ascii = false
             }
-            i = (i + 1)
         }
         if ascii {
             return ("(" + (EVGPDFRenderer.pdfString(v)) + ")")
         }
         def out:string "<FEFF"
-        def k:int 0
-        while (k < n) {
-            def unit:int (charAt v k)
-            out = (out + (EVGPDFRenderer.hex4(unit)))
-            k = (k + 1)
+        for cps cp:int k {
+            if (cp > 65535) {
+                def rest:int (cp - 65536)
+                out = (out + (EVGPDFRenderer.hex4((55296 + (idiv rest 1024)))))
+                out = (out + (EVGPDFRenderer.hex4((56320 + (rest % 1024)))))
+            } {
+                out = (out + (EVGPDFRenderer.hex4(cp)))
+            }
         }
         return (out + ">")
     }
@@ -4262,7 +4407,7 @@ class EVGPDFRenderer {
     }
 
     ; /Trapped is not optional in PDF/X: a file that does not say whether it has
-    ; been trapped cannot be one.
+    ; been trapped cannot be one. Any other file makes no claim about it.
     fn infoBody:string () {
         def out:string "<< /Producer " + (EVGPDFRenderer.pdfTextString(producer))
         if ((strlen docTitle) > 0) {
@@ -4271,15 +4416,23 @@ class EVGPDFRenderer {
         if ((strlen docAuthor) > 0) {
             out = (out + " /Author " + (EVGPDFRenderer.pdfTextString(docAuthor)))
         }
-        out = (out + " /Trapped /False >>\n")
+        if (this.wantsFinishing()) {
+            out = (out + " /Trapped /False")
+        }
+        out = (out + " >>\n")
         return out
     }
 
-    fn catalogBody:string (pagesNum:int metadataNum:int intentNum:int) {
+    ; `outlinesNum` 0: no bookmarks. With them the reader opens with its
+    ; bookmarks pane showing.
+    fn catalogBody:string (pagesNum:int metadataNum:int intentNum:int outlinesNum:int) {
         def out:string "<< /Type /Catalog /Pages " + (to_string pagesNum) + " 0 R"
         if (this.wantsFinishing()) {
             out = (out + " /Metadata " + (to_string metadataNum) + " 0 R")
             out = (out + " /OutputIntents [" + (to_string intentNum) + " 0 R]")
+        }
+        if (outlinesNum > 0) {
+            out = (out + " /Outlines " + (to_string outlinesNum) + " 0 R /PageMode /UseOutlines")
         }
         out = (out + " >>\n")
         return out
@@ -4287,7 +4440,7 @@ class EVGPDFRenderer {
 
     fn trailerBody:string (size:int catalogNum:int infoNum:int) {
         def out:string "<< /Size " + (to_string size) + " /Root " + (to_string catalogNum) + " 0 R"
-        if (this.wantsFinishing()) {
+        if (infoNum > 0) {
             out = (out + " /Info " + (to_string infoNum) + " 0 R")
         }
         out = (out + " >>\n")
