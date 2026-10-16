@@ -71,6 +71,10 @@ class EditorBuffer {
     ; (EditorUndoOp.caretLine); -1 = none. Used once.
     def holdLine:int -1
     def holdCol:int 0
+    ; Typing is undone a word at a time: a letter typed right after the
+    ; last edit joins it (`joinsTyping`). Undo, redo and `closeTyping` (the
+    ; caret moved, a tool wrote) end the run, so the next letter starts one.
+    def typingOpen:boolean false
     def version:int 0
     ; Style applied to newly typed / inserted text (canvas-editor range style).
     def typingBold:boolean false
@@ -269,11 +273,61 @@ class EditorBuffer {
     }
 
     fn pushUndo:void (op:EditorUndoOp) {
+        def n:int (array_length undoStack)
+        if (typingOpen && (n > 0)) {
+            def prev:EditorUndoOp (itemAt undoStack (n - 1))
+            if (EditorBuffer.joinsTyping(prev op)) {
+                prev.inserted = (prev.inserted + op.inserted)
+                prev.endLine = op.endLine
+                prev.endCol = op.endCol
+                clear redoStack
+                return
+            }
+        }
         push undoStack op
         while ((array_length undoStack) > maxUndo) {
             remove_index undoStack 0
         }
         clear redoStack
+        typingOpen = true
+    }
+
+    ; The edit that ends the current run of typing: the next letter is an
+    ; undo step of its own.
+    fn closeTyping:void () {
+        typingOpen = false
+    }
+
+    ; Whether `next` is one more letter of the word `prev` is typing: one
+    ; character inserted where `prev` ended, neither removing anything, and
+    ; `prev` not already ended by a space or a newline. The space joins the
+    ; word before it (undo leaves "one ", then ""); Enter is a step of its
+    ; own. Edits that keep the caret elsewhere (`caretLine`) never join.
+    sfn joinsTyping:boolean (prev:EditorUndoOp next:EditorUndoOp) {
+        if (((strlen prev.deleted) > 0) || ((strlen next.deleted) > 0)) {
+            return false
+        }
+        if ((prev.caretLine >= 0) || (next.caretLine >= 0)) {
+            return false
+        }
+        if ((strlen next.inserted) != 1) {
+            return false
+        }
+        if ((charAt next.inserted 0) == 10) {
+            return false
+        }
+        if ((next.startLine != prev.endLine) || (next.startCol != prev.endCol)) {
+            return false
+        }
+        def pl:int (strlen prev.inserted)
+        if (pl == 0) {
+            return false
+        }
+        def last:int (charAt prev.inserted (pl - 1))
+        if (((last == 32) || (last == 10)) || (last == 9)) {
+            return false
+        }
+        return true
     }
 
     ; Replace [start..end) with `text`. Returns the caret position after the insert.
@@ -512,6 +566,7 @@ class EditorBuffer {
         }
         def op:EditorUndoOp (itemAt undoStack (n - 1))
         removeLast undoStack
+        typingOpen = false
         ; Reverse: remove inserted, put deleted back.
         def after:EditorPos (this.replaceRange(op.startLine op.startCol op.endLine op.endCol op.deleted false))
         push redoStack op
@@ -533,6 +588,7 @@ class EditorBuffer {
         }
         def op:EditorUndoOp (itemAt redoStack (n - 1))
         removeLast redoStack
+        typingOpen = false
         ; After undo, `deleted` sits at start — replace that span with `inserted`.
         def endDel:EditorPos (this.posAfter(op.startLine op.startCol op.deleted))
         def after:EditorPos (this.replaceRange(op.startLine op.startCol endDel.line endDel.col op.inserted false))
