@@ -249,13 +249,10 @@ extension RangerFlowParser {
       def fNameNode:CodeNode (at node.children 1)
       def import_file:string fNameNode.string_value
 
-      if (has ctx.already_imported import_file) {
-        return
-      }
-
+      ; Duplicates are found by the resolved path below, not by this string:
+      ; `Import "util.rgr"` in a/ and in b/ are two different files.
       def source_code ""
 
-      set ctx.already_imported import_file true
       def rootCtx (ctx.getRoot())
       
       ; Calculate the full path and directory of the imported file
@@ -298,6 +295,12 @@ extension RangerFlowParser {
         ; a time. Key the folded path as well.
         def seenKey:string ("@" + (PkgImport.foldPath((filePathIs + "/" + searchName))))
         if (has ctx.already_imported seenKey) {
+          ; Empty the node, as a merged one is, so the collect pass does not
+          ; try to resolve it again without this file's directory on the path.
+          node.expression = true
+          node.vref = ""
+          removeLast node.children
+          removeLast node.children
           return
         }
         set ctx.already_imported seenKey true

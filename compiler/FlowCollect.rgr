@@ -1160,15 +1160,8 @@ extension RangerFlowParser {
         ctx.addError(node "import expects a file name string")
         return
       }
-      if (has ctx.already_imported import_file) {
-        ; Already imported - walk any merged children
-        for node.children item:CodeNode i {
-          this.WalkCollectMethods(item ctx wr)
-        }
-        return
-      } {
-        set ctx.already_imported import_file true
-      }
+      ; Duplicates are found by the resolved path (seenKey2), not by this
+      ; string: `Import "util.rgr"` in a/ and in b/ are two different files.
       def envOpt (ctx.getEnv())
       if(null? envOpt) {
         ctx.addError( node 'Environment not defined')
