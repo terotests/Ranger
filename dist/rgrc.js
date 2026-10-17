@@ -23261,15 +23261,6 @@ class RangerFlowParser  {
         ctx.addError(node, "import expects a file name string");
         return;
       }
-      if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, import_file) ) ) {
-        // Loop start
-        for ( const item_4 of node.children) {
-          this.WalkCollectMethods(item_4, ctx, wr);
-        }
-        return;
-      } else {
-        ctx.already_imported[import_file] = true;
-      }
       const envOpt = ctx.getEnv();
       if ( typeof(envOpt) === "undefined" ) {
         ctx.addError(node, "Environment not defined");
@@ -23346,9 +23337,9 @@ class RangerFlowParser  {
         if ( staticCmd == "def" || staticCmd == "let" ) {
           const staticDecl = node.newExpressionNode();
           // Loop start
-          for ( let i_9 = 0; i_9 < node.children.length; i_9++) {
-            var ch_1 = node.children[i_9];
-            if ( i_9 == 0 ) {
+          for ( let i_8 = 0; i_8 < node.children.length; i_8++) {
+            var ch_1 = node.children[i_8];
+            if ( i_8 == 0 ) {
               continue;
             }
             staticDecl.children.push(ch_1);
@@ -23462,8 +23453,8 @@ class RangerFlowParser  {
     }
     if ( find_more ) {
       // Loop start
-      for ( const item_5 of node.children) {
-        this.WalkCollectMethods(item_5, ctx, wr);
+      for ( const item_4 of node.children) {
+        this.WalkCollectMethods(item_4, ctx, wr);
       }
     }
     if ( node.hasBooleanProperty("serialize") ) {
@@ -24747,11 +24738,7 @@ class RangerFlowParser  {
     if ( node.isFirstVref("Import") ) {
       const fNameNode = node.children[1];
       const import_file = fNameNode.string_value;
-      if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, import_file) ) ) {
-        return;
-      }
       let source_code = "";
-      ctx.already_imported[import_file] = true;
       const rootCtx = ctx.getRoot();
       let importFileDir = "";
       if ( source_code.length == 0 ) {
@@ -24786,6 +24773,10 @@ class RangerFlowParser  {
         }
         const seenKey = "@" + PkgImport.foldPath(((filePathIs + "/") + searchName));
         if ( ( typeof(ctx.already_imported[seenKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, seenKey) ) ) {
+          node.expression = true;
+          node.vref = "";
+          node.children.pop();
+          node.children.pop();
           return;
         }
         ctx.already_imported[seenKey] = true;
@@ -75844,6 +75835,708 @@ class Inflate  {
     };
   };
 }
+class DeflateTables  {
+  constructor() {
+    this.lenBase = [];
+    this.lenExtra = [];
+    this.distBase = [];
+    this.distExtra = [];
+    this.clOrder = [];
+    this.lenBase = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
+    this.lenExtra = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
+    this.distBase = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577];
+    this.distExtra = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
+    this.clOrder = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+  }
+  lenIndex (__len) {
+    if ( __len >= 258 ) {
+      return 28;
+    }
+    let k = 27;
+    while (k > 0) {
+      if ( this.lenBase[k] <= __len ) {
+        return k;
+      }
+      k = k - 1;
+    };
+    return 0;
+  };
+  distIndex (dist) {
+    let k = 29;
+    while (k > 0) {
+      if ( this.distBase[k] <= dist ) {
+        return k;
+      }
+      k = k - 1;
+    };
+    return 0;
+  };
+}
+class DeflateHuffman  {
+}
+DeflateHuffman.lengths = function(freqs, limit) {
+  const n = freqs.length;
+  let f = [];
+  let used = 0;
+  let i = 0;
+  while (i < n) {
+    const v = freqs[i];
+    f.push(v);
+    if ( v > 0 ) {
+      used = used + 1;
+    }
+    i = i + 1;
+  };
+  let out = [];
+  i = 0;
+  while (i < n) {
+    out.push(0);
+    i = i + 1;
+  };
+  if ( used < 2 ) {
+    let given = 0;
+    i = 0;
+    while (i < n) {
+      if ( f[i] > 0 ) {
+        out[i] = 1;
+        given = given + 1;
+      }
+      i = i + 1;
+    };
+    i = 0;
+    while (i < n && given < 2) {
+      if ( out[i] == 0 ) {
+        out[i] = 1;
+        given = given + 1;
+      }
+      i = i + 1;
+    };
+    return out;
+  }
+  while (true) {
+    const depth = DeflateHuffman.build(f);
+    let maxLen = 0;
+    i = 0;
+    while (i < n) {
+      if ( depth[i] > maxLen ) {
+        maxLen = depth[i];
+      }
+      i = i + 1;
+    };
+    if ( maxLen <= limit ) {
+      return depth;
+    }
+    i = 0;
+    while (i < n) {
+      const v2 = f[i];
+      if ( v2 > 0 ) {
+        f[i] = (((v2 + 1) / 2) | 0);
+      }
+      i = i + 1;
+    };
+  };
+  return out;
+};
+DeflateHuffman.build = function(f) {
+  const n = f.length;
+  let weight = [];
+  let parent = [];
+  let alive = [];
+  let i = 0;
+  while (i < n) {
+    weight.push(f[i]);
+    parent.push(0 - 1);
+    alive.push(f[i] > 0);
+    i = i + 1;
+  };
+  let left = 0;
+  i = 0;
+  while (i < n) {
+    if ( alive[i] ) {
+      left = left + 1;
+    }
+    i = i + 1;
+  };
+  while (left > 1) {
+    let a = 0 - 1;
+    let b = 0 - 1;
+    const total = weight.length;
+    let j = 0;
+    while (j < total) {
+      if ( alive[j] ) {
+        const w = weight[j];
+        if ( a < 0 ) {
+          a = j;
+        } else {
+          if ( w < weight[a] ) {
+            b = a;
+            a = j;
+          } else {
+            if ( b < 0 ) {
+              b = j;
+            } else {
+              if ( w < weight[b] ) {
+                b = j;
+              }
+            }
+          }
+        }
+      }
+      j = j + 1;
+    };
+    const node = weight.length;
+    weight.push(weight[a] + weight[b]);
+    parent.push(0 - 1);
+    alive.push(true);
+    alive[a] = false;
+    alive[b] = false;
+    parent[a] = node;
+    parent[b] = node;
+    left = left - 1;
+  };
+  let depth = [];
+  i = 0;
+  while (i < n) {
+    let d = 0;
+    if ( f[i] > 0 ) {
+      let p = parent[i];
+      while (p >= 0) {
+        d = d + 1;
+        p = parent[p];
+      };
+    }
+    depth.push(d);
+    i = i + 1;
+  };
+  return depth;
+};
+DeflateHuffman.codes = function(lens) {
+  const n = lens.length;
+  let blCount = [];
+  let i = 0;
+  while (i < 16) {
+    blCount.push(0);
+    i = i + 1;
+  };
+  i = 0;
+  while (i < n) {
+    const l = lens[i];
+    if ( l > 0 ) {
+      blCount[l] = blCount[l] + 1;
+    }
+    i = i + 1;
+  };
+  let next = [];
+  next.push(0);
+  let code = 0;
+  let bits = 1;
+  while (bits < 16) {
+    code = ((code + blCount[(bits - 1)]) << 1);
+    next.push(code);
+    bits = bits + 1;
+  };
+  let out = [];
+  i = 0;
+  while (i < n) {
+    const l2 = lens[i];
+    if ( l2 > 0 ) {
+      const c = next[l2];
+      next[l2] = c + 1;
+      out.push(DeflateHuffman.reverse(c, l2));
+    } else {
+      out.push(0);
+    }
+    i = i + 1;
+  };
+  return out;
+};
+DeflateHuffman.reverse = function(code, __len) {
+  let r = 0;
+  let i = 0;
+  let c = code;
+  while (i < __len) {
+    r = ((r << 1) | (c & 1));
+    c = (c >>> 1);
+    i = i + 1;
+  };
+  return r;
+};
+class Deflate  {
+  constructor() {
+    this.data = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
+    this.n = 0;
+    this.tables = new DeflateTables();
+    this.bytes = [];
+    this.bitBuf = 0;
+    this.bitCnt = 0;
+    this.tokLen = [];
+    this.tokVal = [];
+    this.tokPos = [];
+    this.head = [];
+    this.prev = [];
+    this.nextIns = 0;
+    this.foundLen = 0;
+    this.foundDist = 0;
+    this.n = 0;
+  }
+  run (src) {
+    this.data = src;
+    this.n = src.byteLength;
+    this.tokenize();
+    const count = this.tokLen.length;
+    const per = 16384;
+    let start = 0;
+    if ( count == 0 ) {
+      this.putBits(1, 1);
+      this.putBits(1, 2);
+      this.putBits(0, 7);
+    }
+    while (start < count) {
+      let end = start + per;
+      if ( end > count ) {
+        end = count;
+      }
+      this.block(start, end, end == count);
+      start = end;
+    };
+    this.flushBits();
+    let out = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(this.bytes.length));
+    let i = 0;
+    while (i < this.bytes.length) {
+      out._view.setUint8(i, this.bytes[i]);
+      i = i + 1;
+    };
+    return out;
+  };
+  putBits (value, count) {
+    this.bitBuf = (this.bitBuf | (value << this.bitCnt));
+    this.bitCnt = this.bitCnt + count;
+    while (this.bitCnt >= 8) {
+      this.bytes.push((this.bitBuf & 255));
+      this.bitBuf = (this.bitBuf >>> 8);
+      this.bitCnt = this.bitCnt - 8;
+    };
+  };
+  flushBits () {
+    if ( this.bitCnt > 0 ) {
+      this.bytes.push((this.bitBuf & 255));
+    }
+    this.bitBuf = 0;
+    this.bitCnt = 0;
+  };
+  hashAt (i) {
+    const a = this.data._view.getUint8(i);
+    const b = this.data._view.getUint8(i + 1);
+    const c = this.data._view.getUint8(i + 2);
+    return ((((a << 10) ^ (b << 5)) ^ c) & 32767);
+  };
+  tokenize () {
+    let i = 0;
+    while (i < 32768) {
+      this.head.push(0 - 1);
+      this.prev.push(0 - 1);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < this.n) {
+      this.longest(i);
+      let __len = this.foundLen;
+      let dist = this.foundDist;
+      if ( __len >= 3 ) {
+        if ( __len < 32 && i + 1 < this.n ) {
+          this.insert(i);
+          this.longest(i + 1);
+          if ( this.foundLen > __len ) {
+            this.tokLen.push(0);
+            this.tokVal.push(this.data._view.getUint8(i));
+            this.tokPos.push(i);
+            i = i + 1;
+            __len = this.foundLen;
+            dist = this.foundDist;
+          }
+        } else {
+          this.insert(i);
+        }
+        this.tokLen.push(__len);
+        this.tokVal.push(dist);
+        this.tokPos.push(i);
+        let k = 0;
+        while (k < __len) {
+          this.insert(i + k);
+          k = k + 1;
+        };
+        i = i + __len;
+      } else {
+        this.insert(i);
+        this.tokLen.push(0);
+        this.tokVal.push(this.data._view.getUint8(i));
+        this.tokPos.push(i);
+        i = i + 1;
+      }
+    };
+  };
+  insert (i) {
+    if ( i + 2 >= this.n ) {
+      return;
+    }
+    if ( i < this.nextIns ) {
+      return;
+    }
+    this.nextIns = i + 1;
+    const h = this.hashAt(i);
+    const slot = (i & 32767);
+    this.prev[slot] = this.head[h];
+    this.head[h] = i;
+  };
+  longest (i) {
+    this.foundLen = 0;
+    this.foundDist = 0;
+    if ( i + 2 >= this.n ) {
+      return;
+    }
+    let maxLen = this.n - i;
+    if ( maxLen > 258 ) {
+      maxLen = 258;
+    }
+    let cand = this.head[this.hashAt(i)];
+    let chain = 0;
+    let best = 0;
+    let bestDist = 0;
+    while (cand >= 0 && chain < 128) {
+      if ( cand >= i ) {
+        break;
+      }
+      const dist = i - cand;
+      if ( dist > 32768 ) {
+        break;
+      }
+      if ( this.data._view.getUint8(cand + best) == this.data._view.getUint8(i + best) ) {
+        let l = 0;
+        while (l < maxLen && this.data._view.getUint8(cand + l) == this.data._view.getUint8(i + l)) {
+          l = l + 1;
+        };
+        if ( l > best ) {
+          best = l;
+          bestDist = dist;
+          if ( l >= maxLen ) {
+            break;
+          }
+        }
+      }
+      const nextCand = this.prev[(cand & 32767)];
+      if ( nextCand >= cand ) {
+        break;
+      }
+      cand = nextCand;
+      chain = chain + 1;
+    };
+    if ( best >= 3 ) {
+      this.foundLen = best;
+      this.foundDist = bestDist;
+    }
+  };
+  byteSpan (from, to) {
+    let span = [];
+    const a = this.tokPos[from];
+    let b = this.n;
+    if ( to < this.tokPos.length ) {
+      b = this.tokPos[to];
+    }
+    span.push(a);
+    span.push(b);
+    return span;
+  };
+  block (from, to, last) {
+    let litF = [];
+    let distF = [];
+    let i = 0;
+    while (i < 286) {
+      litF.push(0);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < 30) {
+      distF.push(0);
+      i = i + 1;
+    };
+    let extraBits = 0;
+    i = from;
+    while (i < to) {
+      const __len = this.tokLen[i];
+      if ( __len == 0 ) {
+        const lit = this.tokVal[i];
+        litF[lit] = litF[lit] + 1;
+      } else {
+        const li = this.tables.lenIndex(__len);
+        litF[257 + li] = litF[(257 + li)] + 1;
+        const di = this.tables.distIndex(this.tokVal[i]);
+        distF[di] = distF[di] + 1;
+        extraBits = (extraBits + this.tables.lenExtra[li]) + this.tables.distExtra[di];
+      }
+      i = i + 1;
+    };
+    litF[256] = 1;
+    const fixedLit = this.fixedLitLens();
+    let fixedCost = 3 + extraBits;
+    i = 0;
+    while (i < 286) {
+      fixedCost = fixedCost + litF[i] * fixedLit[i];
+      i = i + 1;
+    };
+    i = 0;
+    while (i < 30) {
+      fixedCost = fixedCost + distF[i] * 5;
+      i = i + 1;
+    };
+    const litLens = DeflateHuffman.lengths(litF, 15);
+    const distLens = DeflateHuffman.lengths(distF, 15);
+    let hlit = 286;
+    while (hlit > 257 && litLens[(hlit - 1)] == 0) {
+      hlit = hlit - 1;
+    };
+    let hdist = 30;
+    while (hdist > 1 && distLens[(hdist - 1)] == 0) {
+      hdist = hdist - 1;
+    };
+    let all = [];
+    i = 0;
+    while (i < hlit) {
+      all.push(litLens[i]);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < hdist) {
+      all.push(distLens[i]);
+      i = i + 1;
+    };
+    let rleSym = [];
+    let rleExtra = [];
+    this.rle(all, rleSym, rleExtra);
+    let clF = [];
+    i = 0;
+    while (i < 19) {
+      clF.push(0);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < rleSym.length) {
+      const s = rleSym[i];
+      clF[s] = clF[s] + 1;
+      i = i + 1;
+    };
+    const clLens = DeflateHuffman.lengths(clF, 7);
+    let hclen = 19;
+    while (hclen > 4 && clLens[this.tables.clOrder[(hclen - 1)]] == 0) {
+      hclen = hclen - 1;
+    };
+    let dynCost = ((3 + 14) + 3 * hclen) + extraBits;
+    i = 0;
+    while (i < rleSym.length) {
+      const s2 = rleSym[i];
+      dynCost = dynCost + clLens[s2];
+      if ( s2 == 16 ) {
+        dynCost = dynCost + 2;
+      }
+      if ( s2 == 17 ) {
+        dynCost = dynCost + 3;
+      }
+      if ( s2 == 18 ) {
+        dynCost = dynCost + 7;
+      }
+      i = i + 1;
+    };
+    i = 0;
+    while (i < 286) {
+      dynCost = dynCost + litF[i] * litLens[i];
+      i = i + 1;
+    };
+    i = 0;
+    while (i < 30) {
+      dynCost = dynCost + distF[i] * distLens[i];
+      i = i + 1;
+    };
+    const span = this.byteSpan(from, to);
+    const rawLen = span[1] - span[0];
+    const storedCost = (rawLen * 8 + 40 * (((rawLen / 65535) | 0) + 1)) + 10;
+    if ( storedCost <= fixedCost && storedCost <= dynCost ) {
+      this.stored(span[0], span[1], last);
+      return;
+    }
+    let finalBit = 0;
+    if ( last ) {
+      finalBit = 1;
+    }
+    if ( fixedCost <= dynCost ) {
+      this.putBits(finalBit, 1);
+      this.putBits(1, 2);
+      let fixedDist = [];
+      i = 0;
+      while (i < 30) {
+        fixedDist.push(5);
+        i = i + 1;
+      };
+      this.tokens(from, to, fixedLit, fixedDist);
+      return;
+    }
+    this.putBits(finalBit, 1);
+    this.putBits(2, 2);
+    this.putBits(hlit - 257, 5);
+    this.putBits(hdist - 1, 5);
+    this.putBits(hclen - 4, 4);
+    i = 0;
+    while (i < hclen) {
+      this.putBits(clLens[this.tables.clOrder[i]], 3);
+      i = i + 1;
+    };
+    const clCodes = DeflateHuffman.codes(clLens);
+    i = 0;
+    while (i < rleSym.length) {
+      const s3 = rleSym[i];
+      this.putBits(clCodes[s3], clLens[s3]);
+      if ( s3 == 16 ) {
+        this.putBits(rleExtra[i], 2);
+      }
+      if ( s3 == 17 ) {
+        this.putBits(rleExtra[i], 3);
+      }
+      if ( s3 == 18 ) {
+        this.putBits(rleExtra[i], 7);
+      }
+      i = i + 1;
+    };
+    this.tokens(from, to, litLens, distLens);
+  };
+  fixedLitLens () {
+    let lens = [];
+    let i = 0;
+    while (i < 288) {
+      let l = 8;
+      if ( i >= 144 && i < 256 ) {
+        l = 9;
+      }
+      if ( i >= 256 && i < 280 ) {
+        l = 7;
+      }
+      lens.push(l);
+      i = i + 1;
+    };
+    return lens;
+  };
+  rle (lens, syms, extras) {
+    const total = lens.length;
+    let i = 0;
+    while (i < total) {
+      const l = lens[i];
+      let run = 1;
+      while (i + run < total && lens[(i + run)] == l) {
+        run = run + 1;
+      };
+      if ( l == 0 ) {
+        let left = run;
+        while (left >= 11) {
+          let take = left;
+          if ( take > 138 ) {
+            take = 138;
+          }
+          syms.push(18);
+          extras.push(take - 11);
+          left = left - take;
+        };
+        if ( left >= 3 ) {
+          syms.push(17);
+          extras.push(left - 3);
+          left = 0;
+        }
+        while (left > 0) {
+          syms.push(0);
+          extras.push(0);
+          left = left - 1;
+        };
+      } else {
+        syms.push(l);
+        extras.push(0);
+        let left2 = run - 1;
+        while (left2 >= 3) {
+          let take2 = left2;
+          if ( take2 > 6 ) {
+            take2 = 6;
+          }
+          syms.push(16);
+          extras.push(take2 - 3);
+          left2 = left2 - take2;
+        };
+        while (left2 > 0) {
+          syms.push(l);
+          extras.push(0);
+          left2 = left2 - 1;
+        };
+      }
+      i = i + run;
+    };
+  };
+  tokens (from, to, litLens, distLens) {
+    const litCodes = DeflateHuffman.codes(litLens);
+    const distCodes = DeflateHuffman.codes(distLens);
+    let i = from;
+    while (i < to) {
+      const __len = this.tokLen[i];
+      if ( __len == 0 ) {
+        const lit = this.tokVal[i];
+        this.putBits(litCodes[lit], litLens[lit]);
+      } else {
+        const li = this.tables.lenIndex(__len);
+        const sym = 257 + li;
+        this.putBits(litCodes[sym], litLens[sym]);
+        const le = this.tables.lenExtra[li];
+        if ( le > 0 ) {
+          this.putBits(__len - this.tables.lenBase[li], le);
+        }
+        const dist = this.tokVal[i];
+        const di = this.tables.distIndex(dist);
+        this.putBits(distCodes[di], distLens[di]);
+        const de = this.tables.distExtra[di];
+        if ( de > 0 ) {
+          this.putBits(dist - this.tables.distBase[di], de);
+        }
+      }
+      i = i + 1;
+    };
+    this.putBits(litCodes[256], litLens[256]);
+  };
+  stored (a, b, last) {
+    let at = a;
+    let first = true;
+    while (first || at < b) {
+      first = false;
+      let take = b - at;
+      if ( take > 65535 ) {
+        take = 65535;
+      }
+      let fin = 0;
+      if ( last && at + take >= b ) {
+        fin = 1;
+      }
+      this.putBits(fin, 1);
+      this.putBits(0, 2);
+      this.flushBits();
+      this.bytes.push((take & 255));
+      this.bytes.push((take >>> 8));
+      const nlen = 65535 - take;
+      this.bytes.push((nlen & 255));
+      this.bytes.push((nlen >>> 8));
+      let k = 0;
+      while (k < take) {
+        this.bytes.push(this.data._view.getUint8(at + k));
+        k = k + 1;
+      };
+      at = at + take;
+    };
+  };
+}
+Deflate.compress = function(src) {
+  const d = new Deflate();
+  return d.run(src);
+};
 class GitZlib  {
   constructor() {
     this.ok = true;
@@ -75892,6 +76585,40 @@ class GitZlib  {
     return this.inflateAt(data, 0);
   };
 }
+GitZlib.deflate = function(data) {
+  const raw = Deflate.compress(data);
+  const rn = raw.byteLength;
+  let out = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(rn + 6));
+  out._view.setUint8(0, 120);
+  out._view.setUint8(1, 156);
+  (function(
+    d,
+    dOff,
+    s,
+    sOff,
+    len
+  ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(out,2,raw,0,rn);
+  const a = GitZlib.adler32(data);
+  const hi = (a >>> 16);
+  const lo = (a & 65535);
+  out._view.setUint8(rn + 2, (hi >>> 8));
+  out._view.setUint8(rn + 3, (hi & 255));
+  out._view.setUint8(rn + 4, (lo >>> 8));
+  out._view.setUint8(rn + 5, (lo & 255));
+  return out;
+};
+GitZlib.adler32 = function(data) {
+  let s1 = 1;
+  let s2 = 0;
+  const n = data.byteLength;
+  let i = 0;
+  while (i < n) {
+    s1 = (s1 + data._view.getUint8(i)) % 65521;
+    s2 = (s2 + s1) % 65521;
+    i = i + 1;
+  };
+  return s2 * 65536 + s1;
+};
 class GitObj  {
   constructor() {
     this.kind = 0;
@@ -76214,6 +76941,1002 @@ GitPackIO.merge = function(a, b) {
   out.ok = true;
   return out;
 };
+class RgText  {
+}
+RgText.kind = function() {
+  if ( ("é".length) > 1 ) {
+    return 1;
+  }
+  if ( ("😀".length) == 1 ) {
+    return 2;
+  }
+  return 0;
+};
+RgText.unitsAreBytes = function() {
+  return RgText.kind() == 1;
+};
+RgText.unitsArePoints = function() {
+  return RgText.kind() == 2;
+};
+RgText.utf8WidthOf = function(cp) {
+  if ( cp < 128 ) {
+    return 1;
+  }
+  if ( cp < 2048 ) {
+    return 2;
+  }
+  if ( cp < 65536 ) {
+    return 3;
+  }
+  return 4;
+};
+RgText.byteSlice = function(s, i, j) {
+  const n = s.length;
+  let a = i;
+  let b = j;
+  if ( a < 0 ) {
+    a = 0;
+  }
+  if ( b > n ) {
+    b = n;
+  }
+  if ( b <= a ) {
+    return "";
+  }
+  return s.substring(a, b );
+};
+RgText.decodeAt = function(s, i) {
+  let out = [];
+  const n = s.length;
+  if ( i >= n ) {
+    out.push(0 - 1);
+    out.push(0);
+    return out;
+  }
+  const b0 = (s.charCodeAt(i ) & 255);
+  if ( b0 < 128 ) {
+    out.push(b0);
+    out.push(1);
+    return out;
+  }
+  if ( b0 < 224 ) {
+    let c1 = 0;
+    if ( i + 1 < n ) {
+      c1 = (s.charCodeAt(i + 1 ) & 63);
+    }
+    out.push((b0 & 31) * 64 + c1);
+    out.push(2);
+    return out;
+  }
+  if ( b0 < 240 ) {
+    let d1 = 0;
+    let d2 = 0;
+    if ( i + 1 < n ) {
+      d1 = (s.charCodeAt(i + 1 ) & 63);
+    }
+    if ( i + 2 < n ) {
+      d2 = (s.charCodeAt(i + 2 ) & 63);
+    }
+    out.push(((b0 & 15) * 4096 + d1 * 64) + d2);
+    out.push(3);
+    return out;
+  }
+  let e1 = 0;
+  let e2 = 0;
+  let e3 = 0;
+  if ( i + 1 < n ) {
+    e1 = (s.charCodeAt(i + 1 ) & 63);
+  }
+  if ( i + 2 < n ) {
+    e2 = (s.charCodeAt(i + 2 ) & 63);
+  }
+  if ( i + 3 < n ) {
+    e3 = (s.charCodeAt(i + 3 ) & 63);
+  }
+  out.push((((b0 & 7) * 262144 + e1 * 4096) + e2 * 64) + e3);
+  out.push(4);
+  return out;
+};
+RgText.fromCodePoint = function(cp) {
+  if ( RgText.unitsAreBytes() ) {
+    return RgText.encodeUtf8(cp);
+  }
+  if ( RgText.unitsArePoints() ) {
+    const p = String.fromCharCode(cp);
+    return p;
+  }
+  if ( cp < 65536 ) {
+    const q = String.fromCharCode(cp);
+    return q;
+  }
+  const adj = cp - 65536;
+  const hi = String.fromCharCode(55296 + (adj >> 10));
+  const lo = String.fromCharCode(56320 + (adj & 1023));
+  return hi + lo;
+};
+RgText.encodeUtf8 = function(cp) {
+  const p = String.fromCharCode(cp);
+  return p;
+};
+RgText.len = function(s) {
+  const n = s.length;
+  if ( RgText.unitsArePoints() ) {
+    let p = 0;
+    let cnt = 0;
+    while (p < n) {
+      if ( s.charCodeAt(p ) > 65535 ) {
+        cnt = cnt + 2;
+      } else {
+        cnt = cnt + 1;
+      }
+      p = p + 1;
+    };
+    return cnt;
+  }
+  if ( false == RgText.unitsAreBytes() ) {
+    return n;
+  }
+  let i = 0;
+  let units = 0;
+  while (i < n) {
+    const b = (s.charCodeAt(i ) & 255);
+    if ( b < 128 ) {
+      units = units + 1;
+      i = i + 1;
+    } else {
+      if ( b < 224 ) {
+        units = units + 1;
+        i = i + 2;
+      } else {
+        if ( b < 240 ) {
+          units = units + 1;
+          i = i + 3;
+        } else {
+          units = units + 2;
+          i = i + 4;
+        }
+      }
+    }
+  };
+  return units;
+};
+RgText.unitAt = function(s, u) {
+  const n = s.length;
+  if ( u < 0 ) {
+    return 0 - 1;
+  }
+  if ( RgText.unitsArePoints() ) {
+    let p = 0;
+    let units = 0;
+    while (p < n) {
+      const cp = s.charCodeAt(p );
+      if ( cp < 65536 ) {
+        if ( units == u ) {
+          return cp;
+        }
+        units = units + 1;
+      } else {
+        const adj = cp - 65536;
+        if ( units == u ) {
+          return 55296 + (adj >> 10);
+        }
+        if ( units + 1 == u ) {
+          return 56320 + (adj & 1023);
+        }
+        units = units + 2;
+      }
+      p = p + 1;
+    };
+    return 0 - 1;
+  }
+  if ( false == RgText.unitsAreBytes() ) {
+    if ( u >= n ) {
+      return 0 - 1;
+    }
+    return (s.charCodeAt(u ) & 65535);
+  }
+  let i = 0;
+  let units_1 = 0;
+  while (i < n) {
+    const dec = RgText.decodeAt(s, i);
+    const cp_1 = dec[0];
+    const w = dec[1];
+    if ( w == 0 ) {
+      return 0 - 1;
+    }
+    if ( cp_1 < 65536 ) {
+      if ( units_1 == u ) {
+        return cp_1;
+      }
+      units_1 = units_1 + 1;
+    } else {
+      const adj_1 = cp_1 - 65536;
+      if ( units_1 == u ) {
+        return 55296 + (adj_1 >> 10);
+      }
+      if ( units_1 + 1 == u ) {
+        return 56320 + (adj_1 & 1023);
+      }
+      units_1 = units_1 + 2;
+    }
+    i = i + w;
+  };
+  return 0 - 1;
+};
+RgText.substr = function(s, a, b) {
+  let lo = a;
+  let hi = b;
+  if ( lo < 0 ) {
+    lo = 0;
+  }
+  if ( hi < lo ) {
+    hi = lo;
+  }
+  const n = s.length;
+  if ( RgText.unitsArePoints() ) {
+    let out = "";
+    let p = 0;
+    let units = 0;
+    while (p < n) {
+      const cp = s.charCodeAt(p );
+      let w = 1;
+      if ( cp > 65535 ) {
+        w = 2;
+      }
+      if ( units >= lo && units + w <= hi ) {
+        out = out + s[p];
+      }
+      units = units + w;
+      p = p + 1;
+    };
+    return out;
+  }
+  if ( false == RgText.unitsAreBytes() ) {
+    if ( lo >= n ) {
+      return "";
+    }
+    let hi2 = hi;
+    if ( hi2 > n ) {
+      hi2 = n;
+    }
+    return s.substring(lo, hi2 );
+  }
+  let out2 = "";
+  let i = 0;
+  let units2 = 0;
+  while (i < n) {
+    const dec = RgText.decodeAt(s, i);
+    const cp_1 = dec[0];
+    const w_1 = dec[1];
+    if ( w_1 == 0 ) {
+      i = n;
+    } else {
+      if ( cp_1 < 65536 ) {
+        if ( units2 >= lo && units2 < hi ) {
+          out2 = out2 + RgText.byteSlice(s, i, (i + w_1));
+        }
+        units2 = units2 + 1;
+      } else {
+        const adj = cp_1 - 65536;
+        const takeHi = units2 >= lo && units2 < hi;
+        const takeLo = units2 + 1 >= lo && units2 + 1 < hi;
+        if ( takeHi && takeLo ) {
+          out2 = out2 + RgText.byteSlice(s, i, (i + w_1));
+        } else {
+          if ( takeHi ) {
+            out2 = out2 + RgText.encodeUtf8((55296 + (adj >> 10)));
+          }
+          if ( takeLo ) {
+            out2 = out2 + RgText.encodeUtf8((56320 + (adj & 1023)));
+          }
+        }
+        units2 = units2 + 2;
+      }
+      i = i + w_1;
+    }
+  };
+  return out2;
+};
+RgText.utf8ByteOfUnit = function(s, u) {
+  if ( u <= 0 ) {
+    return 0;
+  }
+  const n = RgText.len(s);
+  let bytes = 0;
+  let i = 0;
+  while (i < n) {
+    if ( i >= u ) {
+      return bytes;
+    }
+    const cp = RgText.codePointAt(s, i);
+    if ( cp < 0 ) {
+      return bytes;
+    }
+    let w = 1;
+    if ( cp > 65535 ) {
+      w = 2;
+    }
+    bytes = bytes + RgText.utf8WidthOf(cp);
+    i = i + w;
+  };
+  return bytes;
+};
+RgText.unitOfUtf8Byte = function(s, byteIdx) {
+  if ( byteIdx <= 0 ) {
+    return 0;
+  }
+  const n = RgText.len(s);
+  let bytes = 0;
+  let units = 0;
+  let i = 0;
+  while (i < n) {
+    if ( bytes >= byteIdx ) {
+      return units;
+    }
+    const cp = RgText.codePointAt(s, i);
+    if ( cp < 0 ) {
+      return units;
+    }
+    let w = 1;
+    if ( cp > 65535 ) {
+      w = 2;
+    }
+    bytes = bytes + RgText.utf8WidthOf(cp);
+    units = units + w;
+    i = i + w;
+  };
+  return units;
+};
+RgText.codePointAt = function(s, u) {
+  const first = RgText.unitAt(s, u);
+  if ( first < 0 ) {
+    return 0 - 1;
+  }
+  if ( first < 55296 ) {
+    return first;
+  }
+  if ( first > 56319 ) {
+    return first;
+  }
+  const second = RgText.unitAt(s, (u + 1));
+  if ( second < 56320 ) {
+    return first;
+  }
+  if ( second > 57343 ) {
+    return first;
+  }
+  return ((first - 55296) * 1024 + (second - 56320)) + 65536;
+};
+RgText.toCodePoints = function(s) {
+  let out = [];
+  const n = RgText.len(s);
+  let u = 0;
+  while (u < n) {
+    const cp = RgText.codePointAt(s, u);
+    if ( cp < 0 ) {
+      u = n;
+    } else {
+      out.push(cp);
+      if ( cp > 65535 ) {
+        u = u + 2;
+      } else {
+        u = u + 1;
+      }
+    }
+  };
+  return out;
+};
+RgText.codePointCount = function(s) {
+  const cps = RgText.toCodePoints(s);
+  return cps.length;
+};
+RgText.fromCodePoints = function(cps) {
+  let out = "";
+  let i = 0;
+  while (i < cps.length) {
+    out = out + RgText.fromCodePoint(cps[i]);
+    i = i + 1;
+  };
+  return out;
+};
+RgText.toCodeUnits = function(s) {
+  let out = [];
+  const n = RgText.len(s);
+  let u = 0;
+  while (u < n) {
+    out.push(RgText.unitAt(s, u));
+    u = u + 1;
+  };
+  return out;
+};
+RgText.fromCodeUnits = function(units) {
+  let out = "";
+  let i = 0;
+  const n = units.length;
+  while (i < n) {
+    const hi = units[i];
+    let paired = false;
+    if ( hi >= 55296 && hi <= 56319 ) {
+      if ( i + 1 < n ) {
+        const lo = units[(i + 1)];
+        if ( lo >= 56320 && lo <= 57343 ) {
+          const cp = ((hi - 55296) * 1024 + (lo - 56320)) + 65536;
+          out = out + RgText.fromCodePoint(cp);
+          i = i + 2;
+          paired = true;
+        }
+      }
+    }
+    if ( false == paired ) {
+      out = out + RgText.fromCodePoint(hi);
+      i = i + 1;
+    }
+  };
+  return out;
+};
+RgText.toUtf8Bytes = function(s) {
+  let out = [];
+  if ( RgText.unitsAreBytes() ) {
+    const n = s.length;
+    let i = 0;
+    while (i < n) {
+      out.push((s.charCodeAt(i ) & 255));
+      i = i + 1;
+    };
+    return out;
+  }
+  const cps = RgText.toCodePoints(s);
+  let k = 0;
+  while (k < cps.length) {
+    const cp = cps[k];
+    if ( cp < 128 ) {
+      out.push(cp);
+    } else {
+      if ( cp < 2048 ) {
+        out.push((192 | (cp >> 6)));
+        out.push((128 | (cp & 63)));
+      } else {
+        if ( cp < 65536 ) {
+          out.push((224 | (cp >> 12)));
+          out.push((128 | ((cp >> 6) & 63)));
+          out.push((128 | (cp & 63)));
+        } else {
+          out.push((240 | (cp >> 18)));
+          out.push((128 | ((cp >> 12) & 63)));
+          out.push((128 | ((cp >> 6) & 63)));
+          out.push((128 | (cp & 63)));
+        }
+      }
+    }
+    k = k + 1;
+  };
+  return out;
+};
+RgText.fromUtf8Bytes = function(bytes) {
+  let cps = [];
+  const n = bytes.length;
+  let i = 0;
+  while (i < n) {
+    const b0 = (bytes[i] & 255);
+    if ( b0 < 128 ) {
+      cps.push(b0);
+      i = i + 1;
+    } else {
+      if ( b0 < 224 ) {
+        let c1 = 0;
+        if ( i + 1 < n ) {
+          c1 = (bytes[(i + 1)] & 63);
+        }
+        cps.push((b0 & 31) * 64 + c1);
+        i = i + 2;
+      } else {
+        if ( b0 < 240 ) {
+          let d1 = 0;
+          let d2 = 0;
+          if ( i + 1 < n ) {
+            d1 = (bytes[(i + 1)] & 63);
+          }
+          if ( i + 2 < n ) {
+            d2 = (bytes[(i + 2)] & 63);
+          }
+          cps.push(((b0 & 15) * 4096 + d1 * 64) + d2);
+          i = i + 3;
+        } else {
+          let e1 = 0;
+          let e2 = 0;
+          let e3 = 0;
+          if ( i + 1 < n ) {
+            e1 = (bytes[(i + 1)] & 63);
+          }
+          if ( i + 2 < n ) {
+            e2 = (bytes[(i + 2)] & 63);
+          }
+          if ( i + 3 < n ) {
+            e3 = (bytes[(i + 3)] & 63);
+          }
+          cps.push((((b0 & 7) * 262144 + e1 * 4096) + e2 * 64) + e3);
+          i = i + 4;
+        }
+      }
+    }
+  };
+  return RgText.fromCodePoints(cps);
+};
+class GitTreeItem  {
+  constructor() {
+    this.name = "";
+    this.mode = "100644";
+    this.sha = "";
+  }
+  isTree () {
+    return this.mode == "40000";
+  };
+}
+class GitIdent  {
+  constructor() {
+    this.name = "";
+    this.email = "";
+    this.time = 0;
+    this.tz = "+0000";
+  }
+}
+class GitCommit  {
+  constructor() {
+    this.ok = true;
+    this.err = "";
+    this.tree = "";
+    this.parents = [];
+    this.author = new GitIdent();
+    this.committer = new GitIdent();
+    this.message = "";
+  }
+}
+class GitRaw  {
+  constructor() {
+    this.ok = true;
+    this.err = "";
+    this.kind = "";
+    this.payload = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
+  }
+}
+class GitTreeSet  {
+  constructor() {
+    this.root = "";
+    this.shas = [];
+    this.payloads = [];
+  }
+}
+class GitObjects  {
+}
+GitObjects.utf8 = function(s) {
+  const bytes = RgText.toUtf8Bytes(s);
+  const n = bytes.length;
+  let out = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(n));
+  let i = 0;
+  while (i < n) {
+    out._view.setUint8(i, bytes[i]);
+    i = i + 1;
+  };
+  return out;
+};
+GitObjects.text = function(b) {
+  return GitObjects.textRange(b, 0, b.byteLength);
+};
+GitObjects.textRange = function(b, start, count) {
+  let bytes = [];
+  let i = 0;
+  while (i < count) {
+    bytes.push(b._view.getUint8(start + i));
+    i = i + 1;
+  };
+  return RgText.fromUtf8Bytes(bytes);
+};
+GitObjects.concat = function(parts) {
+  let total = 0;
+  let i = 0;
+  while (i < parts.length) {
+    total = total + parts[i].byteLength;
+    i = i + 1;
+  };
+  let out = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(total));
+  let at = 0;
+  i = 0;
+  while (i < parts.length) {
+    const p = parts[i];
+    const pn = p.byteLength;
+    if ( pn > 0 ) {
+      (function(
+        d,
+        dOff,
+        s,
+        sOff,
+        len
+      ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(out,at,p,0,pn);
+    }
+    at = at + pn;
+    i = i + 1;
+  };
+  return out;
+};
+GitObjects.decimal = function(s) {
+  const n = s.length;
+  let v = 0;
+  let i = 0;
+  let neg = false;
+  if ( n > 0 && s.charCodeAt(0 ) == 45 ) {
+    neg = true;
+    i = 1;
+  }
+  while (i < n) {
+    const c = s.charCodeAt(i );
+    if ( c < 48 || c > 57 ) {
+      break;
+    }
+    v = v * 10 + (c - 48);
+    i = i + 1;
+  };
+  if ( neg ) {
+    return 0 - v;
+  }
+  return v;
+};
+GitObjects.kindCode = function(kind) {
+  if ( kind == "commit" ) {
+    return 1;
+  }
+  if ( kind == "tree" ) {
+    return 2;
+  }
+  if ( kind == "blob" ) {
+    return 3;
+  }
+  if ( kind == "tag" ) {
+    return 4;
+  }
+  return 0;
+};
+GitObjects.frame = function(kind, payload) {
+  const head = GitObjects.utf8(((kind + " ") + ((payload.byteLength).toString())));
+  let nul = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(1));
+  nul._view.setUint8(0, 0);
+  let parts = [];
+  parts.push(head);
+  parts.push(nul);
+  parts.push(payload);
+  return GitObjects.concat(parts);
+};
+GitObjects.id = function(kind, payload) {
+  return GitSha1.objectId(kind, payload);
+};
+GitObjects.loose = function(kind, payload) {
+  return GitZlib.deflate(GitObjects.frame(kind, payload));
+};
+GitObjects.loosePath = function(sha) {
+  return (("objects/" + sha.substring(0, 2 )) + "/") + sha.substring(2, 40 );
+};
+GitObjects.readLoose = function(bytes) {
+  const z = new GitZlib();
+  const framed = z.inflate(bytes);
+  const raw = new GitRaw();
+  if ( z.ok == false ) {
+    raw.ok = false;
+    raw.err = z.err;
+    return raw;
+  }
+  return GitObjects.unframe(framed);
+};
+GitObjects.unframe = function(framed) {
+  const raw = new GitRaw();
+  const n = framed.byteLength;
+  let sp = 0;
+  while (sp < n && framed._view.getUint8(sp) != 32) {
+    sp = sp + 1;
+  };
+  let nul = sp;
+  while (nul < n && framed._view.getUint8(nul) != 0) {
+    nul = nul + 1;
+  };
+  if ( nul >= n ) {
+    raw.ok = false;
+    raw.err = "object header has no NUL";
+    return raw;
+  }
+  raw.kind = GitSha1.ascii(framed, 0, sp);
+  const size = GitObjects.decimal(GitSha1.ascii(
+    framed,
+    (sp + 1),
+    ((nul - sp) - 1)
+  ));
+  if ( size != (n - nul) - 1 ) {
+    raw.ok = false;
+    raw.err = ((("object size " + ((size).toString())) + " but ") + (((n - nul) - 1).toString())) + " bytes follow";
+    return raw;
+  }
+  raw.payload = GitSha1.copyRange(framed, (nul + 1), size);
+  return raw;
+};
+GitObjects.sortKey = function(e) {
+  if ( e.isTree() ) {
+    return GitObjects.utf8((e.name + "/"));
+  }
+  return GitObjects.utf8(e.name);
+};
+GitObjects.compareBytes = function(a, b) {
+  const na = a.byteLength;
+  const nb = b.byteLength;
+  let i = 0;
+  while (i < na && i < nb) {
+    const x = a._view.getUint8(i);
+    const y = b._view.getUint8(i);
+    if ( x != y ) {
+      return x - y;
+    }
+    i = i + 1;
+  };
+  return na - nb;
+};
+GitObjects.sortItems = function(items) {
+  let keys = [];
+  let i = 0;
+  while (i < items.length) {
+    keys.push(GitObjects.sortKey(items[i]));
+    i = i + 1;
+  };
+  const order = GitObjects.sortOrder(keys);
+  let out = [];
+  i = 0;
+  while (i < order.length) {
+    out.push(items[order[i]]);
+    i = i + 1;
+  };
+  return out;
+};
+GitObjects.sortOrder = function(keys) {
+  const n = keys.length;
+  let order = [];
+  let tmp = [];
+  let i = 0;
+  while (i < n) {
+    order.push(i);
+    tmp.push(0);
+    i = i + 1;
+  };
+  let width = 1;
+  while (width < n) {
+    let lo = 0;
+    while (lo < n) {
+      let mid = lo + width;
+      if ( mid > n ) {
+        mid = n;
+      }
+      let hi = lo + 2 * width;
+      if ( hi > n ) {
+        hi = n;
+      }
+      let a = lo;
+      let b = mid;
+      let k = lo;
+      while (k < hi) {
+        let takeA = false;
+        if ( a < mid ) {
+          if ( b >= hi ) {
+            takeA = true;
+          } else {
+            if ( GitObjects.compareBytes(keys[order[a]], keys[order[b]]) <= 0 ) {
+              takeA = true;
+            }
+          }
+        }
+        if ( takeA ) {
+          tmp[k] = order[a];
+          a = a + 1;
+        } else {
+          tmp[k] = order[b];
+          b = b + 1;
+        }
+        k = k + 1;
+      };
+      lo = hi;
+    };
+    i = 0;
+    while (i < n) {
+      order[i] = tmp[i];
+      i = i + 1;
+    };
+    width = width * 2;
+  };
+  return order;
+};
+GitObjects.treePayload = function(items) {
+  const sorted = GitObjects.sortItems(items);
+  let parts = [];
+  let nul = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(1));
+  nul._view.setUint8(0, 0);
+  let i = 0;
+  while (i < sorted.length) {
+    const e = sorted[i];
+    parts.push(GitObjects.utf8((e.mode + " ") + e.name));
+    parts.push(nul);
+    parts.push(GitSha1.fromHex(e.sha));
+    i = i + 1;
+  };
+  return GitObjects.concat(parts);
+};
+GitObjects.parseTree = function(payload) {
+  let out = [];
+  const n = payload.byteLength;
+  let at = 0;
+  while (at < n) {
+    const modeStart = at;
+    while (at < n && payload._view.getUint8(at) != 32) {
+      at = at + 1;
+    };
+    const mode = GitSha1.ascii(payload, modeStart, (at - modeStart));
+    at = at + 1;
+    const nameStart = at;
+    while (at < n && payload._view.getUint8(at) != 0) {
+      at = at + 1;
+    };
+    const name = GitObjects.textRange(payload, nameStart, (at - nameStart));
+    at = at + 1;
+    if ( at + 20 > n ) {
+      break;
+    }
+    const e = new GitTreeItem();
+    e.mode = mode;
+    e.name = name;
+    e.sha = GitSha1.toHex(GitSha1.copyRange(payload, at, 20));
+    at = at + 20;
+    out.push(e);
+  };
+  return out;
+};
+GitObjects.identPart = function(s) {
+  let out = "";
+  const n = s.length;
+  let i = 0;
+  while (i < n) {
+    const c = s.charCodeAt(i );
+    if ( (((c != 60 && c != 62) && c != 10) && c != 13) && c != 0 ) {
+      out = out + s.substring(i, i + 1 );
+    }
+    i = i + 1;
+  };
+  return out.trim();
+};
+GitObjects.identLine = function(who) {
+  return (((((GitObjects.identPart(who.name) + " <") + GitObjects.identPart(who.email)) + "> ") + ((who.time).toString())) + " ") + who.tz;
+};
+GitObjects.commitPayload = function(c) {
+  let text = ("tree " + c.tree) + "\n";
+  let i = 0;
+  while (i < c.parents.length) {
+    text = ((text + "parent ") + c.parents[i]) + "\n";
+    i = i + 1;
+  };
+  text = ((text + "author ") + GitObjects.identLine(c.author)) + "\n";
+  text = ((text + "committer ") + GitObjects.identLine(c.committer)) + "\n";
+  text = (text + "\n") + c.message;
+  const ml = c.message.length;
+  if ( ml == 0 ) {
+    text = text + "\n";
+  } else {
+    if ( c.message.substring(ml - 1, ml ) != "\n" ) {
+      text = text + "\n";
+    }
+  }
+  return GitObjects.utf8(text);
+};
+GitObjects.parseIdent = function(line) {
+  const who = new GitIdent();
+  const lt = line.indexOf("<");
+  const gt = line.lastIndexOf(">");
+  if ( lt < 0 || gt < lt ) {
+    who.name = line;
+    return who;
+  }
+  who.name = line.substring(0, lt ).trim();
+  who.email = line.substring(lt + 1, gt );
+  const rest = line.substring(gt + 1, line.length ).trim();
+  const parts = rest.split(" ");
+  if ( parts.length >= 1 ) {
+    who.time = GitObjects.decimal(parts[0]);
+  }
+  if ( parts.length >= 2 ) {
+    who.tz = parts[1];
+  }
+  return who;
+};
+GitObjects.parseCommit = function(payload) {
+  const c = new GitCommit();
+  const text = GitObjects.text(payload);
+  const blank = text.indexOf("\n\n");
+  let head = text;
+  if ( blank >= 0 ) {
+    head = text.substring(0, blank );
+    c.message = text.substring(blank + 2, text.length );
+  }
+  const lines = head.split("\n");
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const sp = line.indexOf(" ");
+    if ( sp > 0 ) {
+      const key = line.substring(0, sp );
+      const val = line.substring(sp + 1, line.length );
+      if ( key == "tree" ) {
+        c.tree = val;
+      }
+      if ( key == "parent" ) {
+        c.parents.push(val);
+      }
+      if ( key == "author" ) {
+        c.author = GitObjects.parseIdent(val);
+      }
+      if ( key == "committer" ) {
+        c.committer = GitObjects.parseIdent(val);
+      }
+    }
+    i = i + 1;
+  };
+  if ( c.tree.length != 40 ) {
+    c.ok = false;
+    c.err = "commit has no tree";
+  }
+  return c;
+};
+class GitTrees  {
+}
+GitTrees.build = function(files) {
+  const ts = new GitTreeSet();
+  const sorted = GitObjects.sortItems(files);
+  ts.root = GitTrees.dir(sorted, 0, sorted.length, "", ts);
+  return ts;
+};
+GitTrees.dir = function(sorted, from, to, prefix, ts) {
+  let entries = [];
+  const pl = prefix.length;
+  let i = from;
+  while (i < to) {
+    const f = sorted[i];
+    const rest = f.name.substring(pl, f.name.length );
+    const slash = rest.indexOf("/");
+    if ( slash < 0 ) {
+      const e = new GitTreeItem();
+      e.name = rest;
+      e.mode = f.mode;
+      e.sha = f.sha;
+      entries.push(e);
+      i = i + 1;
+    } else {
+      const seg = rest.substring(0, slash );
+      const sub = (prefix + seg) + "/";
+      const sl = sub.length;
+      let j = i + 1;
+      while (j < to) {
+        const g = sorted[j];
+        if ( g.name.length <= sl ) {
+          break;
+        }
+        if ( g.name.substring(0, sl ) != sub ) {
+          break;
+        }
+        j = j + 1;
+      };
+      const t = new GitTreeItem();
+      t.name = seg;
+      t.mode = "40000";
+      t.sha = GitTrees.dir(sorted, i, j, sub, ts);
+      entries.push(t);
+      i = j;
+    }
+  };
+  const payload = GitObjects.treePayload(entries);
+  const sha = GitObjects.id("tree", payload);
+  ts.shas.push(sha);
+  ts.payloads.push(payload);
+  return sha;
+};
 class GitEntry  {
   constructor() {
     this.name = "";
@@ -76255,42 +77978,21 @@ class GitStore  {
   };
   parseTree (payload) {
     const t = new GitTree();
-    const n = payload.byteLength;
-    let at = 0;
-    while (at < n) {
-      const modeStart = at;
-      while (at < n) {
-        if ( payload._view.getUint8(at) == 32 ) {
-          break;
-        }
-        at = at + 1;
-      };
-      const mode = GitSha1.ascii(payload, modeStart, (at - modeStart));
-      at = at + 1;
-      const nameStart = at;
-      while (at < n) {
-        if ( payload._view.getUint8(at) == 0 ) {
-          break;
-        }
-        at = at + 1;
-      };
-      const name = GitSha1.ascii(payload, nameStart, (at - nameStart));
-      at = at + 1;
-      if ( at + 20 > n ) {
-        break;
-      }
-      const sha = GitSha1.toHex(GitSha1.copyRange(payload, at, 20));
-      at = at + 20;
+    const items = GitObjects.parseTree(payload);
+    let i = 0;
+    while (i < items.length) {
+      const it = items[i];
       const e = new GitEntry();
-      e.name = name;
-      e.sha = sha;
-      e.mode = mode;
-      if ( mode.length > 0 ) {
-        if ( mode.substring(0, 1 ) == "4" ) {
+      e.name = it.name;
+      e.sha = it.sha;
+      e.mode = it.mode;
+      if ( it.mode.length > 0 ) {
+        if ( it.mode.substring(0, 1 ) == "4" ) {
           e.isTree = true;
         }
       }
       t.entries.push(e);
+      i = i + 1;
     };
     return t;
   };
