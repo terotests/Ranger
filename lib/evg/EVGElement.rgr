@@ -2202,8 +2202,12 @@ class EVGElement {
         return ""
     }
 
+    ; A stylesheet writes the weight as a number as often as "bold". The
+    ; measurers know one bold face, so 600 and up measure with it: the painters
+    ; draw those weights bold, and a run measured regular came out narrower than
+    ; its text (a button's label ran into its right padding).
     fn effectiveFontFamily:string () {
-        if (fontWeight == "bold") {
+        if ((fontWeight == "bold") || (fontWeight == "bolder") || (fontWeight == "600") || (fontWeight == "700") || (fontWeight == "800") || (fontWeight == "900")) {
             return (fontFamily + "-Bold")
         }
         return fontFamily
