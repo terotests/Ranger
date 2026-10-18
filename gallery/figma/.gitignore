@@ -1,3 +1,4 @@
 bin/
 web/standalone/dist/
 bench/out/
+bench/.of-entry.mjs
