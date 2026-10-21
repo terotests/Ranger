@@ -17,6 +17,19 @@
 ; offsets on every target and a non-ASCII identifier or string is copied
 ; whole.
 
+
+; A code point as a string. `strfromcode` is one UTF-16 unit on es6, so a
+; `"\u{1F600}"` escape, or an emoji in a format string, lost its upper bits
+; there. RustLower uses it too.
+operators {
+  rs_lex_codepoint _:string (code:int) {
+    templates {
+      es6 ( "String.fromCodePoint(" (e 1) ")" )
+      * @macro(true) ( "(strfromcode " "(" (e 1) ")" ")" )
+    }
+  }
+}
+
 class RustToken {
   ; ident | lifetime | int | float | str | char | punct | doc | eof
   def kind:string ""
@@ -650,7 +663,7 @@ class RustLexer {
           p = p + 1
         }
         p = p + 1
-        out = out + (strfromcode cp)
+        out = out + (rs_lex_codepoint cp)
       }
       if (e == 10) {
         ; a line continuation: the newline and the leading whitespace of the

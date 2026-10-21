@@ -52837,7 +52837,11 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
         written = written + 1;
         wr.out(arg.name + " ", false);
-        this.writeTypeDef(arg.nameNode, ctx, wr);
+        if ( arg.nameNode.hasFlag("optional") ) {
+          wr.out("*GoNullable", false);
+        } else {
+          this.writeTypeDef(arg.nameNode, ctx, wr);
+        }
       }
     }
     wr.out((") *" + goName) + " {", true);
@@ -73076,7 +73080,7 @@ class LiveCompiler  {
             let explicitUnwrap = false;
             if ( idx_9 == 1 && node.children.length > 0 ) {
               const opN_1 = node.getFirst();
-              if ( opN_1.vref == "unwrap" ) {
+              if ( opN_1.vref == "unwrap" || (opN_1.vref == "null?" || opN_1.vref == "!null?") ) {
                 explicitUnwrap = true;
                 ctx.suppressAutoUnwrap();
               }
@@ -84388,7 +84392,7 @@ class RustLexer  {
           p = p + 1;
         };
         p = p + 1;
-        out = out + String.fromCharCode(cp);
+        out = out + String.fromCodePoint(cp);
       }
       if ( e == 10 ) {
         while (p < b && (((this.at(p) == 32 || this.at(p) == 9) || this.at(p) == 10) || this.at(p) == 13)) {
@@ -88756,6 +88760,7 @@ class RustLower  {
     this.entryName = "";
     this.crateKeys = [];
     this.crateFiles = [];
+    this.modAlias = {};
     this.fnAlias = {};
     this.preludeOps = {};
     this.preludeRets = {};
@@ -89308,6 +89313,13 @@ class RustLower  {
         cur = this.parentMod(cur);
         continue;
       }
+      if ( i == 1 ) {
+        const ma = (this.curMod + "|") + sg;
+        if ( ( typeof(this.modAlias[ma] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.modAlias, ma) ) ) {
+          cur = ( Object.prototype.hasOwnProperty.call(this.modAlias, ma) ? this.modAlias[ma] : undefined );
+          continue;
+        }
+      }
       const next = this.fnKey(cur, sg);
       if ( false == ( typeof(this.modFileOf[next] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.modFileOf, next) ) ) {
         return "?";
@@ -89399,6 +89411,11 @@ class RustLower  {
   collectNames (root) {
     // Loop start
     for ( const it of root.kids) {
+      if ( (it.kind == "struct" || it.kind == "enum") || it.kind == "trait" ) {
+        if ( ( typeof(this.structs[it.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, it.name) ) || (( typeof(this.enums[it.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, it.name) ) || ( typeof(this.traits[it.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.traits, it.name) )) ) {
+          this.err(it, ("two types are named `" + it.name) + "`: type names are global in the Ranger subset of Rust (§9.4), rename one");
+        }
+      }
       if ( it.kind == "struct" ) {
         const s = new RsStruct();
         s.name = it.name;
@@ -94012,6 +94029,18 @@ class RustLower  {
       if ( key != "" ) {
         this.fnAlias[(this.curMod + "|") + local] = key;
       }
+      let msegs = full.split("::");
+      msegs.push("*");
+      let mk = this.modPath(msegs, this.curMod);
+      if ( mk == "?" ) {
+        mk = this.modPath(msegs, this.crateOf(this.curMod));
+      }
+      if ( mk == "?" ) {
+        mk = this.modPath(msegs, "");
+      }
+      if ( (mk != "?" && mk != "") && ( typeof(this.modFileOf[mk] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.modFileOf, mk) ) ) {
+        this.modAlias[(this.curMod + "|") + local] = mk;
+      }
       return;
     }
     if ( u.kind == "use_group" ) {
@@ -94864,6 +94893,9 @@ class RustLower  {
       this.out.line("exit " + cv.code);
       return RsExpr.of("", RsType.mk("never"));
     }
+    if ( full == "std::fs::read" || full == "fs::read" ) {
+      return this.lowerFsRead(args);
+    }
     if ( full == "std::mem::swap" || full == "mem::swap" ) {
       this.lowerSwap(args[0], args[1]);
       return this.unit();
@@ -94890,6 +94922,48 @@ class RustLower  {
     }
     this.unsupported(at, ("the function `" + full) + "`");
     return this.unit();
+  };
+  lowerFsRead (args) {
+    const st = RsType.mk("string");
+    const pv = this.arg0(args, st);
+    const p = this.bindTemp(pv, st, "path");
+    const bt = RsType.of1("vec", RsType.mk("int"));
+    const rt = RsType.of2("result", bt, this.ownedString());
+    const cls = this.resultClass(rt);
+    const res = this.tmp("res");
+    const cut = this.tmp("cut");
+    const dir = this.tmp("dir");
+    const nm = this.tmp("name");
+    const fb = this.tmp("fb");
+    const arr = this.tmp("bytes");
+    const i = this.tmp("i");
+    this.out.line(((("def " + res) + ":") + cls) + ((" (new " + cls) + ")"));
+    this.out.line(((("def " + cut) + ":int (lastIndexOf ") + p) + " \"/\")");
+    this.out.line(("def " + dir) + ":string \".\"");
+    this.out.line((("def " + nm) + ":string ") + p);
+    this.out.line(("if (" + cut) + " == 0) {");
+    this.out.line(("  " + dir) + " = \"/\"");
+    this.out.line("}");
+    this.out.line(("if (" + cut) + " > 0) {");
+    this.out.line(((((("  " + dir) + " = (substring ") + p) + " 0 ") + cut) + ")");
+    this.out.line("}");
+    this.out.line(("if (" + cut) + " >= 0) {");
+    this.out.line(((((((("  " + nm) + " = (substring ") + p) + " (") + cut) + " + 1) (strlen ") + p) + "))");
+    this.out.line("}");
+    this.out.line(((("if (file_exists " + dir) + " ") + nm) + ") {");
+    this.out.line(((((("  def " + fb) + ":buffer (buffer_read_file ") + dir) + " ") + nm) + ")");
+    this.out.line(("  def " + arr) + ":[int]");
+    this.out.line(("  def " + i) + ":int 0");
+    this.out.line(((("  while (" + i) + " < (buffer_length ") + fb) + ")) {");
+    this.out.line(((((("    push " + arr) + " (buffer_get ") + fb) + " ") + i) + ")");
+    this.out.line(((("    " + i) + " = (") + i) + " + 1)");
+    this.out.line("  }");
+    this.out.line(("  " + res) + ".ok = true");
+    this.out.line((("  " + res) + ".v = ") + arr);
+    this.out.line("} {");
+    this.out.line(("  " + res) + ".e = \"No such file or directory (os error 2)\"");
+    this.out.line("}");
+    return this.simpleExpr(res, rt);
   };
   emptyCollection (expect, at) {
     const rt = this.rtype(expect);
@@ -94954,6 +95028,10 @@ class RustLower  {
       if ( recvN.kind == "method" && ((recvN.name == "split" || recvN.name == "lines") || recvN.name == "split_whitespace") ) {
         return this.lowerExpr(recvN, expect);
       }
+    }
+    const __REGx1 = recvN.kid(1);
+    if ( (((name == "copy_from_slice" || name == "clone_from_slice") || name == "fill") && recvN.kind == "index") && __REGx1.kind == "range" ) {
+      return this.lowerSliceWrite(n, recvN, name, args);
     }
     if ( (name == "unwrap" && recvN.kind == "method") && recvN.name == "parse" ) {
       return this.lowerParse(recvN, expect);
@@ -95174,7 +95252,7 @@ class RustLower  {
   };
   vecMethod (rv, name, args, at, expect) {
     const r = this.vecMethodInner(rv, name, args, at, expect);
-    const mutating = ["push", "pop", "insert", "remove", "clear", "truncate", "extend", "swap", "reverse", "dedup", "sort", "sort_by", "sort_by_key", "retain"];
+    const mutating = ["push", "pop", "insert", "remove", "clear", "truncate", "extend", "extend_from_slice", "swap", "reverse", "dedup", "sort", "sort_by", "sort_by_key", "retain"];
     if ( mutating.indexOf(name) >= 0 ) {
       this.checkIterMutation(at.kid(0), at);
       this.writeBackElement(at, rv);
@@ -95344,7 +95422,7 @@ class RustLower  {
       this.out.line((((("set_at " + v) + " ") + bi) + " ") + tv);
       return this.unit();
     }
-    if ( name == "extend" ) {
+    if ( name == "extend" || name == "extend_from_slice" ) {
       const other = this.lowerExpr(args[0], t);
       const ov = this.bindTemp(other, t, "ext");
       const k = this.tmp("k");
@@ -95386,6 +95464,92 @@ class RustLower  {
       return r4;
     }
     this.unsupported(at, ("the Vec method `" + name) + "`");
+    return this.unit();
+  };
+  rangeBounds (ixN, v) {
+    const it = RsType.mk("int");
+    let lo = "0";
+    let hi = ("(array_length " + v) + ")";
+    if ( false == ixN.kid(0).isNone() ) {
+      const lv = this.lowerExpr(ixN.kid(0), it);
+      lo = this.bindTemp(lv, it, "lo");
+    }
+    if ( false == ixN.kid(1).isNone() ) {
+      const hv = this.lowerExpr(ixN.kid(1), it);
+      hi = this.bindTemp(hv, it, "hi");
+      if ( ixN.name == "..=" ) {
+        hi = ("(" + hi) + " + 1)";
+      }
+    }
+    let both = [];
+    both.push(lo);
+    both.push(hi);
+    return both;
+  };
+  vecSlicer (t) {
+    const key = "slice_" + this.mangleKey(t);
+    const name = "RsClone." + key;
+    if ( ( typeof(this.genNames[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, key) ) ) {
+      return name;
+    }
+    this.genNames[key] = true;
+    const rt = this.rtype(t);
+    let lines = [];
+    lines.push((((("  sfn " + key) + ":") + rt) + " (v:") + (rt + " lo:int hi:int) {"));
+    lines.push("    def out:" + rt);
+    lines.push("    if ((lo > hi) || (hi > (array_length v))) {");
+    lines.push("      rs_panic \"range end index out of range for slice\"");
+    lines.push("    }");
+    lines.push("    def i:int lo");
+    lines.push("    while (i < hi) {");
+    lines.push("      push out (itemAt v i)");
+    lines.push("      i = i + 1");
+    lines.push("    }");
+    lines.push("    return out");
+    lines.push("  }");
+    this.clonerOut.push(lines.join("\n"));
+    return name;
+  };
+  lowerSliceWrite (n, recvN, name, args) {
+    const it = RsType.mk("int");
+    const baseN = recvN.kid(0);
+    const bv = this.lowerExpr(baseN, RsType.mk("unknown"));
+    if ( bv.ty.kind != "vec" ) {
+      this.err(n, ("`" + name) + "` on a slice of something that is not a Vec");
+      return this.unit();
+    }
+    const et = bv.ty.arg(0);
+    const v = this.bindTemp(bv, bv.ty, "vec");
+    const rg = this.rangeBounds(recvN.kid(1), v);
+    const lo = rg[0];
+    const hi = rg[1];
+    const k = this.tmp("k");
+    if ( name == "fill" ) {
+      const xv = this.arg0(args, et);
+      const x = this.bindTemp(xv, et, "x");
+      this.out.line((("def " + k) + ":int ") + lo);
+      this.out.line(((("while (" + k) + " < ") + hi) + ") {");
+      const xc = this.cloneCode(x, et);
+      this.out.line((((("  set_at " + v) + " ") + k) + " ") + xc);
+      this.out.line(((("  " + k) + " = (") + k) + " + 1)");
+      this.out.line("}");
+      return this.unit();
+    }
+    const srcV = this.arg0(args, bv.ty);
+    const src = this.bindTemp(srcV, bv.ty, "src");
+    const n0 = this.tmp("n");
+    this.out.line(((((("def " + n0) + ":int (") + hi) + " - ") + lo) + ")");
+    this.out.line(((("if (" + n0) + " != (array_length ") + src) + ")) {");
+    this.out.line("  rs_panic \"source slice length does not match destination slice length\"");
+    this.out.line("}");
+    this.out.line(("def " + k) + ":int 0");
+    this.out.line(((("while (" + k) + " < ") + n0) + ") {");
+    const item = ((("(itemAt " + src) + " ") + k) + ")";
+    const itemC = this.cloneCode(item, et);
+    const dst = ((("(" + lo) + " + ") + k) + ")";
+    this.out.line((((("  set_at " + v) + " ") + dst) + " ") + itemC);
+    this.out.line(((("  " + k) + " = (") + k) + " + 1)");
+    this.out.line("}");
     return this.unit();
   };
   vecInserter (t) {
@@ -95719,7 +95883,7 @@ class RustLower  {
       return RsExpr.of((((("(? (null? " + o) + ") ") + d.code) + ((" (unwrap " + o) + "))")), inner);
     }
     if ( name == "unwrap_or_default" ) {
-      return RsExpr.of((((("(? (null? " + o) + ") ") + this.defaultValue(inner)) + ((" (unwrap " + o) + "))")), inner);
+      return RsExpr.of((((("(? (null? " + o) + ") ") + this.zeroCode(inner)) + ((" (unwrap " + o) + "))")), inner);
     }
     if ( name == "is_some" ) {
       return RsExpr.of((("(!null? " + o) + ")"), RsType.mk("bool"));
@@ -95852,7 +96016,7 @@ class RustLower  {
       return RsExpr.of((((("(? " + r) + ".ok ") + r) + ((".v " + d.code) + ")")), vt);
     }
     if ( name == "unwrap_or_default" ) {
-      return RsExpr.of((((("(? " + r) + ".ok ") + r) + ((".v " + this.defaultValue(vt)) + ")")), vt);
+      return RsExpr.of((((("(? " + r) + ".ok ") + r) + ((".v " + this.zeroCode(vt)) + ")")), vt);
     }
     if ( name == "is_ok" ) {
       return this.simpleExpr((r + ".ok"), RsType.mk("bool"));
@@ -96022,6 +96186,8 @@ class RustLower  {
     if ( t.kind == "set" ) {
       vt = RsType.mk("bool");
     }
+    const kref = kt.copy();
+    kref.isRef = true;
     if ( name == "entry" ) {
       const ek = this.lowerExprCopy(args[0], kt);
       const kn = this.bindTemp(ek, kt, "key");
@@ -96043,11 +96209,11 @@ class RustLower  {
       return this.unit();
     }
     if ( name == "contains_key" || name == "contains" ) {
-      const k2 = this.arg0(args, kt);
+      const k2 = this.arg0(args, kref);
       return RsExpr.of((((("(has " + this.mapR(m, t)) + " ") + k2.code) + ")"), RsType.mk("bool"));
     }
     if ( name == "get" ) {
-      const k3 = this.arg0(args, kt);
+      const k3 = this.arg0(args, kref);
       const ot = RsType.of1("opt", vt);
       const nm = this.tmp("g");
       this.out.line(((((("def " + this.declText(nm, ot)) + " (get ") + this.mapR(m, t)) + " ") + k3.code) + ")");
@@ -96056,7 +96222,7 @@ class RustLower  {
       return r;
     }
     if ( name == "remove" ) {
-      const k4 = this.arg0(args, kt);
+      const k4 = this.arg0(args, kref);
       if ( t.name == "ordered" ) {
         this.out.line(((m + ".del(") + k4.code) + ")");
       } else {
@@ -96147,8 +96313,11 @@ class RustLower  {
     }
     if ( t.kind == "vec" ) {
       if ( ixN.kind == "range" ) {
-        this.unsupported(n, "slicing a Vec with a range (stage R2)");
-        return this.unit();
+        const sv0 = this.bindTemp(rv, t, "vec");
+        const rg = this.rangeBounds(ixN, sv0);
+        const slicer = this.vecSlicer(t);
+        const sargs = (((sv0 + " ") + rg[0]) + " ") + rg[1];
+        return RsExpr.of((((("(" + slicer) + "(") + sargs) + "))"), t);
       }
       const v = this.bindTemp(rv, t, "vec");
       const iv = this.lowerExpr(ixN, RsType.mk("int"));
@@ -97943,7 +98112,7 @@ class RustLower  {
         parts.push(this.formatValue(val, fspec, at));
         continue;
       }
-      lit = lit + String.fromCharCode(c);
+      lit = lit + String.fromCodePoint(c);
       i = i + 1;
     };
     if ( lit != "" ) {

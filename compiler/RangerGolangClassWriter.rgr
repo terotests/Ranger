@@ -2742,7 +2742,13 @@ class RangerGolangClassWriter {
         }
         written = written + 1
         wr.out((arg.name + " ") false)
-        this.writeTypeDef((unwrap arg.nameNode) ctx wr)
+        ; an optional parameter is a *GoNullable, as in writeArgsDef: the
+        ; body reads it as one (`a0.value`)
+        if (arg.nameNode.hasFlag("optional")) {
+          wr.out("*GoNullable" false)
+        } {
+          this.writeTypeDef((unwrap arg.nameNode) ctx wr)
+        }
       }
     }
     wr.out(((") *" + goName) + " {") true)
