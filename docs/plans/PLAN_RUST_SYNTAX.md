@@ -711,6 +711,54 @@ the variant, so a clone changed with its original (`r2_match_mut` failed on
 every target). The clone function is now written after the functions are
 lowered, and an enum with a written variant is not a value.
 
+### 9.7 R8 pilot: RangerDiff
+
+RangerDiff (terotests/RangerDiff) is ported to strict Rust in its `rs/`
+folder: the whole library (bytes, delta, SHA-256, line diff and merge,
+inflate, ZIP, PNG, XLSX, the container delta, the repository) and its
+tests, std only. `npm run parity` there runs the tests with `cargo run`,
+compiles the same `.rs` files with rgrc for es6, go and cpp, and requires
+every target to print what cargo printed; digest lines that pin the
+formats must equal those of the `.rgr` library.
+
+The port needed, in the lowering:
+
+- `&v[a..b]`, `v[a..b].to_vec()`, `v[a..b].copy_from_slice(..)` and
+  `extend_from_slice` on a Vec (`r8_slices`).
+- `use crate::module;`, then `module::f()` (an alias of the module).
+- `\u{1F600}` and other characters past U+FFFF in string literals and
+  format strings: JavaScript's `fromCharCode` cut them (`r8_unicode`).
+- A map key is borrowed: `map.get(k)` does not move `k` (`r8_map_key`).
+- `std::fs::read(path)`, an `io::Result<Vec<u8>>` (`r8_fs_read`).
+- `unwrap_or_default()` of a Vec or struct result or option.
+- Two types of the same name in two modules are refused: types are global
+  by name (§9.4), and the second was merged into the first
+  (`errors/same_type_name`).
+
+and in the target writers, an `Option` of a struct (`r8_opt_struct`):
+
+- Go: an optional constructor parameter is a `*GoNullable`, as the body
+  reads it (a tuple of two `Option`s did not compile).
+- C++: `null?` / `!null?` / `unwrap` take the optional itself where a null
+  check has narrowed it; `match o { None => …, Some(x) => … }` wrote
+  `o.value().has_value()`.
+
+Found in RangerDiff itself: Adler-32 summed 5552 bytes between reductions,
+zlib's bound for 32-bit unsigned sums; `int` is 32-bit signed on C++, so
+the sums overflowed there. Both versions reduce every 3800 bytes now.
+
+### 9.8 EVG core
+
+The base types of EVG's Storm engine (units, colours, code points,
+grapheme clusters, easings) are in strict Rust in terotests/evg `rs/`.
+Its parity check compares cargo, rgrc es6/go/cpp of the same source, and
+the Storm `.rgr` classes line by line. The lowering needed:
+
+- A list of lists as a literal, `vec![vec![1, 2], vec![3]]`: `([] _:T ..)`
+  takes scalar and class elements only, so it is built by pushing
+  (`r8_nested_vec`).
+- `char::to_digit(radix)` honours the radix; it read decimal digits only.
+
 ## 10. Open questions
 
 - Should a `.rs` module be allowed to `impl` a trait for a `.rgr` class?

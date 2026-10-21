@@ -75,6 +75,8 @@ class RustLower {
   def crateKeys:[string]
   def crateFiles:[string]
   ; `use geometry::area;` inside module m: "m|area" -> "geometry::area"
+  ; `use rangerdiff::bytes;` (a module) inside m: "m|bytes" -> "rangerdiff::bytes"
+  def modAlias:[string:string]
   def fnAlias:[string:string]
   def preludeOps:[string:int]
   def preludeRets:[string:string]
@@ -788,6 +790,13 @@ class RustLower {
         cur = (this.parentMod(cur))
         continue
       }
+      if (i == 1) {
+        def ma:string ((curMod + "|") + sg)
+        if (has modAlias ma) {
+          cur = (unwrap (get modAlias ma))
+          continue
+        }
+      }
       def next:string (this.fnKey(cur sg))
       if (false == (has modFileOf next)) {
         return "?"
@@ -886,6 +895,13 @@ class RustLower {
 
   fn collectNames:void (root:RustNode) {
     for root.kids it:RustNode i {
+      if ((it.kind == "struct") || (it.kind == "enum") || (it.kind == "trait")) {
+        ; types are global by name (§9.4): a second `Entry` in another
+        ; module would be merged into the first one
+        if ((has structs it.name) || ((has enums it.name) || (has traits it.name))) {
+          this.err(it (("two types are named `" + it.name) + "`: type names are global in the Ranger subset of Rust (§9.4), rename one"))
+        }
+      }
       if (it.kind == "struct") {
         def s:RsStruct (new RsStruct())
         s.name = it.name
@@ -5738,6 +5754,19 @@ class RustLower {
       if (key != "") {
         set fnAlias ((curMod + "|") + local) key
       }
+      ; a module: `use rangerdiff::bytes;` names `bytes::f` here
+      def msegs:[string] (strsplit full "::")
+      push msegs "*"
+      def mk:string (this.modPath(msegs curMod))
+      if (mk == "?") {
+        mk = (this.modPath(msegs (this.crateOf(curMod))))
+      }
+      if (mk == "?") {
+        mk = (this.modPath(msegs ""))
+      }
+      if ((mk != "?") && (mk != "") && (has modFileOf mk)) {
+        set modAlias ((curMod + "|") + local) mk
+      }
       return
     }
     if (u.kind == "use_group") {
@@ -6628,6 +6657,9 @@ class RustLower {
       out.line(("exit " + cv.code))
       return (RsExpr.of("" (RsType.mk("never"))))
     }
+    if ((full == "std::fs::read") || (full == "fs::read")) {
+      return (this.lowerFsRead(args))
+    }
     if ((full == "std::mem::swap") || (full == "mem::swap")) {
       this.lowerSwap((itemAt args 0) (itemAt args 1))
       return (this.unit())
@@ -6655,6 +6687,51 @@ class RustLower {
     }
     this.unsupported(at (("the function `" + full) + "`"))
     return (this.unit())
+  }
+
+  ; `std::fs::read(path)`: an `io::Result<Vec<u8>>`, the error as the text
+  ; rustc's io::Error prints for a missing file
+  fn lowerFsRead:RsExpr (args:[RustNode]) {
+    def st:RsType (RsType.mk("string"))
+    def pv:RsExpr (this.arg0(args st))
+    def p:string (this.bindTemp(pv st "path"))
+    def bt:RsType (RsType.of1("vec" (RsType.mk("int"))))
+    def rt:RsType (RsType.of2("result" bt (this.ownedString())))
+    def cls:string (this.resultClass(rt))
+    def res:string (this.tmp("res"))
+    def cut:string (this.tmp("cut"))
+    def dir:string (this.tmp("dir"))
+    def nm:string (this.tmp("name"))
+    def fb:string (this.tmp("fb"))
+    def arr:string (this.tmp("bytes"))
+    def i:string (this.tmp("i"))
+    out.line((((("def " + res) + ":") + cls) + ((" (new " + cls) + ")")))
+    out.line((((("def " + cut) + ":int (lastIndexOf ") + p) + " \"/\")"))
+    out.line((("def " + dir) + ":string \".\""))
+    out.line((((("def " + nm) + ":string ") + p)))
+    out.line((("if (" + cut) + " == 0) {"))
+    out.line((("  " + dir) + " = \"/\""))
+    out.line("}")
+    out.line((("if (" + cut) + " > 0) {"))
+    out.line((((((("  " + dir) + " = (substring ") + p) + " 0 ") + cut) + ")"))
+    out.line("}")
+    out.line((("if (" + cut) + " >= 0) {"))
+    out.line((((((((("  " + nm) + " = (substring ") + p) + " (") + cut) + " + 1) (strlen ") + p) + "))"))
+    out.line("}")
+    out.line((((("if (file_exists " + dir) + " ") + nm) + ") {"))
+    out.line((((((("  def " + fb) + ":buffer (buffer_read_file ") + dir) + " ") + nm) + ")"))
+    out.line((("  def " + arr) + ":[int]"))
+    out.line((("  def " + i) + ":int 0"))
+    out.line((((("  while (" + i) + " < (buffer_length ") + fb) + ")) {"))
+    out.line((((((("    push " + arr) + " (buffer_get ") + fb) + " ") + i) + ")"))
+    out.line((((("    " + i) + " = (") + i) + " + 1)"))
+    out.line("  }")
+    out.line((("  " + res) + ".ok = true"))
+    out.line((((("  " + res) + ".v = ") + arr)))
+    out.line("} {")
+    out.line((("  " + res) + ".e = \"No such file or directory (os error 2)\""))
+    out.line("}")
+    return (this.simpleExpr(res rt))
   }
 
   fn emptyCollection:RsExpr (expect:RsType at:RustNode) {
@@ -6726,6 +6803,9 @@ class RustLower {
       if ((recvN.kind == "method") && ((recvN.name == "split") || (recvN.name == "lines") || (recvN.name == "split_whitespace"))) {
         return (this.lowerExpr(recvN expect))
       }
+    }
+    if (((name == "copy_from_slice") || (name == "clone_from_slice") || (name == "fill")) && (recvN.kind == "index") && ((recvN.kid(1)).kind == "range")) {
+      return (this.lowerSliceWrite(n recvN name args))
     }
     if ((name == "unwrap") && (recvN.kind == "method") && (recvN.name == "parse")) {
       return (this.lowerParse(recvN expect))
@@ -6941,7 +7021,7 @@ class RustLower {
 
   fn vecMethod:RsExpr (rv:RsExpr name:string args:[RustNode] at:RustNode expect:RsType) {
     def r:RsExpr (this.vecMethodInner(rv name args at expect))
-    def mutating:[string] ([] _:string ("push" "pop" "insert" "remove" "clear" "truncate" "extend" "swap" "reverse" "dedup" "sort" "sort_by" "sort_by_key" "retain"))
+    def mutating:[string] ([] _:string ("push" "pop" "insert" "remove" "clear" "truncate" "extend" "extend_from_slice" "swap" "reverse" "dedup" "sort" "sort_by" "sort_by_key" "retain"))
     if ((indexOf mutating name) >= 0) {
       this.checkIterMutation((at.kid(0)) at)
       this.writeBackElement(at rv)
@@ -7110,7 +7190,7 @@ class RustLower {
       out.line(((((("set_at " + v) + " ") + bi) + " ") + tv))
       return (this.unit())
     }
-    if (name == "extend") {
+    if ((name == "extend") || (name == "extend_from_slice")) {
       def other:RsExpr (this.lowerExpr((itemAt args 0) t))
       def ov:string (this.bindTemp(other t "ext"))
       def k:string (this.tmp("k"))
@@ -7152,6 +7232,100 @@ class RustLower {
       return r4
     }
     this.unsupported(at (("the Vec method `" + name) + "`"))
+    return (this.unit())
+  }
+
+  ; `lo hi` of a range over the Vec `v`: `a..b`, `a..`, `..b`, `a..=b`, `..`
+  fn rangeBounds:[string] (ixN:RustNode v:string) {
+    def it:RsType (RsType.mk("int"))
+    def lo:string "0"
+    def hi:string (("(array_length " + v) + ")")
+    if (false == ((ixN.kid(0)).isNone())) {
+      def lv:RsExpr (this.lowerExpr((ixN.kid(0)) it))
+      lo = (this.bindTemp(lv it "lo"))
+    }
+    if (false == ((ixN.kid(1)).isNone())) {
+      def hv:RsExpr (this.lowerExpr((ixN.kid(1)) it))
+      hi = (this.bindTemp(hv it "hi"))
+      if (ixN.name == "..=") {
+        hi = (("(" + hi) + " + 1)")
+      }
+    }
+    def both:[string]
+    push both lo
+    push both hi
+    return both
+  }
+
+  ; The elements [lo, hi) of a Vec as a new one; out of range is a panic as
+  ; in Rust.
+  fn vecSlicer:string (t:RsType) {
+    def key:string ("slice_" + (this.mangleKey(t)))
+    def name:string ("RsClone." + key)
+    if (has genNames key) {
+      return name
+    }
+    set genNames key true
+    def rt:string (this.rtype(t))
+    def lines:[string]
+    push lines ((((("  sfn " + key) + ":") + rt) + " (v:") + (rt + " lo:int hi:int) {"))
+    push lines ("    def out:" + rt)
+    push lines "    if ((lo > hi) || (hi > (array_length v))) {"
+    push lines "      rs_panic \"range end index out of range for slice\""
+    push lines "    }"
+    push lines "    def i:int lo"
+    push lines "    while (i < hi) {"
+    push lines "      push out (itemAt v i)"
+    push lines "      i = i + 1"
+    push lines "    }"
+    push lines "    return out"
+    push lines "  }"
+    push clonerOut (join lines "\n")
+    return name
+  }
+
+  ; `v[a..b].copy_from_slice(&src)` / `v[a..b].fill(x)`: the writes go to
+  ; the Vec itself.
+  fn lowerSliceWrite:RsExpr (n:RustNode recvN:RustNode name:string args:[RustNode]) {
+    def it:RsType (RsType.mk("int"))
+    def baseN:RustNode (recvN.kid(0))
+    def bv:RsExpr (this.lowerExpr(baseN (RsType.mk("unknown"))))
+    if (bv.ty.kind != "vec") {
+      this.err(n (("`" + name) + "` on a slice of something that is not a Vec"))
+      return (this.unit())
+    }
+    def et:RsType (bv.ty.arg(0))
+    def v:string (this.bindTemp(bv bv.ty "vec"))
+    def rg:[string] (this.rangeBounds((recvN.kid(1)) v))
+    def lo:string (itemAt rg 0)
+    def hi:string (itemAt rg 1)
+    def k:string (this.tmp("k"))
+    if (name == "fill") {
+      def xv:RsExpr (this.arg0(args et))
+      def x:string (this.bindTemp(xv et "x"))
+      out.line(((("def " + k) + ":int ") + lo))
+      out.line((((("while (" + k) + " < ") + hi) + ") {"))
+      def xc:string (this.cloneCode(x et))
+      out.line((((("  set_at " + v) + " ") + k) + " ") + xc)
+      out.line((((("  " + k) + " = (") + k) + " + 1)"))
+      out.line("}")
+      return (this.unit())
+    }
+    def srcV:RsExpr (this.arg0(args bv.ty))
+    def src:string (this.bindTemp(srcV bv.ty "src"))
+    def n0:string (this.tmp("n"))
+    out.line((((((("def " + n0) + ":int (") + hi) + " - ") + lo) + ")"))
+    out.line((((("if (" + n0) + " != (array_length ") + src) + ")) {"))
+    out.line("  rs_panic \"source slice length does not match destination slice length\"")
+    out.line("}")
+    out.line((("def " + k) + ":int 0"))
+    out.line((((("while (" + k) + " < ") + n0) + ") {"))
+    def item:string (((("(itemAt " + src) + " ") + k) + ")")
+    def itemC:string (this.cloneCode(item et))
+    def dst:string ((((("(" + lo) + " + ") + k) + ")"))
+    out.line((((("  set_at " + v) + " ") + dst) + " ") + itemC)
+    out.line((((("  " + k) + " = (") + k) + " + 1)"))
+    out.line("}")
     return (this.unit())
   }
 
@@ -7388,13 +7562,26 @@ class RustLower {
       return (RsExpr.of((("(RsChar.asciiLower(" + c) + "))") rv.ty))
     }
     if (name == "to_digit") {
+      ; the radix decides: 0-9, then a-z / A-Z for 10 and up
+      def rdx:RsExpr (this.arg0(args (RsType.mk("int"))))
       def ot:RsType (RsType.of1("opt" (RsType.mk("int"))))
       def nm:string (this.tmp("d"))
       def cc:string (this.tmp("cc"))
+      def dv:string (this.tmp("dv"))
       out.line(((("def " + cc) + ":int (rs_char_code ") + c) + ")"))
       out.line(("def " + (this.declText(nm ot))))
+      out.line((("def " + dv) + ":int 99"))
       out.line((((("if ((" + cc) + " >= 48) && (") + cc) + " <= 57)) {"))
-      out.line((((("  " + nm) + " = (") + cc) + " - 48)"))
+      out.line((((("  " + dv) + " = (") + cc) + " - 48)"))
+      out.line("}")
+      out.line((((("if ((" + cc) + " >= 97) && (") + cc) + " <= 122)) {"))
+      out.line((((("  " + dv) + " = (") + cc) + " - 87)"))
+      out.line("}")
+      out.line((((("if ((" + cc) + " >= 65) && (") + cc) + " <= 90)) {"))
+      out.line((((("  " + dv) + " = (") + cc) + " - 55)"))
+      out.line("}")
+      out.line((((("if (" + dv) + " < ") + rdx.code) + ") {"))
+      out.line((((("  " + nm) + " = ") + dv)))
       out.line("}")
       def r:RsExpr (RsExpr.of(nm ot))
       r.simple = true
@@ -7495,7 +7682,7 @@ class RustLower {
       return (RsExpr.of((((("(? (null? " + o) + ") ") + d.code) + ((" (unwrap " + o) + "))")) inner))
     }
     if (name == "unwrap_or_default") {
-      return (RsExpr.of((((("(? (null? " + o) + ") ") + (this.defaultValue(inner))) + ((" (unwrap " + o) + "))")) inner))
+      return (RsExpr.of((((("(? (null? " + o) + ") ") + (this.zeroCode(inner))) + ((" (unwrap " + o) + "))")) inner))
     }
     if (name == "is_some") {
       return (RsExpr.of((("(!null? " + o) + ")") (RsType.mk("bool"))))
@@ -7632,7 +7819,7 @@ class RustLower {
       return (RsExpr.of((((("(? " + r) + ".ok ") + r) + ((".v " + d.code) + ")")) vt))
     }
     if (name == "unwrap_or_default") {
-      return (RsExpr.of((((("(? " + r) + ".ok ") + r) + ((".v " + (this.defaultValue(vt))) + ")")) vt))
+      return (RsExpr.of((((("(? " + r) + ".ok ") + r) + ((".v " + (this.zeroCode(vt))) + ")")) vt))
     }
     if (name == "is_ok") {
       return (this.simpleExpr((r + ".ok") (RsType.mk("bool"))))
@@ -7808,6 +7995,9 @@ class RustLower {
     if (t.kind == "set") {
       vt = (RsType.mk("bool"))
     }
+    ; `get(&k)`, `contains_key(&k)`, `remove(&k)` borrow the key
+    def kref:RsType (kt.copy())
+    kref.isRef = true
     if (name == "entry") {
       def ek:RsExpr (this.lowerExprCopy((itemAt args 0) kt))
       def kn:string (this.bindTemp(ek kt "key"))
@@ -7830,11 +8020,11 @@ class RustLower {
       return (this.unit())
     }
     if ((name == "contains_key") || (name == "contains")) {
-      def k2:RsExpr (this.arg0(args kt))
+      def k2:RsExpr (this.arg0(args kref))
       return (RsExpr.of((((("(has " + (this.mapR(m t))) + " ") + k2.code) + ")") (RsType.mk("bool"))))
     }
     if (name == "get") {
-      def k3:RsExpr (this.arg0(args kt))
+      def k3:RsExpr (this.arg0(args kref))
       def ot:RsType (RsType.of1("opt" vt))
       def nm:string (this.tmp("g"))
       out.line(((((("def " + (this.declText(nm ot))) + " (get ") + (this.mapR(m t))) + " ") + k3.code) + ")"))
@@ -7843,7 +8033,7 @@ class RustLower {
       return r
     }
     if (name == "remove") {
-      def k4:RsExpr (this.arg0(args kt))
+      def k4:RsExpr (this.arg0(args kref))
       if (t.name == "ordered") {
         out.line((((m + ".del(") + k4.code) + ")"))
       } {
@@ -7937,8 +8127,14 @@ class RustLower {
     }
     if (t.kind == "vec") {
       if (ixN.kind == "range") {
-        this.unsupported(n "slicing a Vec with a range (stage R2)")
-        return (this.unit())
+        ; `&v[a..b]` read: a copy of the elements, which reads the same as the
+        ; borrowed slice. Writing through a slice is `copy_from_slice` /
+        ; `fill` on it (lowerSliceWrite).
+        def sv0:string (this.bindTemp(rv t "vec"))
+        def rg:[string] (this.rangeBounds(ixN sv0))
+        def slicer:string (this.vecSlicer(t))
+        def sargs:string ((((sv0 + " ") + (itemAt rg 0)) + " ") + (itemAt rg 1))
+        return (RsExpr.of((((("(" + slicer) + "(") + sargs) + "))") t))
       }
       def v:string (this.bindTemp(rv t "vec"))
       def iv:RsExpr (this.lowerExpr(ixN (RsType.mk("int"))))
@@ -8154,6 +8350,18 @@ class RustLower {
         this.err(n "an empty array needs its element type: annotate the `let`")
       }
       return (RsExpr.of((("([] " + (join codes " ")) + ")") vt2))
+    }
+    ; `([] _:T (..))` takes scalar and class elements only: a list of
+    ; lists (`vec![vec![1], vec![2]]`) is built by pushing
+    if ((t2.kind == "vec") || (t2.kind == "map") || (t2.kind == "set")) {
+      def name2:string (this.tmp("arr"))
+      out.line(((("def " + name2) + ":") + (this.rtype(vt2))))
+      for codes code:string ci {
+        out.line(((("push " + name2) + " ") + code))
+      }
+      def r2:RsExpr (RsExpr.of(name2 vt2))
+      r2.simple = true
+      return r2
     }
     return (RsExpr.of((((("([] _:" + rt) + " (") + (join codes " ")) + "))") vt2))
   }
@@ -9824,7 +10032,7 @@ class RustLower {
         push parts (this.formatValue(val fspec at))
         continue
       }
-      lit = lit + (strfromcode c)
+      lit = lit + (rs_lex_codepoint c)
       i = i + 1
     }
     if (lit != "") {

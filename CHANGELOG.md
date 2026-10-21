@@ -14,8 +14,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ones through the package of the same name in ranger.json), so strict
   Rust code can `use evg::…` from another crate on every target
   (PLAN_RUST_SYNTAX.md §9.6).
+- **Rust lowering for the RangerDiff port (R8, §9.7).** Vec range slices
+  (`&v[a..b]`, `copy_from_slice`, `extend_from_slice`), `use crate::module;`,
+  `std::fs::read`, and `unwrap_or_default()` of a Vec or struct.
 
 ### Fixed
+
+- **`\u{…}` past U+FFFF in `.rs` strings** was cut to 16 bits on es6.
+- **A map key in `.rs` code is borrowed**: `map.get(k)` no longer reports
+  `k` as moved.
+- **Two `.rs` types of the same name in two modules** are refused instead
+  of being merged into one.
+- **`vec![vec![..], ..]`** (a list of lists) compiled to an invalid
+  literal; **`char::to_digit(radix)`** ignored the radix.
+- **Go: optional constructor parameters** are `*GoNullable`, as the
+  constructor body reads them.
+- **C++: `null?`, `!null?` and `unwrap` of a narrowed optional** take the
+  optional itself (`x.value().has_value()` did not compile).
 
 - **`.clone()` of a Rust enum written through `ref mut`.** The lowering
   treated an enum of numbers and strings as a value and returned the same
