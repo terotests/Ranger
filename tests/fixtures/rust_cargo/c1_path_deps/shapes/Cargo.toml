@@ -1,0 +1,12 @@
+[package]
+name = "shapes"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# the key renames the package: the code says `units::…`
+units = { package = "geo-units", path = "../units" }
+
+[dependencies.ranger]
+path = "../../../../../runtime/rust/ranger"

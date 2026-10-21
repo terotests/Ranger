@@ -1,0 +1,11 @@
+# A git dependency: rgrc takes the package of the same name from ranger.json
+# (here a path, as `rgrc install` would put a fetched one on disk). cargo
+# would fetch the URL, so this crate is compiled by rgrc only.
+[package]
+name = "git_dep"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+units = { package = "geo-units", git = "https://github.com/terotests/geo-units.git", rev = "0000000" }

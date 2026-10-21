@@ -11,6 +11,7 @@ Import "RangerDocGenerator.rgr"
 Import "StaticAnalysis.rgr"
 Import "RangerLLVMPipeline.rgr"
 Import "./frontend/rust/lower/RustLower.rgr"
+Import "./frontend/rust/cargo/RustCrateLoader.rgr"
 
 defn CreateFolder (folder fname) (create_folder (unwrap folder) fname)
 defn CreateFolder (folder fname) (create_folder folder fname)
@@ -799,22 +800,9 @@ class tester {
           rl.setTarget("es6")
         }
       }
-      ; `mod x;` reads x.rs or x/mod.rs beside the declaring file (R6)
+      ; the `mod x;` files, then the Cargo.toml dependencies (R6, §9.6)
       rl.begin(mainSource the_file)
-      while (rl.hasPendingModule()) {
-        def modFiles:[string] (rl.nextModuleFiles())
-        def modFound:boolean false
-        for modFiles modFile:string mfi {
-          if ((modFound == false) && (file_exists env theFilePath modFile)) {
-            def modSrc:string (read_file env theFilePath modFile)
-            rl.addModule(modFile (unwrap modSrc))
-            modFound = true
-          }
-        }
-        if (modFound == false) {
-          rl.moduleNotFound()
-        }
-      }
+      RustCrateLoader.load(rl env theFilePath the_file)
       mainSource = (rl.finish())
       if ((array_length rl.errors) > 0) {
         cli.printHeader()

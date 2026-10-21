@@ -6,7 +6,8 @@
 > and borrow errors are reported, the `ranger` prelude crate exists,
 > rustdoc is read as the API documentation, and a crate can mix `.rs` and
 > `.rgr` modules (§9.4), and the Ranger attributes and macros work on every
-> target (§9.5). R8 is design.** Measurements in §5 and the rustc checks in §2 were run
+> target (§9.5). A crate's Cargo.toml dependencies are read (§9.6).
+R8 is design.** Measurements in §5 and the rustc checks in §2 were run
 > on this checkout with rustc 1.94.1.
 
 Ranger gets a second source form: **`.rs` files that are valid Rust**. They
@@ -346,6 +347,7 @@ crate.
 | R5 | rustdoc reading (§4) | **done**, §9.3 |
 | R6 | Mixed programs: `import_rgr!`, Rust module output, `.rgr` ↔ `.rs` imports, `Cargo.toml` packages, the §2.3 boundary | **done**, §9.4 |
 | R7 | Attributes and macros: `weak`, `late`, `serialize`, `target`, `tree!`, `native!` | **done**, §9.5 |
+| R7.1 | Cargo package dependencies: `use evg::…` from a crate the Cargo.toml names | **done**, §9.6 |
 | R8 | A real module: port one self-contained `lib/` or gallery module to `.rs`; `cargo check` of all strict fixtures in CI | the ported module replaces its `.rgr` original and its tests pass on the targets they ran on before |
 
 ### R1 in steps
@@ -607,8 +609,7 @@ running `rgrc -rust-module` on `src/legacy.rgr`, a strict module
 
 Not done in R6:
 
-- `Cargo.toml` package dependencies (`use evg::EVGElement;` from a path
-  dependency): the loader reads modules of the crate only.
+- `Cargo.toml` package dependencies: done later, §9.6.
 - The §2.3 check in the other direction -- a `.rgr` caller using a value it
   moved into a `.rs` function -- is not run.
 - A `.rgr` class used from `.rs` is typed from its signatures only: a
@@ -657,6 +658,58 @@ Notes:
   `for` loop and does not escape `object` as a method name (RsJson avoids
   both), and the Kotlin writer cannot loop over an expression
   (`for (strsplit s ",") p` in the compiler itself binds the list first).
+
+### 9.6 Cargo package dependencies
+
+`rgrc main.rs` reads the crates the program's Cargo.toml depends on, so a
+crate can `use evg::EVGElement;` from another repository the way cargo
+builds it. `compiler/frontend/rust/cargo/`: `RustCargoToml` reads the
+manifest, `RustCrateLoader` finds the files; both the entry file
+(VirtualCompiler) and an `Import "x.rs"` of a `.rgr` program (FlowImport) go
+through the loader.
+
+- **The manifest** is the nearest Cargo.toml above the entry file that has a
+  `[package]`, looked for up to the repository root (a directory with
+  `.git`). Read: `[package] name`, `[lib] name` / `path`, and
+  `[dependencies]` as `x = { … }`, `x.path = …` or `[dependencies.x]`.
+  `[dev-dependencies]`, `[build-dependencies]` and target tables are not
+  read.
+- **The name** the code uses is the key with `-` written `_`; without a
+  `package =` rename, the dependency's `[lib] name` when it has one.
+- **Where it is:** `path` relative to the manifest. A `git` or registry
+  dependency is the package of the same name (the `package =` name when
+  renamed) in the nearest ranger.json, which `rgrc install` / `npm run deps`
+  put on disk; its directory holds the Cargo.toml. The library root is
+  `[lib] path`, else `src/lib.rs`. `ranger` is the prelude crate and is
+  not read.
+- **A dependency is a module of the program** whose key is its name: its
+  free functions go into the module class (`shapes` -> `Shapes`,
+  `shapes::area` -> `ShapesArea`), `crate::` inside it starts at its root,
+  and a path is looked up relative to the current module, then from the
+  crate's root, then as another crate (`units::label` inside `shapes`).
+  Dependencies of dependencies are read the same way, each crate once.
+- **`pub use`** re-exports are followed: `shapes::to_cm` finds
+  `units::convert::to_cm` re-exported by `shapes`. The `use` pass reads the
+  last module first, so a re-export is known before a module using it.
+- `#[cfg(test)]` items are left out, so a library's `mod tests` does not
+  reach the other targets.
+
+Limits: types are global by name (§9.4), so two crates that both declare
+`Error` are refused; one crate under two names (a rename in one dependent,
+the plain name in another) is read twice and refused for the same reason.
+
+`tests/fixtures/rust_cargo/c1_path_deps/` is three cargo crates (`app` ->
+`shapes` by path -> `units`, package `geo-units` renamed, plus `ranger`).
+`cargo run` prints `expected.txt`, `cargo test` passes in each library,
+and `rgrc app/src/main.rs` prints the same on the ten targets.
+`tests/fixtures/rust_cargo_ranger_json/` has a git dependency taken from
+ranger.json and one that is refused with its message.
+
+Found on the way: an enum whose payloads are numbers or strings was
+cloned as the same object ("a value"), but a `ref mut` match writes into
+the variant, so a clone changed with its original (`r2_match_mut` failed on
+every target). The clone function is now written after the functions are
+lowered, and an enum with a written variant is not a value.
 
 ## 10. Open questions
 

@@ -324,17 +324,10 @@ extension RangerFlowParser {
         rl.setTarget((ctx.getCompilerSetting("l")))
         rl.begin(source_code modName)
         rl.setEntryName(import_file)
-        while (rl.hasPendingModule()) {
-          def modFiles:[string] (rl.nextModuleFiles())
-          def modFound:boolean false
-          for modFiles modFile:string mfi {
-            if ((modFound == false) && (modBase != "") && (file_exists env modBase modFile)) {
-              def modSrc:string (read_file env modBase modFile)
-              rl.addModule(modFile (unwrap modSrc))
-              modFound = true
-            }
-          }
-          if (modFound == false) {
+        if (modBase != "") {
+          RustCrateLoader.load(rl env modBase modName)
+        } {
+          while (rl.hasPendingModule()) {
             rl.moduleNotFound()
           }
         }

@@ -24795,25 +24795,13 @@ class RangerFlowParser  {
         rl.setTarget(ctx.getCompilerSetting("l"));
         rl.begin(source_code, modName);
         rl.setEntryName(import_file);
-        while (rl.hasPendingModule()) {
-          const modFiles = rl.nextModuleFiles();
-          let modFound = false;
-          // Loop start
-          for ( const modFile of modFiles) {
-            if ( (modFound == false && modBase != "") && operatorsOf_17.filec95exists_18(env, modBase, modFile) ) {
-              const modSrc = operatorsOf_17.readc95file_18(
-                env,
-                modBase,
-                modFile
-              );
-              rl.addModule(modFile, modSrc);
-              modFound = true;
-            }
-          }
-          if ( modFound == false ) {
+        if ( modBase != "" ) {
+          RustCrateLoader.load(rl, env, modBase, modName);
+        } else {
+          while (rl.hasPendingModule()) {
             rl.moduleNotFound();
-          }
-        };
+          };
+        }
         const lowered = rl.finish();
         if ( rl.errors.length > 0 ) {
           // Loop start
@@ -88766,6 +88754,8 @@ class RustLower  {
     this.pendingFiles = [];
     this.rgrImports = [];
     this.entryName = "";
+    this.crateKeys = [];
+    this.crateFiles = [];
     this.fnAlias = {};
     this.preludeOps = {};
     this.preludeRets = {};
@@ -88994,12 +88984,56 @@ class RustLower  {
       }
     }
   };
+  addCrate (name, path, src) {
+    if ( ( typeof(this.modFileOf[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.modFileOf, name) ) ) {
+      this.errors.push(((("dependency `" + name) + "` has the name of a module of ") + this.entryName) + "");
+      return;
+    }
+    const p = new RustParser(src);
+    const root = p.parseFile();
+    // Loop start
+    for ( let i = 0; i < p.errors.length; i++) {
+      var e = p.errors[i];
+      this.errors.push((path + ":") + e);
+    }
+    if ( this.errors.length > 0 ) {
+      return;
+    }
+    this.crateKeys.push(name);
+    this.crateFiles.push(path);
+    this.registerModule(root, name, path, RustLower.dirOf(path));
+  };
+  hasCrate (name) {
+    return this.crateKeys.indexOf(name) >= 0;
+  };
+  crateFile (name) {
+    const i = this.crateKeys.indexOf(name);
+    if ( i < 0 ) {
+      return "";
+    }
+    return this.crateFiles[i];
+  };
+  crateError (msg) {
+    this.errors.push(msg);
+  };
+  crateOf (mod) {
+    // Loop start
+    for ( const ck of this.crateKeys) {
+      if ( mod == ck || mod.startsWith(ck + "::") ) {
+        return ck;
+      }
+    }
+    return "";
+  };
   setTarget (t) {
     this.target = t;
   };
   targetKeeps (it) {
     // Loop start
     for ( const a of it.attrs) {
+      if ( a.name == "cfg" && a.value.split(" ").join("") == "(test)" ) {
+        return false;
+      }
       if ( a.name != "ranger::target" && a.name != "target" ) {
         continue;
       }
@@ -89219,11 +89253,39 @@ class RustLower  {
         return k1;
       }
     }
-    const abs = this.modPath(segs, "");
+    const root = this.crateOf(this.curMod);
+    const abs = this.modPath(segs, root);
     if ( abs != "?" ) {
       const k2 = this.fnKey(abs, last);
       if ( this.hasItem(k2, table) ) {
         return k2;
+      }
+    }
+    let ext = "?";
+    if ( root != "" ) {
+      ext = this.modPath(segs, "");
+      if ( ext != "?" ) {
+        const k3 = this.fnKey(ext, last);
+        if ( this.hasItem(k3, table) ) {
+          return k3;
+        }
+      }
+    }
+    let tried = [];
+    tried.push(rel);
+    tried.push(abs);
+    tried.push(ext);
+    // Loop start
+    for ( const tm of tried) {
+      if ( tm == "?" ) {
+        continue;
+      }
+      const ak2 = (tm + "|") + last;
+      if ( ( typeof(this.fnAlias[ak2] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fnAlias, ak2) ) ) {
+        const t2 = ( Object.prototype.hasOwnProperty.call(this.fnAlias, ak2) ? this.fnAlias[ak2] : undefined );
+        if ( this.hasItem(t2, table) ) {
+          return t2;
+        }
       }
     }
     return "";
@@ -89236,7 +89298,7 @@ class RustLower  {
       const sg = segs[i];
       i = i + 1;
       if ( sg == "crate" ) {
-        cur = "";
+        cur = this.crateOf(this.curMod);
         continue;
       }
       if ( sg == "self" ) {
@@ -89312,8 +89374,8 @@ class RustLower  {
       }
       mi2 = mi2 + 1;
     };
-    let mi3 = 0;
-    while (mi3 < this.modRoots.length) {
+    let mi3 = this.modRoots.length - 1;
+    while (mi3 >= 0) {
       this.enterModule(mi3);
       const r3 = this.modRoots[mi3];
       // Loop start
@@ -89325,7 +89387,7 @@ class RustLower  {
           }
         }
       }
-      mi3 = mi3 + 1;
+      mi3 = mi3 - 1;
     };
     this.enterModule(0);
     this.collectRest();
@@ -90777,16 +90839,32 @@ class RustLower  {
     parts.push(this.emitModules());
     let qi = 0;
     let di = 0;
-    while (qi < this.structInstQueue.length || di < this.dynQueue.length) {
+    let clonesDone = false;
+    while ((qi < this.structInstQueue.length || di < this.dynQueue.length) || false == clonesDone) {
       if ( qi < this.structInstQueue.length ) {
         const inst = this.structInstQueue[qi];
         qi = qi + 1;
         parts.push(this.emitStructInstance(inst));
         continue;
       }
-      const tn = this.dynQueue[di];
-      di = di + 1;
-      parts.push(this.emitDyn(tn));
+      if ( di < this.dynQueue.length ) {
+        const tn = this.dynQueue[di];
+        di = di + 1;
+        parts.push(this.emitDyn(tn));
+        continue;
+      }
+      clonesDone = true;
+      // Loop start
+      for ( let ek = 0; ek < this.enumOrder.length; ek++) {
+        var en3 = this.enumOrder[ek];
+        const ep = shapeAt[ek];
+        const marker = ("@@rs_clone:" + en3) + "@@";
+        const implText = parts[(ep + 1)];
+        if ( implText.includes(marker) ) {
+          const eo3 = ( Object.prototype.hasOwnProperty.call(this.enums, en3) ? this.enums[en3] : undefined );
+          parts[ep + 1] = implText.split(marker).join(this.emitEnumClone(eo3, this.className(en3)));
+        }
+      }
     };
     // Loop start
     for ( const g of this.genOut) {
@@ -90840,7 +90918,7 @@ class RustLower  {
       }
     }
     if ( false == e.plain ) {
-      impl.push(this.emitEnumClone(e, cname));
+      impl.push(("@@rs_clone:" + e.name) + "@@");
     }
     const implDoc = new RustDocInfo();
     // Loop start
@@ -90998,7 +91076,11 @@ class RustLower  {
   };
   enumIsValue (e) {
     // Loop start
-    for ( const vr of e.variants) {
+    for ( let i = 0; i < e.variants.length; i++) {
+      var vr = e.variants[i];
+      if ( ( typeof(this.writtenCases[((e.name + ".") + vr.name)] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.writtenCases, (e.name + ".") + vr.name) ) ) {
+        return false;
+      }
       // Loop start
       for ( const f of vr.fields) {
         const k = f.ty.kind;
@@ -93944,6 +94026,9 @@ class RustLower  {
       let gsegs = this.fnKey(prefix, u.name).split("::");
       gsegs.push("*");
       let m = this.modPath(gsegs, this.curMod);
+      if ( m == "?" ) {
+        m = this.modPath(gsegs, this.crateOf(this.curMod));
+      }
       if ( m == "?" ) {
         m = this.modPath(gsegs, "");
       }
@@ -98821,6 +98906,479 @@ RustLower.targetAlias = function(t) {
   }
   return t;
 };
+class RsCargoDep  {
+  constructor() {
+    this.name = "";
+    this.pkg = "";
+    this.path = "";
+    this.git = "";
+    this.version = "";
+    this.optional = false;
+  }
+}
+class RsCargoManifest  {
+  constructor() {
+    this.found = false;
+    this.hasPackage = false;
+    this.packageName = "";
+    this.libName = "";
+    this.libPath = "";
+    this.deps = [];
+  }
+  dep (key) {
+    const name = RsCargoToml.unquote(key).split("-").join("_");
+    // Loop start
+    for ( const d of this.deps) {
+      if ( d.name == name ) {
+        return d;
+      }
+    }
+    const nd = new RsCargoDep();
+    nd.name = name;
+    this.deps.push(nd);
+    return nd;
+  };
+  crateName () {
+    if ( this.libName != "" ) {
+      return this.libName;
+    }
+    return this.packageName.split("-").join("_");
+  };
+}
+class RsCargoToml  {
+}
+RsCargoToml.parse = function(src) {
+  const m = new RsCargoManifest();
+  m.found = true;
+  let section = "";
+  const lines = src.split("\n");
+  let li = 0;
+  const nl = lines.length;
+  while (li < nl) {
+    const line = RsCargoToml.stripComment(lines[li]).trim();
+    li = li + 1;
+    if ( line == "" ) {
+      continue;
+    }
+    if ( line.startsWith("[") ) {
+      const close = line.lastIndexOf("]");
+      if ( close < 0 ) {
+        continue;
+      }
+      section = line.substring(1, close ).trim();
+      if ( section.startsWith("[") ) {
+        section = "[array]";
+      }
+      if ( section == "package" ) {
+        m.hasPackage = true;
+      }
+      continue;
+    }
+    const eq = RsCargoToml.findTop(line, 61);
+    if ( eq < 0 ) {
+      continue;
+    }
+    const key = line.substring(0, eq ).trim();
+    let val = line.substring(eq + 1, line.length ).trim();
+    while (RsCargoToml.depth(val) > 0 && li < nl) {
+      val = (val + " ") + RsCargoToml.stripComment(lines[li]).trim();
+      li = li + 1;
+    };
+    if ( section == "package" ) {
+      if ( key == "name" ) {
+        m.packageName = RsCargoToml.unquote(val);
+      }
+      continue;
+    }
+    if ( section == "lib" ) {
+      if ( key == "name" ) {
+        m.libName = RsCargoToml.unquote(val);
+      }
+      if ( key == "path" ) {
+        m.libPath = RsCargoToml.unquote(val);
+      }
+      continue;
+    }
+    if ( section == "dependencies" ) {
+      const dot = RsCargoToml.findTop(key, 46);
+      if ( dot > 0 ) {
+        const d0 = m.dep(key.substring(0, dot ).trim());
+        RsCargoToml.setField(
+          d0,
+          key.substring(dot + 1, key.length ).trim(),
+          val
+        );
+        continue;
+      }
+      const d = m.dep(key);
+      if ( val.startsWith("{") ) {
+        RsCargoToml.readTable(d, val);
+      } else {
+        d.version = RsCargoToml.unquote(val);
+      }
+      continue;
+    }
+    if ( section.startsWith("dependencies.") ) {
+      const d2 = m.dep(section.substring(13, section.length ).trim());
+      RsCargoToml.setField(d2, key, val);
+    }
+  };
+  return m;
+};
+RsCargoToml.setField = function(d, key, val) {
+  const k = RsCargoToml.unquote(key);
+  if ( k == "path" ) {
+    d.path = RsCargoToml.unquote(val);
+  }
+  if ( k == "git" ) {
+    d.git = RsCargoToml.unquote(val);
+  }
+  if ( k == "package" ) {
+    d.pkg = RsCargoToml.unquote(val);
+  }
+  if ( k == "version" ) {
+    d.version = RsCargoToml.unquote(val);
+  }
+  if ( k == "optional" ) {
+    d.optional = val.trim() == "true";
+  }
+};
+RsCargoToml.readTable = function(d, val) {
+  let inner = val.trim();
+  const n = inner.length;
+  if ( n >= 2 && inner.charCodeAt(n - 1 ) == 125 ) {
+    inner = inner.substring(1, n - 1 );
+  } else {
+    inner = inner.substring(1, n );
+  }
+  let start = 0;
+  let i = 0;
+  const m = inner.length;
+  let q = 0;
+  let lvl = 0;
+  while (i <= m) {
+    let c = 44;
+    if ( i < m ) {
+      c = inner.charCodeAt(i );
+    }
+    if ( q != 0 ) {
+      if ( c == q ) {
+        q = 0;
+      }
+      i = i + 1;
+      continue;
+    }
+    if ( c == 34 || c == 39 ) {
+      q = c;
+    }
+    if ( c == 91 || c == 123 ) {
+      lvl = lvl + 1;
+    }
+    if ( c == 93 || c == 125 ) {
+      lvl = lvl - 1;
+    }
+    if ( c == 44 && lvl <= 0 ) {
+      const part = inner.substring(start, RsCargoToml.minInt(i, m) );
+      const eq = RsCargoToml.findTop(part, 61);
+      if ( eq > 0 ) {
+        RsCargoToml.setField(
+          d,
+          part.substring(0, eq ).trim(),
+          part.substring(eq + 1, part.length ).trim()
+        );
+      }
+      start = i + 1;
+    }
+    i = i + 1;
+  };
+};
+RsCargoToml.minInt = function(a, b) {
+  if ( a < b ) {
+    return a;
+  }
+  return b;
+};
+RsCargoToml.findTop = function(s, code) {
+  let q = 0;
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    const c = s.charCodeAt(i );
+    if ( q != 0 ) {
+      if ( c == q ) {
+        q = 0;
+      }
+    } else {
+      if ( c == 34 || c == 39 ) {
+        q = c;
+      } else {
+        if ( c == code ) {
+          return i;
+        }
+      }
+    }
+    i = i + 1;
+  };
+  return -1;
+};
+RsCargoToml.depth = function(s) {
+  let q = 0;
+  let lvl = 0;
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    const c = s.charCodeAt(i );
+    if ( q != 0 ) {
+      if ( c == q ) {
+        q = 0;
+      }
+    } else {
+      if ( c == 34 || c == 39 ) {
+        q = c;
+      }
+      if ( c == 91 || c == 123 ) {
+        lvl = lvl + 1;
+      }
+      if ( c == 93 || c == 125 ) {
+        lvl = lvl - 1;
+      }
+    }
+    i = i + 1;
+  };
+  return lvl;
+};
+RsCargoToml.stripComment = function(line) {
+  const at = RsCargoToml.findTop(line, 35);
+  if ( at < 0 ) {
+    return line;
+  }
+  return line.substring(0, at );
+};
+RsCargoToml.unquote = function(v) {
+  const s = v.trim();
+  const n = s.length;
+  if ( n >= 2 ) {
+    const c0 = s.charCodeAt(0 );
+    if ( (c0 == 34 || c0 == 39) && s.charCodeAt(n - 1 ) == c0 ) {
+      let inner = s.substring(1, n - 1 );
+      if ( c0 == 34 ) {
+        inner = inner.split("\\\\").join("\\");
+        inner = inner.split("\\\"").join("\"");
+      }
+      return inner;
+    }
+  }
+  return s;
+};
+class RustCrateLoader  {
+}
+RustCrateLoader.load = function(rl, env, base, entry) {
+  RustCrateLoader.readModules(rl, env, base);
+  if ( rl.errors.length > 0 ) {
+    return;
+  }
+  const first = RustCrateLoader.findManifest(env, base, RustLower.dirOf(entry));
+  if ( first == "?" ) {
+    return;
+  }
+  let queue = [];
+  queue.push(first);
+  let qi = 0;
+  while (qi < queue.length) {
+    const dir = queue[qi];
+    qi = qi + 1;
+    const man = RustCrateLoader.readManifest(env, base, dir);
+    // Loop start
+    for ( const d of man.deps) {
+      if ( d.name == "ranger" ) {
+        continue;
+      }
+      const depDir = RustCrateLoader.depDir(env, base, dir, d);
+      if ( depDir.startsWith("?") ) {
+        const why = depDir.substring(1, depDir.length );
+        rl.crateError((((("dependency `" + d.name) + "` of ") + RustCrateLoader.join(dir, "Cargo.toml")) + " is not a path dependency, and ranger.json does not give it: ") + why);
+        continue;
+      }
+      const dm = RustCrateLoader.readManifest(env, base, depDir);
+      let libPath = "src/lib.rs";
+      if ( dm.libPath != "" ) {
+        libPath = dm.libPath;
+      }
+      const libFile = RustCrateLoader.norm(RustCrateLoader.join(depDir, libPath));
+      let crateName = d.name;
+      if ( d.pkg == "" && dm.libName != "" ) {
+        crateName = dm.libName;
+      }
+      if ( rl.hasCrate(crateName) ) {
+        if ( rl.crateFile(crateName) != libFile ) {
+          rl.crateError((((("two crates are named `" + crateName) + "`: ") + rl.crateFile(crateName)) + " and ") + libFile);
+        }
+        continue;
+      }
+      if ( false == RustCrateLoader.exists(env, base, libFile) ) {
+        rl.crateError(((("dependency `" + crateName) + "`: no library root ") + libFile) + " (set [lib] path in its Cargo.toml)");
+        continue;
+      }
+      const src = RustCrateLoader.read(env, base, libFile);
+      rl.addCrate(crateName, libFile, src);
+      RustCrateLoader.readModules(rl, env, base);
+      if ( rl.errors.length > 0 ) {
+        return;
+      }
+      queue.push(depDir);
+    }
+  };
+};
+RustCrateLoader.readModules = function(rl, env, base) {
+  while (rl.hasPendingModule()) {
+    const modFiles = rl.nextModuleFiles();
+    let modFound = false;
+    // Loop start
+    for ( const modFile of modFiles) {
+      if ( modFound == false && RustCrateLoader.exists(env, base, modFile) ) {
+        rl.addModule(modFile, RustCrateLoader.read(env, base, modFile));
+        modFound = true;
+      }
+    }
+    if ( modFound == false ) {
+      rl.moduleNotFound();
+    }
+  };
+};
+RustCrateLoader.pkgName = function(d) {
+  if ( d.pkg != "" ) {
+    return d.pkg;
+  }
+  return d.name;
+};
+RustCrateLoader.readManifest = function(env, base, dir) {
+  const f = RustCrateLoader.join(dir, "Cargo.toml");
+  if ( false == RustCrateLoader.exists(env, base, f) ) {
+    return new RsCargoManifest();
+  }
+  const t = RustCrateLoader.read(env, base, f);
+  return RsCargoToml.parse(t);
+};
+RustCrateLoader.depDir = function(env, base, dir, d) {
+  if ( d.path != "" ) {
+    return RustCrateLoader.norm(RustCrateLoader.join(dir, d.path));
+  }
+  const full = RustCrateLoader.join(base, dir);
+  const hit = PkgImport.resolve(
+    env,
+    full,
+    ((("pkg:" + RustCrateLoader.pkgName(d)) + "/") + "Cargo.toml"),
+    []
+  );
+  if ( false == hit.ok ) {
+    return "?" + hit.err;
+  }
+  return RustCrateLoader.relTo(base, hit.dir);
+};
+RustCrateLoader.findManifest = function(env, base, start) {
+  let d = RustCrateLoader.norm(start);
+  let guard = 0;
+  while (guard < 16) {
+    guard = guard + 1;
+    const f = RustCrateLoader.join(d, "Cargo.toml");
+    if ( RustCrateLoader.exists(env, base, f) ) {
+      const m = RustCrateLoader.readManifest(env, base, d);
+      if ( m.hasPackage ) {
+        return d;
+      }
+    }
+    if ( RustCrateLoader.exists(env, base, RustCrateLoader.join(d, ".git")) ) {
+      return "?";
+    }
+    d = RustCrateLoader.parent(d);
+  };
+  return "?";
+};
+RustCrateLoader.exists = function(env, base, p) {
+  if ( p.startsWith("/") ) {
+    return operatorsOf_17.filec95exists_18(
+      env,
+      RustLower.dirOf(p),
+      RustLower.baseName(p)
+    );
+  }
+  return operatorsOf_17.filec95exists_18(env, base, p);
+};
+RustCrateLoader.read = function(env, base, p) {
+  let t;
+  if ( p.startsWith("/") ) {
+    t = operatorsOf_17.readc95file_18(
+      env,
+      RustLower.dirOf(p),
+      RustLower.baseName(p)
+    );
+  } else {
+    t = operatorsOf_17.readc95file_18(env, base, p);
+  }
+  if ( typeof(t) === "undefined" ) {
+    return "";
+  }
+  return t;
+};
+RustCrateLoader.parent = function(d) {
+  if ( d == "" || d == "." ) {
+    return "..";
+  }
+  if ( d == ".." || d.endsWith("/..") ) {
+    return d + "/..";
+  }
+  return RustLower.dirOf(d);
+};
+RustCrateLoader.join = function(dir, name) {
+  if ( dir == "" || dir == "." ) {
+    return name;
+  }
+  if ( name.startsWith("/") ) {
+    return name;
+  }
+  return (dir + "/") + name;
+};
+RustCrateLoader.norm = function(p) {
+  const abs = p.startsWith("/");
+  let out = [];
+  const parts = p.split("/");
+  // Loop start
+  for ( const pt of parts) {
+    if ( pt == "" || pt == "." ) {
+      continue;
+    }
+    if ( pt == ".." ) {
+      const nOut = out.length;
+      if ( nOut > 0 && out[(nOut - 1)] != ".." ) {
+        out.pop();
+        continue;
+      }
+      if ( abs ) {
+        continue;
+      }
+    }
+    out.push(pt);
+  }
+  const s = out.join("/");
+  if ( abs ) {
+    return "/" + s;
+  }
+  return s;
+};
+RustCrateLoader.relTo = function(base, dir) {
+  const b = RustCrateLoader.norm(base);
+  const d = RustCrateLoader.norm(dir);
+  if ( b == "" || false == d.startsWith("/") ) {
+    return d;
+  }
+  if ( d == b ) {
+    return "";
+  }
+  if ( d.startsWith(b + "/") ) {
+    return d.substring(b.length + 1, d.length );
+  }
+  return d;
+};
 class CompilerResults  {
   constructor() {
     this.ctx = undefined;
@@ -99068,25 +99626,7 @@ class VirtualCompiler  {
         }
       }
       rl.begin(mainSource, the_file);
-      while (rl.hasPendingModule()) {
-        const modFiles = rl.nextModuleFiles();
-        let modFound = false;
-        // Loop start
-        for ( const modFile of modFiles) {
-          if ( modFound == false && operatorsOf_17.filec95exists_18(env, theFilePath, modFile) ) {
-            const modSrc = operatorsOf_17.readc95file_18(
-              env,
-              theFilePath,
-              modFile
-            );
-            rl.addModule(modFile, modSrc);
-            modFound = true;
-          }
-        }
-        if ( modFound == false ) {
-          rl.moduleNotFound();
-        }
-      };
+      RustCrateLoader.load(rl, env, theFilePath, the_file);
       mainSource = rl.finish();
       if ( rl.errors.length > 0 ) {
         cli.printHeader();
