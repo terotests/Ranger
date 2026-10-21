@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `k` as moved.
 - **Two `.rs` types of the same name in two modules** are refused instead
   of being merged into one.
+- **`vec![vec![..], ..]`** (a list of lists) compiled to an invalid
+  literal; **`char::to_digit(radix)`** ignored the radix.
 - **Go: optional constructor parameters** are `*GoNullable`, as the
   constructor body reads them.
 - **C++: `null?`, `!null?` and `unwrap` of a narrowed optional** take the

@@ -7562,13 +7562,26 @@ class RustLower {
       return (RsExpr.of((("(RsChar.asciiLower(" + c) + "))") rv.ty))
     }
     if (name == "to_digit") {
+      ; the radix decides: 0-9, then a-z / A-Z for 10 and up
+      def rdx:RsExpr (this.arg0(args (RsType.mk("int"))))
       def ot:RsType (RsType.of1("opt" (RsType.mk("int"))))
       def nm:string (this.tmp("d"))
       def cc:string (this.tmp("cc"))
+      def dv:string (this.tmp("dv"))
       out.line(((("def " + cc) + ":int (rs_char_code ") + c) + ")"))
       out.line(("def " + (this.declText(nm ot))))
+      out.line((("def " + dv) + ":int 99"))
       out.line((((("if ((" + cc) + " >= 48) && (") + cc) + " <= 57)) {"))
-      out.line((((("  " + nm) + " = (") + cc) + " - 48)"))
+      out.line((((("  " + dv) + " = (") + cc) + " - 48)"))
+      out.line("}")
+      out.line((((("if ((" + cc) + " >= 97) && (") + cc) + " <= 122)) {"))
+      out.line((((("  " + dv) + " = (") + cc) + " - 87)"))
+      out.line("}")
+      out.line((((("if ((" + cc) + " >= 65) && (") + cc) + " <= 90)) {"))
+      out.line((((("  " + dv) + " = (") + cc) + " - 55)"))
+      out.line("}")
+      out.line((((("if (" + dv) + " < ") + rdx.code) + ") {"))
+      out.line((((("  " + nm) + " = ") + dv)))
       out.line("}")
       def r:RsExpr (RsExpr.of(nm ot))
       r.simple = true
@@ -8337,6 +8350,18 @@ class RustLower {
         this.err(n "an empty array needs its element type: annotate the `let`")
       }
       return (RsExpr.of((("([] " + (join codes " ")) + ")") vt2))
+    }
+    ; `([] _:T (..))` takes scalar and class elements only: a list of
+    ; lists (`vec![vec![1], vec![2]]`) is built by pushing
+    if ((t2.kind == "vec") || (t2.kind == "map") || (t2.kind == "set")) {
+      def name2:string (this.tmp("arr"))
+      out.line(((("def " + name2) + ":") + (this.rtype(vt2))))
+      for codes code:string ci {
+        out.line(((("push " + name2) + " ") + code))
+      }
+      def r2:RsExpr (RsExpr.of(name2 vt2))
+      r2.simple = true
+      return r2
     }
     return (RsExpr.of((((("([] _:" + rt) + " (") + (join codes " ")) + "))") vt2))
   }

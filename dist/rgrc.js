@@ -95779,13 +95779,25 @@ class RustLower  {
       return RsExpr.of((("(RsChar.asciiLower(" + c) + "))"), rv.ty);
     }
     if ( name == "to_digit" ) {
+      const rdx = this.arg0(args, RsType.mk("int"));
       const ot = RsType.of1("opt", RsType.mk("int"));
       const nm = this.tmp("d");
       const cc = this.tmp("cc");
+      const dv = this.tmp("dv");
       this.out.line(((("def " + cc) + ":int (rs_char_code ") + c) + ")");
       this.out.line("def " + this.declText(nm, ot));
+      this.out.line(("def " + dv) + ":int 99");
       this.out.line(((("if ((" + cc) + " >= 48) && (") + cc) + " <= 57)) {");
-      this.out.line(((("  " + nm) + " = (") + cc) + " - 48)");
+      this.out.line(((("  " + dv) + " = (") + cc) + " - 48)");
+      this.out.line("}");
+      this.out.line(((("if ((" + cc) + " >= 97) && (") + cc) + " <= 122)) {");
+      this.out.line(((("  " + dv) + " = (") + cc) + " - 87)");
+      this.out.line("}");
+      this.out.line(((("if ((" + cc) + " >= 65) && (") + cc) + " <= 90)) {");
+      this.out.line(((("  " + dv) + " = (") + cc) + " - 55)");
+      this.out.line("}");
+      this.out.line(((("if (" + dv) + " < ") + rdx.code) + ") {");
+      this.out.line((("  " + nm) + " = ") + dv);
       this.out.line("}");
       const r = RsExpr.of(nm, ot);
       r.simple = true;
@@ -96523,6 +96535,17 @@ class RustLower  {
         this.err(n, "an empty array needs its element type: annotate the `let`");
       }
       return RsExpr.of((("([] " + codes.join(" ")) + ")"), vt2);
+    }
+    if ( (t2.kind == "vec" || t2.kind == "map") || t2.kind == "set" ) {
+      const name2 = this.tmp("arr");
+      this.out.line((("def " + name2) + ":") + this.rtype(vt2));
+      // Loop start
+      for ( const code of codes) {
+        this.out.line((("push " + name2) + " ") + code);
+      }
+      const r2 = RsExpr.of(name2, vt2);
+      r2.simple = true;
+      return r2;
     }
     return RsExpr.of((((("([] _:" + rt) + " (") + codes.join(" ")) + "))"), vt2);
   };

@@ -747,6 +747,18 @@ Found in RangerDiff itself: Adler-32 summed 5552 bytes between reductions,
 zlib's bound for 32-bit unsigned sums; `int` is 32-bit signed on C++, so
 the sums overflowed there. Both versions reduce every 3800 bytes now.
 
+### 9.8 EVG core
+
+The base types of EVG's Storm engine (units, colours, code points,
+grapheme clusters, easings) are in strict Rust in terotests/evg `rs/`.
+Its parity check compares cargo, rgrc es6/go/cpp of the same source, and
+the Storm `.rgr` classes line by line. The lowering needed:
+
+- A list of lists as a literal, `vec![vec![1, 2], vec![3]]`: `([] _:T ..)`
+  takes scalar and class elements only, so it is built by pushing
+  (`r8_nested_vec`).
+- `char::to_digit(radix)` honours the radix; it read decimal digits only.
+
 ## 10. Open questions
 
 - Should a `.rs` module be allowed to `impl` a trait for a `.rgr` class?
