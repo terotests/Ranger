@@ -1,0 +1,234 @@
+; SPDX-License-Identifier: MIT
+
+; Reads a Rust crate for the lowering: the `mod x;` files of the entry
+; crate, then the crates its Cargo.toml depends on, and theirs
+; (PLAN_RUST_SYNTAX.md, §9.6).
+;
+; Every path is relative to `base`, the directory the compiler reads files
+; from. A dependency is found by its `path`, or, for a `git` or registry
+; dependency, as the package of the same name in the nearest ranger.json
+; (fetched by `rgrc install` / `npm run deps`). The library root is
+; `[lib] path` of the dependency's Cargo.toml, else `src/lib.rs`.
+; `ranger` is the prelude crate and is not read.
+
+Import "../../../InputFileSystem.rgr"
+Import "../../../PkgImport.rgr"
+Import "../lower/RustLower.rgr"
+Import "RustCargoToml.rgr"
+
+class RustCrateLoader {
+
+  sfn load:void (rl:RustLower env:InputEnv base:string entry:string) {
+    RustCrateLoader.readModules(rl env base)
+    if ((array_length rl.errors) > 0) {
+      return
+    }
+    def first:string (RustCrateLoader.findManifest(env base (RustLower.dirOf(entry))))
+    if (first == "?") {
+      return
+    }
+    def queue:[string]
+    push queue first
+    def qi:int 0
+    while (qi < (array_length queue)) {
+      def dir:string (itemAt queue qi)
+      qi = qi + 1
+      def man:RsCargoManifest (RustCrateLoader.readManifest(env base dir))
+      for man.deps d:RsCargoDep di {
+        if (d.name == "ranger") {
+          continue
+        }
+        def depDir:string (RustCrateLoader.depDir(env base dir d))
+        if (startsWith depDir "?") {
+          def why:string (substring depDir 1 (strlen depDir))
+          rl.crateError((((("dependency `" + d.name) + "` of ") + (RustCrateLoader.join(dir "Cargo.toml"))) + " is not a path dependency, and ranger.json does not give it: ") + why)
+          continue
+        }
+        def dm:RsCargoManifest (RustCrateLoader.readManifest(env base depDir))
+        def libPath:string "src/lib.rs"
+        if (dm.libPath != "") {
+          libPath = dm.libPath
+        }
+        def libFile:string (RustCrateLoader.norm((RustCrateLoader.join(depDir libPath))))
+        ; the key renames the package: `evg2 = { package = "evg", … }`
+        def crateName:string d.name
+        if ((d.pkg == "") && (dm.libName != "")) {
+          crateName = dm.libName
+        }
+        if (rl.hasCrate(crateName)) {
+          if ((rl.crateFile(crateName)) != libFile) {
+            rl.crateError((((("two crates are named `" + crateName) + "`: ") + (rl.crateFile(crateName))) + " and ") + libFile)
+          }
+          continue
+        }
+        if (false == (RustCrateLoader.exists(env base libFile))) {
+          rl.crateError((((("dependency `" + crateName) + "`: no library root ") + libFile) + " (set [lib] path in its Cargo.toml)"))
+          continue
+        }
+        def src:string (RustCrateLoader.read(env base libFile))
+        rl.addCrate(crateName libFile src)
+        RustCrateLoader.readModules(rl env base)
+        if ((array_length rl.errors) > 0) {
+          return
+        }
+        push queue depDir
+      }
+    }
+  }
+
+  ; `mod x;` reads x.rs or x/mod.rs beside the declaring file (R6)
+  sfn readModules:void (rl:RustLower env:InputEnv base:string) {
+    while (rl.hasPendingModule()) {
+      def modFiles:[string] (rl.nextModuleFiles())
+      def modFound:boolean false
+      for modFiles modFile:string mfi {
+        if ((modFound == false) && (RustCrateLoader.exists(env base modFile))) {
+          rl.addModule(modFile (RustCrateLoader.read(env base modFile)))
+          modFound = true
+        }
+      }
+      if (modFound == false) {
+        rl.moduleNotFound()
+      }
+    }
+  }
+
+  sfn pkgName:string (d:RsCargoDep) {
+    if (d.pkg != "") {
+      return d.pkg
+    }
+    return d.name
+  }
+
+  sfn readManifest:RsCargoManifest (env:InputEnv base:string dir:string) {
+    def f:string (RustCrateLoader.join(dir "Cargo.toml"))
+    if (false == (RustCrateLoader.exists(env base f))) {
+      return (new RsCargoManifest())
+    }
+    def t:string (RustCrateLoader.read(env base f))
+    return (RsCargoToml.parse(t))
+  }
+
+  ; The directory of a dependency; "?" and the reason when it is not on disk.
+  sfn depDir:string (env:InputEnv base:string dir:string d:RsCargoDep) {
+    if (d.path != "") {
+      return (RustCrateLoader.norm((RustCrateLoader.join(dir d.path))))
+    }
+    ; `git` / registry: the package of that name in ranger.json, which
+    ; `rgrc install` has put on disk
+    def full:string (RustCrateLoader.join(base dir))
+    def hit:PkgHit (PkgImport.resolve(env full ((("pkg:" + (RustCrateLoader.pkgName(d))) + "/") + "Cargo.toml") ([] _:string ())))
+    if (false == hit.ok) {
+      return ("?" + hit.err)
+    }
+    return (RustCrateLoader.relTo(base hit.dir))
+  }
+
+  ; The package directory nearest to `start` (upwards) whose Cargo.toml has
+  ; a `[package]`; "?" when none is found below the repository root.
+  sfn findManifest:string (env:InputEnv base:string start:string) {
+    def d:string (RustCrateLoader.norm(start))
+    def guard:int 0
+    while (guard < 16) {
+      guard = guard + 1
+      def f:string (RustCrateLoader.join(d "Cargo.toml"))
+      if (RustCrateLoader.exists(env base f)) {
+        def m:RsCargoManifest (RustCrateLoader.readManifest(env base d))
+        if m.hasPackage {
+          return d
+        }
+      }
+      ; a crate does not reach above its repository
+      if (RustCrateLoader.exists(env base (RustCrateLoader.join(d ".git")))) {
+        return "?"
+      }
+      d = (RustCrateLoader.parent(d))
+    }
+    return "?"
+  }
+
+  ; `p` below `base`, or an absolute path (a package in the cache)
+  sfn exists:boolean (env:InputEnv base:string p:string) {
+    if (startsWith p "/") {
+      return (file_exists env (RustLower.dirOf(p)) (RustLower.baseName(p)))
+    }
+    return (file_exists env base p)
+  }
+
+  sfn read:string (env:InputEnv base:string p:string) {
+    def t@(optional):string
+    if (startsWith p "/") {
+      t = (read_file env (RustLower.dirOf(p)) (RustLower.baseName(p)))
+    } {
+      t = (read_file env base p)
+    }
+    if (null? t) {
+      return ""
+    }
+    return (unwrap t)
+  }
+
+  sfn parent:string (d:string) {
+    if ((d == "") || (d == ".")) {
+      return ".."
+    }
+    if ((d == "..") || (endsWith d "/..")) {
+      return (d + "/..")
+    }
+    return (RustLower.dirOf(d))
+  }
+
+  sfn join:string (dir:string name:string) {
+    if ((dir == "") || (dir == ".")) {
+      return name
+    }
+    if (startsWith name "/") {
+      return name
+    }
+    return ((dir + "/") + name)
+  }
+
+  ; `a/./b/../c` -> `a/c`; leading `..` are kept
+  sfn norm:string (p:string) {
+    def abs:boolean (startsWith p "/")
+    def out:[string]
+    def parts:[string] (strsplit p "/")
+    for parts pt:string i {
+      if ((pt == "") || (pt == ".")) {
+        continue
+      }
+      if (pt == "..") {
+        def nOut:int (array_length out)
+        if ((nOut > 0) && ((itemAt out (nOut - 1)) != "..")) {
+          removeLast out
+          continue
+        }
+        if abs {
+          continue
+        }
+      }
+      push out pt
+    }
+    def s:string (join out "/")
+    if abs {
+      return ("/" + s)
+    }
+    return s
+  }
+
+  ; `dir` as a path below `base` when it is one, else as it is
+  sfn relTo:string (base:string dir:string) {
+    def b:string (RustCrateLoader.norm(base))
+    def d:string (RustCrateLoader.norm(dir))
+    if ((b == "") || (false == (startsWith d "/"))) {
+      return d
+    }
+    if (d == b) {
+      return ""
+    }
+    if (startsWith d (b + "/")) {
+      return (substring d ((strlen b) + 1) (strlen d))
+    }
+    return d
+  }
+}

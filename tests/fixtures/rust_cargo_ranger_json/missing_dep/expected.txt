@@ -1,0 +1,1 @@
+dependency `evg` of tests/fixtures/rust_cargo_ranger_json/missing_dep/Cargo.toml is not a path dependency, and ranger.json does not give it: package evg is not a dependency

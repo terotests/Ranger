@@ -1,0 +1,284 @@
+; SPDX-License-Identifier: MIT
+
+; The parts of a Cargo.toml the Rust lowering needs (PLAN_RUST_SYNTAX.md,
+; §9.6): the package and library names, the library root, and the
+; `[dependencies]` with their `path`, `git` and `package` keys.
+;
+; A line reader, not a TOML parser: sections, `key = value` lines, strings,
+; inline tables and arrays (an array may run over several lines). Anything
+; else in the file is skipped.
+
+class RsCargoDep {
+  ; the name the code uses: the key, `-` written `_`
+  def name:string ""
+  ; `package = "…"`: the package's own name, when the key renames it
+  def pkg:string ""
+  def path:string ""
+  def git:string ""
+  def version:string ""
+  def optional:boolean false
+}
+
+class RsCargoManifest {
+  def found:boolean false
+  def hasPackage:boolean false
+  def packageName:string ""
+  def libName:string ""
+  def libPath:string ""
+  def deps:[RsCargoDep]
+
+  fn dep:RsCargoDep (key:string) {
+    def name:string (replace (RsCargoToml.unquote(key)) "-" "_")
+    for deps d:RsCargoDep i {
+      if (d.name == name) {
+        return d
+      }
+    }
+    def nd:RsCargoDep (new RsCargoDep())
+    nd.name = name
+    push deps nd
+    return nd
+  }
+
+  ; The name a dependent crate's code uses for this library: `[lib] name`,
+  ; else the package name with `-` written `_`.
+  fn crateName:string () {
+    if (libName != "") {
+      return libName
+    }
+    return (replace packageName "-" "_")
+  }
+}
+
+class RsCargoToml {
+
+  sfn parse:RsCargoManifest (src:string) {
+    def m:RsCargoManifest (new RsCargoManifest())
+    m.found = true
+    def section:string ""
+    def lines:[string] (strsplit src "\n")
+    def li:int 0
+    def nl:int (array_length lines)
+    while (li < nl) {
+      def line:string (trim (RsCargoToml.stripComment((itemAt lines li))))
+      li = li + 1
+      if (line == "") {
+        continue
+      }
+      if ((startsWith line "[")) {
+        def close:int (lastIndexOf line "]")
+        if (close < 0) {
+          continue
+        }
+        section = (trim (substring line 1 close))
+        if (startsWith section "[") {
+          ; `[[bin]]`, `[[test]]`: not read
+          section = "[array]"
+        }
+        if (section == "package") {
+          m.hasPackage = true
+        }
+        continue
+      }
+      def eq:int (RsCargoToml.findTop(line 61))
+      if (eq < 0) {
+        continue
+      }
+      def key:string (trim (substring line 0 eq))
+      def val:string (trim (substring line (eq + 1) (strlen line)))
+      ; an array over several lines
+      while (((RsCargoToml.depth(val)) > 0) && (li < nl)) {
+        val = ((val + " ") + (trim (RsCargoToml.stripComment((itemAt lines li)))))
+        li = li + 1
+      }
+      if (section == "package") {
+        if (key == "name") {
+          m.packageName = (RsCargoToml.unquote(val))
+        }
+        continue
+      }
+      if (section == "lib") {
+        if (key == "name") {
+          m.libName = (RsCargoToml.unquote(val))
+        }
+        if (key == "path") {
+          m.libPath = (RsCargoToml.unquote(val))
+        }
+        continue
+      }
+      if (section == "dependencies") {
+        ; `evg.path = "…"` (dotted key) or `evg = …`
+        def dot:int (RsCargoToml.findTop(key 46))
+        if (dot > 0) {
+          def d0:RsCargoDep (m.dep((trim (substring key 0 dot))))
+          RsCargoToml.setField(d0 (trim (substring key (dot + 1) (strlen key))) val)
+          continue
+        }
+        def d:RsCargoDep (m.dep(key))
+        if (startsWith val "{") {
+          RsCargoToml.readTable(d val)
+        } {
+          d.version = (RsCargoToml.unquote(val))
+        }
+        continue
+      }
+      if (startsWith section "dependencies.") {
+        def d2:RsCargoDep (m.dep((trim (substring section 13 (strlen section)))))
+        RsCargoToml.setField(d2 key val)
+      }
+    }
+    return m
+  }
+
+  sfn setField:void (d:RsCargoDep key:string val:string) {
+    def k:string (RsCargoToml.unquote(key))
+    if (k == "path") {
+      d.path = (RsCargoToml.unquote(val))
+    }
+    if (k == "git") {
+      d.git = (RsCargoToml.unquote(val))
+    }
+    if (k == "package") {
+      d.pkg = (RsCargoToml.unquote(val))
+    }
+    if (k == "version") {
+      d.version = (RsCargoToml.unquote(val))
+    }
+    if (k == "optional") {
+      d.optional = ((trim val) == "true")
+    }
+  }
+
+  ; `{ path = "../evg", package = "evg-core" }`
+  sfn readTable:void (d:RsCargoDep val:string) {
+    def inner:string (trim val)
+    def n:int (strlen inner)
+    if ((n >= 2) && ((charAt inner (n - 1)) == 125)) {
+      inner = (substring inner 1 (n - 1))
+    } {
+      inner = (substring inner 1 n)
+    }
+    def start:int 0
+    def i:int 0
+    def m:int (strlen inner)
+    def q:int 0
+    def lvl:int 0
+    while (i <= m) {
+      def c:int 44
+      if (i < m) {
+        c = (charAt inner i)
+      }
+      if (q != 0) {
+        if (c == q) {
+          q = 0
+        }
+        i = i + 1
+        continue
+      }
+      if ((c == 34) || (c == 39)) {
+        q = c
+      }
+      if ((c == 91) || (c == 123)) {
+        lvl = lvl + 1
+      }
+      if ((c == 93) || (c == 125)) {
+        lvl = lvl - 1
+      }
+      if ((c == 44) && (lvl <= 0)) {
+        def part:string (substring inner start (RsCargoToml.minInt(i m)))
+        def eq:int (RsCargoToml.findTop(part 61))
+        if (eq > 0) {
+          RsCargoToml.setField(d (trim (substring part 0 eq)) (trim (substring part (eq + 1) (strlen part))))
+        }
+        start = i + 1
+      }
+      i = i + 1
+    }
+  }
+
+  sfn minInt:int (a:int b:int) {
+    if (a < b) {
+      return a
+    }
+    return b
+  }
+
+  ; The first `code` outside a string, -1 when none.
+  sfn findTop:int (s:string code:int) {
+    def q:int 0
+    def i:int 0
+    def n:int (strlen s)
+    while (i < n) {
+      def c:int (charAt s i)
+      if (q != 0) {
+        if (c == q) {
+          q = 0
+        }
+      } {
+        if ((c == 34) || (c == 39)) {
+          q = c
+        } {
+          if (c == code) {
+            return i
+          }
+        }
+      }
+      i = i + 1
+    }
+    return -1
+  }
+
+  ; Open `[` and `{` outside strings.
+  sfn depth:int (s:string) {
+    def q:int 0
+    def lvl:int 0
+    def i:int 0
+    def n:int (strlen s)
+    while (i < n) {
+      def c:int (charAt s i)
+      if (q != 0) {
+        if (c == q) {
+          q = 0
+        }
+      } {
+        if ((c == 34) || (c == 39)) {
+          q = c
+        }
+        if ((c == 91) || (c == 123)) {
+          lvl = lvl + 1
+        }
+        if ((c == 93) || (c == 125)) {
+          lvl = lvl - 1
+        }
+      }
+      i = i + 1
+    }
+    return lvl
+  }
+
+  sfn stripComment:string (line:string) {
+    def at:int (RsCargoToml.findTop(line 35))
+    if (at < 0) {
+      return line
+    }
+    return (substring line 0 at)
+  }
+
+  ; `"x"` or `'x'` -> x; a bare word stays as it is
+  sfn unquote:string (v:string) {
+    def s:string (trim v)
+    def n:int (strlen s)
+    if (n >= 2) {
+      def c0:int (charAt s 0)
+      if (((c0 == 34) || (c0 == 39)) && ((charAt s (n - 1)) == c0)) {
+        def inner:string (substring s 1 (n - 1))
+        if (c0 == 34) {
+          inner = (replace inner "\\\\" "\\")
+          inner = (replace inner "\\\"" "\"")
+        }
+        return inner
+      }
+    }
+    return s
+  }
+}

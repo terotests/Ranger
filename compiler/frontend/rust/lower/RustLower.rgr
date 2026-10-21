@@ -70,6 +70,10 @@ class RustLower {
   ; `.rgr` files included with `ranger::import_rgr!`, for the Import lines
   def rgrImports:[string]
   def entryName:string ""
+  ; dependency crates (§9.6): `evg` is the module key of the crate whose
+  ; root is crateFiles[i]; its modules are `evg::…`
+  def crateKeys:[string]
+  def crateFiles:[string]
   ; `use geometry::area;` inside module m: "m|area" -> "geometry::area"
   def fnAlias:[string:string]
   def preludeOps:[string:int]
@@ -407,6 +411,52 @@ class RustLower {
     }
   }
 
+  ; A crate of the Cargo.toml dependencies (§9.6): its root file is a module
+  ; `name` of this program, and `crate::` inside it starts there.
+  fn addCrate:void (name:string path:string src:string) {
+    if (has modFileOf name) {
+      push errors (((("dependency `" + name) + "` has the name of a module of ") + entryName) + "")
+      return
+    }
+    def p:RustParser (new RustParser(src))
+    def root:RustNode (p.parseFile())
+    for p.errors e:string i {
+      push errors ((path + ":") + e)
+    }
+    if ((array_length errors) > 0) {
+      return
+    }
+    push crateKeys name
+    push crateFiles path
+    this.registerModule(root name path (RustLower.dirOf(path)))
+  }
+
+  fn hasCrate:boolean (name:string) {
+    return ((indexOf crateKeys name) >= 0)
+  }
+
+  fn crateFile:string (name:string) {
+    def i:int (indexOf crateKeys name)
+    if (i < 0) {
+      return ""
+    }
+    return (itemAt crateFiles i)
+  }
+
+  fn crateError:void (msg:string) {
+    push errors msg
+  }
+
+  ; The crate root a module belongs to: "" for the program's own crate.
+  fn crateOf:string (mod:string) {
+    for crateKeys ck:string i {
+      if ((mod == ck) || (startsWith mod (ck + "::"))) {
+        return ck
+      }
+    }
+    return ""
+  }
+
   fn setTarget:void (t:string) {
     target = t
   }
@@ -417,6 +467,10 @@ class RustLower {
   ; `rust` is listed.
   fn targetKeeps:boolean (it:RustNode) {
     for it.attrs a:RustNode ai {
+      ; `#[cfg(test)]`: only in `cargo test` builds
+      if ((a.name == "cfg") && ((join (strsplit a.value " ") "") == "(test)")) {
+        return false
+      }
       if ((a.name != "ranger::target") && (a.name != "target")) {
         continue
       }
@@ -674,11 +728,41 @@ class RustLower {
         return k1
       }
     }
-    def abs:string (this.modPath(segs ""))
+    def root:string (this.crateOf(curMod))
+    def abs:string (this.modPath(segs root))
     if (abs != "?") {
       def k2:string (this.fnKey(abs last))
       if (this.hasItem(k2 table)) {
         return k2
+      }
+    }
+    ; another crate: `evg::layout::f` from inside a dependency (§9.6)
+    def ext:string "?"
+    if (root != "") {
+      ext = (this.modPath(segs ""))
+      if (ext != "?") {
+        def k3:string (this.fnKey(ext last))
+        if (this.hasItem(k3 table)) {
+          return k3
+        }
+      }
+    }
+    ; `pub use` in the module the path names: `shapes::scale` re-exported
+    ; from `units`
+    def tried:[string]
+    push tried rel
+    push tried abs
+    push tried ext
+    for tried tm:string ti {
+      if (tm == "?") {
+        continue
+      }
+      def ak2:string ((tm + "|") + last)
+      if (has fnAlias ak2) {
+        def t2:string (unwrap (get fnAlias ak2))
+        if (this.hasItem(t2 table)) {
+          return t2
+        }
       }
     }
     return ""
@@ -694,7 +778,7 @@ class RustLower {
       def sg:string (itemAt segs i)
       i = i + 1
       if (sg == "crate") {
-        cur = ""
+        cur = (this.crateOf(curMod))
         continue
       }
       if (sg == "self") {
@@ -775,9 +859,11 @@ class RustLower {
       mi2 = mi2 + 1
     }
     ; `use Expr::*;` / `use Shape::{Circle, Rect}`: variants named bare;
-    ; `use geometry::area;`: a function of another module
-    def mi3:int 0
-    while (mi3 < (array_length modRoots)) {
+    ; `use geometry::area;`: a function of another module. Last module
+    ; first, so a `pub use` of a dependency or a submodule is known when a
+    ; module that uses the re-export is read.
+    def mi3:int ((array_length modRoots) - 1)
+    while (mi3 >= 0) {
       this.enterModule(mi3)
       def r3:RustNode (itemAt modRoots mi3)
       for r3.kids ut:RustNode uj {
@@ -787,7 +873,7 @@ class RustLower {
           }
         }
       }
-      mi3 = mi3 + 1
+      mi3 = mi3 - 1
     }
     this.enterModule(0)
     this.collectRest()
@@ -2290,16 +2376,30 @@ class RustLower {
     ; instances and trait unions found while writing, until none are new
     def qi:int 0
     def di:int 0
-    while ((qi < (array_length structInstQueue)) || (di < (array_length dynQueue))) {
+    def clonesDone:boolean false
+    while ((qi < (array_length structInstQueue)) || (di < (array_length dynQueue)) || (false == clonesDone)) {
       if (qi < (array_length structInstQueue)) {
         def inst:RsInst (itemAt structInstQueue qi)
         qi = qi + 1
         push parts (this.emitStructInstance(inst))
         continue
       }
-      def tn:string (itemAt dynQueue di)
-      di = di + 1
-      push parts (this.emitDyn(tn))
+      if (di < (array_length dynQueue)) {
+        def tn:string (itemAt dynQueue di)
+        di = di + 1
+        push parts (this.emitDyn(tn))
+        continue
+      }
+      clonesDone = true
+      for enumOrder en3:string ek {
+        def ep:int (itemAt shapeAt ek)
+        def marker:string (("@@rs_clone:" + en3) + "@@")
+        def implText:string (itemAt parts (ep + 1))
+        if (contains implText marker) {
+          def eo3:RsEnum (unwrap (get enums en3))
+          set_at parts (ep + 1) (replace implText marker (this.emitEnumClone(eo3 (this.className(en3)))))
+        }
+      }
     }
     for genOut g:string k {
       push parts g
@@ -2355,8 +2455,10 @@ class RustLower {
       }
     }
     if (false == e.plain) {
-      ; copies of a Copy enum call it too (copyCode)
-      push impl (this.emitEnumClone(e cname))
+      ; copies of a Copy enum call it too (copyCode). Written after the
+      ; functions, which find the variants a `ref mut` binding writes into
+      ; (writtenCases): such an enum is not a value.
+      push impl (("@@rs_clone:" + e.name) + "@@")
     }
     ; public with the enum's public methods, as a struct's class is
     def implDoc:RustDocInfo (new RustDocInfo())
@@ -2514,6 +2616,9 @@ class RustLower {
   ; was most of the time spent on the reference targets.
   fn enumIsValue:boolean (e:RsEnum) {
     for e.variants vr:RsVariant i {
+      if (has writtenCases ((e.name + ".") + vr.name)) {
+        return false
+      }
       for vr.fields f:RsField j {
         def k:string f.ty.kind
         if (f.ty.shared) {
@@ -5645,6 +5750,9 @@ class RustLower {
       def gsegs:[string] (strsplit (this.fnKey(prefix u.name)) "::")
       push gsegs "*"
       def m:string (this.modPath(gsegs curMod))
+      if (m == "?") {
+        m = (this.modPath(gsegs (this.crateOf(curMod))))
+      }
       if (m == "?") {
         m = (this.modPath(gsegs ""))
       }

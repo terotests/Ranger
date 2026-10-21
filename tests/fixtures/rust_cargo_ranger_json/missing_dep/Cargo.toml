@@ -1,0 +1,7 @@
+[package]
+name = "missing_dep"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+evg = { git = "https://github.com/terotests/evg.git" }

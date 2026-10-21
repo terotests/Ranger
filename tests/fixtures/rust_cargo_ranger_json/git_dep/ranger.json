@@ -1,0 +1,8 @@
+{
+  "name": "git_dep",
+  "version": "0.1.0",
+  "license": "MIT",
+  "dependencies": {
+    "geo-units": { "path": "../../rust_cargo/c1_path_deps/units" }
+  }
+}

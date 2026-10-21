@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Cargo package dependencies for `.rs` crates.** `rgrc main.rs` reads the
+  `[dependencies]` of the crate's Cargo.toml (path dependencies, and git
+  ones through the package of the same name in ranger.json), so strict
+  Rust code can `use evg::…` from another crate on every target
+  (PLAN_RUST_SYNTAX.md §9.6).
+
+### Fixed
+
+- **`.clone()` of a Rust enum written through `ref mut`.** The lowering
+  treated an enum of numbers and strings as a value and returned the same
+  object from `clone`, so a `ref mut` match changed the clone and the
+  original together (`r2_match_mut`).
+
 ### Changed
 
 - **4.0.1: the compiler with the Rust-syntax fixes.** The 4.0.0 tarball on

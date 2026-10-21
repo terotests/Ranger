@@ -251,6 +251,95 @@ describe("Rust-syntax modules: crates mixing .rs and .rgr", () => {
   }
 });
 
+// §9.6: Cargo package dependencies. rust_cargo/<name>/app is a cargo crate
+// whose Cargo.toml names other crates beside it by path; `cargo run` prints
+// expected.txt, and rgrc reads the same dependencies from the Cargo.toml for
+// every other target. Each library crate's own `cargo test` passes too.
+const CARGO_DEPS = path.join(ROOT, "tests", "fixtures", "rust_cargo");
+const cargoDepCases = fs.existsSync(CARGO_DEPS) ? fs.readdirSync(CARGO_DEPS).sort() : [];
+
+describe("Rust-syntax modules: Cargo package dependencies", () => {
+  for (const name of cargoDepCases) {
+    const dir = path.join(CARGO_DEPS, name);
+    const expectedFile = path.join(dir, "expected.txt");
+    it.skipIf(!HAS_CARGO)(`${name}: cargo run prints expected.txt`, () => {
+      const r = run("cargo", [
+        "run",
+        "--offline",
+        "--quiet",
+        "--manifest-path",
+        path.join(dir, "app", "Cargo.toml"),
+        "--target-dir",
+        path.join(OUT, "cargo-deps"),
+      ]);
+      expect(r.status, r.stderr).toBe(0);
+      if (process.env.UPDATE_EXPECTED) fs.writeFileSync(expectedFile, r.stdout);
+      expect(r.stdout).toBe(fs.readFileSync(expectedFile, "utf8"));
+    }, 600000);
+    const libs = fs
+      .readdirSync(dir)
+      .filter((d) => d !== "app" && fs.existsSync(path.join(dir, d, "Cargo.toml")))
+      .sort();
+    for (const lib of libs) {
+      it.skipIf(!HAS_CARGO)(`${name}: cargo test of ${lib}`, () => {
+        const r = run("cargo", [
+          "test",
+          "--offline",
+          "--quiet",
+          "--manifest-path",
+          path.join(dir, lib, "Cargo.toml"),
+          "--target-dir",
+          path.join(OUT, "cargo-deps"),
+        ]);
+        expect(r.status, r.stdout + r.stderr).toBe(0);
+      }, 600000);
+    }
+    for (const target of Object.keys(EXT)) {
+      it.skipIf(!TOOLS[target])(`${name} on ${target}`, () => {
+        const r = compileAndRun(path.join(dir, "app", "src", "main.rs"), `deps_${name}`, target);
+        expect(r.ok, r.out).toBe(true);
+        expect(r.out).toBe(fs.readFileSync(expectedFile, "utf8"));
+      }, 180000);
+    }
+  }
+});
+
+// A `git` dependency is read from the package of the same name in the
+// nearest ranger.json, which `rgrc install` put on disk. cargo would fetch
+// the URL, so these are compiled by rgrc only; one with an expected.txt that
+// is not program output (missing_dep) must be refused with that message.
+const RANGER_JSON_DEPS = path.join(ROOT, "tests", "fixtures", "rust_cargo_ranger_json");
+describe("Rust-syntax modules: git dependencies through ranger.json", () => {
+  const cases = fs.existsSync(RANGER_JSON_DEPS) ? fs.readdirSync(RANGER_JSON_DEPS).sort() : [];
+  for (const name of cases) {
+    const dir = path.join(RANGER_JSON_DEPS, name);
+    const expected = fs.readFileSync(path.join(dir, "expected.txt"), "utf8");
+    if (name.startsWith("missing_")) {
+      it(`${name} is refused with its message`, () => {
+        const out = path.join(OUT, "ranger-json");
+        fs.mkdirSync(out, { recursive: true });
+        const c = run("node", [
+          "dist/rgrc.js",
+          "-l=es6",
+          path.relative(ROOT, path.join(dir, "src", "main.rs")),
+          `-d=${path.relative(ROOT, out)}`,
+          `-o=${name}.js`,
+        ]);
+        expect(c.stdout + c.stderr).toContain(expected.trim());
+        expect(fs.existsSync(path.join(out, `${name}.js`))).toBe(false);
+      });
+      continue;
+    }
+    for (const target of Object.keys(EXT)) {
+      it.skipIf(!TOOLS[target])(`${name} on ${target}`, () => {
+        const r = compileAndRun(path.join(dir, "src", "main.rs"), `gitdep_${name}`, target);
+        expect(r.ok, r.out).toBe(true);
+        expect(r.out).toBe(expected);
+      }, 180000);
+    }
+  }
+});
+
 function refusedSuite(title: string, sub: string, rustcRejects: boolean) {
   const dir = path.join(DIR, sub);
   const cases = fs.existsSync(dir)

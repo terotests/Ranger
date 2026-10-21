@@ -1,0 +1,7 @@
+first 1.5 m x 2.0 m
+total 6.25
+largest 0
+perimeter cm 800
+0 3.00 1.5 m x 2.0 m
+1 3.00 3.0 m x 1.0 m
+2 0.25 0.5 m x 0.5 m
