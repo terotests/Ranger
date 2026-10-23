@@ -96294,6 +96294,10 @@ class RustLower  {
       const vec = this.bindTemp(cv, cv.ty, "vec");
       const iv = this.lowerExpr(lhs.kid(1), RsType.mk("int"));
       this.out.line((((("set_at " + vec) + " ") + iv.code) + " ") + v.code);
+      const inner = lhs.kid(0);
+      if ( inner.kind == "index" && vec != cv.code ) {
+        this.assignTo(inner, this.simpleExpr(vec, cv.ty));
+      }
       return;
     }
     this.unsupported(lhs, "this assignment target");

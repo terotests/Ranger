@@ -8080,6 +8080,12 @@ class RustLower {
       def vec:string (this.bindTemp(cv cv.ty "vec"))
       def iv:RsExpr (this.lowerExpr((lhs.kid(1)) (RsType.mk("int"))))
       out.line(((((("set_at " + vec) + " ") + iv.code) + " ") + v.code))
+      ; rows[i][j] = x: the inner vector came out as a temporary, which is a
+      ; copy where arrays are values (Swift), so it is stored back
+      def inner:RustNode (lhs.kid(0))
+      if ((inner.kind == "index") && (vec != cv.code)) {
+        this.assignTo(inner (this.simpleExpr(vec cv.ty)))
+      }
       return
     }
     this.unsupported(lhs "this assignment target")
