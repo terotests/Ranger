@@ -29156,7 +29156,19 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
     for ( const uname of names) {
       const ucl = ctx.findClass(uname);
       const enumName = this.unionInterfaceName(uname);
+      const uVis = new RangerDocCommentWriter();
+      let allPublic = ucl.is_union_of.length > 0;
+      // Loop start
+      for ( const memName of ucl.is_union_of) {
+        const mcl = ctx.findClass(memName);
+        if ( uVis.classVisibility(mcl, "", "public ", "") != "public " ) {
+          allPublic = false;
+        }
+      }
       wr.out("", true);
+      if ( allPublic ) {
+        wr.out("public ", false);
+      }
       wr.out(("enum " + enumName) + " {", true);
       wr.indent(1);
       // Loop start
