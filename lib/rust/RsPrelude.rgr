@@ -274,6 +274,7 @@ func rs_f2i(x float64) int64 {
       dart ( "(" (e 1) ").toInt()" )
       scala ( "(" (e 1) ").toInt" )
       php ( "((int)(" (e 1) "))" )
+      swift3 ( "Int(" (e 1) ")" )
       swift6 ( "Int(" (e 1) ")" )
       * ( "Math.trunc(" (e 1) ")" )
     }
@@ -323,6 +324,44 @@ func rs_f2i(x float64) int64 {
   rs_fmt _:string (a:double) {
     templates {
       ranger ( "(rs_fmt" " " (e 1) ")" )
+      swift6 ( "rs_f64(" (e 1) ")"
+(create_polyfill "
+// Rust's Display of a float: Swift's description is already the shortest
+// round-trip digits; this writes them out without an exponent.
+func rs_f64(_ x: Double) -> String {
+    if x.isNaN { return \"NaN\" }
+    if x.isInfinite { return x > 0 ? \"inf\" : \"-inf\" }
+    if x == 0 { return x.sign == .minus ? \"-0\" : \"0\" }
+    var s = x.description
+    var neg = false
+    if s.hasPrefix(\"-\") { neg = true; s.removeFirst() }
+    var exp = 0
+    if let e = s.firstIndex(of: \"e\") {
+        exp = Int(s[s.index(after: e)...].replacingOccurrences(of: \"+\", with: \"\")) ?? 0
+        s = String(s[..<e])
+    }
+    var digits = s
+    var intLen = s.count
+    if let d = s.firstIndex(of: \".\") {
+        intLen = s.distance(from: s.startIndex, to: d)
+        digits.remove(at: digits.index(digits.startIndex, offsetBy: intLen))
+    }
+    intLen += exp
+    var out: String
+    if intLen <= 0 {
+        out = \"0.\" + String(repeating: \"0\", count: -intLen) + digits
+    } else if intLen >= digits.count {
+        out = digits + String(repeating: \"0\", count: intLen - digits.count)
+    } else {
+        out = String(digits.prefix(intLen)) + \".\" + String(digits.dropFirst(intLen))
+    }
+    if out.contains(\".\") {
+        while out.hasSuffix(\"0\") { out.removeLast() }
+        if out.hasSuffix(\".\") { out.removeLast() }
+    }
+    return (neg ? \"-\" : \"\") + out
+}
+"))
       es6 ( "rs_f64(" (e 1) ")"
 (create_polyfill "
 function rs_expand_exp(s) {
