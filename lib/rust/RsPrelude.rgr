@@ -164,6 +164,7 @@ def rs_irem(a, b):
       dart ( "pow(" (e 1) ", " (e 2) ").toDouble()" (imp "dart:math") )
       scala ( "math.pow(" (e 1) ", (" (e 2) ").toDouble)" )
       php ( "((float)pow(" (e 1) ", " (e 2) "))" )
+      swift6 ( "pow(" (e 1) ", Double(" (e 2) "))" (imp "Foundation") )
       * ( "Math.pow(" (e 1) ", " (e 2) ")" )
     }
   }
@@ -237,6 +238,15 @@ function rs_ipow($a, $n) {
   $r = 1;
   for ($i = 0; $i < $n; $i++) { $r *= $a; }
   return $r;
+}
+"))
+      swift6 ( "rs_ipow(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+func rs_ipow(_ a: Int, _ n: Int) -> Int {
+    var r = 1
+    var i = 0
+    while i < n { r *= a; i += 1 }
+    return r
 }
 "))
       * ( "Math.pow(" (e 1) ", " (e 2) ")" )
@@ -1147,6 +1157,7 @@ def rs_round(x: Double): Double = {
 }
 "))
       php ( "round(" (e 1) ")" )
+      swift6 ( "(" (e 1) ").rounded()" )
       * ( "Math.round(" (e 1) ")" )
     }
   }
@@ -1174,6 +1185,7 @@ function rs_trunc($x) {
   return $x < 0 ? ceil($x) : floor($x);
 }
 "))
+      swift6 ( "(" (e 1) ").rounded(.towardZero)" )
       * ( "Math.floor(" (e 1) ")" )
     }
   }
@@ -1467,6 +1479,7 @@ static double rs_log2(double x) { return Math.log(x) / Math.log(2.0); }
       dart ( "log(" (e 1) ")" (imp "dart:math") )
       scala ( "math.log(" (e 1) ")" )
       php ( "log(" (e 1) ")" )
+      swift6 ( "log(" (e 1) ")" (imp "Foundation") )
       * ( "Math.log(" (e 1) ")" )
     }
   }
@@ -1481,6 +1494,7 @@ static double rs_log2(double x) { return Math.log(x) / Math.log(2.0); }
       dart ( "exp(" (e 1) ")" (imp "dart:math") )
       scala ( "math.exp(" (e 1) ")" )
       php ( "exp(" (e 1) ")" )
+      swift6 ( "exp(" (e 1) ")" (imp "Foundation") )
       * ( "Math.exp(" (e 1) ")" )
     }
   }
@@ -1504,6 +1518,7 @@ double rs_log10(double x) {
 "))
       scala ( "math.log10(" (e 1) ")" )
       php ( "log10(" (e 1) ")" )
+      swift6 ( "log10(" (e 1) ")" (imp "Foundation") )
       * ( "Math.log10(" (e 1) ")" )
     }
   }
@@ -1518,6 +1533,7 @@ double rs_log10(double x) {
       dart ( "pow(" (e 1) ", " (e 2) ").toDouble()" (imp "dart:math") )
       scala ( "math.pow(" (e 1) ", " (e 2) ")" )
       php ( "((float)pow(" (e 1) ", " (e 2) "))" )
+      swift6 ( "pow(" (e 1) ", " (e 2) ")" (imp "Foundation") )
       * ( "Math.pow(" (e 1) ", " (e 2) ")" )
     }
   }
@@ -1554,6 +1570,14 @@ func rs_signum(x float64) float64 {
 function rs_signum($x) {
   if (is_nan($x)) { return $x; }
   return ($x < 0 || ($x == 0 && fdiv(1, $x) < 0)) ? -1.0 : 1.0;
+}
+"))
+      swift6 ( "rs_signum(" (e 1) ")"
+(create_polyfill "
+// Rust: 1.0 for +0.0, -1.0 for -0.0, NaN for NaN
+func rs_signum(_ x: Double) -> Double {
+    if x.isNaN { return Double.nan }
+    return x.sign == .minus ? -1.0 : 1.0
 }
 "))
       * ( "Math.signum(" (e 1) ")" )
