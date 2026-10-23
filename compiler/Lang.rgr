@@ -7339,6 +7339,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 kotlin ( (e 1 ) ".size" )
                 scala ( (e 1 ) ".length" )
                 swift3 ( (e 1 ) ".count" )
+                swift6 ( (e 1 ) ".count" )
                 rust ( "(" (e 1 ) ".len() as i64)" )
                 java7 ( (e 1 ) ".length" )
                 cpp( "strlen( " (e 1) " )" (imp "<cstring>"))

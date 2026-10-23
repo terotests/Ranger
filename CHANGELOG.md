@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift output of Rust-syntax float code.** `x as i64` on an `f64`,
+  `powf`/`powi`, `ln`, `exp`, `log10`, `round`, `trunc` and `{}` of an
+  `f64` had no Swift template and fell back to JavaScript's `Math.…`, and
+  `length` of a charbuffer wrote `.length`; Swift now gets `Int(x)`,
+  Foundation's functions, `.rounded(…)`, an `rs_f64` that writes the
+  shortest digits without an exponent, and `.count`.
 - **`.clone()` of a Rust enum written through `ref mut`.** The lowering
   treated an enum of numbers and strings as a value and returned the same
   object from `clone`, so a `ref mut` match changed the clone and the
