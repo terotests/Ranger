@@ -8633,17 +8633,18 @@ fun rangerStr2IntPrefix(s: String): Int? {
 (create_polyfill "
 func rangerStr2IntPrefix(_ s: String) -> Int? {
   var i = s.startIndex
-  if i < s.endIndex && s[i] == \"-\" {
+  if i < s.endIndex && (s[i] == \"-\" || s[i] == \"+\") {
     i = s.index(after: i)
   }
   var end = i
-  while end < s.endIndex && s[end].isNumber {
+  while end < s.endIndex && s[end].isASCII && s[end].isNumber {
     end = s.index(after: end)
   }
   if end == i {
     return nil
   }
-  return Int(s[i..<end])
+  // the sign is part of the number
+  return Int(s[s.startIndex..<end])
 }
 ")
                 )
@@ -8651,17 +8652,18 @@ func rangerStr2IntPrefix(_ s: String) -> Int? {
 (create_polyfill "
 func rangerStr2IntPrefix(_ s: String) -> Int? {
   var i = s.startIndex
-  if i < s.endIndex && s[i] == \"-\" {
+  if i < s.endIndex && (s[i] == \"-\" || s[i] == \"+\") {
     i = s.index(after: i)
   }
   var end = i
-  while end < s.endIndex && s[end].isNumber {
+  while end < s.endIndex && s[end].isASCII && s[end].isNumber {
     end = s.index(after: end)
   }
   if end == i {
     return nil
   }
-  return Int(s[i..<end])
+  // the sign is part of the number
+  return Int(s[s.startIndex..<end])
 }
 ")
                 )

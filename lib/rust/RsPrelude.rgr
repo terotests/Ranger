@@ -240,6 +240,15 @@ function rs_ipow($a, $n) {
   return $r;
 }
 "))
+      swift6 ( "rs_ipow(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+func rs_ipow(_ a: Int, _ n: Int) -> Int {
+    var r = 1
+    var i = 0
+    while i < n { r *= a; i += 1 }
+    return r
+}
+"))
       * ( "Math.pow(" (e 1) ", " (e 2) ")" )
     }
   }
@@ -602,6 +611,33 @@ function rs_f64($x) {
   return $neg ? '-' . $s : $s;
 }
 "))
+      swift6 ( "rs_f64(" (e 1) ")" (imp "Foundation")
+(create_polyfill "
+// Swift's description is the shortest round-trip form, with an exponent
+// (1e-05, 1.5e+20) where Rust writes the digits out.
+func rs_f64(_ x: Double) -> String {
+    if x.isNaN { return \"NaN\" }
+    if x.isInfinite { return x > 0 ? \"inf\" : \"-inf\" }
+    if x == 0.0 { return x.sign == .minus ? \"-0\" : \"0\" }
+    var s = \"\\(x)\"
+    if let e = s.firstIndex(where: { $0 == \"e\" || $0 == \"E\" }) {
+        var mant = String(s[s.startIndex..<e])
+        let exp = Int(String(s[s.index(after: e)...]).replacingOccurrences(of: \"+\", with: \"\")) ?? 0
+        let neg = mant.hasPrefix(\"-\")
+        if neg { mant.removeFirst() }
+        let dot = mant.firstIndex(of: \".\").map { mant.distance(from: mant.startIndex, to: $0) } ?? mant.count
+        let digits = Array(mant.replacingOccurrences(of: \".\", with: \"\"))
+        let intLen = dot + exp
+        var out = \"\"
+        if intLen <= 0 { out = \"0.\" + String(repeating: \"0\", count: -intLen) + String(digits) }
+        else if intLen >= digits.count { out = String(digits) + String(repeating: \"0\", count: intLen - digits.count) }
+        else { out = String(digits[0..<intLen]) + \".\" + String(digits[intLen...]) }
+        s = (neg ? \"-\" : \"\") + out
+    }
+    if s.hasSuffix(\".0\") { s.removeLast(2) }
+    return s
+}
+"))
       * ( "rs_f64(" (e 1) ")" )
     }
   }
@@ -921,6 +957,7 @@ function rs_f64_prec($x, $p) {
       dart ( "stderr.writeln(" (e 1) "); exit(101);" (imp "dart:io") )
       scala ( "System.err.println(" (e 1) "); sys.exit(101)" )
       php ( "fwrite(STDERR, " (e 1) " . \"\\n\"); exit(101);" )
+      swift6 ( "FileHandle.standardError.write((" (e 1) " + \"\\n\").data(using: .utf8)!); exit(101)" (imp "Foundation") )
       * ( "process.stderr.write(" (e 1) " + \"\\n\"); process.exit(101);" )
     }
   }
@@ -1572,6 +1609,14 @@ func rs_signum(x float64) float64 {
 function rs_signum($x) {
   if (is_nan($x)) { return $x; }
   return ($x < 0 || ($x == 0 && fdiv(1, $x) < 0)) ? -1.0 : 1.0;
+}
+"))
+      swift6 ( "rs_signum(" (e 1) ")"
+(create_polyfill "
+// Rust: 1.0 for +0.0, -1.0 for -0.0, NaN for NaN
+func rs_signum(_ x: Double) -> Double {
+    if x.isNaN { return Double.nan }
+    return x.sign == .minus ? -1.0 : 1.0
 }
 "))
       * ( "Math.signum(" (e 1) ")" )

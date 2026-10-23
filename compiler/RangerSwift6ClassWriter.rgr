@@ -199,7 +199,9 @@ class RangerSwift6ClassWriter {
       if (this.swEnumIsNative(sen ctx)) {
         def seDef:RangerAppEnum (unwrap (get enumRoot.definedEnums sen))
         wr.out("" true)
-        wr.out(("enum " + sen + " : Int {") true)
+        ; public: a public field may have the enum as its type, and swiftc
+        ; refuses a public member whose type is less visible than it
+        wr.out(("public enum " + sen + " : Int {") true)
         wr.indent(1)
         for (keys seDef.values) smn:string smi {
           def smv:int (unwrap (get seDef.values smn))
