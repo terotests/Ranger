@@ -29099,7 +29099,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       if ( this.swEnumIsNative(sen, ctx) ) {
         const seDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, sen) ? enumRoot.definedEnums[sen] : undefined );
         wr.out("", true);
-        wr.out(("enum " + sen) + " : Int {", true);
+        wr.out(("public enum " + sen) + " : Int {", true);
         wr.indent(1);
         // Loop start
         for ( let smi = 0; smi < Object.keys(seDef.values).length; smi++) {

@@ -7339,6 +7339,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 kotlin ( (e 1 ) ".size" )
                 scala ( (e 1 ) ".length" )
                 swift3 ( (e 1 ) ".count" )
+                swift6 ( (e 1 ) ".count" )
                 rust ( "(" (e 1 ) ".len() as i64)" )
                 java7 ( (e 1 ) ".length" )
                 cpp( "strlen( " (e 1) " )" (imp "<cstring>"))
@@ -8632,17 +8633,18 @@ fun rangerStr2IntPrefix(s: String): Int? {
 (create_polyfill "
 func rangerStr2IntPrefix(_ s: String) -> Int? {
   var i = s.startIndex
-  if i < s.endIndex && s[i] == \"-\" {
+  if i < s.endIndex && (s[i] == \"-\" || s[i] == \"+\") {
     i = s.index(after: i)
   }
   var end = i
-  while end < s.endIndex && s[end].isNumber {
+  while end < s.endIndex && s[end].isASCII && s[end].isNumber {
     end = s.index(after: end)
   }
   if end == i {
     return nil
   }
-  return Int(s[i..<end])
+  // the sign is part of the number
+  return Int(s[s.startIndex..<end])
 }
 ")
                 )
@@ -8650,17 +8652,18 @@ func rangerStr2IntPrefix(_ s: String) -> Int? {
 (create_polyfill "
 func rangerStr2IntPrefix(_ s: String) -> Int? {
   var i = s.startIndex
-  if i < s.endIndex && s[i] == \"-\" {
+  if i < s.endIndex && (s[i] == \"-\" || s[i] == \"+\") {
     i = s.index(after: i)
   }
   var end = i
-  while end < s.endIndex && s[end].isNumber {
+  while end < s.endIndex && s[end].isASCII && s[end].isNumber {
     end = s.index(after: end)
   }
   if end == i {
     return nil
   }
-  return Int(s[i..<end])
+  // the sign is part of the number
+  return Int(s[s.startIndex..<end])
 }
 ")
                 )

@@ -264,6 +264,7 @@ func rs_f2i(x float64) int64 {
       dart ( "(" (e 1) ").toInt()" )
       scala ( "(" (e 1) ").toInt" )
       php ( "((int)(" (e 1) "))" )
+      swift6 ( "Int(" (e 1) ")" )
       * ( "Math.trunc(" (e 1) ")" )
     }
   }
@@ -559,6 +560,33 @@ function rs_f64($x) {
   }
   if (substr($s, -2) === '.0') { $s = substr($s, 0, -2); }
   return $neg ? '-' . $s : $s;
+}
+"))
+      swift6 ( "rs_f64(" (e 1) ")" (imp "Foundation")
+(create_polyfill "
+// Swift's description is the shortest round-trip form, with an exponent
+// (1e-05, 1.5e+20) where Rust writes the digits out.
+func rs_f64(_ x: Double) -> String {
+    if x.isNaN { return \"NaN\" }
+    if x.isInfinite { return x > 0 ? \"inf\" : \"-inf\" }
+    if x == 0.0 { return x.sign == .minus ? \"-0\" : \"0\" }
+    var s = \"\\(x)\"
+    if let e = s.firstIndex(where: { $0 == \"e\" || $0 == \"E\" }) {
+        var mant = String(s[s.startIndex..<e])
+        let exp = Int(String(s[s.index(after: e)...]).replacingOccurrences(of: \"+\", with: \"\")) ?? 0
+        let neg = mant.hasPrefix(\"-\")
+        if neg { mant.removeFirst() }
+        let dot = mant.firstIndex(of: \".\").map { mant.distance(from: mant.startIndex, to: $0) } ?? mant.count
+        let digits = Array(mant.replacingOccurrences(of: \".\", with: \"\"))
+        let intLen = dot + exp
+        var out = \"\"
+        if intLen <= 0 { out = \"0.\" + String(repeating: \"0\", count: -intLen) + String(digits) }
+        else if intLen >= digits.count { out = String(digits) + String(repeating: \"0\", count: intLen - digits.count) }
+        else { out = String(digits[0..<intLen]) + \".\" + String(digits[intLen...]) }
+        s = (neg ? \"-\" : \"\") + out
+    }
+    if s.hasSuffix(\".0\") { s.removeLast(2) }
+    return s
 }
 "))
       * ( "rs_f64(" (e 1) ")" )
@@ -880,6 +908,7 @@ function rs_f64_prec($x, $p) {
       dart ( "stderr.writeln(" (e 1) "); exit(101);" (imp "dart:io") )
       scala ( "System.err.println(" (e 1) "); sys.exit(101)" )
       php ( "fwrite(STDERR, " (e 1) " . \"\\n\"); exit(101);" )
+      swift6 ( "FileHandle.standardError.write((" (e 1) " + \"\\n\").data(using: .utf8)!); exit(101)" (imp "Foundation") )
       * ( "process.stderr.write(" (e 1) " + \"\\n\"); process.exit(101);" )
     }
   }
