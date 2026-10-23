@@ -164,6 +164,7 @@ def rs_irem(a, b):
       dart ( "pow(" (e 1) ", " (e 2) ").toDouble()" (imp "dart:math") )
       scala ( "math.pow(" (e 1) ", (" (e 2) ").toDouble)" )
       php ( "((float)pow(" (e 1) ", " (e 2) "))" )
+      swift6 ( "pow(" (e 1) ", Double(" (e 2) "))" (imp "Foundation") )
       * ( "Math.pow(" (e 1) ", " (e 2) ")" )
     }
   }
@@ -264,6 +265,8 @@ func rs_f2i(x float64) int64 {
       dart ( "(" (e 1) ").toInt()" )
       scala ( "(" (e 1) ").toInt" )
       php ( "((int)(" (e 1) "))" )
+      swift3 ( "Int(" (e 1) ")" )
+      swift6 ( "Int(" (e 1) ")" )
       * ( "Math.trunc(" (e 1) ")" )
     }
   }
@@ -312,6 +315,44 @@ func rs_f2i(x float64) int64 {
   rs_fmt _:string (a:double) {
     templates {
       ranger ( "(rs_fmt" " " (e 1) ")" )
+      swift6 ( "rs_f64(" (e 1) ")"
+(create_polyfill "
+// Rust's Display of a float: Swift's description is already the shortest
+// round-trip digits; this writes them out without an exponent.
+func rs_f64(_ x: Double) -> String {
+    if x.isNaN { return \"NaN\" }
+    if x.isInfinite { return x > 0 ? \"inf\" : \"-inf\" }
+    if x == 0 { return x.sign == .minus ? \"-0\" : \"0\" }
+    var s = x.description
+    var neg = false
+    if s.hasPrefix(\"-\") { neg = true; s.removeFirst() }
+    var exp = 0
+    if let e = s.firstIndex(of: \"e\") {
+        exp = Int(s[s.index(after: e)...].replacingOccurrences(of: \"+\", with: \"\")) ?? 0
+        s = String(s[..<e])
+    }
+    var digits = s
+    var intLen = s.count
+    if let d = s.firstIndex(of: \".\") {
+        intLen = s.distance(from: s.startIndex, to: d)
+        digits.remove(at: digits.index(digits.startIndex, offsetBy: intLen))
+    }
+    intLen += exp
+    var out: String
+    if intLen <= 0 {
+        out = \"0.\" + String(repeating: \"0\", count: -intLen) + digits
+    } else if intLen >= digits.count {
+        out = digits + String(repeating: \"0\", count: intLen - digits.count)
+    } else {
+        out = String(digits.prefix(intLen)) + \".\" + String(digits.dropFirst(intLen))
+    }
+    if out.contains(\".\") {
+        while out.hasSuffix(\"0\") { out.removeLast() }
+        if out.hasSuffix(\".\") { out.removeLast() }
+    }
+    return (neg ? \"-\" : \"\") + out
+}
+"))
       es6 ( "rs_f64(" (e 1) ")"
 (create_polyfill "
 function rs_expand_exp(s) {
@@ -1118,6 +1159,7 @@ def rs_round(x: Double): Double = {
 }
 "))
       php ( "round(" (e 1) ")" )
+      swift6 ( "(" (e 1) ").rounded()" )
       * ( "Math.round(" (e 1) ")" )
     }
   }
@@ -1145,6 +1187,7 @@ function rs_trunc($x) {
   return $x < 0 ? ceil($x) : floor($x);
 }
 "))
+      swift6 ( "(" (e 1) ").rounded(.towardZero)" )
       * ( "Math.floor(" (e 1) ")" )
     }
   }
@@ -1438,6 +1481,7 @@ static double rs_log2(double x) { return Math.log(x) / Math.log(2.0); }
       dart ( "log(" (e 1) ")" (imp "dart:math") )
       scala ( "math.log(" (e 1) ")" )
       php ( "log(" (e 1) ")" )
+      swift6 ( "log(" (e 1) ")" (imp "Foundation") )
       * ( "Math.log(" (e 1) ")" )
     }
   }
@@ -1452,6 +1496,7 @@ static double rs_log2(double x) { return Math.log(x) / Math.log(2.0); }
       dart ( "exp(" (e 1) ")" (imp "dart:math") )
       scala ( "math.exp(" (e 1) ")" )
       php ( "exp(" (e 1) ")" )
+      swift6 ( "exp(" (e 1) ")" (imp "Foundation") )
       * ( "Math.exp(" (e 1) ")" )
     }
   }
@@ -1475,6 +1520,7 @@ double rs_log10(double x) {
 "))
       scala ( "math.log10(" (e 1) ")" )
       php ( "log10(" (e 1) ")" )
+      swift6 ( "log10(" (e 1) ")" (imp "Foundation") )
       * ( "Math.log10(" (e 1) ")" )
     }
   }
@@ -1489,6 +1535,7 @@ double rs_log10(double x) {
       dart ( "pow(" (e 1) ", " (e 2) ").toDouble()" (imp "dart:math") )
       scala ( "math.pow(" (e 1) ", " (e 2) ")" )
       php ( "((float)pow(" (e 1) ", " (e 2) "))" )
+      swift6 ( "pow(" (e 1) ", " (e 2) ")" (imp "Foundation") )
       * ( "Math.pow(" (e 1) ", " (e 2) ")" )
     }
   }
