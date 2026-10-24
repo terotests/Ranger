@@ -288,11 +288,17 @@ class SvgParserTest {
         def invisible:SvgDocument (this.parse("<svg><path d=\"M0 0 L1 1\" fill=\"none\"/></svg>"))
         t.eqInt("a shape with no fill and no stroke is not an item" (invisible.itemCount()) 0)
 
-        ; A gradient reference is dropped rather than rendered differently in
-        ; each target (PLAN_VECTOR_IR.md §6), and it says so.
-        def grad:SvgDocument (this.parse("<svg><defs><linearGradient id=\"g\"/></defs><path d=\"M0 0 L1 1\" fill=\"url(#g)\" stroke=\"black\"/></svg>"))
-        t.eqBool("a gradient fill is not filled" (this.hasFill(grad 0)) false)
-        t.eqBool("...and the document says gradients are deferred" (this.warns(grad "gradient")) true)
+        ; A gradient is read into the item for the display list, and its
+        ; colour stays unset: PDF and PNG do not draw gradients yet
+        ; (PLAN_VECTOR_IR.md §6), and the document says so.
+        def grad:SvgDocument (this.parse("<svg><defs><linearGradient id=\"g\"><stop offset=\"0\" stop-color=\"red\"/><stop offset=\"1\" stop-color=\"blue\"/></linearGradient></defs><path d=\"M0 0 L1 1\" fill=\"url(#g)\" stroke=\"black\"/></svg>"))
+        t.eqBool("a gradient fill has no colour" (this.hasFill(grad 0)) false)
+        def gi:SvgVectorItem (itemAt grad.items 0)
+        t.eqBool("...it is the item's gradient" (gi.hasGradientFill()) true)
+        t.eqBool("...and the document says PDF and PNG do not draw it" (this.warns(grad "gradient")) true)
+        ; A gradient without stops is no paint, as in a browser.
+        def bare:SvgDocument (this.parse("<svg><defs><linearGradient id=\"g\"/></defs><path d=\"M0 0 L1 1\" fill=\"url(#g)\" stroke=\"black\"/></svg>"))
+        t.eqBool("a gradient without stops is not filled" (this.hasFill(bare 0)) false)
 
         ; A colour that cannot be read keeps the inherited paint: the shape is
         ; visibly wrong rather than invisibly missing, and the warning says why.
