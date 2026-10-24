@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Rust code can `use evg::…` from another crate on every target
   (PLAN_RUST_SYNTAX.md §9.6).
 
+- **Linear string appends on Go for `.rs` modules.** `s.push_str(x)` and
+  `s.push(c)` lower to `rs_str_append`, which on Go appends into a growable
+  byte buffer when `s` is the newest string written over it, instead of
+  copying `s` every time (a loop of appends was quadratic). Strings already
+  made never change. CErXes' JSON.stringify of 10k objects on Go: 4.2 s →
+  1.0 s; 200k appends to a captured string: 167 s → 1.1 s.
+
 ### Fixed
 
 - **Swift output of Rust-syntax float code.** `x as i64` on an `f64`,

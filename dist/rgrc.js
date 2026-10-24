@@ -95483,7 +95483,7 @@ class RustLower  {
     }
     if ( name == "push_str" || name == "push" ) {
       const x = this.arg0(args, st);
-      this.assignTo(at.kid(0), RsExpr.of((((("(" + c) + " + ") + x.code) + ")"), st));
+      this.assignTo(at.kid(0), RsExpr.of((((("(rs_str_append " + c) + " ") + x.code) + ")"), st));
       return this.unit();
     }
     if ( name == "to_uppercase" ) {

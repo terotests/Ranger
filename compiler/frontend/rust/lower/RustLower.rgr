@@ -7241,7 +7241,9 @@ class RustLower {
     }
     if ((name == "push_str") || (name == "push")) {
       def x:RsExpr (this.arg0(args st))
-      this.assignTo((at.kid(0)) (RsExpr.of((((("(" + c) + " + ") + x.code) + ")") st)))
+      ; rs_str_append is `c + x`; on Go it grows the string in place when
+      ; it can (RsPrelude), so a loop of appends is linear there too
+      this.assignTo((at.kid(0)) (RsExpr.of((((("(rs_str_append " + c) + " ") + x.code) + ")") st)))
       return (this.unit())
     }
     if (name == "to_uppercase") {
