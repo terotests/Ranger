@@ -1054,6 +1054,52 @@ inline void rs_map_erase(M& m, const K& k) {
       * @macro(true) ( "(length (to_charbuffer " "(" (e 1) ")" "))" )
     }
   }
+  ; `s.push_str(x)` and `s.push(c)`: s + x. A Go string is immutable, so
+  ; `s + x` copies s, and a loop of appends is quadratic. rs_str_append keeps
+  ; a few growable byte buffers: when s is the newest string written over one
+  ; of them, x is appended after its bytes (bytes no string covers yet) and
+  ; the longer string shares the buffer. Strings already made never see a
+  ; byte change, so this is invisible to the program.
+  rs_str_append _:string (s:string x:string) {
+    templates {
+      ranger ( "(rs_str_append " (e 1) " " (e 2) ")" )
+      go ( "rs_str_append(" (e 1) ", " (e 2) ")" (imp "unsafe") (imp "sync")
+(create_polyfill "
+var rsStrBufs [8][]byte
+var rsStrNext int
+var rsStrMu sync.Mutex
+
+func rs_str_append(s string, x string) string {
+    if len(x) == 0 {
+        return s
+    }
+    if len(s) < 64 {
+        return s + x
+    }
+    p := unsafe.StringData(s)
+    rsStrMu.Lock()
+    defer rsStrMu.Unlock()
+    for i := range rsStrBufs {
+        b := rsStrBufs[i]
+        if len(b) == len(s) && unsafe.SliceData(b) == p {
+            b = append(b, x...)
+            rsStrBufs[i] = b
+            return unsafe.String(unsafe.SliceData(b), len(b))
+        }
+    }
+    n := len(s) + len(x)
+    b := make([]byte, n, 2*n)
+    copy(b, s)
+    copy(b[len(s):], x)
+    rsStrBufs[rsStrNext] = b
+    rsStrNext = (rsStrNext + 1) % len(rsStrBufs)
+    return unsafe.String(unsafe.SliceData(b), n)
+}
+")
+      )
+      * @macro(true) ( "(" "(" (e 1) ")" " + " "(" (e 2) ")" ")" )
+    }
+  }
   ; Unicode case mapping. The C++ target's to_uppercase maps ASCII only; the
   ; polyfill covers Latin-1, Latin Extended-A, Greek and Cyrillic.
   rs_upper _:string (s:string) {
