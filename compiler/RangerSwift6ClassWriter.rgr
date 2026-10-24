@@ -257,7 +257,20 @@ class RangerSwift6ClassWriter {
     for names uname:string ui {
       def ucl:RangerAppClassDesc (ctx.findClass(uname))
       def enumName:string (this.unionInterfaceName(uname))
+      ; public when every member class is: a public method taking the union
+      ; needs a public enum, and a public enum needs public payloads
+      def uVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+      def allPublic:boolean ((array_length ucl.is_union_of) > 0)
+      for ucl.is_union_of memName:string mni {
+        def mcl:RangerAppClassDesc (ctx.findClass(memName))
+        if ((uVis.classVisibility(mcl "" "public " "")) != "public ") {
+          allPublic = false
+        }
+      }
       wr.out("" true)
+      if allPublic {
+        wr.out("public " false)
+      }
       wr.out((("enum " + enumName) + " {") true)
       wr.indent(1)
       for ucl.is_union_of mname:string mi {

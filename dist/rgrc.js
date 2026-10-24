@@ -29156,7 +29156,19 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
     for ( const uname of names) {
       const ucl = ctx.findClass(uname);
       const enumName = this.unionInterfaceName(uname);
+      const uVis = new RangerDocCommentWriter();
+      let allPublic = ucl.is_union_of.length > 0;
+      // Loop start
+      for ( const memName of ucl.is_union_of) {
+        const mcl = ctx.findClass(memName);
+        if ( uVis.classVisibility(mcl, "", "public ", "") != "public " ) {
+          allPublic = false;
+        }
+      }
       wr.out("", true);
+      if ( allPublic ) {
+        wr.out("public ", false);
+      }
       wr.out(("enum " + enumName) + " {", true);
       wr.indent(1);
       // Loop start
@@ -96282,6 +96294,10 @@ class RustLower  {
       const vec = this.bindTemp(cv, cv.ty, "vec");
       const iv = this.lowerExpr(lhs.kid(1), RsType.mk("int"));
       this.out.line((((("set_at " + vec) + " ") + iv.code) + " ") + v.code);
+      const inner = lhs.kid(0);
+      if ( inner.kind == "index" && vec != cv.code ) {
+        this.assignTo(inner, this.simpleExpr(vec, cv.ty));
+      }
       return;
     }
     this.unsupported(lhs, "this assignment target");
