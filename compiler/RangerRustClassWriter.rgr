@@ -365,7 +365,7 @@ class RangerRustClassWriter {
   ; and any owned-String sink converts with .to_string() instead
   fn rustStaticStrRead:boolean (node:CodeNode) {
     def v:CodeNode node
-    while (v.expression && ((array_length v.children) == 1)) {
+    while (v.expression && ((array_length v.children) == 1) && (v.is_array_literal == false)) {
       v = (v.getFirst())
     }
     if v.expression {
@@ -391,7 +391,7 @@ class RangerRustClassWriter {
   ; silent corruption
   fn rustWriteStaticStrValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def v:CodeNode node
-    while (v.expression && ((array_length v.children) == 1)) {
+    while (v.expression && ((array_length v.children) == 1) && (v.is_array_literal == false)) {
       v = (v.getFirst())
     }
     if ((v.expression == false) && (v.value_type == RangerNodeType.String)) {
@@ -410,7 +410,7 @@ class RangerRustClassWriter {
   ; or writes nothing.
   fn rustTryBareStrLitArg:boolean (nVal:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def v:CodeNode nVal
-    while (v.expression && ((array_length v.children) == 1)) {
+    while (v.expression && ((array_length v.children) == 1) && (v.is_array_literal == false)) {
       v = (v.getFirst())
     }
     if v.expression {
@@ -429,7 +429,7 @@ class RangerRustClassWriter {
   ; was declared). A literal has no vref and stays out.
   fn rustArgIsNameRead:boolean (nVal:CodeNode) {
     def v:CodeNode nVal
-    while (v.expression && ((array_length v.children) == 1)) {
+    while (v.expression && ((array_length v.children) == 1) && (v.is_array_literal == false)) {
       v = (v.getFirst())
     }
     if (v.value_type == RangerNodeType.VRef) {
@@ -457,7 +457,7 @@ class RangerRustClassWriter {
   ; sink converts it with .to_vec(); .clone() would only copy the reference.
   fn rustSliceRefRead:boolean (node:CodeNode) {
     def v:CodeNode node
-    while (v.expression && ((array_length v.children) == 1)) {
+    while (v.expression && ((array_length v.children) == 1) && (v.is_array_literal == false)) {
       v = (v.getFirst())
     }
     if v.expression {
@@ -499,7 +499,7 @@ class RangerRustClassWriter {
       return true
     }
     def v:CodeNode node
-    while (v.expression && ((array_length v.children) == 1)) {
+    while (v.expression && ((array_length v.children) == 1) && (v.is_array_literal == false)) {
       v = (v.getFirst())
     }
     if v.expression {
@@ -2547,7 +2547,7 @@ class RangerRustClassWriter {
           def nmFd@(optional):RangerAppFunctionDesc item.fnDesc
           for nmArgs.children nmA:CodeNode nmAi {
             def nmAr:CodeNode nmA
-            while (nmAr.expression && ((array_length nmAr.children) == 1)) {
+            while (nmAr.expression && ((array_length nmAr.children) == 1) && (nmAr.is_array_literal == false)) {
               nmAr = (nmAr.getFirst())
             }
             if ((array_length nmAr.ns) == 1) {

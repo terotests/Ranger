@@ -96,6 +96,23 @@ class RustReserved {
     return names
   }
 
+  ; The reserved names that cannot be a field or a method either. A member
+  ; is always written `obj.name` / `this.name`, so a keyword or an operator
+  ; name is harmless there: Ranger's own classes declare fields `type`,
+  ; `data`, `remove`, ... (probed: each of the other locally reserved names
+  ; as a field and as a method of a .rgr class compiles and runs on es6, go
+  ; and cpp). These are the ones that failed: es6 for `cast` ... `while`,
+  ; go and cpp for `break` ... `throw`. A member named like them keeps the
+  ; `_` suffix, so .rgr code calls it by that name.
+  sfn memberUnsafeNames:[string:boolean] () {
+    def names:[string:boolean]
+    def parts:[string] (strsplit "cast case false if on_keypress return static switch true try while break continue default for map throw" " ")
+    for parts p:string i {
+      set names p true
+    }
+    return names
+  }
+
   ; Operator names, from the operator declarations of Lang.rgr, stdops.rgr
   ; and RsPrelude.rgr. A LOCAL named like an operator hides it: once a
   ; local named `keys` exists, a later `(keys m)` reads the local.

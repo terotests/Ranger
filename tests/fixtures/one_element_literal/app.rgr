@@ -1,0 +1,15 @@
+; A one-element array literal passed to a function: Rust wrote the element
+; alone (`n("id")`), as if the literal were a parenthesised string.
+class App {
+    sfn n:int (xs:[string]) {
+        return (array_length xs)
+    }
+    sfn first:string (label:string xs:[string]) {
+        return (label + (itemAt xs 0))
+    }
+    sfn main@(main):void () {
+        print (to_string (App.n(([] _:string ("id")))))
+        print (App.first("k=" ([] _:string ("v"))))
+        print (to_string (App.n(([] _:string ("a" "b")))))
+    }
+}

@@ -93,6 +93,7 @@ class RustLower {
   def aliases:[string:RustNode]
   def reserved:[string:boolean]
   def localReserved:[string:boolean]
+  def memberUnsafe:[string:boolean]
 
   ; generated concrete classes: tuples, monomorphized generics
   def genNames:[string:boolean]
@@ -119,6 +120,7 @@ class RustLower {
 
   Constructor () {
     reserved = (RustReserved.build())
+    memberUnsafe = (RustReserved.memberUnsafeNames())
     def kw:[string] ([] _:string ("def" "fn" "sfn" "class" "new" "if" "while" "for" "return" "break" "continue" "print" "true" "false" "null" "this" "switch" "case" "default" "try" "throw" "match" "shape" "trait" "does" "Import" "Enum" "record" "union" "operators" "Extends" "Constructor" "static" "write" "exit" "push" "set" "set_at" "remove" "removeLast" "clear" "ret" "defn" "unwrap" "group" "variant" "extension" "systemclass" "doc" "self" "super" "catch" "and" "or" "not" "is" "in" "del" "pass" "lambda" "yield" "None" "True" "False" "nil" "var" "val" "let" "const" "func" "function" "undefined" "arguments" "delete" "typeof" "instanceof" "void" "with" "package" "import" "export" "interface" "implements" "public" "private" "protected" "struct" "enum" "go" "chan" "select" "range" "type" "map" "string" "int" "double" "boolean" "char" "float" "long" "short" "byte" "auto" "register" "extern" "goto" "sizeof" "volatile" "typedef" "unsigned" "signed" "namespace" "template" "typename" "using" "virtual" "friend" "inline" "operator" "delete" "fun" "object" "when" "init" "deinit" "guard" "repeat" "internal" "open" "final" "override" "abstract" "sealed" "data" "companion" "lateinit" "native" "synchronized" "transient" "strictfp" "assert" "global" "nonlocal" "elif" "except" "finally" "raise" "from" "as" "async" "await" "def" "print"))
     for kw k:string i {
       set localReserved k true
@@ -143,22 +145,28 @@ class RustLower {
 
   ; ----------------------------------------------------------------- names
 
+  ; A static fn keeps its name on the same terms as a method; ES6 also
+  ; refuses a static named `arguments` (a function object property), and
+  ; `new` stays `new_`, the name .rgr code calls a .rs constructor by.
   fn staticName:string (n:string) {
-    if (has reserved n) {
+    if ((has localReserved n) && ((has memberUnsafe n) || (n == "arguments") || (n == "new"))) {
       return (n + "_")
     }
     return n
   }
 
+  ; A member keeps its name unless it is one that no member can have
+  ; (RustReserved.memberUnsafeNames): .rgr code calls a .rs method `remove`
+  ; or reads a field `type` by the name the Rust code gives it.
   fn methodName:string (n:string) {
-    if (has localReserved n) {
+    if ((has localReserved n) && (has memberUnsafe n)) {
       return (n + "_")
     }
     return n
   }
 
   fn fieldName:string (n:string) {
-    if (has localReserved n) {
+    if ((has localReserved n) && (has memberUnsafe n)) {
       return (n + "_")
     }
     return n
@@ -1841,6 +1849,11 @@ class RustLower {
         return ""
       }
       if (has structs t.name) {
+        def zs:RsStruct (unwrap (get structs t.name))
+        if zs.rgr {
+          ; a class of an imported .rgr file has no zeroOf: its constructor
+          return (("(new " + t.name) + "())")
+        }
         if ((array_length t.args) > 0) {
           return (("(" + (this.rtype(t))) + ".zeroOf())")
         }
@@ -6262,7 +6275,7 @@ class RustLower {
       if (v3.ty.kind == "int") {
         return (RsExpr.of((("(bit_not " + v3.code) + ")") v3.ty))
       }
-      return (RsExpr.of((("(! " + v3.code) + ")") (RsType.mk("bool"))))
+      return (RsExpr.of((("(false == " + v3.code) + ")") (RsType.mk("bool"))))
     }
     this.unsupported(n (("the unary operator `" + op) + "`"))
     return (this.unit())

@@ -1,0 +1,25 @@
+; A static call as a constructor argument in a field's first value: the Go
+; and C++ writers ended the call as a statement (`CreateNew_B(A_static_make();`).
+class A {
+    def x:int 0
+    sfn make:A () {
+        def a (new A)
+        a.x = 2
+        return a
+    }
+}
+class B {
+    def a:A
+    Constructor (aa:A) {
+        a = aa
+    }
+}
+class C {
+    def b:B (new B((A.make())))
+}
+class Main {
+    sfn main@(main):void () {
+        def c (new C)
+        print (to_string c.b.a.x)
+    }
+}
