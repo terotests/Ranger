@@ -1,0 +1,24 @@
+Import "lib.rs"
+
+class Main {
+    sfn main@(main):void () {
+        def it (Item.new_())
+        it.type = (it.type + 1)
+        it.data = (it.data + "x")
+        it.group = 10
+        print (to_string (it.remove(3)))
+        print (it.select())
+        it.clear()
+        print (it.select())
+        def o (Item.open())
+        print (to_string (Item.sorted(3)))
+        if (o.missing("k")) {
+            print "missing"
+        } {
+            print "found"
+        }
+        if (o.missing("x")) {
+            print "missing"
+        }
+    }
+}

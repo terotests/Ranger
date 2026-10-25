@@ -1,0 +1,9 @@
+Import "lib.rs"
+
+class Main {
+    sfn main@(main):void () {
+        def h (Holder.new_())
+        h.put("a")
+        print (to_string (h.put("b")))
+    }
+}
