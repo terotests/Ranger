@@ -309,8 +309,8 @@ place that says what the engine silently dropped:
 
 ```
 $ rave check app.rave
-  / @1440 rejected: unknown property: aspect-ratio: 16/9
-  / @1440 rejected: unsupported length: width: calc(100% - 20px)
+  / @1440 rejected: unknown property: text-shadow: 0 1px 2px #000000
+  / @1440 rejected: unsupported length: width: calc(100% - 2em)
   / @1440 a11y: n3: focusable with no accessible name
   /  Home
   Bad · 1 routes · 0 layouts · 1 pages · 1 widths

@@ -76,11 +76,11 @@ const bad = await call("tools/call", {
   arguments: {
     path: "app.rave",
     markup:
-      '<app name="Bad"/>\n<page name="Home"><h1 style="aspect-ratio: 16/9">Hi</h1></page>\n<route path="/" title="Home" page="Home"/>\n',
+      '<app name="Bad"/>\n<page name="Home"><h1 style="text-shadow: 0 1px 2px #000000">Hi</h1></page>\n<route path="/" title="Home" page="Home"/>\n',
   },
 });
 ok("rave_write says when what was written does not hold up", bad.result.isError === true);
-ok("…naming the property the engine refused", /aspect-ratio/.test(bad.result.content[0].text), bad.result.content[0].text);
+ok("…naming the property the engine refused", /text-shadow/.test(bad.result.content[0].text), bad.result.content[0].text);
 
 const good = await call("tools/call", {
   name: "rave_write",
