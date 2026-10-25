@@ -2907,7 +2907,10 @@ class RangerCppClassWriter {
             this.writeTypeDef((unwrap arg.nameNode) ctx wr)
             wr.out("(" false)
           }
+          ; an argument is an expression (see the Go writer's writeNewCall)
+          ctx.setInExpr()
           this.WalkNode(n ctx wr)
+          ctx.unsetInExpr()
           if tempCopy {
             wr.out(")" false)
           }

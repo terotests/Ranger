@@ -1712,7 +1712,12 @@ class RangerGolangClassWriter {
           }
         }
         if (false == wroteUnion) {
+          ; an argument is an expression: a call in it must not end as a
+          ; statement (`CreateNew_B(A_static_make();` in a field's first
+          ; value, where nothing else has opened an expression yet)
+          ctx.setInExpr()
           this.WalkNode(n ctx wr)
+          ctx.unsetInExpr()
         }
       }
       wr.out(")" false)

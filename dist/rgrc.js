@@ -33435,7 +33435,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
             this.writeTypeDef(arg.nameNode, ctx, wr);
             wr.out("(", false);
           }
+          ctx.setInExpr();
           this.WalkNode(n, ctx, wr);
+          ctx.unsetInExpr();
           if ( tempCopy ) {
             wr.out(")", false);
           }
@@ -34445,7 +34447,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustStaticStrRead (node) {
     let v = node;
-    while (v.expression && v.children.length == 1) {
+    while ((v.expression && v.children.length == 1) && v.is_array_literal == false) {
       v = v.getFirst();
     };
     if ( v.expression ) {
@@ -34466,7 +34468,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustWriteStaticStrValue (node, ctx, wr) {
     let v = node;
-    while (v.expression && v.children.length == 1) {
+    while ((v.expression && v.children.length == 1) && v.is_array_literal == false) {
       v = v.getFirst();
     };
     if ( v.expression == false && v.value_type == 4 ) {
@@ -34479,7 +34481,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustTryBareStrLitArg (nVal, ctx, wr) {
     let v = nVal;
-    while (v.expression && v.children.length == 1) {
+    while ((v.expression && v.children.length == 1) && v.is_array_literal == false) {
       v = v.getFirst();
     };
     if ( v.expression ) {
@@ -34493,7 +34495,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustArgIsNameRead (nVal) {
     let v = nVal;
-    while (v.expression && v.children.length == 1) {
+    while ((v.expression && v.children.length == 1) && v.is_array_literal == false) {
       v = v.getFirst();
     };
     if ( v.value_type == 11 ) {
@@ -34512,7 +34514,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustSliceRefRead (node) {
     let v = node;
-    while (v.expression && v.children.length == 1) {
+    while ((v.expression && v.children.length == 1) && v.is_array_literal == false) {
       v = v.getFirst();
     };
     if ( v.expression ) {
@@ -34545,7 +34547,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       return true;
     }
     let v = node;
-    while (v.expression && v.children.length == 1) {
+    while ((v.expression && v.children.length == 1) && v.is_array_literal == false) {
       v = v.getFirst();
     };
     if ( v.expression ) {
@@ -36102,7 +36104,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           for ( let nmAi = 0; nmAi < nmArgs.children.length; nmAi++) {
             var nmA = nmArgs.children[nmAi];
             let nmAr = nmA;
-            while (nmAr.expression && nmAr.children.length == 1) {
+            while ((nmAr.expression && nmAr.children.length == 1) && nmAr.is_array_literal == false) {
               nmAr = nmAr.getFirst();
             };
             if ( nmAr.ns.length == 1 ) {
@@ -51906,7 +51908,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           }
         }
         if ( false == wroteUnion ) {
+          ctx.setInExpr();
           this.WalkNode(n, ctx, wr);
+          ctx.unsetInExpr();
         }
       }
       wr.out(")", false);
@@ -87808,6 +87812,15 @@ RustReserved.build = function() {
   }
   return names;
 };
+RustReserved.memberUnsafeNames = function() {
+  let names = {};
+  const parts = "cast case false if on_keypress return static switch true try while break continue default for map throw".split(" ");
+  // Loop start
+  for ( const p of parts) {
+    names[p] = true;
+  }
+  return names;
+};
 RustReserved.operatorNames = function() {
   let parts = [];
   parts.push("M_PI acos array_extract array_length asin async_read_file at atan2");
@@ -88785,6 +88798,7 @@ class RustLower  {
     this.aliases = {};
     this.reserved = {};
     this.localReserved = {};
+    this.memberUnsafe = {};
     this.genNames = {};
     this.genOut = [];
     this.hoisted = [];     /* note: unused */
@@ -88833,6 +88847,7 @@ class RustLower  {
     this.noMoveCheck = false;
     this.iterRoots = [];
     this.reserved = RustReserved.build();
+    this.memberUnsafe = RustReserved.memberUnsafeNames();
     const kw = ["def", "fn", "sfn", "class", "new", "if", "while", "for", "return", "break", "continue", "print", "true", "false", "null", "this", "switch", "case", "default", "try", "throw", "match", "shape", "trait", "does", "Import", "Enum", "record", "union", "operators", "Extends", "Constructor", "static", "write", "exit", "push", "set", "set_at", "remove", "removeLast", "clear", "ret", "defn", "unwrap", "group", "variant", "extension", "systemclass", "doc", "self", "super", "catch", "and", "or", "not", "is", "in", "del", "pass", "lambda", "yield", "None", "True", "False", "nil", "var", "val", "let", "const", "func", "function", "undefined", "arguments", "delete", "typeof", "instanceof", "void", "with", "package", "import", "export", "interface", "implements", "public", "private", "protected", "struct", "enum", "go", "chan", "select", "range", "type", "map", "string", "int", "double", "boolean", "char", "float", "long", "short", "byte", "auto", "register", "extern", "goto", "sizeof", "volatile", "typedef", "unsigned", "signed", "namespace", "template", "typename", "using", "virtual", "friend", "inline", "operator", "delete", "fun", "object", "when", "init", "deinit", "guard", "repeat", "internal", "open", "final", "override", "abstract", "sealed", "data", "companion", "lateinit", "native", "synchronized", "transient", "strictfp", "assert", "global", "nonlocal", "elif", "except", "finally", "raise", "from", "as", "async", "await", "def", "print"];
     // Loop start
     for ( const k of kw) {
@@ -88853,19 +88868,19 @@ class RustLower  {
     this.err(n, what + " is not in the Ranger subset of Rust");
   };
   staticName (n) {
-    if ( ( typeof(this.reserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.reserved, n) ) ) {
+    if ( ( typeof(this.localReserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localReserved, n) ) && ((( typeof(this.memberUnsafe[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.memberUnsafe, n) ) || n == "arguments") || n == "new") ) {
       return n + "_";
     }
     return n;
   };
   methodName (n) {
-    if ( ( typeof(this.localReserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localReserved, n) ) ) {
+    if ( ( typeof(this.localReserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localReserved, n) ) && ( typeof(this.memberUnsafe[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.memberUnsafe, n) ) ) {
       return n + "_";
     }
     return n;
   };
   fieldName (n) {
-    if ( ( typeof(this.localReserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localReserved, n) ) ) {
+    if ( ( typeof(this.localReserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localReserved, n) ) && ( typeof(this.memberUnsafe[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.memberUnsafe, n) ) ) {
       return n + "_";
     }
     return n;
@@ -90340,6 +90355,10 @@ class RustLower  {
         return "";
       }
       if ( ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+        const zs = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+        if ( zs.rgr ) {
+          return ("(new " + t.name) + "())";
+        }
         if ( t.args.length > 0 ) {
           return ("(" + this.rtype(t)) + ".zeroOf())";
         }
@@ -90355,12 +90374,12 @@ class RustLower  {
       }
     }
     if ( k == "tuple" ) {
-      let zs = [];
+      let zs_1 = [];
       // Loop start
       for ( const a of t.args) {
-        zs.push(this.zeroCode(a));
+        zs_1.push(this.zeroCode(a));
       }
-      return ((("(new " + this.tupleClass(t)) + "(") + zs.join(" ")) + "))";
+      return ((("(new " + this.tupleClass(t)) + "(") + zs_1.join(" ")) + "))";
     }
     if ( k == "result" ) {
       return ("(" + this.resultClass(t)) + ".zeroOf())";
@@ -94522,7 +94541,7 @@ class RustLower  {
       if ( v3.ty.kind == "int" ) {
         return RsExpr.of((("(bit_not " + v3.code) + ")"), v3.ty);
       }
-      return RsExpr.of((("(! " + v3.code) + ")"), RsType.mk("bool"));
+      return RsExpr.of((("(false == " + v3.code) + ")"), RsType.mk("bool"));
     }
     this.unsupported(n, ("the unary operator `" + op) + "`");
     return this.unit();
