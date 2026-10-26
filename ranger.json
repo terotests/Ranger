@@ -6,7 +6,7 @@
   "dependencies": {
     "evg": {
       "git": "https://github.com/terotests/evg.git",
-      "rev": "969df15138c887aa8aea0b7fc01714af2c723db5",
+      "rev": "815be2ba995f54f52d25f7feacdc8bb88fcdfc3d",
       "subdir": "storm"
     },
     "componentengine": {
