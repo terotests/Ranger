@@ -32,8 +32,8 @@ describe("Kotlin Code Generation", () => {
       );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       expect(result.code).toContain("MutableList<MutableList<String>>");
-      expect(result.code).toContain("MutableMap<String,MutableList<Int>>");
-      expect(result.code).toContain("MutableList<MutableMap<String,Int>>");
+      expect(result.code).toContain("MutableMap<String,MutableList<Long>>");
+      expect(result.code).toContain("MutableList<MutableMap<String,Long>>");
       // no raw Ranger collection type strings should leak through
       expect(result.code).not.toContain("[string]");
       expect(result.code).not.toContain("[int]");

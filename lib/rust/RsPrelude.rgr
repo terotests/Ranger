@@ -201,8 +201,8 @@ static int rs_ipow(int a, int n) {
 "))
       kotlin ( "rs_ipow(" (e 1) ", " (e 2) ")"
 (create_polyfill "
-fun rs_ipow(a: Int, n: Int): Int {
-    var r = 1
+fun rs_ipow(a: Long, n: Long): Long {
+    var r = 1L
     for (i in 0 until n) { r *= a }
     return r
 }
@@ -269,7 +269,7 @@ func rs_f2i(x float64) int64 {
 "))
       cpp ( "(long long)(" (e 1) ")" )
       java7 ( "((int)(double)(" (e 1) "))" )
-      kotlin ( "(" (e 1) ").toInt()" )
+      kotlin ( "(" (e 1) ").toLong()" )
       csharp ( "((int)(" (e 1) "))" )
       dart ( "(" (e 1) ").toInt()" )
       scala ( "(" (e 1) ").toInt" )
@@ -308,7 +308,7 @@ func rs_f2i(x float64) int64 {
       python ( "chr(" (e 1) ")" )
       go ( "string(rune(" (e 1) "))" )
       java7 ( "(new String(Character.toChars(" (e 1) ")))" )
-      kotlin ( "String(Character.toChars(" (e 1) "))" )
+      kotlin ( "String(Character.toChars((" (e 1) ").toInt()))" )
       csharp ( "char.ConvertFromUtf32(" (e 1) ")" )
       dart ( "String.fromCharCode(" (e 1) ")" )
       scala ( "new String(Character.toChars(" (e 1) "))" )
@@ -719,10 +719,10 @@ static String rs_f64_prec(double x, int p) {
 "))
       kotlin ( "rs_f64_prec(" (e 1) ", " (e 2) ")"
 (create_polyfill "
-fun rs_f64_prec(x: Double, p: Int): String {
+fun rs_f64_prec(x: Double, p: Long): String {
     if (x.isNaN()) { return \"NaN\" }
     if (x.isInfinite()) { return if (x > 0) \"inf\" else \"-inf\" }
-    val r = java.math.BigDecimal(x).setScale(p, java.math.RoundingMode.HALF_EVEN)
+    val r = java.math.BigDecimal(x).setScale(p.toInt(), java.math.RoundingMode.HALF_EVEN)
     var s = r.toPlainString()
     if ((x < 0 || (x == 0.0 && 1.0 / x < 0)) && r.signum() == 0) { s = \"-\" + s }
     return s
@@ -972,7 +972,7 @@ function rs_f64_prec($x, $p) {
       cpp ( "(long long)((" (e 1) ").compare(" (e 2) ") < 0 ? -1 : ((" (e 1) ").compare(" (e 2) ") > 0 ? 1 : 0))" )
       rust ( "(match " (e 1) ".cmp(&" (e 2) ") { std::cmp::Ordering::Less => -1, std::cmp::Ordering::Equal => 0, _ => 1 })" )
       java7 ( "Integer.signum(" (e 1) ".compareTo(" (e 2) "))" )
-      kotlin ( "Integer.signum(" (e 1) ".compareTo(" (e 2) "))" )
+      kotlin ( "Integer.signum(" (e 1) ".compareTo(" (e 2) ")).toLong()" )
       csharp ( "System.Math.Sign(string.CompareOrdinal(" (e 1) ", " (e 2) "))" )
       dart ( "(" (e 1) ").compareTo(" (e 2) ").sign" )
       scala ( "Integer.signum(" (e 1) ".compareTo(" (e 2) "))" )
@@ -990,7 +990,7 @@ function rs_f64_prec($x, $p) {
       cpp ( "(long long)(" (e 1) ").size()" )
       rust ( "(" (e 1) ".len() as i64)" )
       java7 ( (e 1) ".size()" )
-      kotlin ( (e 1) ".size" )
+      kotlin ( (e 1) ".size.toLong()" )
       csharp ( (e 1) ".Count" )
       dart ( (e 1) ".length" )
       php ( "count(" (e 1) ")" )

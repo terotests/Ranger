@@ -103,8 +103,8 @@ operators {
                         nl i "}"
             )
             kotlin (
-                (forkctx _ ) (def 2) "if( " (e 1) " is Int ) /* union case for int */ {" nl I
-                        "val " (e 2) " : Int = " (e 1) " as Int;" nl
+                (forkctx _ ) (def 2) "if( " (e 1) " is Long ) /* union case for int */ {" nl I
+                        "val " (e 2) " : Long = " (e 1) " as Long;" nl
                         (block 3)
                         nl i "}"
             )

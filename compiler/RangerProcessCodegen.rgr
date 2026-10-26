@@ -98,7 +98,7 @@ class RangerProcessCodegen {
 
   fn writeProcessInstanceRegisterCall:void (wr:CodeWriter lang:string) {
     if (lang == "kotlin") {
-      wr.out("if (this is RangerProcessBase && (this as RangerProcessBase).__rangerId != 0) { __rgr_proc.__rangerRegisterChild(this as RangerProcessBase) } else { __rgr_proc.__rangerRegisterRoot() }" false)
+      wr.out("if (this is RangerProcessBase && (this as RangerProcessBase).__rangerId != 0L) { __rgr_proc.__rangerRegisterChild(this as RangerProcessBase) } else { __rgr_proc.__rangerRegisterRoot() }" false)
       return
     }
     if (lang == "swift6" || lang == "swift3") {

@@ -51,7 +51,7 @@ describe("the generated `for` is the target's own loop", () => {
     ["cpp", ".cpp", "for ( int v : xs )", "for ( int i = 0;"],
     ["go", ".go", "for _, v := range xs {", "for ; i < int64(len(xs))"],
     ["java7", ".java", "for ( Integer v : xs)", "for ( int i = 0;"],
-    ["kotlin", ".kt", "for ( v in xs ) {", "for ( i in xs.indices ) {"],
+    ["kotlin", ".kt", "for ( v in xs ) {", "for ( i in 0L until xs.size.toLong() ) {"],
     ["csharp", ".cs", "foreach ( int v in xs)", "for ( int i = 0;"],
     ["dart", ".dart", "for ( final v in xs)", "for ( int i = 0;"],
     ["python", ".py", "for v in xs:", "for i, v in enumerate(xs):"],

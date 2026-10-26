@@ -1087,6 +1087,21 @@ its own right: a 66k-line Kotlin program out of a real Ranger application, one
 error, and the error was a missing keyword rather than a missing feature.
 ISSUES.md #72, `tests/codegen-kotlin.test.ts`.
 
+### Kotlin: `int` is `Long`
+
+Ranger `int` was a Kotlin `Int` until 2026-10, so the Kotlin build wrapped at
+2^31 where Go, Rust and Java did not: file sizes over 2 GB, millisecond
+timestamps, seconds after 2038. It is `Long` now, and so are `char` and an
+enum that lowers to an integer, which keeps the three mixing freely as they do
+everywhere else. Kotlin never widens implicitly, so two things follow. Every
+integer literal is written with `L` (`x == 5` is a kotlinc error when `x` is a
+`Long`, and so is `when (x) { 5 -> }`). And every template that touches a
+Kotlin API typed `Int` converts at that edge: `[(i).toInt()]`,
+`.substring((a).toInt(), (b).toInt())`, `.size.toLong()`, `.length.toLong()`,
+`.code.toLong()`, `indexOf(..).toLong()`. The generated index loop counts in
+`Long` (`for (i in 0L until xs.size.toLong())`) and narrows only for the
+element read. `tests/fixtures/int64_values.rgr` is the regression test.
+
 ### What Kotlin took
 
 Kotlin started at 19 compiler errors and, once those were gone, **3490**

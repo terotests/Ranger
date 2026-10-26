@@ -26,7 +26,7 @@ class RangerKotlinClassWriter {
 
   fn ktEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
     ktEnums.targetName = "kotlin"
-    ktEnums.fallbackType = "Int"
+    ktEnums.fallbackType = "Long"
     return (ktEnums.isNative(enumName ctx))
   }
 
@@ -116,16 +116,10 @@ class RangerKotlinClassWriter {
         wr.out((("\"" + s) + "\"") false)
       }
       case RangerNodeType.Integer {
-        ; Kotlin `Int` is signed 32-bit. Literals outside that range are Long
-        ; and will not type-check against Int parameters or `and`/`or`.
-        ; -2147483648 is written as (-2147483647 - 1): the literal 2147483648
-        ; does not fit a signed 32-bit int, and on C# a constant expression that
-        ; overflows is a compile error, not a wrap.
-        if ((node.int_value > 2147483647) || (node.int_value < ((0 - 2147483647) - 1))) {
-          wr.out((("(" + node.int_value) + "L).toInt()") false)
-        } {
-          wr.out(("" + node.int_value) false)
-        }
+        ; Ranger `int` is a Kotlin `Long` (64 bits, as on Go, Rust and Java),
+        ; so every literal carries the `L`: Kotlin refuses `x == 5` and
+        ; `when (x) { 5 -> }` when x is a Long.
+        wr.out((("" + node.int_value) + "L") false)
       }
       case RangerNodeType.Boolean {
         if node.boolean_value {
@@ -220,7 +214,7 @@ class RangerKotlinClassWriter {
     }
     switch type_string {
       case "int" {
-        return "Int"
+        return "Long"
       }
       case "string" {
         return "String"
@@ -239,8 +233,9 @@ class RangerKotlinClassWriter {
       }
       case "char" {
         ; an integer code unit, not Kotlin's Char: `charAt` and `charcode` both
-        ; hand back `.code`, and Char does not compare with an Int literal
-        return "Int"
+        ; hand back `.code` widened to Long, the same type as Ranger `int`, so
+        ; the two mix the way they do on every other target
+        return "Long"
       }
       case "boolean" {
         return "Boolean"
@@ -254,7 +249,7 @@ class RangerKotlinClassWriter {
     ; a RETURN position -- `fn typeNameAsType:RangerNodeType (...)` -- wrote its
     ; Ranger name and kotlinc saw an undeclared type.
     if (ctx.isEnumDefined(type_string)) {
-      return "Int"
+      return "Long"
     }
     return type_string
   }
@@ -291,7 +286,7 @@ class RangerKotlinClassWriter {
   fn getTypeString:string (type_string:string) {
     switch type_string {
       case "int" {
-        return "Int"
+        return "Long"
       }
       case "string" {
         return "String"
@@ -310,8 +305,9 @@ class RangerKotlinClassWriter {
       }
       case "char" {
         ; an integer code unit, not Kotlin's Char: `charAt` and `charcode` both
-        ; hand back `.code`, and Char does not compare with an Int literal
-        return "Int"
+        ; hand back `.code` widened to Long, the same type as Ranger `int`, so
+        ; the two mix the way they do on every other target
+        return "Long"
       }
       case "boolean" {
         return "Boolean"
@@ -367,17 +363,17 @@ class RangerKotlinClassWriter {
         if (this.ktEnumIsNative(ktEnumName ctx)) {
           wr.out(ktEnumName false)
         } {
-          wr.out("Int" false)
+          wr.out("Long" false)
         }
       }
       case RangerNodeType.Integer {
-        wr.out("Int" false)
+        wr.out("Long" false)
       }
       case RangerNodeType.Double {
         wr.out("Double" false)
       }
       case RangerNodeType.Char {
-        wr.out("Int" false)
+        wr.out("Long" false)
       }
       case RangerNodeType.CharBuffer {
         ; a charbuffer is UTF-8 BYTES, not the UTF-16 units a CharArray holds
@@ -500,7 +496,7 @@ class RangerKotlinClassWriter {
             wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
             return
           }
-          wr.out(("" + (unwrap (get e.values enumName))) false)
+          wr.out((("" + (unwrap (get e.values enumName))) + "L") false)
           return
         }
       }
@@ -1357,12 +1353,13 @@ class RangerKotlinClassWriter {
       return
     }
 
-    ; the index form, what the template wrote before
+    ; the index form. The index is a Ranger int, a Long, while `indices` and
+    ; `[]` are Int: count in Long and narrow only for the element read.
     wr.out("for ( " false)
     this.ktWriteOperand(idx ctx wr)
-    wr.out(" in " false)
+    wr.out(" in 0L until " false)
     this.ktWriteOperand(coll ctx wr)
-    wr.out(".indices ) {" true)
+    wr.out(".size.toLong() ) {" true)
     wr.indent(1)
     wr.out("val " false)
     this.ktWriteOperand(item ctx wr)
@@ -1370,7 +1367,7 @@ class RangerKotlinClassWriter {
     this.ktWriteOperand(coll ctx wr)
     wr.out("[" false)
     this.ktWriteOperand(idx ctx wr)
-    wr.out("]" true)
+    wr.out(".toInt()]" true)
     def sCtx:RangerAppWriterContext (ctx.fork())
     sCtx.restartExpressionLevel()
     this.WalkNode(body sCtx wr)

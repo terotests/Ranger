@@ -246,6 +246,40 @@ describe.skipIf(!kotlinAvailable)("Ranger Compiler - Kotlin Target", () => {
     });
   });
 
+  describe("64-bit int", () => {
+    // Ranger int is a Kotlin Long: a 3 GB file size, a timestamp after 2038
+    // and a product past 2^32 used to wrap in a 32-bit Int.
+    it("should keep values past 2^31 intact", () => {
+      const { compile, run } = compileAndRunKotlin(
+        `${FIXTURES_DIR}/int64_values.rgr`
+      );
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      const out = run?.output ?? "";
+      expect(out).toContain("size=3000000000");
+      expect(out).toContain("kb=2929687");
+      expect(out).toContain("size_gt_int32: ok");
+      expect(out).toContain("prod=4294967296");
+      expect(out).toContain("secs=2208988800");
+      expect(out).toContain("ms=2208988800000");
+      expect(out).toContain("grow=6000000000");
+      expect(out).toContain("switch: ok");
+      expect(out).toContain("list0=3000000000");
+      expect(out).toContain("list1=2208988800000");
+      expect(out).toContain("map=3000000000");
+      expect(out).toContain("buf=2208988800000");
+      expect(out).toContain("str2int=4294967296");
+      expect(out).toContain("shl=1099511627776");
+      expect(out).toContain("and=1375609856");
+      expect(out).toContain("json=3000000000");
+      expect(out).toContain("Done");
+    });
+  });
+
   describe("Inheritance", () => {
     it("should compile and run inheritance example", () => {
       const { compile, run } = compileAndRunKotlin(

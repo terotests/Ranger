@@ -102,7 +102,7 @@ const NATIVE: NativeTarget[] = [
   { lang: "php", file: "main.php", decl: "class History ", use: "new History(" },
   { lang: "csharp", file: "main.cs", decl: "class History<Op>", use: "History<int>" },
   { lang: "dart", file: "main.dart", decl: "class History<Op>", use: "History<int>" },
-  { lang: "kotlin", file: "main.kt", decl: "class History<Op>", use: "History<Int>" },
+  { lang: "kotlin", file: "main.kt", decl: "class History<Op>", use: "History<Long>" },
   { lang: "scala", file: "main.scala", decl: "class History[Op]", use: "History[Int]" },
   { lang: "rust", file: "main.rs", decl: "impl<Op: Clone> History<Op> {", use: "History::<i64>::new()" },
 ];

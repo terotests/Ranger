@@ -14348,7 +14348,7 @@ class RangerProcessCodegen  {
   };
   writeProcessInstanceRegisterCall (wr, lang) {
     if ( lang == "kotlin" ) {
-      wr.out("if (this is RangerProcessBase && (this as RangerProcessBase).__rangerId != 0) { __rgr_proc.__rangerRegisterChild(this as RangerProcessBase) } else { __rgr_proc.__rangerRegisterRoot() }", false);
+      wr.out("if (this is RangerProcessBase && (this as RangerProcessBase).__rangerId != 0L) { __rgr_proc.__rangerRegisterChild(this as RangerProcessBase) } else { __rgr_proc.__rangerRegisterRoot() }", false);
       return;
     }
     if ( lang == "swift6" || lang == "swift3" ) {
@@ -46113,7 +46113,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   }
   ktEnumIsNative (enumName, ctx) {
     this.ktEnums.targetName = "kotlin";
-    this.ktEnums.fallbackType = "Int";
+    this.ktEnums.fallbackType = "Long";
     return this.ktEnums.isNative(enumName, ctx);
   };
   writeKotlinNativeEnums (ctx, wr) {
@@ -46198,11 +46198,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         wr.out(("\"" + s) + "\"", false);
         break;
       case 3 : 
-        if ( node.int_value > 2147483647 || node.int_value < (0 - 2147483647) - 1 ) {
-          wr.out(("(" + node.int_value) + "L).toInt()", false);
-        } else {
-          wr.out("" + node.int_value, false);
-        }
+        wr.out(("" + node.int_value) + "L", false);
         break;
       case 5 : 
         if ( node.boolean_value ) {
@@ -46283,7 +46279,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     }
     switch (type_string ) { 
       case "int" : 
-        return "Int";
+        return "Long";
       case "string" : 
         return "String";
       case "chararray" : 
@@ -46295,14 +46291,14 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       case "double_buffer" : 
         return "DoubleArray";
       case "char" : 
-        return "Int";
+        return "Long";
       case "boolean" : 
         return "Boolean";
       case "double" : 
         return "Double";
     };
     if ( ctx.isEnumDefined(type_string) ) {
-      return "Int";
+      return "Long";
     }
     return type_string;
   };
@@ -46336,7 +46332,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   getTypeString (type_string) {
     switch (type_string ) { 
       case "int" : 
-        return "Int";
+        return "Long";
       case "string" : 
         return "String";
       case "chararray" : 
@@ -46348,7 +46344,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       case "double_buffer" : 
         return "DoubleArray";
       case "char" : 
-        return "Int";
+        return "Long";
       case "boolean" : 
         return "Boolean";
       case "double" : 
@@ -46395,17 +46391,17 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         if ( this.ktEnumIsNative(ktEnumName, ctx) ) {
           wr.out(ktEnumName, false);
         } else {
-          wr.out("Int", false);
+          wr.out("Long", false);
         }
         break;
       case 3 : 
-        wr.out("Int", false);
+        wr.out("Long", false);
         break;
       case 2 : 
         wr.out("Double", false);
         break;
       case 14 : 
-        wr.out("Int", false);
+        wr.out("Long", false);
         break;
       case 15 : 
         wr.out("ByteArray", false);
@@ -46502,7 +46498,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
             wr.out((rootObjName + ".") + ctx.transformWord(enumName), false);
             return;
           }
-          wr.out("" + ( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ), false);
+          wr.out(("" + ( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined )) + "L", false);
           return;
         }
       }
@@ -47305,9 +47301,9 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     }
     wr.out("for ( ", false);
     this.ktWriteOperand(idx, ctx, wr);
-    wr.out(" in ", false);
+    wr.out(" in 0L until ", false);
     this.ktWriteOperand(coll, ctx, wr);
-    wr.out(".indices ) {", true);
+    wr.out(".size.toLong() ) {", true);
     wr.indent(1);
     wr.out("val ", false);
     this.ktWriteOperand(item, ctx, wr);
@@ -47315,7 +47311,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     this.ktWriteOperand(coll, ctx, wr);
     wr.out("[", false);
     this.ktWriteOperand(idx, ctx, wr);
-    wr.out("]", true);
+    wr.out(".toInt()]", true);
     const sCtx = ctx.fork();
     sCtx.restartExpressionLevel();
     this.WalkNode(body, sCtx, wr);

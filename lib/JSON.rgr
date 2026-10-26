@@ -711,15 +711,18 @@ open class JSONObject {
   open fun isNull(key: String): Boolean = !values.containsKey(key) || values[key] == null
   open fun names(): JSONArray { val a = JSONArray(); for (k in values.keys) { a.add(k) }; return a }
   open fun optString(key: String): String? = values[key] as? String
-  // A JSON number reads back as Int or Double and the two are distinct types,
-  // so each getter accepts both and converts.
-  open fun optInt(key: String): Int? = when (val v = values[key]) {
-    is Int -> v
-    is Double -> v.toInt()
+  // A JSON number reads back as Long or Double and the two are distinct
+  // types, so each getter accepts both and converts. Ranger `int` is a Kotlin
+  // Long; Int is still accepted for values a program put in itself.
+  open fun optInt(key: String): Long? = when (val v = values[key]) {
+    is Long -> v
+    is Int -> v.toLong()
+    is Double -> v.toLong()
     else -> null
   }
   open fun optDouble(key: String): Double? = when (val v = values[key]) {
     is Double -> v
+    is Long -> v.toDouble()
     is Int -> v.toDouble()
     else -> null
   }
@@ -881,7 +884,7 @@ fun rg_json_read_val(s: String, p: RgJsonPos): Any? {
   val text = s.substring(start, p.i)
   if (text.isEmpty()) { p.i++; return null }
   if (isDouble) { return text.toDoubleOrNull() ?: 0.0 }
-  return text.toIntOrNull() ?: 0
+  return text.toLongOrNull() ?: (text.toDoubleOrNull()?.toLong() ?: 0L)
 }
 fun rg_json_read_text(s: String): Any? = rg_json_read_val(s, RgJsonPos(0))
 ")
@@ -3428,7 +3431,7 @@ static Object __getJSONValue(JSONArray o, Integer item)
              )
             swift3 ( (e 1) "[" (e 2) "]")
             swift6 ( (e 1) "[" (e 2) "]")
-            kotlin ( (e 1) ".get(" (e 2) ")")
+            kotlin ( (e 1) ".get((" (e 2) ").toInt())")
             go ( (e 1) "[" (e 2) "]")
             php ( (e 1) "[" (e 2) "]")
             python ( (e 1) "[" (e 2) "]")
@@ -3493,7 +3496,7 @@ inline rg_json_arr rg_json_as_arr(const rg_json_val& v) {
             ranger ("(array_length " (e 1) ")")
             es6 ( (e 1) ".length")
             java7 ( (e 1) ".length()" )
-            kotlin ( (e 1) ".length()" )
+            kotlin ( (e 1) ".length().toLong()" )
             swift3 ( (e 1) ".count")
             swift6 ( (e 1) ".count")
             go( "int64(len(" (e 1) "))" )

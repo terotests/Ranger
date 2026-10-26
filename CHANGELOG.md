@@ -24,6 +24,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Kotlin `int` is a 64-bit `Long`.** The Kotlin writer mapped Ranger
+  `int` (and `char`, and enums lowered to integers) to Kotlin's 32-bit `Int`,
+  so a file size over 2 GB, a millisecond timestamp or a time after 2038
+  wrapped. `int` is now `Long` as on Go, Rust and Java: literals carry `L`,
+  templates that call a Kotlin API taking or returning an `Int` (indexes,
+  `.size`, `.length`, `.code`, `indexOf`, `shl` counts, `System.exit`)
+  convert at that boundary, and the Kotlin JSON reader keeps numbers as
+  `Long` (a number past 2^31 used to read back as 0). The compiler's own
+  Kotlin build still compiles with no `kotlinc` error, and its es6 output is
+  byte-identical to the Node build's. `tests/fixtures/int64_values.rgr`.
+
 - **Swift output of Rust-syntax float code.** `x as i64` on an `f64`,
   `powf`/`powi`, `ln`, `exp`, `log10`, `round`, `trunc` and `{}` of an
   `f64` had no Swift template and fell back to JavaScript's `Math.…`, and
