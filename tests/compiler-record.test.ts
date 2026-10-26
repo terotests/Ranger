@@ -71,7 +71,7 @@ describe("record constructor signatures per target", () => {
     { lang: "swift6", file: "record_basic.swift", expected: /init\(xpos : Int, ypos : Int\s*\)/ },
     { lang: "go", file: "record_basic.go", expected: /func CreateNew_Point\(xpos int64, ypos int64\)/ },
     { lang: "python", file: "record_basic.py", expected: /def __init__\(self, xpos: int, ypos: int\) -> None:/ },
-    { lang: "kotlin", file: "record_basic.kt", expected: /class Point\(\s*xpos : Int, ypos : Int\s*\)/ },
+    { lang: "kotlin", file: "record_basic.kt", expected: /class Point\(\s*xpos : Long, ypos : Long\s*\)/ },
   ];
 
   for (const c of cases) {

@@ -1,0 +1,79 @@
+; Ranger `int` is 64 bits. Values past 2^31 -- a file of more than 2 GB, a
+; millisecond timestamp, a second count after 2038 -- have to survive every
+; operation that touches an int: arithmetic, comparison, a switch, a list, a
+; map, an int_buffer, text conversion both ways and a JSON round trip.
+Import "stdlib.rgr"
+
+class Int64Values {
+    fn grow:int (v:int by:int) {
+        return (v + by)
+    }
+    sfn m@(main):void () {
+        ; a 3 GB file
+        def size:int 3000000000
+        print ("size=" + size)
+        def kb:int (idiv size 1024)
+        print ("kb=" + kb)
+        if (size > 2147483647) {
+            print "size_gt_int32: ok"
+        }
+        ; 2^32 from a product of two values that fit 32 bits
+        def a:int 65536
+        def prod:int (a * a)
+        print ("prod=" + prod)
+        ; 2040-01-01T00:00:00Z: seconds after 2038, and milliseconds
+        def secs:int 2208988800
+        def ms:int (secs * 1000)
+        print ("secs=" + secs)
+        print ("ms=" + ms)
+        def inst (new Int64Values ())
+        print ("grow=" + (inst.grow(size size)))
+        switch secs {
+            case 2208988800 {
+                print "switch: ok"
+            }
+            default {
+                print "switch: wrong"
+            }
+        }
+        def list:[int]
+        push list size
+        push list ms
+        print ("list0=" + (itemAt list 0))
+        print ("list1=" + (itemAt list 1))
+        def m:[string:int]
+        set m "size" size
+        def got (get m "size")
+        if (!null? got) {
+            print ("map=" + (unwrap got))
+        }
+        def buf:int_buffer (int_buffer_alloc 2)
+        int_buffer_set buf 0 ms
+        print ("buf=" + (int_buffer_get buf 0))
+        def parsed (str2int "4294967296")
+        if (!null? parsed) {
+            print ("str2int=" + (unwrap parsed))
+        }
+        print ("shl=" + (bit_shl 1 40))
+        print ("and=" + (bit_and ms 4294967295))
+        def obj:JSONDataObject (json_object)
+        set obj "size" size
+        set obj "name" "big.iso"
+        def back:JSONDataObject (json_object)
+        try {
+            back = (from_string (to_string obj))
+        } {
+            print "parse failed"
+        }
+        ; getStr is also what brings the Kotlin JSON classes into the output
+        def jn (getStr back "name")
+        if (!null? jn) {
+            print ("name=" + (unwrap jn))
+        }
+        def js (getInt back "size")
+        if (!null? js) {
+            print ("json=" + (unwrap js))
+        }
+        print "Done"
+    }
+}
