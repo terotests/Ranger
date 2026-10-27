@@ -166,6 +166,9 @@ class RsType {
 
 class RsField {
   def name:string ""
+  ; a `.rgr` class's field by its Rust name (`auto_complete`): the field's
+  ; Ranger name (`autoComplete`), which the lowering writes
+  def rname:string ""
   def ty:RsType (new RsType("unknown"))
   def node@(optional):RustNode
 }

@@ -83486,10 +83486,11 @@ class StaticAnalyzer  {
       return;
     }
     const root = this.ctx.getRoot();
+    const moduleOut = this.ctx.hasCompilerFlag("rust-module");
     for( var ci in root.definedClasses) {
       if(root.definedClasses.hasOwnProperty(ci)) {
         var cl = root.definedClasses[ci] 
-        let clExcluded = (((((cl.is_system || cl.is_union) || cl.is_system_union) || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_generic_instance;
+        let clExcluded = ((((((cl.is_system || cl.is_union) || cl.is_system_union) || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_generic_instance) || moduleOut;
         if ( clExcluded == false ) {
           if ( cl.is_extended_by_children || cl.extends_classes.length > 0 ) {
             clExcluded = true;
@@ -87467,6 +87468,7 @@ RsType.of2 = function(k, a, b) {
 class RsField  {
   constructor() {
     this.name = "";
+    this.rname = "";
     this.ty = new RsType("unknown");
     this.node = undefined;
   }
@@ -88482,6 +88484,7 @@ class RsRgrScan  {
       depth = depth + this.braceDelta(line);
       if ( depth < classDepth && ((typeof(cur) !== "undefined" && cur != null ) ) ) {
         this.defaultCtor(cur);
+        this.rustNames(cur);
       }
       if ( depth < classDepth ) {
         let none;
@@ -88504,6 +88507,40 @@ class RsRgrScan  {
     k.rgrCtor = true;
     k.ret = RsType.named(c.name);
     c.methods.push(k);
+  };
+  rustNames (c) {
+    const nf = c.fields.length;
+    let fi = 0;
+    while (fi < nf) {
+      const f = c.fields[fi];
+      fi = fi + 1;
+      const sn = RsRgrScan.rustName(f.name);
+      if ( (sn != f.name && (typeof(c.field(sn)) === "undefined")) && (typeof(c.method(sn)) === "undefined") ) {
+        const af = new RsField();
+        af.name = sn;
+        af.rname = f.name;
+        af.ty = f.ty;
+        c.fields.push(af);
+      }
+    };
+    const nm = c.methods.length;
+    let mi = 0;
+    while (mi < nm) {
+      const m = c.methods[mi];
+      mi = mi + 1;
+      const sn2 = RsRgrScan.rustName(m.name);
+      if ( (sn2 != m.name && (typeof(c.method(sn2)) === "undefined")) && (typeof(c.field(sn2)) === "undefined") ) {
+        const am = new RsFn();
+        am.name = sn2;
+        am.rname = m.rname;
+        am.owner = m.owner;
+        am.hasSelf = m.hasSelf;
+        am.rgrCtor = m.rgrCtor;
+        am.ret = m.ret;
+        am.params = m.params;
+        c.methods.push(am);
+      }
+    };
   };
   stripComment (s) {
     let inStr = false;
@@ -88741,6 +88778,36 @@ class RsRgrScan  {
     }
   };
 }
+RsRgrScan.rustName = function(n) {
+  const ln = n.length;
+  let out = "";
+  let i = 0;
+  while (i < ln) {
+    const ch = n.substring(i, i + 1 );
+    const lower = ch.toLowerCase();
+    if ( ch != lower ) {
+      if ( i > 0 ) {
+        const prev = n.substring(i - 1, i );
+        const prevIsLower = prev != prev.toUpperCase();
+        let nextIsLower = false;
+        if ( i + 1 < ln ) {
+          const nxt = n.substring(i + 1, i + 2 );
+          if ( nxt != nxt.toUpperCase() ) {
+            nextIsLower = true;
+          }
+        }
+        if ( (prevIsLower || nextIsLower) && prev != "_" ) {
+          out = out + "_";
+        }
+      }
+      out = out + lower;
+    } else {
+      out = out + ch;
+    }
+    i = i + 1;
+  };
+  return out;
+};
 class RustLower  {
   constructor() {
     this.errors = [];
@@ -96130,6 +96197,9 @@ class RustLower  {
         const ff = f;
         fty = this.fieldTypeOf(s, ff, t);
         fname = this.fieldName(key);
+        if ( ff.rname != "" ) {
+          fname = ff.rname;
+        }
       } else {
         this.err(n, ((("no field `" + n.name) + "` on a value of type `") + t.rust()) + "`");
         return this.unit();
@@ -96293,7 +96363,14 @@ class RustLower  {
         if ( s.isTuple ) {
           fname = "f" + fname;
         }
+        const af = s.field(fname);
         fname = this.fieldName(fname);
+        if ( (typeof(af) !== "undefined" && af != null )  ) {
+          const aff = af;
+          if ( aff.rname != "" ) {
+            fname = aff.rname;
+          }
+        }
       }
       this.out.line((((recv + ".") + fname) + " = ") + v.code);
       return;

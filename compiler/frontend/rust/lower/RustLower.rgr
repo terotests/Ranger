@@ -7907,6 +7907,9 @@ class RustLower {
         def ff:RsField (unwrap f)
         fty = (this.fieldTypeOf(s ff t))
         fname = (this.fieldName(key))
+        if (ff.rname != "") {
+          fname = ff.rname
+        }
       } {
         this.err(n (((("no field `" + n.name) + "` on a value of type `") + (t.rust())) + "`"))
         return (this.unit())
@@ -8079,7 +8082,14 @@ class RustLower {
         if (s.isTuple) {
           fname = ("f" + fname)
         }
+        def af@(optional):RsField (s.field(fname))
         fname = (this.fieldName(fname))
+        if (!null? af) {
+          def aff:RsField (unwrap af)
+          if (aff.rname != "") {
+            fname = aff.rname
+          }
+        }
       }
       out.line(((((recv + ".") + fname) + " = ") + v.code))
       return

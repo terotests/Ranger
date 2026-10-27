@@ -4,12 +4,21 @@ class Counter {
   def count:int 0
   def label:string ""
   def history:[int]
+  ; written here only as a literal: still a String for the Rust code
+  def noteText:string "none"
+  def lastAdded:int 0
   Constructor (l:string) {
     label = l
   }
   fn add:void (n:int) {
     count = count + n
     push history n
+  }
+  ; called by its Rust name, add_twice
+  fn addTwice:void (n:int) {
+    this.add(n)
+    this.add(n)
+    lastAdded = n
   }
   fn total:int () {
     return count
