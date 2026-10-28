@@ -36526,6 +36526,20 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               }
             }
           }
+          if ( this.rust_receiverless_method ) {
+            if ( thisInit.value_type == 11 && thisInit.ns.length == 1 ) {
+              if ( thisInit.hasParamDesc ) {
+                const bfP = thisInit.paramDesc;
+                if ( bfP.varType == 8 ) {
+                  if ( this.rustFieldIsCopyScalar(bfP, ctx) == false ) {
+                    if ( local_needs_rc_wrap == false ) {
+                      wr.out(".clone()", false);
+                    }
+                  }
+                }
+              }
+            }
+          }
           if ( local_needs_rc_wrap == false ) {
             if ( thisInit.value_type == 11 ) {
               if ( thisInit.ns.length == 1 ) {
@@ -36921,7 +36935,14 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     }
     const pgInner = this.rustUnwrapParens(obj);
     if ( pgInner.hasFnCall || pgInner.has_call ) {
-      pgType = "";
+      let pgStatic = false;
+      if ( (typeof(pgInner.fnDesc) !== "undefined" && pgInner.fnDesc != null )  ) {
+        const pgFd = pgInner.fnDesc;
+        pgStatic = pgFd.is_static;
+      }
+      if ( pgStatic == false ) {
+        pgType = "";
+      }
     }
     if ( prop.vref.length > 0 ) {
       if ( prop.vref.charCodeAt(0 ) == 46 ) {

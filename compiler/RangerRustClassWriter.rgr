@@ -3082,6 +3082,24 @@ class RangerRustClassWriter {
               }
             }
           }
+          ; A bare field name in a method with no `self` is read through
+          ; `__self_rc.borrow()`, and a non-Copy value cannot move out of
+          ; that Ref: `def base:string fontFamily` takes a clone, as
+          ; `this.fontFamily` already does.
+          if rust_receiverless_method {
+            if ((thisInit.value_type == RangerNodeType.VRef) && ((array_length thisInit.ns) == 1)) {
+              if thisInit.hasParamDesc {
+                def bfP:RangerAppParamDesc (unwrap thisInit.paramDesc)
+                if (bfP.varType == RangerContextVarType.Property) {
+                  if ((this.rustFieldIsCopyScalar(bfP ctx)) == false) {
+                    if (local_needs_rc_wrap == false) {
+                      wr.out(".clone()" false)
+                    }
+                  }
+                }
+              }
+            }
+          }
           ; …and so does a BORROWED parameter bound to an owned name: the
           ; parameter is `&Rc<RefCell<T>>` and the local declares the Rc
           ; itself. The rc-wrap path writes its own clone, so this only
@@ -3853,8 +3871,17 @@ class RangerRustClassWriter {
     ; …but a CALL already hands back a borrow of its own result, and a
     ; second one is `.borrow().borrow()`
     def pgInner:CodeNode (this.rustUnwrapParens(obj))
+    ; …except a STATIC function's: it returns the owned Rc itself
+    ; (`(VlTime.partsOfUtc(ms)).year`)
     if (pgInner.hasFnCall || pgInner.has_call) {
-      pgType = ""
+      def pgStatic:boolean false
+      if (!null? pgInner.fnDesc) {
+        def pgFd:RangerAppFunctionDesc (unwrap pgInner.fnDesc)
+        pgStatic = pgFd.is_static
+      }
+      if (pgStatic == false) {
+        pgType = ""
+      }
     }
     ; …and so does the PROPERTY, when the front end resolved which class it
     ; belongs to — WriteVRef writes the borrow in front of a `.name` whose
