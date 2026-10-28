@@ -89582,6 +89582,20 @@ class RustLower  {
       }
     }
   };
+  isRgrCellField (fname) {
+    // Loop start
+    for ( const cn of this.rgrClassNames) {
+      const c = ( Object.prototype.hasOwnProperty.call(this.structs, cn) ? this.structs[cn] : undefined );
+      const f = c.field(fname);
+      if ( (typeof(f) !== "undefined" && f != null )  ) {
+        const ft = f.ty;
+        if ( ((ft.kind == "int" || ft.kind == "double") || ft.kind == "bool") || ft.kind == "string" ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
   inheritRgr () {
     let done = {};
     // Loop start
@@ -95460,6 +95474,22 @@ class RustLower  {
       }
       this.unsupported(n, ("the Formatter method `" + name) + "`");
       return this.unit();
+    }
+    if ( recvN.kind == "field" && this.isRgrCellField(recvN.name) ) {
+      const nArgs = args.length;
+      if ( ((name == "get" || name == "borrow") || name == "take") && nArgs == 0 ) {
+        return this.lowerExpr(recvN, expect);
+      }
+      if ( (name == "set" || name == "replace") && nArgs == 1 ) {
+        const asg = new RustNode("assign");
+        asg.name = "=";
+        asg.line = n.line;
+        asg.col = n.col;
+        asg.add(recvN);
+        asg.add(args[0]);
+        this.lowerAssign(asg);
+        return this.unit();
+      }
     }
     const rv = this.lowerExpr(recvN, RsType.mk("unknown"));
     const t = rv.ty;

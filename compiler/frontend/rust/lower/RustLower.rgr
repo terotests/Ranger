@@ -657,6 +657,21 @@ class RustLower {
 
   ; `class X extends P` of a .rgr file: X answers for P's fields and methods
   ; as the .rgr class does (its own spelling of a name wins), parents first
+  ; a scalar or string field of some .rgr class has this name
+  fn isRgrCellField:boolean (fname:string) {
+    for rgrClassNames cn:string ci {
+      def c:RsStruct (unwrap (get structs cn))
+      def f@(optional):RsField (c.field(fname))
+      if (!null? f) {
+        def ft:RsType (unwrap f).ty
+        if ((ft.kind == "int") || (ft.kind == "double") || (ft.kind == "bool") || (ft.kind == "string")) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
   fn inheritRgr:void () {
     def done:[string:boolean]
     for rgrClassNames sn:string si {
@@ -6841,6 +6856,26 @@ class RustLower {
       }
       this.unsupported(n (("the Formatter method `" + name) + "`"))
       return (this.unit())
+    }
+    ; A scalar or string field of a .rgr class may be a Cell or RefCell in
+    ; the Rust that Ranger writes for the class (a field the class's `&self`
+    ; methods change): rustc then needs `x.f.get()`, `x.f.set(v)`,
+    ; `x.f.replace(v)` or `x.f.borrow()`, and each is the field itself here
+    if ((recvN.kind == "field") && (this.isRgrCellField(recvN.name))) {
+      def nArgs:int (array_length args)
+      if (((name == "get") || (name == "borrow") || (name == "take")) && (nArgs == 0)) {
+        return (this.lowerExpr(recvN expect))
+      }
+      if (((name == "set") || (name == "replace")) && (nArgs == 1)) {
+        def asg:RustNode (new RustNode("assign"))
+        asg.name = "="
+        asg.line = n.line
+        asg.col = n.col
+        asg.add(recvN)
+        asg.add((itemAt args 0))
+        this.lowerAssign(asg)
+        return (this.unit())
+      }
     }
     def rv:RsExpr (this.lowerExpr(recvN (RsType.mk("unknown"))))
     def t:RsType rv.ty
