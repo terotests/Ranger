@@ -24,6 +24,11 @@ fn main() {
     println!("{}", Counter::describe(&c));
     println!("total {} count {}", Counter::total(&c), c.borrow().count);
 
+    // camelCase .rgr members by the snake_case names rustc sees
+    Counter::add_twice(&c, 2);
+    c.borrow_mut().note_text = format!("last {}", c.borrow().last_added);
+    println!("{} {}", Counter::describe(&c), c.borrow().note_text);
+
     let m = Counter::create("made");
     Counter::add(&m, 10);
     c.borrow_mut().label = String::from("renamed");

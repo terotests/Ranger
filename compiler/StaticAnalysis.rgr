@@ -4877,11 +4877,15 @@ class StaticAnalyzer {
       return
     }
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    ; `-rust-module`: strict Rust code may write any string into a field, so
+    ; a field's type must not depend on what the module itself writes there
+    ; (the same reason every class there is a handle)
+    def moduleOut:boolean ((unwrap ctx).hasCompilerFlag("rust-module"))
     ; phase 1: field candidates — plain classes only; trait-related, template,
     ; operator, system and generic-instance classes keep owned fields (their
     ; emission paths have their own rules and the saving is not worth the risk)
     for root.definedClasses cl:RangerAppClassDesc ci {
-      def clExcluded:boolean ((((((cl.is_system || cl.is_union) || cl.is_system_union) || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_generic_instance)
+      def clExcluded:boolean (((((((cl.is_system || cl.is_union) || cl.is_system_union) || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_generic_instance) || moduleOut)
       if (clExcluded == false) {
         if (cl.is_extended_by_children || ((array_length cl.extends_classes) > 0)) {
           clExcluded = true

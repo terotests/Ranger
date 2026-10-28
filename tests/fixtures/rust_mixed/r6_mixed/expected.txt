@@ -1,5 +1,6 @@
 dist2 25
 steps=30 (2 adds)
 total 30 count 30
-made=11 (2 adds) / renamed=30 (2 adds)
-sum 141
+steps=34 (4 adds) last 2
+made=11 (2 adds) / renamed=34 (4 adds)
+sum 145

@@ -43,6 +43,7 @@ class RsRgrScan {
       depth = depth + (this.braceDelta(line))
       if ((depth < classDepth) && (!null? cur)) {
         this.defaultCtor((unwrap cur))
+        this.rustNames((unwrap cur))
       }
       if (depth < classDepth) {
         def none@(optional):RsStruct
@@ -66,6 +67,79 @@ class RsRgrScan {
     k.rgrCtor = true
     k.ret = (RsType.named(c.name))
     push c.methods k
+  }
+
+  ; Each member also by the snake_case name Ranger's Rust writer gives it
+  ; (`addChild` -> add_child), so that a `.rs` module that rustc builds with
+  ; the written module beside it can call it by that name. A name already
+  ; used in the class keeps only its own spelling.
+  fn rustNames:void (c:RsStruct) {
+    def nf:int (array_length c.fields)
+    def fi:int 0
+    while (fi < nf) {
+      def f:RsField (itemAt c.fields fi)
+      fi = fi + 1
+      def sn:string (RsRgrScan.rustName(f.name))
+      if ((sn != f.name) && (null? (c.field(sn))) && (null? (c.method(sn)))) {
+        def af:RsField (new RsField())
+        af.name = sn
+        af.rname = f.name
+        af.ty = f.ty
+        push c.fields af
+      }
+    }
+    def nm:int (array_length c.methods)
+    def mi:int 0
+    while (mi < nm) {
+      def m:RsFn (itemAt c.methods mi)
+      mi = mi + 1
+      def sn2:string (RsRgrScan.rustName(m.name))
+      if ((sn2 != m.name) && (null? (c.method(sn2))) && (null? (c.field(sn2)))) {
+        def am:RsFn (new RsFn())
+        am.name = sn2
+        am.rname = m.rname
+        am.owner = m.owner
+        am.hasSelf = m.hasSelf
+        am.rgrCtor = m.rgrCtor
+        am.ret = m.ret
+        am.params = m.params
+        push c.methods am
+      }
+    }
+  }
+
+  ; RangerRustClassWriter.rustSnakeCase: an underscore before a capital that
+  ; follows a lower-case letter or starts a word (`parseInt` -> parse_int,
+  ; `HTTPServer` -> http_server)
+  sfn rustName:string (n:string) {
+    def ln:int (strlen n)
+    def out:string ""
+    def i:int 0
+    while (i < ln) {
+      def ch:string (substring n i (i + 1))
+      def lower:string (to_lowercase ch)
+      if (ch != lower) {
+        if (i > 0) {
+          def prev:string (substring n (i - 1) i)
+          def prevIsLower:boolean (prev != (to_uppercase prev))
+          def nextIsLower:boolean false
+          if ((i + 1) < ln) {
+            def nxt:string (substring n (i + 1) (i + 2))
+            if (nxt != (to_uppercase nxt)) {
+              nextIsLower = true
+            }
+          }
+          if ((prevIsLower || nextIsLower) && (prev != "_")) {
+            out = (out + "_")
+          }
+        }
+        out = (out + lower)
+      } {
+        out = (out + ch)
+      }
+      i = (i + 1)
+    }
+    return out
   }
 
   ; Drops a `;` comment, which is not inside a string.
