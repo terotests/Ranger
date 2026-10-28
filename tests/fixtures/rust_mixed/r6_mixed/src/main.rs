@@ -43,4 +43,7 @@ fn main() {
     // a .rgr class field by rustc's Option form
     let latest = Rc::clone(t.borrow().latest.as_ref().unwrap());
     println!("latest {}", latest.borrow().count);
+    // .clone() of the field copies the handle: the same object
+    let again = t.borrow().latest.clone();
+    println!("again {}", again.unwrap().borrow().count);
 }

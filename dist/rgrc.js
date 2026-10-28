@@ -80494,6 +80494,58 @@ class StaticAnalyzer  {
       this.analyzeTransitiveMutBorrow(cl.constructor_fn, changedParams);
     }
   };
+  unifyOverrideParams (cl, root, changedParams) {
+    // Loop start
+    for ( let ci = 0; ci < cl.extends_classes.length; ci++) {
+      var cname = cl.extends_classes[ci];
+      if ( root.isDefinedClass(cname) == false ) {
+        continue;
+      }
+      const pc = root.findClass(cname);
+      // Loop start
+      for ( const m of cl.methods) {
+        if ( pc.hasMethod(m.name) == false ) {
+          continue;
+        }
+        const pmOpt = pc.findMethod(m.name);
+        if ( typeof(pmOpt) === "undefined" ) {
+          continue;
+        }
+        const pm = pmOpt;
+        const n = m.params.length;
+        if ( pm.params.length != n ) {
+          continue;
+        }
+        // Loop start
+        for ( let pi = 0; pi < m.params.length; pi++) {
+          var a = m.params[pi];
+          const b = pm.params[pi];
+          const isMut = a.rust_borrow_type == 2 || b.rust_borrow_type == 2;
+          const isRef = a.needs_cpp_reference || b.needs_cpp_reference;
+          if ( isMut ) {
+            if ( a.rust_borrow_type != 2 ) {
+              a.rust_borrow_type = 2;
+              changedParams.push(a.name);
+            }
+            if ( b.rust_borrow_type != 2 ) {
+              b.rust_borrow_type = 2;
+              changedParams.push(b.name);
+            }
+          }
+          if ( isRef ) {
+            if ( a.needs_cpp_reference == false ) {
+              a.needs_cpp_reference = true;
+              changedParams.push(a.name);
+            }
+            if ( b.needs_cpp_reference == false ) {
+              b.needs_cpp_reference = true;
+              changedParams.push(b.name);
+            }
+          }
+        }
+      }
+    }
+  };
   checkDirectSelfMutation (fn) {
     if ( typeof(fn.fnBody) === "undefined" ) {
       return false;
@@ -83899,6 +83951,12 @@ class StaticAnalyzer  {
         if(root.definedClasses.hasOwnProperty(i_4)) {
           var cl_4 = root.definedClasses[i_4] 
           this.analyzeClassTransitiveMutBorrow(cl_4, changedParams);
+        }
+      };
+      for( var i_5 in root.definedClasses) {
+        if(root.definedClasses.hasOwnProperty(i_5)) {
+          var cl_5 = root.definedClasses[i_5] 
+          this.unifyOverrideParams(cl_5, root, changedParams);
         }
       };
       if ( changedParams.length > 0 ) {
@@ -95226,6 +95284,9 @@ class RustLower  {
         const m = s3.method(name);
         if ( (typeof(m) !== "undefined" && m != null )  ) {
           return this.userMethodCall(rv, m, args, n);
+        }
+        if ( (name == "clone" && s3.rgr) && args.length == 0 ) {
+          return rv;
         }
         if ( name == "clone" && (s3.derivesTrait("Clone") || s3.derivesTrait("Copy")) ) {
           const rc = this.bindTemp(rv, t, "r");

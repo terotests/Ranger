@@ -1288,6 +1288,59 @@ class StaticAnalyzer {
     }
   }
   
+  ; An override and the method it overrides take their parameters the same
+  ; way: a call through the base (a trait object in Rust, a virtual in C++)
+  ; reaches the override with the base's signature. When EVGLayoutFull's
+  ; gridSpanContent fills `content` and EVGLayoutExt's empty one does not,
+  ; both take it `&mut`, or the trait's delegate hands the override a `&[f64]`.
+  fn unifyOverrideParams:void (cl:RangerAppClassDesc root:RangerAppWriterContext changedParams:[string]) {
+    for cl.extends_classes cname:string ci {
+      if ((root.isDefinedClass(cname)) == false) {
+        continue
+      }
+      def pc:RangerAppClassDesc (root.findClass(cname))
+      for cl.methods m:RangerAppFunctionDesc i {
+        if ((pc.hasMethod(m.name)) == false) {
+          continue
+        }
+        def pmOpt@(optional):RangerAppFunctionDesc (pc.findMethod(m.name))
+        if (null? pmOpt) {
+          continue
+        }
+        def pm:RangerAppFunctionDesc (unwrap pmOpt)
+        def n:int (array_length m.params)
+        if ((array_length pm.params) != n) {
+          continue
+        }
+        for m.params a:RangerAppParamDesc pi {
+          def b:RangerAppParamDesc (itemAt pm.params pi)
+          def isMut:boolean ((a.rust_borrow_type == 2) || (b.rust_borrow_type == 2))
+          def isRef:boolean (a.needs_cpp_reference || b.needs_cpp_reference)
+          if isMut {
+            if (a.rust_borrow_type != 2) {
+              a.rust_borrow_type = 2
+              push changedParams a.name
+            }
+            if (b.rust_borrow_type != 2) {
+              b.rust_borrow_type = 2
+              push changedParams b.name
+            }
+          }
+          if isRef {
+            if (a.needs_cpp_reference == false) {
+              a.needs_cpp_reference = true
+              push changedParams a.name
+            }
+            if (b.needs_cpp_reference == false) {
+              b.needs_cpp_reference = true
+              push changedParams b.name
+            }
+          }
+        }
+      }
+    }
+  }
+
   ; ============================================================================
   ; RECURSIVE MUTATION ANALYSIS
   ; ============================================================================
@@ -5209,6 +5262,9 @@ class StaticAnalyzer {
       def changedParams:[string]
       for root.definedClasses cl:RangerAppClassDesc i {
         this.analyzeClassTransitiveMutBorrow(cl changedParams)
+      }
+      for root.definedClasses cl:RangerAppClassDesc i {
+        this.unifyOverrideParams(cl root changedParams)
       }
       if ((array_length changedParams) > 0) {
         changed = true

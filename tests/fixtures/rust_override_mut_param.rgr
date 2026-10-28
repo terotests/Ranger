@@ -1,0 +1,25 @@
+; Test: an override that fills an array parameter, called through the base
+; Expected: the base and the override both take the array `&mut`, so the
+; trait's delegate hands the override the caller's array
+
+class OvExt {
+    fn fill:void (out:[double]) {
+    }
+}
+
+class OvFull {
+    Extends(OvExt)
+    fn fill:void (out:[double]) {
+        set out 0 2.5
+    }
+}
+
+class Test_OverrideMutParam {
+    sfn m@(main):void () {
+        def e:OvExt (new OvFull())
+        def a:[double]
+        push a 0.0
+        e.fill(a)
+        print (to_string (itemAt a 0))
+    }
+}
