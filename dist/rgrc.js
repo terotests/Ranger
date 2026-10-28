@@ -87819,6 +87819,7 @@ class RsStruct  {
     this.traits = [];
     this.node = undefined;
     this.rgr = false;
+    this.parent = "";
     this.serialize = false;
   }
   derivesTrait (t) {
@@ -88749,6 +88750,7 @@ class RsRgrScan  {
   constructor() {
     this.errors = [];     /* note: unused */
     this.classes = [];
+    this.imports = [];
   }
   scan (src, file) {
     const lines = src.split("\n");
@@ -88763,10 +88765,27 @@ class RsRgrScan  {
       if ( line.length == 0 ) {
         continue;
       }
+      if ( depth == 0 && this.startsWord(line, "Import") ) {
+        const q1 = line.indexOf("\"");
+        if ( q1 >= 0 ) {
+          const rest = line.substring(q1 + 1, line.length );
+          const q2 = rest.indexOf("\"");
+          if ( q2 > 0 ) {
+            const imp = rest.substring(0, q2 );
+            if ( imp.indexOf("pkg:") != 0 && imp.indexOf(".rgr") > 0 ) {
+              this.imports.push(imp);
+            }
+          }
+        }
+      }
       if ( depth == 0 && this.startsWord(line, "class") ) {
         const s = new RsStruct();
         s.name = this.wordAt(line, 6);
         s.rgr = true;
+        const ex = line.indexOf(" extends ");
+        if ( ex > 0 ) {
+          s.parent = this.wordAt(line, (ex + 9));
+        }
         this.classes.push(s);
         cur = s;
         classDepth = 1;
@@ -89134,6 +89153,9 @@ class RustLower  {
     this.target = "";
     this.declLate = false;
     this.pendingFiles = [];
+    this.pendingScan = [];
+    this.rgrScanned = {};
+    this.rgrClassNames = [];
     this.rgrImports = [];
     this.entryName = "";
     this.crateKeys = [];
@@ -89351,6 +89373,7 @@ class RustLower  {
         this.pendingNames.push(rgrName);
         this.pendingNodes.push(it);
         this.pendingFiles.push(RustLower.joinPath(RustLower.dirOf(file), rgrName + ".rgr"));
+        this.pendingScan.push(false);
         continue;
       }
       if ( it.kind != "mod" ) {
@@ -89365,6 +89388,7 @@ class RustLower  {
         this.pendingNames.push(it.name);
         this.pendingNodes.push(it);
         this.pendingFiles.push("");
+        this.pendingScan.push(false);
       }
     }
   };
@@ -89499,9 +89523,10 @@ class RustLower  {
     const d = this.pendingDirs[this.pendingPos];
     const rf = this.pendingFiles[this.pendingPos];
     const at = this.pendingNodes[this.pendingPos];
+    const scanOnly = this.pendingScan[this.pendingPos];
     this.pendingPos = this.pendingPos + 1;
     if ( rf != "" ) {
-      this.addRgr(path, src, at);
+      this.addRgr(path, src, at, scanOnly);
       return;
     }
     const p = new RustParser(src);
@@ -89517,18 +89542,89 @@ class RustLower  {
     const own = RustLower.joinPath(d, m);
     this.registerModule(root, key, path, own);
   };
-  addRgr (path, src, at) {
+  addRgr (path, src, at, scanOnly) {
+    this.rgrScanned[path] = true;
     const sc = new RsRgrScan();
     sc.scan(src, path);
+    let wantParent = false;
     // Loop start
     for ( const c of sc.classes) {
       if ( ( typeof(this.structs[c.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, c.name) ) || ( typeof(this.enums[c.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, c.name) ) ) {
+        if ( scanOnly ) {
+          continue;
+        }
         this.err(at, ((("`" + c.name) + "` of ") + path) + " is also declared in the Rust code");
         continue;
       }
       this.structs[c.name] = c;
+      this.rgrClassNames.push(c.name);
+      if ( c.parent != "" && false == ( typeof(this.structs[c.parent] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, c.parent) ) ) {
+        wantParent = true;
+      }
     }
-    this.rgrImports.push(path);
+    if ( scanOnly == false ) {
+      this.rgrImports.push(path);
+    }
+    if ( wantParent ) {
+      // Loop start
+      for ( const imp of sc.imports) {
+        const ip = RustLower.joinPath(RustLower.dirOf(path), imp);
+        if ( ( typeof(this.rgrScanned[ip] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rgrScanned, ip) ) ) {
+          continue;
+        }
+        this.rgrScanned[ip] = true;
+        this.pendingKeys.push(this.pendingKeys[(this.pendingPos - 1)]);
+        this.pendingDirs.push(this.pendingDirs[(this.pendingPos - 1)]);
+        this.pendingNames.push(imp);
+        this.pendingNodes.push(at);
+        this.pendingFiles.push(ip);
+        this.pendingScan.push(true);
+      }
+    }
+  };
+  inheritRgr () {
+    let done = {};
+    // Loop start
+    for ( const sn of this.rgrClassNames) {
+      this.inheritOne(sn, done, 0);
+    }
+  };
+  inheritOne (sn, done, depth) {
+    if ( ( typeof(done[sn] ) != "undefined" && Object.prototype.hasOwnProperty.call(done, sn) ) || depth > 32 ) {
+      return;
+    }
+    done[sn] = true;
+    if ( false == ( typeof(this.structs[sn] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, sn) ) ) {
+      return;
+    }
+    const c = ( Object.prototype.hasOwnProperty.call(this.structs, sn) ? this.structs[sn] : undefined );
+    if ( c.parent == "" || false == ( typeof(this.structs[c.parent] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, c.parent) ) ) {
+      return;
+    }
+    this.inheritOne(c.parent, done, depth + 1);
+    const pc = ( Object.prototype.hasOwnProperty.call(this.structs, c.parent) ? this.structs[c.parent] : undefined );
+    // Loop start
+    for ( const pf of pc.fields) {
+      if ( typeof(c.field(pf.name)) === "undefined" ) {
+        c.fields.push(pf);
+      }
+    }
+    // Loop start
+    for ( const pm of pc.methods) {
+      if ( pm.rgrCtor ) {
+        continue;
+      }
+      let own = false;
+      // Loop start
+      for ( const cm of c.methods) {
+        if ( cm.name == pm.name || cm.rname == pm.rname ) {
+          own = true;
+        }
+      }
+      if ( own == false ) {
+        c.methods.push(pm);
+      }
+    }
   };
   moduleNotFound () {
     if ( false == this.hasPendingModule() ) {
@@ -89540,6 +89636,9 @@ class RustLower  {
     const rf2 = this.pendingFiles[this.pendingPos];
     this.pendingPos = this.pendingPos + 1;
     if ( rf2 != "" ) {
+      if ( this.pendingScan[(this.pendingPos - 1)] ) {
+        return;
+      }
       this.err(at, "file not found for ranger::import_rgr!: " + rf2);
       return;
     }
@@ -89549,6 +89648,7 @@ class RustLower  {
     if ( this.errors.length > 0 ) {
       return "";
     }
+    this.inheritRgr();
     this.collectModules();
     if ( this.errors.length > 0 ) {
       return "";

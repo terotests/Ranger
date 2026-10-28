@@ -15,6 +15,9 @@ Import "RustTypes.rgr"
 class RsRgrScan {
   def errors:[string]
   def classes:[RsStruct]
+  ; the file's own `Import "x.rgr"` lines (not pkg:), where a parent class
+  ; declared elsewhere is looked for
+  def imports:[string]
 
   fn scan:void (src:string file:string) {
     def lines:[string] (strsplit src "\n")
@@ -28,10 +31,27 @@ class RsRgrScan {
       if ((strlen line) == 0) {
         continue
       }
+      if ((depth == 0) && (this.startsWord(line "Import"))) {
+        def q1:int (indexOf line "\"")
+        if (q1 >= 0) {
+          def rest:string (substring line (q1 + 1) (strlen line))
+          def q2:int (indexOf rest "\"")
+          if (q2 > 0) {
+            def imp:string (substring rest 0 q2)
+            if (((indexOf imp "pkg:") != 0) && ((indexOf imp ".rgr") > 0)) {
+              push imports imp
+            }
+          }
+        }
+      }
       if ((depth == 0) && (this.startsWord(line "class"))) {
         def s:RsStruct (new RsStruct())
         s.name = (this.wordAt(line 6))
         s.rgr = true
+        def ex:int (indexOf line " extends ")
+        if (ex > 0) {
+          s.parent = (this.wordAt(line (ex + 9)))
+        }
         push classes s
         cur = s
         classDepth = 1
