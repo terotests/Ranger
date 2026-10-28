@@ -147,6 +147,15 @@ describe.skipIf(!rustAvailable)("Ranger Compiler - Rust Target", () => {
     });
   });
 
+  // EVGLayoutFull.gridSpanContent fills its arrays, EVGLayoutExt's empty
+  // one does not: the trait took them `&[f64]`, the override `&mut Vec`,
+  // and the delegate between them did not compile.
+  describe("Override Parameters", () => {
+    it("should run an override that fills an array called through the base", () => {
+      expectRustOutput("tests/fixtures/rust_override_mut_param.rgr", "2.5");
+    });
+  });
+
   describe("Polyfill Deduplication", () => {
     it("should not duplicate polyfills when on_keypress is used multiple times", () => {
       const result = getGeneratedRustCode("tests/fixtures/polyfill_dedup.rgr");

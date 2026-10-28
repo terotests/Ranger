@@ -95285,6 +95285,9 @@ class RustLower  {
         if ( (typeof(m) !== "undefined" && m != null )  ) {
           return this.userMethodCall(rv, m, args, n);
         }
+        if ( (name == "clone" && s3.rgr) && args.length == 0 ) {
+          return rv;
+        }
         if ( name == "clone" && (s3.derivesTrait("Clone") || s3.derivesTrait("Copy")) ) {
           const rc = this.bindTemp(rv, t, "r");
           return RsExpr.of(this.cloneCode(rc, t), t);
