@@ -6817,8 +6817,9 @@ class RangerAppWriterContext  {
     return false;
   };
   rustGetTempVar () {
-    this.rust_temp_counter = this.rust_temp_counter + 1;
-    return "_tmp_" + this.rust_temp_counter;
+    const root = this.getRoot();
+    root.rust_temp_counter = root.rust_temp_counter + 1;
+    return "_tmp_" + root.rust_temp_counter;
   };
   getEnv () {
     const root = this.getRoot();
@@ -36234,6 +36235,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               if ( this.adjustType(vp.compiledName) == emitted ) {
                 shorthand = true;
               }
+              if ( ctx.isMemberVariable(fVal.vref) ) {
+                shorthand = false;
+              }
             }
           }
         }
@@ -36429,6 +36433,12 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           eff_optional = true;
         }
       }
+      let keepOptLocal = false;
+      if ( (rhs_is_optional_field && eff_optional) && local_needs_rc_wrap == false ) {
+        if ( nameN.array_type.length == 0 && nameN.key_type.length == 0 ) {
+          keepOptLocal = true;
+        }
+      }
       if ( local_needs_rc_wrap ) {
         const localSharedT = this.rustSharedTypeString(nameN.type_name, ctx);
         if ( eff_optional && (nameN.array_type.length == 0 && nameN.key_type.length == 0) ) {
@@ -36443,7 +36453,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           }
         }
       } else {
-        if ( rhs_is_optional_field ) {
+        if ( rhs_is_optional_field && keepOptLocal == false ) {
           let v_type = nameN.value_type;
           if ( (v_type == 10 || v_type == 11) || v_type == 0 ) {
             v_type = nameN.typeNameAsType(ctx);
@@ -36548,7 +36558,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             wr.out(".clone()", false);
           }
         }
-        if ( rhs_is_optional_field && (local_needs_rc_wrap && eff_optional) == false ) {
+        if ( keepOptLocal && value_1.value_type == 11 ) {
+          wr.out(".clone()", false);
+        }
+        if ( (rhs_is_optional_field && (local_needs_rc_wrap && eff_optional) == false) && keepOptLocal == false ) {
           let v_type_1 = nameN.value_type;
           if ( (v_type_1 == 10 || v_type_1 == 11) || v_type_1 == 0 ) {
             v_type_1 = nameN.typeNameAsType(ctx);
@@ -36843,7 +36856,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       this.WalkNode(item, ctx, wr);
       ctx.unsetInExpr();
       let alCloned = false;
-      if ( this.rustArgIsNameRead(item) ) {
+      if ( this.rustArgIsNameRead(item) && this.rustStrRefRead(item) ) {
+        wr.out(".to_string()", false);
+        alCloned = true;
+      }
+      if ( alCloned == false && this.rustArgIsNameRead(item) ) {
         let alCopy = false;
         if ( item.hasParamDesc ) {
           const alP = item.paramDesc;
@@ -37776,6 +37793,13 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         if ( opRoot == "this" ) {
           opIsOwn = true;
         }
+        if ( opTarget.ns.length > 1 ) {
+          if ( ctx.isMemberVariable(opRoot) ) {
+            if ( this.rustCallThroughSharedField(opTarget, ctx) == false ) {
+              opIsOwn = true;
+            }
+          }
+        }
         if ( opTarget.ns.length <= 1 ) {
           if ( opTarget.hasParamDesc ) {
             const opTP = opTarget.paramDesc;
@@ -38581,6 +38605,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             ctx.setInExpr();
             this.WalkNode(arg, ctx, wr);
             ctx.unsetInExpr();
+            if ( arg.value_type == 11 && arg.ns.length > 1 ) {
+              wr.out(".clone()", false);
+            }
             wr.out(";", true);
             arg.rust_use_tmpvar = tmpVarName;
           }
@@ -38629,7 +38656,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             if ( (typeof(stCC) !== "undefined" && stCC != null )  ) {
               const stC = stCC;
               if ( exprSelfRcNeeded ) {
-                if ( obj.expression ) {
+                if ( obj.expression || obj.ns.length > 1 ) {
                   exprSelfRcTmp = ctx.rustGetTempVar();
                   wr.out(("{ let " + exprSelfRcTmp) + " = ", false);
                   ctx.setInExpr();
@@ -38684,7 +38711,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             wr.out(this.rustThisPrefix(ctx) + ".", false);
           } else {
             let rcvClose = ")";
-            if ( exprSelfRcNeeded && obj.expression ) {
+            if ( exprSelfRcNeeded && (obj.expression || obj.ns.length > 1) ) {
               exprSelfRcTmp = ctx.rustGetTempVar();
               wr.out(("{ let " + exprSelfRcTmp) + " = ", false);
               ctx.setInExpr();
@@ -39446,11 +39473,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                 }
                 let borrowRcWrap3 = false;
                 if ( needsImmutableRef && borrowedLitDone2 == false ) {
-                  if ( arg.rust_needs_rc_wrap ) {
-                    if ( this.rustInitRcState(nVal, ctx) == 0 ) {
-                      borrowRcWrap3 = true;
-                    }
-                  }
+                  borrowRcWrap3 = this.rustArgNeedsCellWrap(arg, nVal, ctx);
+                }
+                if ( needsImmutableRef == false && needsMutRef == false ) {
+                  borrowRcWrap3 = this.rustArgNeedsCellWrap(arg, nVal, ctx);
                 }
                 if ( borrowedLitDone2 == false ) {
                   if ( borrowRcWrap3 ) {
@@ -39643,12 +39669,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             } else {
               if ( needsImmutableRef2 ) {
                 wr.out("&", false);
-                let borrowRcWrap2 = false;
-                if ( arg_1.rust_needs_rc_wrap ) {
-                  if ( this.rustInitRcState(nVal_1, ctx) == 0 ) {
-                    borrowRcWrap2 = true;
-                  }
-                }
+                const borrowRcWrap2 = this.rustArgNeedsCellWrap(
+                  arg_1,
+                  nVal_1,
+                  ctx
+                );
                 if ( borrowRcWrap2 ) {
                   wr.out("Rc::new(RefCell::new(", false);
                 }
@@ -39804,12 +39829,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                   if ( this.rustArgIsAlreadyRef(nVal_2) == false ) {
                     wr.out("&", false);
                   }
-                  let stRcWrap = false;
-                  if ( arg_2.rust_needs_rc_wrap ) {
-                    if ( this.rustInitRcState(nVal_2, ctx) == 0 ) {
-                      stRcWrap = true;
-                    }
-                  }
+                  const stRcWrap = this.rustArgNeedsCellWrap(
+                    arg_2,
+                    nVal_2,
+                    ctx
+                  );
                   if ( stRcWrap ) {
                     wr.out("Rc::new(RefCell::new(", false);
                   }
@@ -39823,11 +39847,18 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                   }
                 }
               } else {
+                const byValWrap = this.rustArgNeedsCellWrap(arg_2, nVal_2, ctx);
+                if ( byValWrap ) {
+                  wr.out("Rc::new(RefCell::new(", false);
+                }
                 ctx.setInExpr();
                 wr.suppress_expr_parens = true;
                 this.WalkNode(nVal_2, ctx, wr);
                 wr.suppress_expr_parens = false;
                 ctx.unsetInExpr();
+                if ( byValWrap ) {
+                  wr.out("))", false);
+                }
                 const argNameN_1 = arg_2.nameNode;
                 let arg_type_1 = argNameN_1.value_type;
                 if ( (arg_type_1 == 10 || arg_type_1 == 11) || arg_type_1 == 0 ) {
@@ -39972,11 +40003,18 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                   if ( this.rustArgIsAlreadyRef(nVal_3) == false ) {
                     wr.out("&", false);
                   }
+                  const ib3Wrap = this.rustArgNeedsCellWrap(arg_3, nVal_3, ctx);
+                  if ( ib3Wrap ) {
+                    wr.out("Rc::new(RefCell::new(", false);
+                  }
                   ctx.setInExpr();
                   wr.suppress_expr_parens = true;
                   this.WalkNode(nVal_3, ctx, wr);
                   wr.suppress_expr_parens = false;
                   ctx.unsetInExpr();
+                  if ( ib3Wrap ) {
+                    wr.out("))", false);
+                  }
                 }
               } else {
                 const stdCellWrap = this.rustArgNeedsCellWrap(
@@ -40185,12 +40223,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               if ( this.rustArgIsAlreadyRef(nVal_4) == false ) {
                 wr.out("&", false);
               }
-              let borrowNeedsRcWrap = false;
-              if ( arg_4.rust_needs_rc_wrap ) {
-                if ( this.rustInitRcState(nVal_4, ctx) == 0 ) {
-                  borrowNeedsRcWrap = true;
-                }
-              }
+              const borrowNeedsRcWrap = this.rustArgNeedsCellWrap(
+                arg_4,
+                nVal_4,
+                ctx
+              );
               if ( borrowNeedsRcWrap ) {
                 wr.out("Rc::new(RefCell::new(", false);
               }
@@ -40276,7 +40313,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                   wr.out("panic!(\"Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>\")", false);
                 }
               } else {
-                const needs_rc_wrap = arg_4.rust_needs_rc_wrap;
+                const needs_rc_wrap = arg_4.rust_needs_rc_wrap || this.rustArgNeedsCellWrap(
+                  arg_4,
+                  nVal_4,
+                  ctx
+                );
                 let value_already_rc_wrapped = false;
                 if ( needs_rc_wrap ) {
                   if ( nVal_4.value_type == 11 ) {
@@ -41116,9 +41157,6 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     return true;
   };
   rustArgNeedsCellWrap (arg, nVal, ctx) {
-    if ( arg.rust_needs_rc_wrap == false ) {
-      return false;
-    }
     const acNN = arg.nameNode;
     if ( typeof(acNN) === "undefined" ) {
       return false;
@@ -41127,7 +41165,32 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     if ( acN.array_type.length > 0 || acN.key_type.length > 0 ) {
       return false;
     }
+    if ( arg.rust_needs_rc_wrap == false ) {
+      if ( nVal.hasNewOper && this.rustClassIsShared(acN.type_name, ctx) ) {
+        return true;
+      }
+      return false;
+    }
     return this.rustInitRcState(nVal, ctx) == 0;
+  };
+  rustSubtreeNames (n, name) {
+    if ( n.expression == false && n.value_type == 11 ) {
+      if ( n.vref == name ) {
+        return true;
+      }
+      if ( n.ns.length > 0 ) {
+        if ( n.ns[0] == name ) {
+          return true;
+        }
+      }
+    }
+    // Loop start
+    for ( const ch of n.children) {
+      if ( this.rustSubtreeNames(ch, name) ) {
+        return true;
+      }
+    }
+    return false;
   };
   rustWalkOperand (n, ctx, wr) {
     if ( n.rust_use_tmpvar.length > 0 ) {
@@ -41583,10 +41646,20 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         this.WriteVRef(left, ctx, wr);
         this.rust_in_cell_assign = false;
         ctx.unsetInLhs();
+        let cellVal = cellTmp;
+        let cellOpt = true;
+        if ( (cellCopy || this.rustCellIsString(cellLP)) || this.rustCellIsCollection(cellLP) ) {
+          cellOpt = false;
+        }
+        if ( cellOpt ) {
+          if ( right.hasFlag("optional") == false && this.rustExprIsOptional(right, ctx) == false ) {
+            cellVal = ("Some(" + cellTmp) + ")";
+          }
+        }
         if ( cellCopy ) {
-          wr.out((".set(" + cellTmp) + "); }", true);
+          wr.out((".set(" + cellVal) + "); }", true);
         } else {
-          wr.out((".replace(" + cellTmp) + "); }", true);
+          wr.out((".replace(" + cellVal) + "); }", true);
         }
         return;
       }
@@ -42772,6 +42845,25 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     if ( cmd == "push" ) {
       const left_1 = node.getSecond();
       const right_1 = node.getThird();
+      if ( ctx.expressionLevel() == 0 && right_1.rust_use_tmpvar.length == 0 ) {
+        if ( this.rustNodeContainsCall(right_1) ) {
+          let pushRoot = left_1.vref;
+          if ( left_1.ns.length > 0 ) {
+            pushRoot = left_1.ns[0];
+          }
+          if ( pushRoot.length > 0 ) {
+            if ( this.rustSubtreeNames(right_1, pushRoot) ) {
+              const pushTmp = ctx.rustGetTempVar();
+              wr.out(("let " + pushTmp) + " = ", false);
+              ctx.setInExpr();
+              this.WalkNode(right_1, ctx, wr);
+              ctx.unsetInExpr();
+              wr.out(";", true);
+              right_1.rust_use_tmpvar = pushTmp;
+            }
+          }
+        }
+      }
       let arr_type = "";
       if ( left_1.hasParamDesc ) {
         const pp_2 = left_1.paramDesc;
@@ -43216,6 +43308,12 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         return true;
       }
       if ( ctx.isMemberVariable(fcbRoot) ) {
+        return true;
+      }
+    }
+    if ( fcbRoot == "this" || ctx.isMemberVariable(fcbRoot) ) {
+      const fcbFn = ctx.getCurrentMethod();
+      if ( fcbFn.rust_mut_self ) {
         return true;
       }
     }
@@ -81381,6 +81479,29 @@ class StaticAnalyzer  {
     }
     return this.sharedClassNameOf(this.escapeValueName(node), fnCtx);
   };
+  loopWritesItem (node, name) {
+    if ( node.expression && node.children.length >= 2 ) {
+      const first = node.getFirst();
+      const lhs = node.getSecond();
+      if ( first.vref == "=" && lhs.ns.length >= 2 ) {
+        if ( lhs.ns[0] == name ) {
+          return true;
+        }
+      }
+      if ( this.isMutatingNode(node) ) {
+        if ( lhs.ns.length >= 2 && lhs.ns[0] == name ) {
+          return true;
+        }
+      }
+    }
+    // Loop start
+    for ( const ch of node.children) {
+      if ( this.loopWritesItem(ch, name) ) {
+        return true;
+      }
+    }
+    return false;
+  };
   collectMutatedNames (node, names) {
     if ( node.hasFnCall ) {
       const fc = node.getFirst();
@@ -81785,6 +81906,18 @@ class StaticAnalyzer  {
                   this.markClassShared(cn, "stored object mutated through a local in " + fnName);
                 }
               }
+            }
+          }
+        }
+        if ( first.vref == "for" && node.children.length >= 4 ) {
+          const forItem = node.children[2];
+          let fcn = "";
+          if ( (typeof(forItem.paramDesc) !== "undefined" && forItem.paramDesc != null )  ) {
+            fcn = this.classNameOfDesc(forItem.paramDesc);
+          }
+          if ( fcn.length > 0 ) {
+            if ( this.loopWritesItem(node, forItem.vref) ) {
+              this.markClassShared(fcn, "loop item mutated in " + fnName);
             }
           }
         }

@@ -433,8 +433,11 @@ class RangerAppWriterContext {
 
   ; Generate a unique temp variable name
   fn rustGetTempVar:string () {
-    rust_temp_counter = rust_temp_counter + 1
-    return ("_tmp_" + rust_temp_counter)
+    ; one counter for the whole program: a forked context counting from 0
+    ; again named a second `_tmp_1` in the same block
+    def root (this.getRoot())
+    root.rust_temp_counter = root.rust_temp_counter + 1
+    return ("_tmp_" + root.rust_temp_counter)
   }
 
   fn getEnv@(optional weak):InputEnv () {

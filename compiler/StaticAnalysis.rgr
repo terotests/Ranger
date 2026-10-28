@@ -2413,6 +2413,31 @@ class StaticAnalyzer {
   ; call, the root of a field assignment, the target of a mutating operator.
   ; Collected here rather than read from the mutation pass, because that pass
   ; only runs for the C++ and the Rust target and only marks parameters.
+  ; `item.f = …` or a mutating operator on `item.…` somewhere under node (a
+  ; method call on the item is not counted: most only read)
+  fn loopWritesItem:boolean (node:CodeNode name:string) {
+    if (node.expression && ((array_length node.children) >= 2)) {
+      def first:CodeNode (node.getFirst())
+      def lhs:CodeNode (node.getSecond())
+      if ((first.vref == "=") && ((array_length lhs.ns) >= 2)) {
+        if ((itemAt lhs.ns 0) == name) {
+          return true
+        }
+      }
+      if (this.isMutatingNode(node)) {
+        if (((array_length lhs.ns) >= 2) && ((itemAt lhs.ns 0) == name)) {
+          return true
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.loopWritesItem(ch name)) {
+        return true
+      }
+    }
+    return false
+  }
+
   fn collectMutatedNames:void (node:CodeNode names:[string]) {
     if node.hasFnCall {
       def fc:CodeNode (node.getFirst())
@@ -2867,6 +2892,21 @@ class StaticAnalyzer {
                   this.markClassShared(cn ("stored object mutated through a local in " + fnName))
                 }
               }
+            }
+          }
+        }
+
+        ; for coll item { item.f = … }: the item is the element itself on a
+        ; reference target, and a value copy on Rust would lose the write
+        if ((first.vref == "for") && ((array_length node.children) >= 4)) {
+          def forItem:CodeNode (itemAt node.children 2)
+          def fcn:string ""
+          if (!null? forItem.paramDesc) {
+            fcn = (this.classNameOfDesc((unwrap forItem.paramDesc)))
+          }
+          if ((strlen fcn) > 0) {
+            if (this.loopWritesItem(node forItem.vref)) {
+              this.markClassShared(fcn ("loop item mutated in " + fnName))
             }
           }
         }

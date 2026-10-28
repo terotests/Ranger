@@ -2701,6 +2701,10 @@ class RangerRustClassWriter {
               if ((this.adjustType(vp.compiledName)) == emitted) {
                 shorthand = true
               }
+              ; …a field of `self` with the same name is `self.r`, not `r`
+              if (ctx.isMemberVariable(fVal.vref)) {
+                shorthand = false
+              }
             }
           }
         }
@@ -2949,6 +2953,14 @@ class RangerRustClassWriter {
           eff_optional = true
         }
       }
+      ; an optional plain local from an optional local or field keeps the
+      ; Option: `def v@(optional):int o` is Option = Option, no unwrap
+      def keepOptLocal:boolean false
+      if ((rhs_is_optional_field && eff_optional) && (local_needs_rc_wrap == false)) {
+        if (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0)) {
+          keepOptLocal = true
+        }
+      }
       ; Write type - with Rc<RefCell<>> wrapper if needed for weak ref pattern
       if local_needs_rc_wrap {
         ; Variable needs Rc<RefCell<T>> type. An OPTIONAL shared local is
@@ -2972,7 +2984,7 @@ class RangerRustClassWriter {
           }
         }
       } {
-        if rhs_is_optional_field {
+        if (rhs_is_optional_field && (keepOptLocal == false)) {
           ; Write the underlying type without Option wrapper
           def v_type:RangerNodeType nameN.value_type
           if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
@@ -3115,7 +3127,10 @@ class RangerRustClassWriter {
 
         ; If RHS was optional field, unwrap it — unless the local itself
         ; keeps the Option (an optional shared local): Option = Option
-        if (rhs_is_optional_field && ((local_needs_rc_wrap && eff_optional) == false)) {
+        if (keepOptLocal && (value.value_type == RangerNodeType.VRef)) {
+          wr.out(".clone()" false)
+        }
+        if ((rhs_is_optional_field && ((local_needs_rc_wrap && eff_optional) == false)) && (keepOptLocal == false)) {
           ; Clone before unwrap for object types to avoid move issues
           def v_type:RangerNodeType nameN.value_type
           if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
@@ -3722,7 +3737,12 @@ class RangerRustClassWriter {
       ; literal, which is what Ranger's semantics say. A Copy scalar needs
       ; nothing (clippy's clone_on_copy), and a borrowed handle clones too.
       def alCloned:boolean false
-      if (this.rustArgIsNameRead(item)) {
+      ; a `&'static str` local is Copy, and still not the String the Vec holds
+      if ((this.rustArgIsNameRead(item)) && (this.rustStrRefRead(item))) {
+        wr.out(".to_string()" false)
+        alCloned = true
+      }
+      if ((alCloned == false) && (this.rustArgIsNameRead(item))) {
         def alCopy:boolean false
         if item.hasParamDesc {
           def alP:RangerAppParamDesc (unwrap item.paramDesc)
