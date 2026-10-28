@@ -4818,7 +4818,7 @@ def r_div_f64(a, b):
                 scala ( '( if (' (e 1) ")  " (e 2) " else " (e 3) ')' ) 
                 kotlin ( '(if (' (e 1) ') ' (e 2) ' else ' (e 3) ')' )
                 python ( '(' (e 2) " if " (e 1) " else " (e 3) ')' ) 
-                rust ( 'if ' (e 1) ' { ' (e 2) ' } else { ' (e 3) ' }' )
+                rust ( 'if ' (e 1) ' { ' (eown 2) ' } else { ' (eown 3) ' }' )
                 * ( (e 1) " ? " (e 2) " : " (e 3) ) 
             } 
         }

@@ -3270,6 +3270,20 @@ class RangerRustClassWriter {
               }
             }
           }
+          ; A bare field name in a method with no `self` is read through
+          ; `__self_rc.borrow()`, and a non-Copy value cannot move out of
+          ; that Ref: `def base:string fontFamily` takes a clone, as
+          ; `this.fontFamily` already does.
+          if (rust_receiverless_method && ((array_length valueInner.ns) == 1)) {
+            if valueInner.hasParamDesc {
+              def bfP:RangerAppParamDesc (unwrap valueInner.paramDesc)
+              if (bfP.varType == RangerContextVarType.Property) {
+                if ((this.rustFieldIsCopyScalar(bfP ctx)) == false) {
+                  should_clone_vardef = true
+                }
+              }
+            }
+          }
           if should_clone_vardef {
             ; a str reference (static string, borrowed &str parameter) makes
             ; an owned String with .to_string(); .clone() would copy the &str
@@ -3842,6 +3856,42 @@ class RangerRustClassWriter {
   ; field after it; on Rust an expression that yields a shared class yields
   ; an `Rc<RefCell<T>>`, which has no fields of its own, so the read has to
   ; go through the cell first ("no field `color` on type `Rc<RefCell<…>>`").
+  ; a branch of a value `if` that reads a field (`op.newText`, or a bare
+  ; field name in a method with no `self`) borrows it from the object; a
+  ; non-Copy value has to come out as a clone, a str reference as a String
+  fn ownedValueSuffix:string (inNode:CodeNode ctx:RangerAppWriterContext) {
+    def node:CodeNode (this.rustUnwrapParens(inNode))
+    if (node.value_type != RangerNodeType.VRef) {
+      return ""
+    }
+    ; a `&'static str` field or a borrowed `&str` parameter: the literal in
+    ; the other branch is already a String
+    if (this.rustStrRefRead(node)) {
+      return ".to_string()"
+    }
+    def nsLen:int (array_length node.ns)
+    if (nsLen >= 2) {
+      if ((array_length node.nsp) >= nsLen) {
+        def last:RangerAppParamDesc (itemAt node.nsp (nsLen - 1))
+        if (last.varType == RangerContextVarType.Property) {
+          if ((this.rustFieldIsCopyScalar(last ctx)) == false) {
+            return ".clone()"
+          }
+        }
+      }
+      return ""
+    }
+    if ((nsLen == 1) && node.hasParamDesc) {
+      def bp:RangerAppParamDesc (unwrap node.paramDesc)
+      if (bp.varType == RangerContextVarType.Property) {
+        if ((this.rustFieldIsCopyScalar(bp ctx)) == false) {
+          return ".clone()"
+        }
+      }
+    }
+    return ""
+  }
+
   fn CreatePropertyGet:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def obj:CodeNode (node.getSecond())
     def prop:CodeNode (node.getThird())
@@ -3853,8 +3903,17 @@ class RangerRustClassWriter {
     ; …but a CALL already hands back a borrow of its own result, and a
     ; second one is `.borrow().borrow()`
     def pgInner:CodeNode (this.rustUnwrapParens(obj))
+    ; …except a STATIC function's: it returns the owned Rc itself
+    ; (`(VlTime.partsOfUtc(ms)).year`)
     if (pgInner.hasFnCall || pgInner.has_call) {
-      pgType = ""
+      def pgStatic:boolean false
+      if (!null? pgInner.fnDesc) {
+        def pgFd:RangerAppFunctionDesc (unwrap pgInner.fnDesc)
+        pgStatic = pgFd.is_static
+      }
+      if (pgStatic == false) {
+        pgType = ""
+      }
     }
     ; …and so does the PROPERTY, when the front end resolved which class it
     ; belongs to — WriteVRef writes the borrow in front of a `.name` whose
