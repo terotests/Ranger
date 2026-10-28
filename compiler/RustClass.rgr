@@ -926,6 +926,27 @@ extension RangerRustClassWriter {
     return want
   }
 
+  ; does this body call a method of this object that takes the handle?
+  fn rustCallsSelfRcMethod:boolean (node:CodeNode) {
+    if (!null? node.fnDesc) {
+      if ((array_length node.children) > 0) {
+        def fc:CodeNode (itemAt node.children 0)
+        if (((array_length fc.ns) == 2) && ((itemAt fc.ns 0) == "this")) {
+          def fd:RangerAppFunctionDesc (unwrap node.fnDesc)
+          if fd.rust_needs_self_rc {
+            return true
+          }
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.rustCallsSelfRcMethod(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
   fn writeSelfRcReceiverArg:boolean (node:CodeNode fc:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (null? node.fnDesc) {
       rust_last_recv_tmp = ""
@@ -2344,6 +2365,7 @@ extension RangerRustClassWriter {
       wr.out("};" true)
       wr.newline()
       def constr@(optional):RangerAppFunctionDesc cl.constructor_fn
+      def ctorViaRc:boolean false
       if (!null? constr) {
         def c:RangerAppFunctionDesc (unwrap constr)
         def subCtx@(optional):RangerAppWriterContext c.fnCtx
@@ -2351,10 +2373,33 @@ extension RangerRustClassWriter {
           def sCtx:RangerAppWriterContext (unwrap subCtx)
           sCtx.is_function = true
           def fnB:CodeNode (unwrap c.fnBody)
-          this.WalkNode(fnB sCtx wr)
+          ; A constructor that calls a method taking the handle (every
+          ; method of a shared class does) has no handle: the object is not
+          ; in its cell yet. It is put in one for the body, which then reads
+          ; and writes it the receiverless way, and taken out again at the
+          ; end. A body that kept `this` somewhere leaves a second owner,
+          ; and taking it out fails loudly.
+          if ((this.rustClassIsShared(cl.name ctx)) && (this.rustCallsSelfRcMethod(fnB))) {
+            ctorViaRc = true
+            wr.out("let __self_cell = Rc::new(RefCell::new(me));" true)
+            wr.out("let __self_rc = &__self_cell;" true)
+            def wasRl:boolean rust_receiverless_method
+            def wasNeeds:boolean c.rust_needs_self_rc
+            rust_receiverless_method = true
+            c.rust_needs_self_rc = true
+            this.WalkNode(fnB sCtx wr)
+            rust_receiverless_method = wasRl
+            c.rust_needs_self_rc = wasNeeds
+          } {
+            this.WalkNode(fnB sCtx wr)
+          }
         }
       }
-      wr.out("me" true)
+      if ctorViaRc {
+        wr.out((("match Rc::try_unwrap(__self_cell) { Ok(c) => c.into_inner(), Err(_) => panic!(\"" + cl.name) + "'s constructor kept `this`\") }") true)
+      } {
+        wr.out("me" true)
+      }
     } {
       wr.out("}" true)
     }

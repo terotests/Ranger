@@ -44266,6 +44266,26 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     }
     return want;
   };
+  rustCallsSelfRcMethod (node) {
+    if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+      if ( node.children.length > 0 ) {
+        const fc = node.children[0];
+        if ( fc.ns.length == 2 && fc.ns[0] == "this" ) {
+          const fd = node.fnDesc;
+          if ( fd.rust_needs_self_rc ) {
+            return true;
+          }
+        }
+      }
+    }
+    // Loop start
+    for ( const ch of node.children) {
+      if ( this.rustCallsSelfRcMethod(ch) ) {
+        return true;
+      }
+    }
+    return false;
+  };
   writeSelfRcReceiverArg (node, fc, ctx, wr) {
     if ( typeof(node.fnDesc) === "undefined" ) {
       this.rust_last_recv_tmp = "";
@@ -45400,6 +45420,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       wr.out("};", true);
       wr.newline();
       const constr_1 = cl.constructor_fn;
+      let ctorViaRc = false;
       if ( (typeof(constr_1) !== "undefined" && constr_1 != null )  ) {
         const c_1 = constr_1;
         const subCtx = c_1.fnCtx;
@@ -45407,10 +45428,27 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           const sCtx = subCtx;
           sCtx.is_function = true;
           const fnB = c_1.fnBody;
-          this.WalkNode(fnB, sCtx, wr);
+          if ( this.rustClassIsShared(cl.name, ctx) && this.rustCallsSelfRcMethod(fnB) ) {
+            ctorViaRc = true;
+            wr.out("let __self_cell = Rc::new(RefCell::new(me));", true);
+            wr.out("let __self_rc = &__self_cell;", true);
+            const wasRl = this.rust_receiverless_method;
+            const wasNeeds = c_1.rust_needs_self_rc;
+            this.rust_receiverless_method = true;
+            c_1.rust_needs_self_rc = true;
+            this.WalkNode(fnB, sCtx, wr);
+            this.rust_receiverless_method = wasRl;
+            c_1.rust_needs_self_rc = wasNeeds;
+          } else {
+            this.WalkNode(fnB, sCtx, wr);
+          }
         }
       }
-      wr.out("me", true);
+      if ( ctorViaRc ) {
+        wr.out(("match Rc::try_unwrap(__self_cell) { Ok(c) => c.into_inner(), Err(_) => panic!(\"" + cl.name) + "'s constructor kept `this`\") }", true);
+      } else {
+        wr.out("me", true);
+      }
     } else {
       wr.out("}", true);
     }
