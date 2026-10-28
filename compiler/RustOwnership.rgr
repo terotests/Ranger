@@ -971,6 +971,15 @@ extension RangerRustClassWriter {
         if (opRoot == "this") {
           opIsOwn = true
         }
+        ; `clear view.items`: a collection inside a field held INLINE is
+        ; written through self as well (a shared field has its own cell)
+        if ((array_length opTarget.ns) > 1) {
+          if (ctx.isMemberVariable(opRoot)) {
+            if ((this.rustCallThroughSharedField(opTarget ctx)) == false) {
+              opIsOwn = true
+            }
+          }
+        }
         if ((array_length opTarget.ns) <= 1) {
           if opTarget.hasParamDesc {
             def opTP:RangerAppParamDesc opTarget.paramDesc

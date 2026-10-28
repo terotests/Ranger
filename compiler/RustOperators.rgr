@@ -355,9 +355,6 @@ extension RangerRustClassWriter {
   }
 
   fn rustArgNeedsCellWrap:boolean (arg:RangerAppParamDesc nVal:CodeNode ctx:RangerAppWriterContext) {
-    if (arg.rust_needs_rc_wrap == false) {
-      return false
-    }
     def acNN@(optional):CodeNode arg.nameNode
     if (null? acNN) {
       return false
@@ -366,7 +363,36 @@ extension RangerRustClassWriter {
     if (((strlen acN.array_type) > 0) || ((strlen acN.key_type) > 0)) {
       return false
     }
+    if (arg.rust_needs_rc_wrap == false) {
+      ; a `new` handed to a parameter of a shared class is the bare struct
+      ; and the parameter holds the Rc: `&P::new()` where `&Rc<RefCell<P>>`
+      ; is wanted
+      if (nVal.hasNewOper && (this.rustClassIsShared(acN.type_name ctx))) {
+        return true
+      }
+      return false
+    }
     return ((this.rustInitRcState(nVal ctx)) == 0)
+  }
+
+  ; does the subtree name `name` (a bare name or the root of a path)?
+  fn rustSubtreeNames:boolean (n:CodeNode name:string) {
+    if ((n.expression == false) && (n.value_type == RangerNodeType.VRef)) {
+      if (n.vref == name) {
+        return true
+      }
+      if ((array_length n.ns) > 0) {
+        if ((itemAt n.ns 0) == name) {
+          return true
+        }
+      }
+    }
+    for n.children ch:CodeNode i {
+      if (this.rustSubtreeNames(ch name)) {
+        return true
+      }
+    }
+    return false
   }
 
   fn rustWalkOperand:void (n:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -915,10 +941,22 @@ extension RangerRustClassWriter {
         this.WriteVRef(left ctx wr)
         rust_in_cell_assign = false
         ctx.unsetInLhs()
+        ; an optional cell holds Option<T>: a plain value goes in as Some
+        def cellVal:string cellTmp
+        ; (a class-typed cell is always RefCell<Option<Rc<…>>>, RustClass)
+        def cellOpt:boolean true
+        if (cellCopy || (this.rustCellIsString(cellLP)) || (this.rustCellIsCollection(cellLP))) {
+          cellOpt = false
+        }
+        if cellOpt {
+          if ((right.hasFlag("optional") == false) && ((this.rustExprIsOptional(right ctx)) == false)) {
+            cellVal = (("Some(" + cellTmp) + ")")
+          }
+        }
         if cellCopy {
-          wr.out(((".set(" + cellTmp) + "); }") true)
+          wr.out(((".set(" + cellVal) + "); }") true)
         } {
-          wr.out(((".replace(" + cellTmp) + "); }") true)
+          wr.out(((".replace(" + cellVal) + "); }") true)
         }
         return
       }
@@ -2379,6 +2417,28 @@ extension RangerRustClassWriter {
     if (cmd == "push") {
       def left:CodeNode (node.getSecond())
       def right:CodeNode (node.getThird())
+      ; `push stack ("+" + (this.pop1(stack)))`: a value that calls with the
+      ; same collection borrows it while the push holds it mutably (E0499),
+      ; so the value is computed first, into a local
+      if (((ctx.expressionLevel()) == 0) && ((strlen right.rust_use_tmpvar) == 0)) {
+        if (this.rustNodeContainsCall(right)) {
+          def pushRoot:string left.vref
+          if ((array_length left.ns) > 0) {
+            pushRoot = (itemAt left.ns 0)
+          }
+          if ((strlen pushRoot) > 0) {
+            if (this.rustSubtreeNames(right pushRoot)) {
+              def pushTmp:string (ctx.rustGetTempVar())
+              wr.out((("let " + pushTmp) + " = ") false)
+              ctx.setInExpr()
+              this.WalkNode(right ctx wr)
+              ctx.unsetInExpr()
+              wr.out(";" true)
+              right.rust_use_tmpvar = pushTmp
+            }
+          }
+        }
+      }
       
       ; Get the array type to check if it's a string array
       def arr_type:string ""
@@ -2917,6 +2977,15 @@ extension RangerRustClassWriter {
         return true
       }
       if (ctx.isMemberVariable(fcbRoot)) {
+        return true
+      }
+    }
+    ; a field of `self` stays borrowed for the whole loop, and a body that
+    ; calls a `&mut self` method is E0502: read it into a local first. Under
+    ; `&self` nothing in the body can take self mutably.
+    if ((fcbRoot == "this") || (ctx.isMemberVariable(fcbRoot))) {
+      def fcbFn:RangerAppFunctionDesc (ctx.getCurrentMethod())
+      if fcbFn.rust_mut_self {
         return true
       }
     }

@@ -190,6 +190,11 @@ extension RangerRustClassWriter {
             ctx.setInExpr()
             this.WalkNode(arg ctx wr)
             ctx.unsetInExpr()
+            ; a field read through a cell (`o.borrow().name`) cannot be
+            ; moved out of the borrow (E0507): the temporary takes a copy
+            if ((arg.value_type == RangerNodeType.VRef) && ((array_length arg.ns) > 1)) {
+              wr.out(".clone()" false)
+            }
             wr.out(";" true)
 
             ; Mark the arg node to use this temp var
@@ -254,7 +259,7 @@ extension RangerRustClassWriter {
               ; static call can hand its handle over — the receiver emission
               ; below, which usually does that binding, is skipped here
               if exprSelfRcNeeded {
-                if obj.expression {
+                if (obj.expression || ((array_length obj.ns) > 1)) {
                   exprSelfRcTmp = (ctx.rustGetTempVar())
                   wr.out((("{ let " + exprSelfRcTmp) + " = ") false)
                   ctx.setInExpr()
@@ -325,7 +330,9 @@ extension RangerRustClassWriter {
           wr.out(((this.rustThisPrefix(ctx)) + ".") false)
         } {
         def rcvClose:string ")"
-        if (exprSelfRcNeeded && obj.expression) {
+        ; a path receiver (a.b.method()) has no name to hand on either:
+        ; bind it as an expression receiver is
+        if (exprSelfRcNeeded && (obj.expression || ((array_length obj.ns) > 1))) {
           exprSelfRcTmp = (ctx.rustGetTempVar())
           wr.out((("{ let " + exprSelfRcTmp) + " = ") false)
           ctx.setInExpr()
@@ -1214,11 +1221,11 @@ extension RangerRustClassWriter {
                 ; value handed to one takes its cell here
                 def borrowRcWrap3:boolean false
                 if (needsImmutableRef && (borrowedLitDone2 == false)) {
-                  if arg.rust_needs_rc_wrap {
-                    if ((this.rustInitRcState(nVal ctx)) == 0) {
-                      borrowRcWrap3 = true
-                    }
-                  }
+                  borrowRcWrap3 = (this.rustArgNeedsCellWrap(arg nVal ctx))
+                }
+                ; …and so does one passed by value (`attach(3 (new Q))`)
+                if ((needsImmutableRef == false) && (needsMutRef == false)) {
+                  borrowRcWrap3 = (this.rustArgNeedsCellWrap(arg nVal ctx))
                 }
                 if (borrowedLitDone2 == false) {
                   if borrowRcWrap3 {
@@ -1431,12 +1438,7 @@ extension RangerRustClassWriter {
                 wr.out("&" false)
                 ; …and a borrowed SHARED parameter is `&Rc<RefCell<T>>`, so a
                 ; raw value handed to one takes its cell here
-                def borrowRcWrap2:boolean false
-                if arg.rust_needs_rc_wrap {
-                  if ((this.rustInitRcState(nVal ctx)) == 0) {
-                    borrowRcWrap2 = true
-                  }
-                }
+                def borrowRcWrap2:boolean (this.rustArgNeedsCellWrap(arg nVal ctx))
                 if borrowRcWrap2 {
                   wr.out("Rc::new(RefCell::new(" false)
                 }
@@ -1607,12 +1609,7 @@ extension RangerRustClassWriter {
                   ; a borrowed SHARED parameter is `&Rc<RefCell<T>>`, so a raw
                   ; value handed to one takes its cell here — the same wrap the
                   ; pre-evaluated argument path applies
-                  def stRcWrap:boolean false
-                  if arg.rust_needs_rc_wrap {
-                    if ((this.rustInitRcState(nVal ctx)) == 0) {
-                      stRcWrap = true
-                    }
-                  }
+                  def stRcWrap:boolean (this.rustArgNeedsCellWrap(arg nVal ctx))
                   if stRcWrap {
                     wr.out("Rc::new(RefCell::new(" false)
                   }
@@ -1626,11 +1623,18 @@ extension RangerRustClassWriter {
                   }
                 }
               } {
+                def byValWrap:boolean (this.rustArgNeedsCellWrap(arg nVal ctx))
+                if byValWrap {
+                  wr.out("Rc::new(RefCell::new(" false)
+                }
                 ctx.setInExpr()
                 wr.suppress_expr_parens = true
                 this.WalkNode(nVal ctx wr)
                 wr.suppress_expr_parens = false
                 ctx.unsetInExpr()
+                if byValWrap {
+                  wr.out("))" false)
+                }
                 ; Clone non-primitives when passing by value
                 def argNameN:CodeNode (unwrap arg.nameNode)
                 def arg_type:RangerNodeType argNameN.value_type
@@ -1778,11 +1782,18 @@ extension RangerRustClassWriter {
                   if ((this.rustArgIsAlreadyRef(nVal)) == false) {
                     wr.out("&" false)
                   }
+                  def ib3Wrap:boolean (this.rustArgNeedsCellWrap(arg nVal ctx))
+                  if ib3Wrap {
+                    wr.out("Rc::new(RefCell::new(" false)
+                  }
                   ctx.setInExpr()
                   wr.suppress_expr_parens = true
                   this.WalkNode(nVal ctx wr)
                   wr.suppress_expr_parens = false
                   ctx.unsetInExpr()
+                  if ib3Wrap {
+                    wr.out("))" false)
+                  }
                 }
               } {
                 def stdCellWrap:boolean (this.rustArgNeedsCellWrap(arg nVal ctx))
@@ -2023,12 +2034,7 @@ extension RangerRustClassWriter {
               ; a BORROWED shared parameter is `&Rc<RefCell<T>>`, so a raw
               ; value handed to one — `(new CodeWriter)` — takes its cell
               ; here: `&CodeWriter::new()` is a reference to the struct.
-              def borrowNeedsRcWrap:boolean false
-              if arg.rust_needs_rc_wrap {
-                if ((this.rustInitRcState(nVal ctx)) == 0) {
-                  borrowNeedsRcWrap = true
-                }
-              }
+              def borrowNeedsRcWrap:boolean (this.rustArgNeedsCellWrap(arg nVal ctx))
               if borrowNeedsRcWrap {
                 wr.out("Rc::new(RefCell::new(" false)
               }
@@ -2142,7 +2148,7 @@ extension RangerRustClassWriter {
               }
             } {
               ; Check if parameter needs Rc<RefCell<T>> wrap (for weak ref pattern)
-              def needs_rc_wrap:boolean arg.rust_needs_rc_wrap
+              def needs_rc_wrap:boolean (arg.rust_needs_rc_wrap || (this.rustArgNeedsCellWrap(arg nVal ctx)))
               
               ; BUT if the value being passed is already Rc<RefCell<...>> (has rust_needs_rc_wrap), don't double wrap
               def value_already_rc_wrapped:boolean false

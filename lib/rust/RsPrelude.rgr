@@ -276,6 +276,7 @@ func rs_f2i(x float64) int64 {
       php ( "((int)(" (e 1) "))" )
       swift3 ( "Int(" (e 1) ")" )
       swift6 ( "Int(" (e 1) ")" )
+      rust ( "((" (e 1) ") as i64)" )
       * ( "Math.trunc(" (e 1) ")" )
     }
   }
@@ -1243,6 +1244,7 @@ def rs_round(x: Double): Double = {
 "))
       php ( "round(" (e 1) ")" )
       swift6 ( "(" (e 1) ").rounded()" )
+      rust ( "(" (e 1) ").round()" )
       * ( "Math.round(" (e 1) ")" )
     }
   }
@@ -1271,6 +1273,7 @@ function rs_trunc($x) {
 }
 "))
       swift6 ( "(" (e 1) ").rounded(.towardZero)" )
+      rust ( "(" (e 1) ").trunc()" )
       * ( "Math.floor(" (e 1) ")" )
     }
   }
@@ -1565,6 +1568,7 @@ static double rs_log2(double x) { return Math.log(x) / Math.log(2.0); }
       scala ( "math.log(" (e 1) ")" )
       php ( "log(" (e 1) ")" )
       swift6 ( "log(" (e 1) ")" (imp "Foundation") )
+      rust ( "(" (e 1) ").ln()" )
       * ( "Math.log(" (e 1) ")" )
     }
   }
@@ -1580,6 +1584,7 @@ static double rs_log2(double x) { return Math.log(x) / Math.log(2.0); }
       scala ( "math.exp(" (e 1) ")" )
       php ( "exp(" (e 1) ")" )
       swift6 ( "exp(" (e 1) ")" (imp "Foundation") )
+      rust ( "(" (e 1) ").exp()" )
       * ( "Math.exp(" (e 1) ")" )
     }
   }
@@ -1604,6 +1609,7 @@ double rs_log10(double x) {
       scala ( "math.log10(" (e 1) ")" )
       php ( "log10(" (e 1) ")" )
       swift6 ( "log10(" (e 1) ")" (imp "Foundation") )
+      rust ( "(" (e 1) ").log10()" )
       * ( "Math.log10(" (e 1) ")" )
     }
   }
