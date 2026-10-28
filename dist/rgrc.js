@@ -95138,6 +95138,9 @@ class RustLower  {
       if ( (((name == "borrow" || name == "borrow_mut") || name == "as_ref") || name == "as_mut") && args.length == 0 ) {
         return rv;
       }
+      if ( name == "unwrap" && args.length == 0 ) {
+        return rv;
+      }
       this.err(n, ((("no method `" + name) + "` on `") + t.rust()) + "`");
       return this.unit();
     }

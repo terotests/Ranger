@@ -35,8 +35,11 @@ class Counter {
 
 class Tally {
   def counters:[Counter]
+  ; a class field: an Option to rustc
+  def latest:Counter
   fn keep:void (c:Counter) {
     push counters c
+    latest = c
   }
   fn sum:int () {
     def s:int 0
