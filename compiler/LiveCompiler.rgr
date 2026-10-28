@@ -962,6 +962,24 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             wr.outMapped((langWriter.EncodeString(arg ctx wr)) arg false "")
           }
         }
+        ; `(eown N)` is `(e N)` for an operand whose value the expression
+        ; must own: the target adds what that takes (a Rust field read gets
+        ; `.clone()` -- `if f { op.newText } else { op.oldText }` is E0507)
+        case "eown" {
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            if ((strlen arg.rust_use_tmpvar) > 0) {
+              wr.out(arg.rust_use_tmpvar false)
+              arg.rust_use_tmpvar = ""
+              return
+            }
+            ctx.setInExpr()
+            this.WalkNode(arg ctx wr)
+            ctx.unsetInExpr()
+            wr.out((langWriter.ownedValueSuffix(arg ctx)) false)
+          }
+        }
         case "block" {
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {

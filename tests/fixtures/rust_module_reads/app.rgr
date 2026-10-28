@@ -1,0 +1,53 @@
+; reads that rustc rejected in a `-rust-module` build, where every class is
+; shared: a static call's result, a field in a value `if`, a bare field
+; bound to a local in a method with no `self`, a constructor calling a
+; method that takes the handle
+class Parts {
+    def year:int 0
+}
+class Clock {
+    sfn parts:Parts (ms:int) {
+        def p (new Parts())
+        p.year = ms + 1970
+        return p
+    }
+    sfn yearOf:int (ms:int) {
+        def year:int ((Clock.parts(ms)).year)
+        return year
+    }
+}
+class Op {
+    def newText:string "new"
+    def oldText:string "old"
+}
+class Painter {
+    def family:string "serif"
+    def owner@(weak):Painter
+    Constructor () {
+        this.adopt()
+    }
+    fn adopt:void () {
+        owner = this
+    }
+    fn base:string () {
+        def b:string family
+        return b
+    }
+    sfn pick:string (op:Op forward:boolean) {
+        def put:string (? forward op.newText op.oldText)
+        return put
+    }
+}
+class App {
+    sfn main@(main):void () {
+        print ("" + (Clock.yearOf(56)))
+        def op (new Op())
+        op.newText = "n"
+        op.oldText = "o"
+        print (Painter.pick(op true))
+        print (Painter.pick(op false))
+        def pt (new Painter())
+        pt.family = "mono"
+        print (pt.base())
+    }
+}

@@ -737,6 +737,12 @@ class RangerGenericClassWriter {
   fn emptyBlockFiller:string () {
     return ""
   }
+  ; What a target writes after a template's `(eown N)` operand: a branch of
+  ; a value-yielding `if` on Rust that reads a field must hand back its own
+  ; copy, since the field cannot move out of the object it lives in.
+  fn ownedValueSuffix:string (node:CodeNode ctx:RangerAppWriterContext) {
+    return ""
+  }
 
   fn import_lib:void (lib_name:string ctx:RangerAppWriterContext wr:CodeWriter) {
     wr.addImport(lib_name)

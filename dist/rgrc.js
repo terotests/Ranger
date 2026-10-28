@@ -25704,6 +25704,9 @@ class RangerGenericClassWriter  {
   emptyBlockFiller () {
     return "";
   };
+  ownedValueSuffix (node, ctx) {
+    return "";
+  };
   import_lib (lib_name, ctx, wr) {
     wr.addImport(lib_name);
   };
@@ -36526,20 +36529,6 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               }
             }
           }
-          if ( this.rust_receiverless_method ) {
-            if ( thisInit.value_type == 11 && thisInit.ns.length == 1 ) {
-              if ( thisInit.hasParamDesc ) {
-                const bfP = thisInit.paramDesc;
-                if ( bfP.varType == 8 ) {
-                  if ( this.rustFieldIsCopyScalar(bfP, ctx) == false ) {
-                    if ( local_needs_rc_wrap == false ) {
-                      wr.out(".clone()", false);
-                    }
-                  }
-                }
-              }
-            }
-          }
           if ( local_needs_rc_wrap == false ) {
             if ( thisInit.value_type == 11 ) {
               if ( thisInit.ns.length == 1 ) {
@@ -36674,6 +36663,16 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                   if ( (vpLN.type_name == "buffer" || vpLN.type_name == "int_buffer") || vpLN.type_name == "double_buffer" ) {
                     should_clone_vardef = true;
                   }
+                }
+              }
+            }
+          }
+          if ( this.rust_receiverless_method && valueInner.ns.length == 1 ) {
+            if ( valueInner.hasParamDesc ) {
+              const bfP = valueInner.paramDesc;
+              if ( bfP.varType == 8 ) {
+                if ( this.rustFieldIsCopyScalar(bfP, ctx) == false ) {
+                  should_clone_vardef = true;
                 }
               }
             }
@@ -36924,6 +36923,36 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       return true;
     }
     return false;
+  };
+  ownedValueSuffix (inNode, ctx) {
+    const node = this.rustUnwrapParens(inNode);
+    if ( node.value_type != 11 ) {
+      return "";
+    }
+    if ( this.rustStrRefRead(node) ) {
+      return ".to_string()";
+    }
+    const nsLen = node.ns.length;
+    if ( nsLen >= 2 ) {
+      if ( node.nsp.length >= nsLen ) {
+        const last = node.nsp[(nsLen - 1)];
+        if ( last.varType == 8 ) {
+          if ( this.rustFieldIsCopyScalar(last, ctx) == false ) {
+            return ".clone()";
+          }
+        }
+      }
+      return "";
+    }
+    if ( nsLen == 1 && node.hasParamDesc ) {
+      const bp = node.paramDesc;
+      if ( bp.varType == 8 ) {
+        if ( this.rustFieldIsCopyScalar(bp, ctx) == false ) {
+          return ".clone()";
+        }
+      }
+    }
+    return "";
   };
   CreatePropertyGet (node, ctx, wr) {
     const obj = node.getSecond();
@@ -73134,15 +73163,30 @@ class LiveCompiler  {
             );
           }
           break;
-        case "block" : 
+        case "eown" : 
           const idx_3 = cmdArg.int_value;
           if ( node.children.length > idx_3 ) {
             const arg_3 = node.children[idx_3];
+            if ( arg_3.rust_use_tmpvar.length > 0 ) {
+              wr.out(arg_3.rust_use_tmpvar, false);
+              arg_3.rust_use_tmpvar = "";
+              return;
+            }
+            ctx.setInExpr();
+            this.WalkNode(arg_3, ctx, wr);
+            ctx.unsetInExpr();
+            wr.out(this.langWriter.ownedValueSuffix(arg_3, ctx), false);
+          }
+          break;
+        case "block" : 
+          const idx_4 = cmdArg.int_value;
+          if ( node.children.length > idx_4 ) {
+            const arg_4 = node.children[idx_4];
             const sCtx = ctx.fork();
             sCtx.restartExpressionLevel();
             const lineBefore = wr.lineNumber;
             const colBefore = wr.currentLine.length;
-            this.WalkNode(arg_3, sCtx, wr);
+            this.WalkNode(arg_4, sCtx, wr);
             if ( wr.lineNumber == lineBefore && wr.currentLine.length == colBefore ) {
               const filler = this.langWriter.emptyBlockFiller();
               if ( filler.length > 0 ) {
@@ -73167,10 +73211,10 @@ class LiveCompiler  {
           ctx.defineVariable(p_1.name, p_1);
           break;
         case "cc" : 
-          const idx_4 = cmdArg.int_value;
-          if ( node.children.length > idx_4 ) {
-            const arg_4 = node.children[idx_4];
-            const ccChars = Array.from(arg_4.string_value, (rg_c) => rg_c.codePointAt(0));
+          const idx_5 = cmdArg.int_value;
+          if ( node.children.length > idx_5 ) {
+            const arg_5 = node.children[idx_5];
+            const ccChars = Array.from(arg_5.string_value, (rg_c) => rg_c.codePointAt(0));
             let ccVal = 0;
             if ( ccChars.length > 0 ) {
               ccVal = ccChars[0];
@@ -73179,58 +73223,58 @@ class LiveCompiler  {
           }
           break;
         case "optional_option" : 
-          const idx_5 = cmdArg.int_value;
-          if ( node.children.length > idx_5 ) {
-            const arg_5 = node.children[idx_5];
-            if ( ctx.hasCompilerSetting(arg_5.string_value) ) {
-              const setting = ctx.getCompilerSetting(arg_5.string_value);
+          const idx_6 = cmdArg.int_value;
+          if ( node.children.length > idx_6 ) {
+            const arg_6 = node.children[idx_6];
+            if ( ctx.hasCompilerSetting(arg_6.string_value) ) {
+              const setting = ctx.getCompilerSetting(arg_6.string_value);
               wr.out(setting, false);
             }
           }
           break;
         case "required_option" : 
-          const idx_6 = cmdArg.int_value;
-          if ( node.children.length > idx_6 ) {
-            const arg_6 = node.children[idx_6];
-            if ( ctx.hasCompilerSetting(arg_6.string_value) ) {
-              const setting_1 = ctx.getCompilerSetting(arg_6.string_value);
+          const idx_7 = cmdArg.int_value;
+          if ( node.children.length > idx_7 ) {
+            const arg_7 = node.children[idx_7];
+            if ( ctx.hasCompilerSetting(arg_7.string_value) ) {
+              const setting_1 = ctx.getCompilerSetting(arg_7.string_value);
               wr.out(setting_1, false);
             } else {
-              ctx.addError(node, ("This source code requires compiler option -" + arg_6.string_value) + "=<> to be set ");
+              ctx.addError(node, ("This source code requires compiler option -" + arg_7.string_value) + "=<> to be set ");
             }
           }
           break;
         case "java_case" : 
-          const idx_7 = cmdArg.int_value;
-          if ( node.children.length > idx_7 ) {
-            const arg_7 = node.children[idx_7];
-            this.WalkNode(arg_7, ctx, wr);
-            if ( arg_7.didReturnAtIndex < 0 ) {
+          const idx_8 = cmdArg.int_value;
+          if ( node.children.length > idx_8 ) {
+            const arg_8 = node.children[idx_8];
+            this.WalkNode(arg_8, ctx, wr);
+            if ( arg_8.didReturnAtIndex < 0 ) {
               wr.newline();
               wr.out("break;", true);
             }
           }
           break;
         case "lambda" : 
-          const idx_8 = cmdArg.int_value;
-          if ( node.children.length > idx_8 ) {
-            const arg_8 = node.children[idx_8];
+          const idx_9 = cmdArg.int_value;
+          if ( node.children.length > idx_9 ) {
+            const arg_9 = node.children[idx_9];
             ctx.setInExpr();
-            this.WalkNode(arg_8, ctx, wr);
+            this.WalkNode(arg_9, ctx, wr);
             ctx.unsetInExpr();
           }
           break;
         case "e" : 
-          const idx_9 = cmdArg.int_value;
-          if ( node.children.length > idx_9 ) {
-            const arg_9 = node.children[idx_9];
-            if ( arg_9.rust_use_tmpvar.length > 0 ) {
-              wr.out(arg_9.rust_use_tmpvar, false);
-              arg_9.rust_use_tmpvar = "";
+          const idx_10 = cmdArg.int_value;
+          if ( node.children.length > idx_10 ) {
+            const arg_10 = node.children[idx_10];
+            if ( arg_10.rust_use_tmpvar.length > 0 ) {
+              wr.out(arg_10.rust_use_tmpvar, false);
+              arg_10.rust_use_tmpvar = "";
               return;
             }
             let mutTarget = false;
-            if ( idx_9 == 1 ) {
+            if ( idx_10 == 1 ) {
               if ( node.children.length > 0 ) {
                 const opN = node.getFirst();
                 if ( this.isMutatingOpName(opN.vref) ) {
@@ -73243,14 +73287,14 @@ class LiveCompiler  {
               ctx.setInLhs();
             }
             let explicitUnwrap = false;
-            if ( idx_9 == 1 && node.children.length > 0 ) {
+            if ( idx_10 == 1 && node.children.length > 0 ) {
               const opN_1 = node.getFirst();
               if ( opN_1.vref == "unwrap" ) {
                 explicitUnwrap = true;
                 ctx.suppressAutoUnwrap();
               }
             }
-            this.WalkNode(arg_9, ctx, wr);
+            this.WalkNode(arg_10, ctx, wr);
             if ( explicitUnwrap ) {
               ctx.restoreAutoUnwrap();
             }
@@ -73261,34 +73305,14 @@ class LiveCompiler  {
           }
           break;
         case "idx" : 
-          const idx_10 = cmdArg.int_value;
-          if ( node.children.length > idx_10 ) {
-            let arg_10 = node.children[idx_10];
-            if ( arg_10.rust_use_tmpvar.length > 0 ) {
-              wr.out(("(" + arg_10.rust_use_tmpvar) + ") as usize", false);
-              arg_10.rust_use_tmpvar = "";
-              return;
-            }
-            while (arg_10.expression && arg_10.children.length == 1) {
-              arg_10 = arg_10.getFirst();
-            };
-            if ( arg_10.value_type == 3 ) {
-              wr.out("" + arg_10.int_value, false);
-            } else {
-              wr.out("(", false);
-              ctx.setInExpr();
-              wr.suppress_expr_parens = true;
-              this.WalkNode(arg_10, ctx, wr);
-              wr.suppress_expr_parens = false;
-              ctx.unsetInExpr();
-              wr.out(") as usize", false);
-            }
-          }
-          break;
-        case "u8v" : 
           const idx_11 = cmdArg.int_value;
           if ( node.children.length > idx_11 ) {
             let arg_11 = node.children[idx_11];
+            if ( arg_11.rust_use_tmpvar.length > 0 ) {
+              wr.out(("(" + arg_11.rust_use_tmpvar) + ") as usize", false);
+              arg_11.rust_use_tmpvar = "";
+              return;
+            }
             while (arg_11.expression && arg_11.children.length == 1) {
               arg_11 = arg_11.getFirst();
             };
@@ -73301,17 +73325,37 @@ class LiveCompiler  {
               this.WalkNode(arg_11, ctx, wr);
               wr.suppress_expr_parens = false;
               ctx.unsetInExpr();
+              wr.out(") as usize", false);
+            }
+          }
+          break;
+        case "u8v" : 
+          const idx_12 = cmdArg.int_value;
+          if ( node.children.length > idx_12 ) {
+            let arg_12 = node.children[idx_12];
+            while (arg_12.expression && arg_12.children.length == 1) {
+              arg_12 = arg_12.getFirst();
+            };
+            if ( arg_12.value_type == 3 ) {
+              wr.out("" + arg_12.int_value, false);
+            } else {
+              wr.out("(", false);
+              ctx.setInExpr();
+              wr.suppress_expr_parens = true;
+              this.WalkNode(arg_12, ctx, wr);
+              wr.suppress_expr_parens = false;
+              ctx.unsetInExpr();
               wr.out(") as u8", false);
             }
           }
           break;
         case "cloneif" : 
-          const idx_12 = cmdArg.int_value;
-          if ( node.children.length > idx_12 ) {
-            const arg_12 = node.children[idx_12];
+          const idx_13 = cmdArg.int_value;
+          if ( node.children.length > idx_13 ) {
+            const arg_13 = node.children[idx_13];
             let tn = "";
-            if ( arg_12.hasParamDesc ) {
-              const cip = arg_12.paramDesc;
+            if ( arg_13.hasParamDesc ) {
+              const cip = arg_13.paramDesc;
               const cipNN = cip.nameNode;
               if ( (typeof(cipNN) !== "undefined" && cipNN != null )  ) {
                 const cipN = cipNN;
@@ -73321,9 +73365,9 @@ class LiveCompiler  {
                 }
               }
             } else {
-              tn = arg_12.type_name;
-              if ( arg_12.array_type.length > 0 ) {
-                tn = arg_12.array_type;
+              tn = arg_13.type_name;
+              if ( arg_13.array_type.length > 0 ) {
+                tn = arg_13.array_type;
               }
             }
             let isCopyScalar = false;
@@ -73351,47 +73395,47 @@ class LiveCompiler  {
           }
           break;
         case "ckey" : 
-          const idx_13 = cmdArg.int_value;
-          if ( node.children.length > idx_13 ) {
-            let arg_13 = node.children[idx_13];
-            while (arg_13.expression && arg_13.children.length == 1) {
-              arg_13 = arg_13.getFirst();
-            };
-            if ( arg_13.value_type == 4 ) {
-              wr.out(("\"" + this.langWriter.EncodeString(
-                arg_13,
-                ctx,
-                wr
-              )) + "\"", false);
-            } else {
-              ctx.setInExpr();
-              this.WalkNode(arg_13, ctx, wr);
-              ctx.unsetInExpr();
-            }
-          }
-          break;
-        case "kref" : 
           const idx_14 = cmdArg.int_value;
           if ( node.children.length > idx_14 ) {
             let arg_14 = node.children[idx_14];
             while (arg_14.expression && arg_14.children.length == 1) {
               arg_14 = arg_14.getFirst();
             };
-            let krefDone = false;
             if ( arg_14.value_type == 4 ) {
               wr.out(("\"" + this.langWriter.EncodeString(
                 arg_14,
                 ctx,
                 wr
               )) + "\"", false);
+            } else {
+              ctx.setInExpr();
+              this.WalkNode(arg_14, ctx, wr);
+              ctx.unsetInExpr();
+            }
+          }
+          break;
+        case "kref" : 
+          const idx_15 = cmdArg.int_value;
+          if ( node.children.length > idx_15 ) {
+            let arg_15 = node.children[idx_15];
+            while (arg_15.expression && arg_15.children.length == 1) {
+              arg_15 = arg_15.getFirst();
+            };
+            let krefDone = false;
+            if ( arg_15.value_type == 4 ) {
+              wr.out(("\"" + this.langWriter.EncodeString(
+                arg_15,
+                ctx,
+                wr
+              )) + "\"", false);
               krefDone = true;
             }
             if ( krefDone == false ) {
-              if ( (arg_14.expression == false && arg_14.hasParamDesc) && arg_14.ns.length == 1 ) {
-                const kpd = arg_14.paramDesc;
+              if ( (arg_15.expression == false && arg_15.hasParamDesc) && arg_15.ns.length == 1 ) {
+                const kpd = arg_15.paramDesc;
                 if ( kpd.rust_borrow_type > 0 ) {
                   ctx.setInExpr();
-                  this.WalkNode(arg_14, ctx, wr);
+                  this.WalkNode(arg_15, ctx, wr);
                   ctx.unsetInExpr();
                   krefDone = true;
                 }
@@ -73399,17 +73443,17 @@ class LiveCompiler  {
             }
             if ( krefDone == false ) {
               let ksd;
-              if ( arg_14.ns.length == 1 && arg_14.hasParamDesc ) {
-                ksd = arg_14.paramDesc;
+              if ( arg_15.ns.length == 1 && arg_15.hasParamDesc ) {
+                ksd = arg_15.paramDesc;
               }
-              if ( arg_14.ns.length > 1 && arg_14.nsp.length > 0 ) {
-                ksd = arg_14.nsp[(arg_14.nsp.length - 1)];
+              if ( arg_15.ns.length > 1 && arg_15.nsp.length > 0 ) {
+                ksd = arg_15.nsp[(arg_15.nsp.length - 1)];
               }
               if ( (typeof(ksd) !== "undefined" && ksd != null )  ) {
                 const ksp = ksd;
                 if ( ksp.rust_static_str ) {
                   ctx.setInExpr();
-                  this.WalkNode(arg_14, ctx, wr);
+                  this.WalkNode(arg_15, ctx, wr);
                   ctx.unsetInExpr();
                   krefDone = true;
                 }
@@ -73418,22 +73462,22 @@ class LiveCompiler  {
             if ( krefDone == false ) {
               wr.out("&", false);
               ctx.setInExpr();
-              this.WalkNode(arg_14, ctx, wr);
+              this.WalkNode(arg_15, ctx, wr);
               ctx.unsetInExpr();
             }
           }
           break;
         case "mvarg" : 
-          const idx_15 = cmdArg.int_value;
-          if ( node.children.length > idx_15 ) {
-            const arg_15 = node.children[idx_15];
-            if ( arg_15.rust_use_tmpvar.length > 0 ) {
-              wr.out(arg_15.rust_use_tmpvar, false);
-              arg_15.rust_use_tmpvar = "";
+          const idx_16 = cmdArg.int_value;
+          if ( node.children.length > idx_16 ) {
+            const arg_16 = node.children[idx_16];
+            if ( arg_16.rust_use_tmpvar.length > 0 ) {
+              wr.out(arg_16.rust_use_tmpvar, false);
+              arg_16.rust_use_tmpvar = "";
               return;
             }
             let mvRcWrap = false;
-            if ( arg_15.hasNewOper ) {
+            if ( arg_16.hasNewOper ) {
               const mvCont = node.children[1];
               let mvElem = "";
               const mvNsp = mvCont.nsp.length;
@@ -73467,12 +73511,12 @@ class LiveCompiler  {
               wr.out("Rc::new(RefCell::new(", false);
             }
             ctx.setInExpr();
-            this.WalkNode(arg_15, ctx, wr);
+            this.WalkNode(arg_16, ctx, wr);
             ctx.unsetInExpr();
             if ( mvRcWrap ) {
               wr.out("))", false);
             }
-            let barg = arg_15;
+            let barg = arg_16;
             while (barg.expression && barg.children.length == 1) {
               barg = barg.getFirst();
             };
@@ -73575,59 +73619,59 @@ class LiveCompiler  {
           }
           break;
         case "goset" : 
-          const idx_16 = cmdArg.int_value;
-          if ( node.children.length > idx_16 ) {
-            const arg_16 = node.children[idx_16];
+          const idx_17 = cmdArg.int_value;
+          if ( node.children.length > idx_17 ) {
+            const arg_17 = node.children[idx_17];
             ctx.setInExpr();
-            this.langWriter.WriteSetterVRef(arg_16, ctx, wr);
+            this.langWriter.WriteSetterVRef(arg_17, ctx, wr);
             ctx.unsetInExpr();
           }
           break;
         case "pe" : 
-          const idx_17 = cmdArg.int_value;
-          if ( node.children.length > idx_17 ) {
-            const arg_17 = node.children[idx_17];
-            this.WalkNode(arg_17, ctx, wr);
-          }
-          break;
-        case "ptr" : 
           const idx_18 = cmdArg.int_value;
           if ( node.children.length > idx_18 ) {
             const arg_18 = node.children[idx_18];
-            if ( arg_18.hasParamDesc ) {
-              if ( arg_18.paramDesc.nameNode.isAPrimitiveType() == false ) {
+            this.WalkNode(arg_18, ctx, wr);
+          }
+          break;
+        case "ptr" : 
+          const idx_19 = cmdArg.int_value;
+          if ( node.children.length > idx_19 ) {
+            const arg_19 = node.children[idx_19];
+            if ( arg_19.hasParamDesc ) {
+              if ( arg_19.paramDesc.nameNode.isAPrimitiveType() == false ) {
                 wr.out("*", false);
               }
             } else {
-              if ( arg_18.isAPrimitiveType() == false ) {
+              if ( arg_19.isAPrimitiveType() == false ) {
                 wr.out("*", false);
               }
             }
           }
           break;
         case "ptrsrc" : 
-          const idx_19 = cmdArg.int_value;
-          if ( node.children.length > idx_19 ) {
-            const arg_19 = node.children[idx_19];
-            if ( arg_19.isPrimitiveType() == false && arg_19.isPrimitive() == false ) {
+          const idx_20 = cmdArg.int_value;
+          if ( node.children.length > idx_20 ) {
+            const arg_20 = node.children[idx_20];
+            if ( arg_20.isPrimitiveType() == false && arg_20.isPrimitive() == false ) {
               wr.out("&", false);
             }
           }
           break;
         case "nameof" : 
-          const idx_20 = cmdArg.int_value;
-          if ( node.children.length > idx_20 ) {
-            const arg_20 = node.children[idx_20];
-            wr.out(arg_20.vref, false);
-          }
-          break;
-        case "list" : 
           const idx_21 = cmdArg.int_value;
           if ( node.children.length > idx_21 ) {
             const arg_21 = node.children[idx_21];
+            wr.out(arg_21.vref, false);
+          }
+          break;
+        case "list" : 
+          const idx_22 = cmdArg.int_value;
+          if ( node.children.length > idx_22 ) {
+            const arg_22 = node.children[idx_22];
             // Loop start
-            for ( let i = 0; i < arg_21.children.length; i++) {
-              var ch = arg_21.children[i];
+            for ( let i = 0; i < arg_22.children.length; i++) {
+              var ch = arg_22.children[i];
               if ( i > 0 ) {
                 wr.out(" ", false);
               }
@@ -73638,13 +73682,13 @@ class LiveCompiler  {
           }
           break;
         case "repeat" : 
-          const idx_22 = cmdArg.int_value;
-          this.repeat_index = idx_22;
-          if ( node.children.length >= idx_22 ) {
+          const idx_23 = cmdArg.int_value;
+          this.repeat_index = idx_23;
+          if ( node.children.length >= idx_23 ) {
             const cmdToRepeat = cmd.getThird();
-            let i_1 = idx_22;
+            let i_1 = idx_23;
             while (i_1 < node.children.length) {
-              if ( i_1 >= idx_22 ) {
+              if ( i_1 >= idx_23 ) {
                 // Loop start
                 for ( const cc of cmdToRepeat.children) {
                   if ( cc.children.length > 0 ) {
@@ -73666,13 +73710,13 @@ class LiveCompiler  {
           }
           break;
         case "repeat_from" : 
-          const idx_23 = cmdArg.int_value;
-          this.repeat_index = idx_23;
-          if ( node.children.length >= idx_23 ) {
+          const idx_24 = cmdArg.int_value;
+          this.repeat_index = idx_24;
+          if ( node.children.length >= idx_24 ) {
             const cmdToRepeat_1 = cmd.getThird();
-            let i_2 = idx_23;
+            let i_2 = idx_24;
             while (i_2 < node.children.length) {
-              if ( i_2 >= idx_23 ) {
+              if ( i_2 >= idx_24 ) {
                 // Loop start
                 for ( const cc_1 of cmdToRepeat_1.children) {
                   if ( cc_1.children.length > 0 ) {
@@ -73697,12 +73741,12 @@ class LiveCompiler  {
           }
           break;
         case "comma" : 
-          const idx_24 = cmdArg.int_value;
-          if ( node.children.length > idx_24 ) {
-            const arg_22 = node.children[idx_24];
+          const idx_25 = cmdArg.int_value;
+          if ( node.children.length > idx_25 ) {
+            const arg_23 = node.children[idx_25];
             // Loop start
-            for ( let i_3 = 0; i_3 < arg_22.children.length; i_3++) {
-              var ch_1 = arg_22.children[i_3];
+            for ( let i_3 = 0; i_3 < arg_23.children.length; i_3++) {
+              var ch_1 = arg_23.children[i_3];
               if ( i_3 > 0 ) {
                 wr.out(",", false);
               }
@@ -73713,30 +73757,30 @@ class LiveCompiler  {
           }
           break;
         case "swift_rc" : 
-          const idx_25 = cmdArg.int_value;
+          const idx_26 = cmdArg.int_value;
           const blockIdx = 4;
-          if ( node.children.length > idx_25 ) {
-            const arg_23 = node.children[idx_25];
+          if ( node.children.length > idx_26 ) {
+            const arg_24 = node.children[idx_26];
             let isRead = true;
             if ( node.children.length > blockIdx ) {
               const blockNode = node.children[blockIdx];
-              if ( arg_23.vref.length > 0 ) {
-                isRead = this.treeReferencesVRef(blockNode, arg_23.vref);
+              if ( arg_24.vref.length > 0 ) {
+                isRead = this.treeReferencesVRef(blockNode, arg_24.vref);
               }
             } else {
-              if ( arg_23.hasParamDesc ) {
-                const argDesc = arg_23.paramDesc;
+              if ( arg_24.hasParamDesc ) {
+                const argDesc = arg_24.paramDesc;
                 isRead = argDesc.ref_cnt != 0;
               }
             }
             if ( isRead == false ) {
               wr.out("_", false);
             } else {
-              if ( arg_23.hasParamDesc ) {
-                const p_2 = ctx.getVariableDef(arg_23.vref);
+              if ( arg_24.hasParamDesc ) {
+                const p_2 = ctx.getVariableDef(arg_24.vref);
                 wr.out(p_2.compiledName, false);
               } else {
-                wr.out(arg_23.vref, false);
+                wr.out(arg_24.vref, false);
               }
             }
           }
@@ -73776,46 +73820,46 @@ class LiveCompiler  {
           }
           break;
         case "r_ktype" : 
-          const idx_26 = cmdArg.int_value;
-          if ( node.children.length > idx_26 ) {
-            const arg_24 = node.children[idx_26];
-            if ( arg_24.hasParamDesc ) {
-              const argDesc_1 = arg_24.paramDesc;
+          const idx_27 = cmdArg.int_value;
+          if ( node.children.length > idx_27 ) {
+            const arg_25 = node.children[idx_27];
+            if ( arg_25.hasParamDesc ) {
+              const argDesc_1 = arg_25.paramDesc;
               const argumentName = argDesc_1.nameNode;
               const ss = this.langWriter.getObjectTypeString(argumentName.key_type, ctx);
               wr.out(ss, false);
             } else {
-              const ss_1 = this.langWriter.getObjectTypeString(arg_24.key_type, ctx);
+              const ss_1 = this.langWriter.getObjectTypeString(arg_25.key_type, ctx);
               wr.out(ss_1, false);
             }
           }
           break;
         case "r_atype" : 
-          const idx_27 = cmdArg.int_value;
-          if ( node.children.length > idx_27 ) {
-            const arg_25 = node.children[idx_27];
-            if ( arg_25.hasParamDesc ) {
-              const argDesc_2 = arg_25.paramDesc;
+          const idx_28 = cmdArg.int_value;
+          if ( node.children.length > idx_28 ) {
+            const arg_26 = node.children[idx_28];
+            if ( arg_26.hasParamDesc ) {
+              const argDesc_2 = arg_26.paramDesc;
               const argumentName_1 = argDesc_2.nameNode;
               const ss_2 = this.langWriter.getObjectTypeString(argumentName_1.array_type, ctx);
               wr.out(ss_2, false);
             } else {
-              const ss_3 = this.langWriter.getObjectTypeString(arg_25.array_type, ctx);
+              const ss_3 = this.langWriter.getObjectTypeString(arg_26.array_type, ctx);
               wr.out(ss_3, false);
             }
           }
           break;
         case "r_atype_fname" : 
-          const idx_28 = cmdArg.int_value;
-          if ( node.children.length > idx_28 ) {
-            const arg_26 = node.children[idx_28];
-            if ( arg_26.hasParamDesc ) {
-              const argDesc_3 = arg_26.paramDesc;
+          const idx_29 = cmdArg.int_value;
+          if ( node.children.length > idx_29 ) {
+            const arg_27 = node.children[idx_29];
+            if ( arg_27.hasParamDesc ) {
+              const argDesc_3 = arg_27.paramDesc;
               const argumentName_2 = argDesc_3.nameNode;
               const ss_4 = this.langWriter.getObjectTypeString(argumentName_2.array_type, ctx);
               wr.out(this.typeNameToIdentifier(ss_4), false);
             } else {
-              const ss_5 = this.langWriter.getObjectTypeString(arg_26.array_type, ctx);
+              const ss_5 = this.langWriter.getObjectTypeString(arg_27.array_type, ctx);
               wr.out(this.typeNameToIdentifier(ss_5), false);
             }
           }
@@ -73824,17 +73868,17 @@ class LiveCompiler  {
           this.langWriter.CustomOperator(node, ctx, wr);
           break;
         case "arraytype" : 
-          const idx_29 = cmdArg.int_value;
-          if ( node.children.length > idx_29 ) {
-            const arg_27 = node.children[idx_29];
-            if ( arg_27.hasParamDesc ) {
+          const idx_30 = cmdArg.int_value;
+          if ( node.children.length > idx_30 ) {
+            const arg_28 = node.children[idx_30];
+            if ( arg_28.hasParamDesc ) {
               this.langWriter.writeArrayTypeDef(
-                arg_27.paramDesc.nameNode,
+                arg_28.paramDesc.nameNode,
                 ctx,
                 wr
               );
             } else {
-              this.langWriter.writeArrayTypeDef(arg_27, ctx, wr);
+              this.langWriter.writeArrayTypeDef(arg_28, ctx, wr);
             }
           }
           break;
@@ -73857,17 +73901,17 @@ class LiveCompiler  {
           }
           break;
         case "rawtype" : 
-          const idx_30 = cmdArg.int_value;
-          if ( node.children.length > idx_30 ) {
-            const arg_28 = node.children[idx_30];
-            if ( arg_28.hasParamDesc ) {
+          const idx_31 = cmdArg.int_value;
+          if ( node.children.length > idx_31 ) {
+            const arg_29 = node.children[idx_31];
+            if ( arg_29.hasParamDesc ) {
               this.langWriter.writeRawTypeDef(
-                arg_28.paramDesc.nameNode,
+                arg_29.paramDesc.nameNode,
                 ctx,
                 wr
               );
             } else {
-              this.langWriter.writeRawTypeDef(arg_28, ctx, wr);
+              this.langWriter.writeRawTypeDef(arg_29, ctx, wr);
             }
           }
           break;
@@ -73895,14 +73939,14 @@ class LiveCompiler  {
           this.createPolyfillLegacy(cmdArg.string_value, ctx, wr);
           break;
         case "typeof" : 
-          const idx_31 = cmdArg.int_value;
-          if ( node.children.length >= idx_31 ) {
-            const arg_29 = node.children[idx_31];
+          const idx_32 = cmdArg.int_value;
+          if ( node.children.length >= idx_32 ) {
+            const arg_30 = node.children[idx_32];
             ctx.setInExpr();
-            if ( arg_29.hasParamDesc ) {
-              this.writeTypeDef(arg_29.paramDesc.nameNode, ctx, wr);
+            if ( arg_30.hasParamDesc ) {
+              this.writeTypeDef(arg_30.paramDesc.nameNode, ctx, wr);
             } else {
-              this.writeTypeDef(arg_29, ctx, wr);
+              this.writeTypeDef(arg_30, ctx, wr);
             }
             ctx.unsetInExpr();
           }
@@ -73919,11 +73963,11 @@ class LiveCompiler  {
           }
           break;
         case "atype" : 
-          const idx_32 = cmdArg.int_value;
-          if ( node.children.length >= idx_32 ) {
-            const arg_30 = node.children[idx_32];
+          const idx_33 = cmdArg.int_value;
+          if ( node.children.length >= idx_33 ) {
+            const arg_31 = node.children[idx_33];
             let tn_1 = "";
-            const p_4 = this.findParamDesc(arg_30, ctx, wr);
+            const p_4 = this.findParamDesc(arg_31, ctx, wr);
             if ( (typeof(p_4) !== "undefined" && p_4 != null )  ) {
               const pDesc = p_4;
               const nnOpt = pDesc.nameNode;
@@ -73933,10 +73977,10 @@ class LiveCompiler  {
               }
             }
             if ( tn_1.length == 0 ) {
-              tn_1 = arg_30.eval_array_type;
+              tn_1 = arg_31.eval_array_type;
             }
             if ( tn_1.length == 0 ) {
-              tn_1 = arg_30.array_type;
+              tn_1 = arg_31.array_type;
             }
             wr.out(this.langWriter.getObjectTypeString(tn_1, ctx), false);
           }

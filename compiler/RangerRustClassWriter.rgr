@@ -3082,24 +3082,6 @@ class RangerRustClassWriter {
               }
             }
           }
-          ; A bare field name in a method with no `self` is read through
-          ; `__self_rc.borrow()`, and a non-Copy value cannot move out of
-          ; that Ref: `def base:string fontFamily` takes a clone, as
-          ; `this.fontFamily` already does.
-          if rust_receiverless_method {
-            if ((thisInit.value_type == RangerNodeType.VRef) && ((array_length thisInit.ns) == 1)) {
-              if thisInit.hasParamDesc {
-                def bfP:RangerAppParamDesc (unwrap thisInit.paramDesc)
-                if (bfP.varType == RangerContextVarType.Property) {
-                  if ((this.rustFieldIsCopyScalar(bfP ctx)) == false) {
-                    if (local_needs_rc_wrap == false) {
-                      wr.out(".clone()" false)
-                    }
-                  }
-                }
-              }
-            }
-          }
           ; …and so does a BORROWED parameter bound to an owned name: the
           ; parameter is `&Rc<RefCell<T>>` and the local declares the Rc
           ; itself. The rc-wrap path writes its own clone, so this only
@@ -3284,6 +3266,20 @@ class RangerRustClassWriter {
                   if (((vpLN.type_name == "buffer") || (vpLN.type_name == "int_buffer")) || (vpLN.type_name == "double_buffer")) {
                     should_clone_vardef = true
                   }
+                }
+              }
+            }
+          }
+          ; A bare field name in a method with no `self` is read through
+          ; `__self_rc.borrow()`, and a non-Copy value cannot move out of
+          ; that Ref: `def base:string fontFamily` takes a clone, as
+          ; `this.fontFamily` already does.
+          if (rust_receiverless_method && ((array_length valueInner.ns) == 1)) {
+            if valueInner.hasParamDesc {
+              def bfP:RangerAppParamDesc (unwrap valueInner.paramDesc)
+              if (bfP.varType == RangerContextVarType.Property) {
+                if ((this.rustFieldIsCopyScalar(bfP ctx)) == false) {
+                  should_clone_vardef = true
                 }
               }
             }
@@ -3860,6 +3856,42 @@ class RangerRustClassWriter {
   ; field after it; on Rust an expression that yields a shared class yields
   ; an `Rc<RefCell<T>>`, which has no fields of its own, so the read has to
   ; go through the cell first ("no field `color` on type `Rc<RefCell<…>>`").
+  ; a branch of a value `if` that reads a field (`op.newText`, or a bare
+  ; field name in a method with no `self`) borrows it from the object; a
+  ; non-Copy value has to come out as a clone, a str reference as a String
+  fn ownedValueSuffix:string (inNode:CodeNode ctx:RangerAppWriterContext) {
+    def node:CodeNode (this.rustUnwrapParens(inNode))
+    if (node.value_type != RangerNodeType.VRef) {
+      return ""
+    }
+    ; a `&'static str` field or a borrowed `&str` parameter: the literal in
+    ; the other branch is already a String
+    if (this.rustStrRefRead(node)) {
+      return ".to_string()"
+    }
+    def nsLen:int (array_length node.ns)
+    if (nsLen >= 2) {
+      if ((array_length node.nsp) >= nsLen) {
+        def last:RangerAppParamDesc (itemAt node.nsp (nsLen - 1))
+        if (last.varType == RangerContextVarType.Property) {
+          if ((this.rustFieldIsCopyScalar(last ctx)) == false) {
+            return ".clone()"
+          }
+        }
+      }
+      return ""
+    }
+    if ((nsLen == 1) && node.hasParamDesc) {
+      def bp:RangerAppParamDesc (unwrap node.paramDesc)
+      if (bp.varType == RangerContextVarType.Property) {
+        if ((this.rustFieldIsCopyScalar(bp ctx)) == false) {
+          return ".clone()"
+        }
+      }
+    }
+    return ""
+  }
+
   fn CreatePropertyGet:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def obj:CodeNode (node.getSecond())
     def prop:CodeNode (node.getThird())
