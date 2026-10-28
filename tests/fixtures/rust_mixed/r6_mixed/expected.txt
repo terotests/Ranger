@@ -4,3 +4,4 @@ total 30 count 30
 steps=34 (4 adds) last 2
 made=11 (2 adds) / renamed=34 (4 adds)
 sum 145
+latest 11

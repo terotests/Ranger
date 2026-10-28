@@ -40,4 +40,7 @@ fn main() {
     // the handle is shared: the change is seen through the tally
     Counter::add(&c, 100);
     println!("sum {}", Tally::sum(&t));
+    // a .rgr class field by rustc's Option form
+    let latest = Rc::clone(t.borrow().latest.as_ref().unwrap());
+    println!("latest {}", latest.borrow().count);
 }

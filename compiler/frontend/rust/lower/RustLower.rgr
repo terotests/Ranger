@@ -6831,6 +6831,11 @@ class RustLower {
       if (((name == "borrow") || (name == "borrow_mut") || (name == "as_ref") || (name == "as_mut")) && ((array_length args) == 0)) {
         return rv
       }
+      ; `e.borrow().r#box.as_ref().unwrap()`: a .rgr class field is an
+      ; Option to rustc (the Rust writer's form), the object itself here
+      if ((name == "unwrap") && ((array_length args) == 0)) {
+        return rv
+      }
       this.err(n (((("no method `" + name) + "` on `") + (t.rust())) + "`"))
       return (this.unit())
     }
