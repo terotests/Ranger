@@ -36677,6 +36677,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               }
             }
           }
+          if ( this.rustSliceRefRead(valueInner) ) {
+            should_clone_vardef = true;
+          }
           if ( should_clone_vardef ) {
             if ( vardef_src_ref_str == false ) {
               if ( (value_1.expression == false && value_1.hasParamDesc) && value_1.ns.length == 1 ) {
@@ -42746,6 +42749,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               }
             }
           }
+        }
+        if ( this.rustSliceRefRead(retVal) ) {
+          ret_to_vec = true;
         }
         if ( ret_to_vec ) {
           wr.out(".to_vec()", false);
