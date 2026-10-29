@@ -91718,7 +91718,43 @@ class RustLower  {
     if ( t.kind == "tuple" ) {
       this.unsupported(new RustNode("none"), "comparing tuples with ==");
     }
+    if ( t.kind == "vec" ) {
+      return ((((("(" + this.vecEquals(t)) + "(") + a) + " ") + b) + "))";
+    }
     return ((("(" + a) + " == ") + b) + ")";
+  };
+  vecEquals (t) {
+    const key = "eq_" + this.mangleKey(t);
+    const name = "RsClone." + key;
+    if ( ( typeof(this.genNames[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, key) ) ) {
+      return name;
+    }
+    this.genNames[key] = true;
+    const rt = this.rtype(t);
+    const et = this.rtype(t.arg(0));
+    let lines = [];
+    lines.push(((("  sfn " + key) + ":boolean (a:") + rt) + ((" b:" + rt) + ") {"));
+    lines.push("    def n:int (array_length a)");
+    lines.push("    if (n != (array_length b)) {");
+    lines.push("      return false");
+    lines.push("    }");
+    lines.push("    def i:int 0");
+    lines.push("    while (i < n) {");
+    lines.push(("      def x:" + et) + " (itemAt a i)");
+    lines.push(("      def y:" + et) + " (itemAt b i)");
+    lines.push(("      if (false == " + this.eqCode(
+      "x",
+      "y",
+      t.arg(0)
+    )) + ") {");
+    lines.push("        return false");
+    lines.push("      }");
+    lines.push("      i = i + 1");
+    lines.push("    }");
+    lines.push("    return true");
+    lines.push("  }");
+    this.clonerOut.push(lines.join("\n"));
+    return name;
   };
   emitDebugStruct (s, cname) {
     let lines = [];
@@ -93973,6 +94009,21 @@ class RustLower  {
       return;
     }
   };
+  newArgs (codes, types) {
+    let res = [];
+    // Loop start
+    for ( let i = 0; i < codes.length; i++) {
+      var c = codes[i];
+      if ( c.indexOf("([]") == 0 && i < types.length ) {
+        const nm = this.tmp("na");
+        this.out.line((("def " + this.declText(nm, types[i])) + " ") + c);
+        res.push(nm);
+      } else {
+        res.push(c);
+      }
+    }
+    return res;
+  };
   bindTemp (v, t, base) {
     if ( v.simple ) {
       return v.code;
@@ -94825,6 +94876,13 @@ class RustLower  {
         return ("(! " + both) + ")";
       }
     }
+    if ( t.kind == "vec" && (op == "==" || op == "!=") ) {
+      const veq = this.eqCode(l.code, r.code, t);
+      if ( op == "==" ) {
+        return veq;
+      }
+      return ("(! " + veq) + ")";
+    }
     if ( op == "!=" ) {
       return ((("(" + l.code) + " != ") + r.code) + ")";
     }
@@ -95028,7 +95086,7 @@ class RustLower  {
             for ( const sf of s.fields) {
               ftypes.push(sf.ty);
             }
-            const codes2 = this.lowerArgs(args, ftypes);
+            const codes2 = this.newArgs(this.lowerArgs(args, ftypes), ftypes);
             return RsExpr.of((((("(new " + this.className(name)) + "(") + codes2.join(" ")) + "))"), RsType.named(name));
           }
         }
@@ -95175,7 +95233,7 @@ class RustLower  {
         for ( const vf of vv.fields) {
           ftypes.push(vf.ty);
         }
-        const vcodes = this.lowerArgs(args, ftypes);
+        const vcodes = this.newArgs(this.lowerArgs(args, ftypes), ftypes);
         return RsExpr.of((((("(new " + this.caseType(head, name)) + "(") + vcodes.join(" ")) + "))"), RsType.named(head));
       }
       const em = e.method(name);
@@ -96757,6 +96815,17 @@ class RustLower  {
     }
     const vt2 = RsType.of1("vec", t2);
     const rt = this.rtype(t2);
+    if ( t2.kind == "vec" && codes.length > 0 ) {
+      const nm = this.tmp("arr");
+      this.out.line((("def " + nm) + ":") + this.rtype(vt2));
+      // Loop start
+      for ( const ec of codes) {
+        this.out.line((("push " + nm) + " ") + ec);
+      }
+      const ra = RsExpr.of(nm, vt2);
+      ra.simple = true;
+      return ra;
+    }
     if ( rt == "" ) {
       if ( codes.length == 0 ) {
         this.err(n, "an empty array needs its element type: annotate the `let`");

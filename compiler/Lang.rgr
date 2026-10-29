@@ -8865,7 +8865,7 @@ static String joinStrings(ArrayList<String> list, String delimiter)
                 
                 )
 
-                cpp ( "join( " (e 1) " , " (e 2) ")" (imp "<sstream>") (imp "<string>") (imp "<iostream>")
+                cpp ( "::join( " (e 1) " , " (e 2) ")" (imp "<sstream>") (imp "<string>") (imp "<iostream>")
 (create_polyfill "
 template <typename T>
 std::string join(const T& v, const std::string& delim) {
