@@ -34222,6 +34222,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     this.rustModuleOut = false;
     this.rustClippyNoteWritten = false;
     this.rustIdentNames = {};
+    this.rustAllIdentNames = {};
     this.rustIdentNamesDone = false;
     this.rustEnums = new EnumNativeAnalysis();
     this.rust_in_cell_assign = false;
@@ -34241,36 +34242,74 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     for( var ici in inRoot.definedClasses) {
       if(inRoot.definedClasses.hasOwnProperty(ici)) {
         var icl = inRoot.definedClasses[ici] 
-        // Loop start
-        for ( const iv of icl.variables) {
-          this.rustIdentNames[iv.name] = true;
-        }
+        let members = {};
+        this.rustCollectMemberNames(icl, members, ctx, 0);
+        this.rustKeepColliding(members);
         this.rustCollectFnNames(icl.methods);
         this.rustCollectFnNames(icl.static_methods);
+      }
+    };
+  };
+  rustCollectMemberNames (cl, members, ctx, depth) {
+    if ( depth > 32 ) {
+      return;
+    }
+    // Loop start
+    for ( const iv of cl.variables) {
+      members[iv.name] = true;
+    }
+    // Loop start
+    for ( const im of cl.methods) {
+      members[im.name] = true;
+    }
+    // Loop start
+    for ( const ism of cl.static_methods) {
+      members[ism.name] = true;
+    }
+    // Loop start
+    for ( const pName of cl.extends_classes) {
+      const pClO = ctx.findClass(pName);
+      if ( (typeof(pClO) !== "undefined" && pClO != null )  ) {
+        this.rustCollectMemberNames(pClO, members, ctx, depth + 1);
+      }
+    }
+  };
+  rustKeepColliding (names) {
+    for( var kn in names) {
+      if(names.hasOwnProperty(kn)) {
+        var kv = names[kn] 
+        this.rustAllIdentNames[kn] = true;
+        const ksn = this.rustSnakeCase(kn);
+        if ( ksn != kn ) {
+          if ( ( typeof(names[ksn] ) != "undefined" && Object.prototype.hasOwnProperty.call(names, ksn) ) ) {
+            this.rustIdentNames[kn] = true;
+          }
+        }
       }
     };
   };
   rustCollectFnNames (fns) {
     // Loop start
     for ( const fd of fns) {
-      this.rustIdentNames[fd.name] = true;
+      let locals = {};
       // Loop start
       for ( const fp of fd.params) {
-        this.rustIdentNames[fp.name] = true;
+        locals[fp.name] = true;
       }
       const bOpt = fd.node;
       if ( (typeof(bOpt) !== "undefined" && bOpt != null )  ) {
-        this.rustCollectVrefs(bOpt);
+        this.rustCollectVrefs(bOpt, locals);
       }
+      this.rustKeepColliding(locals);
     }
   };
-  rustCollectVrefs (node) {
+  rustCollectVrefs (node, locals) {
     if ( node.vref.length > 0 ) {
-      this.rustIdentNames[node.vref] = true;
+      locals[node.vref] = true;
     }
     // Loop start
     for ( const ch of node.children) {
-      this.rustCollectVrefs(ch);
+      this.rustCollectVrefs(ch, locals);
     }
   };
   rustSnakeCase (n) {
@@ -34317,7 +34356,14 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   adjustType (tn) {
     const sn = this.rustSnakeCase(tn);
     if ( sn != tn ) {
-      if ( ( typeof(this.rustIdentNames[sn] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rustIdentNames, sn) ) ) {
+      let keepName = ( typeof(this.rustIdentNames[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rustIdentNames, tn) );
+      if ( keepName == false ) {
+        const tnLead = tn.charCodeAt(0 );
+        if ( tnLead >= 65 && tnLead <= 90 ) {
+          keepName = ( typeof(this.rustAllIdentNames[sn] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rustAllIdentNames, sn) );
+        }
+      }
+      if ( keepName ) {
         return this.adjustReserved(tn);
       }
     }
@@ -35990,14 +36036,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         if ( nsName.length == 0 ) {
           continue;
         }
-        const nsSn = this.rustSnakeCase(nsName);
         const nsLead = nsName.charCodeAt(0 );
         if ( nsLead < 65 || nsLead > 90 ) {
-          if ( nsSn != nsName ) {
-            if ( ( typeof(this.rustIdentNames[nsSn] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rustIdentNames, nsSn) ) ) {
-              return true;
-            }
-          }
+          return true;
         }
       }
     };
@@ -41765,6 +41806,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         if ( (typeof(nameN) !== "undefined" && nameN != null )  ) {
           const nn = nameN;
           field_type_name = nn.type_name;
+          if ( is_optional == false && pp.is_class_variable == false ) {
+            if ( nn.hasFlag("optional") ) {
+              is_optional = true;
+            }
+          }
           if ( is_optional ) {
             if ( nn.array_type.length > 0 || nn.key_type.length > 0 ) {
               is_optional = false;
@@ -42131,6 +42177,19 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           }
         }
         if ( preevalWroteUnion == false ) {
+          let preevalRcWrap = false;
+          if ( is_optional == false && left_is_trait_type == false ) {
+            if ( this.rustClassIsShared(field_type_name, ctx) ) {
+              if ( this.rustLhsHoldsRc(left) ) {
+                if ( this.rustInitRcState(right, ctx) == 0 ) {
+                  preevalRcWrap = true;
+                }
+              }
+            }
+          }
+          if ( preevalRcWrap ) {
+            wr.out("Rc::new(RefCell::new(", false);
+          }
           this.WalkNode(right, ctx, wr);
           if ( should_clone_rhs ) {
             if ( rhs_str_ref ) {
@@ -42138,6 +42197,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             } else {
               wr.out(".clone()", false);
             }
+          }
+          if ( preevalRcWrap ) {
+            wr.out("))", false);
           }
         }
         ctx.unsetInExpr();

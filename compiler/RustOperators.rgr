@@ -1025,6 +1025,15 @@ extension RangerRustClassWriter {
           ; an uninitialized member COLLECTION carries is_optional on its
           ; desc but the Rust field is a plain Vec/HashMap, never Option —
           ; a Some(…) around its assignment is E0308
+          ; …and a LOCAL declared `@(optional)` with an initializer
+          ; (`def found@(optional):string o`) has is_optional cleared on its
+          ; desc by the VarDef pass, while the `let` is written Option<T>:
+          ; the flag on its name node is what the declaration went by
+          if ((is_optional == false) && (pp.is_class_variable == false)) {
+            if (nn.hasFlag("optional")) {
+              is_optional = true
+            }
+          }
           if is_optional {
             if (((strlen nn.array_type) > 0) || ((strlen nn.key_type) > 0)) {
               is_optional = false
@@ -1505,6 +1514,23 @@ extension RangerRustClassWriter {
           }
         }
         if (preevalWroteUnion == false) {
+          ; a shared-class target holds the Rc, so a RAW value takes its
+          ; cell in the temporary, as the plain assignment below does
+          ; (plainAssignRcWrap): `v = (new RsTup(d.n 0))` with `v` an Rc
+          ; local went `let _tmp = RsTup::new(..); v = _tmp;`
+          def preevalRcWrap:boolean false
+          if ((is_optional == false) && (left_is_trait_type == false)) {
+            if (this.rustClassIsShared(field_type_name ctx)) {
+              if (this.rustLhsHoldsRc(left)) {
+                if ((this.rustInitRcState(right ctx)) == 0) {
+                  preevalRcWrap = true
+                }
+              }
+            }
+          }
+          if preevalRcWrap {
+            wr.out("Rc::new(RefCell::new(" false)
+          }
           this.WalkNode(right ctx wr)
           if should_clone_rhs {
             if rhs_str_ref {
@@ -1512,6 +1538,9 @@ extension RangerRustClassWriter {
             } {
               wr.out(".clone()" false)
             }
+          }
+          if preevalRcWrap {
+            wr.out("))" false)
           }
         }
         ctx.unsetInExpr()

@@ -123,6 +123,8 @@ class RangerRustClassWriter {
   ; adjustType is called from 40-odd places with no ctx to hand, so the SET is
   ; what gets parked here — filled once by the header pass, which has one.
   def rustIdentNames:[string:boolean]
+  ; every name of the program, for names that start with a capital (below)
+  def rustAllIdentNames:[string:boolean]
   def rustIdentNamesDone:boolean false
   ; PLAN_RUST_SEMANTIC_IDIOMS F: which Ranger `Enum`s are written as a Rust
   ; `enum` rather than lowered to i64. The rules are target-neutral -- C++ asks
@@ -172,9 +174,18 @@ class RangerRustClassWriter {
   ; `pluginFn` assigned into an outer `plugin_fn`, and renaming the first gave
   ; `plugin_fn = plugin_fn.clone()` — a variable shadowing itself. That is the
   ; one way this transform can change the meaning of a program rather than just
-  ; fail, so a name whose snake_case form is ALREADY a name somewhere in the
-  ; program keeps its spelling. The set is every identifier the writer can see:
-  ; class fields, method names, parameters and every vref in every body.
+  ; fail, so a name whose snake_case form is ALREADY a name in the SAME SCOPE
+  ; keeps its spelling. Two scopes are asked: a class with its parents (fields
+  ; and methods; a member is always reached through its receiver, so it can
+  ; only meet another member) and a function (its parameters and every vref in
+  ; its body). A name taken in some unrelated place does not count: a Rust-syntax
+  ; module's own `ring_ends` field or `max_y` local kept EVGDrawCmd.ringEnds and
+  ; PathBounds.maxY camelCase everywhere, and that module's reads of them
+  ; (`c.ring_ends`) no longer matched.
+  ; rustIdentNames holds the names that keep their spelling. A name that
+  ; starts with a capital (`W`, `PI`, `FOCUS`) still asks the whole program
+  ; (rustAllIdentNames), as before: such names are constants and one-letter
+  ; fields that Rust-syntax code already calls by their written spelling.
   fn rustFillIdentNames:void (ctx:RangerAppWriterContext) {
     if rustIdentNamesDone {
       return
@@ -182,33 +193,68 @@ class RangerRustClassWriter {
     rustIdentNamesDone = true
     def inRoot:RangerAppWriterContext (ctx.getRoot())
     for inRoot.definedClasses icl:RangerAppClassDesc ici {
-      for icl.variables iv:RangerAppParamDesc ivi {
-        set rustIdentNames iv.name true
-      }
+      def members:[string:boolean]
+      this.rustCollectMemberNames(icl members ctx 0)
+      this.rustKeepColliding(members)
       this.rustCollectFnNames(icl.methods)
       this.rustCollectFnNames(icl.static_methods)
     }
   }
 
-  fn rustCollectFnNames:void (fns:[RangerAppFunctionDesc]) {
-    for fns fd:RangerAppFunctionDesc fi {
-      set rustIdentNames fd.name true
-      for fd.params fp:RangerAppParamDesc fpi {
-        set rustIdentNames fp.name true
-      }
-      def bOpt@(optional):CodeNode fd.node
-      if (!null? bOpt) {
-        this.rustCollectVrefs((unwrap bOpt))
+  fn rustCollectMemberNames:void (cl:RangerAppClassDesc members:[string:boolean] ctx:RangerAppWriterContext depth:int) {
+    if (depth > 32) {
+      return
+    }
+    for cl.variables iv:RangerAppParamDesc ivi {
+      set members iv.name true
+    }
+    for cl.methods im:RangerAppFunctionDesc imi {
+      set members im.name true
+    }
+    for cl.static_methods ism:RangerAppFunctionDesc ismi {
+      set members ism.name true
+    }
+    for cl.extends_classes pName:string pi {
+      def pClO@(optional):RangerAppClassDesc (ctx.findClass(pName))
+      if (!null? pClO) {
+        this.rustCollectMemberNames((unwrap pClO) members ctx (depth + 1))
       }
     }
   }
 
-  fn rustCollectVrefs:void (node:CodeNode) {
+  ; every name of one scope whose snake_case form is another name of it
+  fn rustKeepColliding:void (names:[string:boolean]) {
+    for names kv:boolean kn:string {
+      set rustAllIdentNames kn true
+      def ksn:string (this.rustSnakeCase(kn))
+      if (ksn != kn) {
+        if (has names ksn) {
+          set rustIdentNames kn true
+        }
+      }
+    }
+  }
+
+  fn rustCollectFnNames:void (fns:[RangerAppFunctionDesc]) {
+    for fns fd:RangerAppFunctionDesc fi {
+      def locals:[string:boolean]
+      for fd.params fp:RangerAppParamDesc fpi {
+        set locals fp.name true
+      }
+      def bOpt@(optional):CodeNode fd.node
+      if (!null? bOpt) {
+        this.rustCollectVrefs((unwrap bOpt) locals)
+      }
+      this.rustKeepColliding(locals)
+    }
+  }
+
+  fn rustCollectVrefs:void (node:CodeNode locals:[string:boolean]) {
     if ((strlen node.vref) > 0) {
-      set rustIdentNames node.vref true
+      set locals node.vref true
     }
     for node.children ch:CodeNode i {
-      this.rustCollectVrefs(ch)
+      this.rustCollectVrefs(ch locals)
     }
   }
 
@@ -265,9 +311,16 @@ class RangerRustClassWriter {
   fn adjustType:string (tn:string) {
     def sn:string (this.rustSnakeCase(tn))
     if (sn != tn) {
-      if (has rustIdentNames sn) {
-        ; the snake_case spelling is already some other name in this program,
-        ; so the original stays. rustNeedsNonSnakeCase asks the same question
+      def keepName:boolean (has rustIdentNames tn)
+      if (keepName == false) {
+        def tnLead@(units):int (charAt tn 0)
+        if ((tnLead >= 65) && (tnLead <= 90)) {
+          keepName = (has rustAllIdentNames sn)
+        }
+      }
+      if keepName {
+        ; the snake_case spelling is already some other name in this name's
+        ; scope (rustFillIdentNames), so the original stays. rustNeedsNonSnakeCase asks the same question
         ; of the whole name set, once, for the header.
         return (this.adjustReserved(tn))
       }
@@ -2395,24 +2448,19 @@ class RangerRustClassWriter {
   ; puts the line at the top; the call can come from anywhere.
   ; Does any name in this program keep its camelCase spelling? adjustType
   ; renames to snake_case unless the snake_case form is already some OTHER
-  ; name here, in which case the original stays and rustc's non_snake_case
-  ; fires on it. The whole name set answers the same question at once.
+  ; name in the same scope; rustIdentNames holds exactly those names, and
+  ; rustc's non_snake_case fires on each.
   fn rustNeedsNonSnakeCase:boolean () {
     for rustIdentNames nsV:boolean nsName:string {
       if ((strlen nsName) == 0) {
         continue
       }
-      def nsSn:string (this.rustSnakeCase(nsName))
       ; a TYPE name keeps its spelling on this target whatever the set says,
       ; so a generic parameter `S` beside a local `s` is not a collision --
       ; it was every study in the gallery asking for the allow
       def nsLead@(units):int (charAt nsName 0)
       if ((nsLead < 65) || (nsLead > 90)) {
-        if (nsSn != nsName) {
-          if (has rustIdentNames nsSn) {
-            return true
-          }
-        }
+        return true
       }
     }
     return false
