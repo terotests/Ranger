@@ -1,0 +1,11 @@
+; A class that extends Base: the Rust code reads Base's field and calls its
+; method on a Kid, and Kid's own `kind` wins over Base's.
+
+Import "base.rgr"
+
+class Kid extends Base {
+  def n:int 2
+  fn kind:string () {
+    return "kid"
+  }
+}

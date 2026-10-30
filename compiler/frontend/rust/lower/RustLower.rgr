@@ -67,6 +67,11 @@ class RustLower {
   def declLate:boolean false
   ; the file itself for an `import_rgr!`, "" for a `mod x;`
   def pendingFiles:[string]
+  ; a pending .rgr read only for the classes a parent is looked up in: not
+  ; imported, and not an error when it is missing or repeats a class
+  def pendingScan:[boolean]
+  def rgrScanned:[string:boolean]
+  def rgrClassNames:[string]
   ; `.rgr` files included with `ranger::import_rgr!`, for the Import lines
   def rgrImports:[string]
   def entryName:string ""
@@ -401,6 +406,7 @@ class RustLower {
         push pendingNames rgrName
         push pendingNodes it
         push pendingFiles (RustLower.joinPath((RustLower.dirOf(file)) (rgrName + ".rgr")))
+        push pendingScan false
         continue
       }
       if (it.kind != "mod") {
@@ -415,6 +421,7 @@ class RustLower {
         push pendingNames it.name
         push pendingNodes it
         push pendingFiles ""
+        push pendingScan false
       }
     }
   }
@@ -586,9 +593,10 @@ class RustLower {
     def d:string (itemAt pendingDirs pendingPos)
     def rf:string (itemAt pendingFiles pendingPos)
     def at:RustNode (itemAt pendingNodes pendingPos)
+    def scanOnly:boolean (itemAt pendingScan pendingPos)
     pendingPos = pendingPos + 1
     if (rf != "") {
-      this.addRgr(path src at)
+      this.addRgr(path src at scanOnly)
       return
     }
     def p:RustParser (new RustParser(src))
@@ -606,17 +614,104 @@ class RustLower {
 
   ; The classes of an included `.rgr` file: known by name to the `.rs`
   ; code, written by an ordinary Import of the file.
-  fn addRgr:void (path:string src:string at:RustNode) {
+  fn addRgr:void (path:string src:string at:RustNode scanOnly:boolean) {
+    set rgrScanned path true
     def sc:RsRgrScan (new RsRgrScan())
     sc.scan(src path)
+    def wantParent:boolean false
     for sc.classes c:RsStruct ci {
       if ((has structs c.name) || (has enums c.name)) {
+        if scanOnly {
+          continue
+        }
         this.err(at (((("`" + c.name) + "` of ") + path) + " is also declared in the Rust code"))
         continue
       }
       set structs c.name c
+      push rgrClassNames c.name
+      if ((c.parent != "") && (false == (has structs c.parent))) {
+        wantParent = true
+      }
     }
-    push rgrImports path
+    if (scanOnly == false) {
+      push rgrImports path
+    }
+    ; a parent class from another file: the files this one imports are read
+    ; for their classes (once each), not imported
+    if wantParent {
+      for sc.imports imp:string ii {
+        def ip:string (RustLower.joinPath((RustLower.dirOf(path)) imp))
+        if (has rgrScanned ip) {
+          continue
+        }
+        set rgrScanned ip true
+        push pendingKeys (itemAt pendingKeys (pendingPos - 1))
+        push pendingDirs (itemAt pendingDirs (pendingPos - 1))
+        push pendingNames imp
+        push pendingNodes at
+        push pendingFiles ip
+        push pendingScan true
+      }
+    }
+  }
+
+  ; `class X extends P` of a .rgr file: X answers for P's fields and methods
+  ; as the .rgr class does (its own spelling of a name wins), parents first
+  ; a scalar or string field of some .rgr class has this name
+  fn isRgrCellField:boolean (fname:string) {
+    for rgrClassNames cn:string ci {
+      def c:RsStruct (unwrap (get structs cn))
+      def f@(optional):RsField (c.field(fname))
+      if (!null? f) {
+        def ft:RsType (unwrap f).ty
+        if ((ft.kind == "int") || (ft.kind == "double") || (ft.kind == "bool") || (ft.kind == "string")) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn inheritRgr:void () {
+    def done:[string:boolean]
+    for rgrClassNames sn:string si {
+      this.inheritOne(sn done 0)
+    }
+  }
+
+  fn inheritOne:void (sn:string done:[string:boolean] depth:int) {
+    if ((has done sn) || (depth > 32)) {
+      return
+    }
+    set done sn true
+    if (false == (has structs sn)) {
+      return
+    }
+    def c:RsStruct (unwrap (get structs sn))
+    if ((c.parent == "") || (false == (has structs c.parent))) {
+      return
+    }
+    this.inheritOne(c.parent done (depth + 1))
+    def pc:RsStruct (unwrap (get structs c.parent))
+    for pc.fields pf:RsField pfi {
+      if (null? (c.field(pf.name))) {
+        push c.fields pf
+      }
+    }
+    for pc.methods pm:RsFn pmi {
+      if pm.rgrCtor {
+        continue
+      }
+      def own:boolean false
+      for c.methods cm:RsFn cmi {
+        if ((cm.name == pm.name) || (cm.rname == pm.rname)) {
+          own = true
+        }
+      }
+      if (own == false) {
+        push c.methods pm
+      }
+    }
   }
 
   fn moduleNotFound:void () {
@@ -629,6 +724,9 @@ class RustLower {
     def rf2:string (itemAt pendingFiles pendingPos)
     pendingPos = pendingPos + 1
     if (rf2 != "") {
+      if (itemAt pendingScan (pendingPos - 1)) {
+        return
+      }
       this.err(at (("file not found for ranger::import_rgr!: " + rf2)))
       return
     }
@@ -640,6 +738,7 @@ class RustLower {
     if ((array_length errors) > 0) {
       return ""
     }
+    this.inheritRgr()
     this.collectModules()
     if ((array_length errors) > 0) {
       return ""
@@ -6757,6 +6856,26 @@ class RustLower {
       }
       this.unsupported(n (("the Formatter method `" + name) + "`"))
       return (this.unit())
+    }
+    ; A scalar or string field of a .rgr class may be a Cell or RefCell in
+    ; the Rust that Ranger writes for the class (a field the class's `&self`
+    ; methods change): rustc then needs `x.f.get()`, `x.f.set(v)`,
+    ; `x.f.replace(v)` or `x.f.borrow()`, and each is the field itself here
+    if ((recvN.kind == "field") && (this.isRgrCellField(recvN.name))) {
+      def nArgs:int (array_length args)
+      if (((name == "get") || (name == "borrow") || (name == "take")) && (nArgs == 0)) {
+        return (this.lowerExpr(recvN expect))
+      }
+      if (((name == "set") || (name == "replace")) && (nArgs == 1)) {
+        def asg:RustNode (new RustNode("assign"))
+        asg.name = "="
+        asg.line = n.line
+        asg.col = n.col
+        asg.add(recvN)
+        asg.add((itemAt args 0))
+        this.lowerAssign(asg)
+        return (this.unit())
+      }
     }
     def rv:RsExpr (this.lowerExpr(recvN (RsType.mk("unknown"))))
     def t:RsType rv.ty

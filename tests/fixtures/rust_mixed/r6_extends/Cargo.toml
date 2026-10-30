@@ -1,0 +1,16 @@
+# A .rgr class that extends a class of another .rgr file, used by name
+
+[package]
+name = "r6_extends"
+version = "0.1.0"
+edition = "2021"
+publish = false
+build = "build.rs"
+
+[dependencies]
+ranger = { path = "../../../../runtime/rust/ranger" }
+
+[profile.dev]
+overflow-checks = false
+
+[workspace]

@@ -1,0 +1,13 @@
+; The parent class, in a file of its own.
+
+class Base {
+  def tid:string "base"
+  def hits:int 0
+  fn hello:string () {
+    hits = hits + 1
+    return ("hi " + tid)
+  }
+  fn kind:string () {
+    return "base"
+  }
+}

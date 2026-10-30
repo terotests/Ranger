@@ -6876,7 +6876,22 @@ std::string r_buffer_to_string(const std::vector<uint8_t>& data) {
                 es6 ( "Buffer.from(" (e 1) ").toString('base64')" )
                 dart ( (imp "dart:convert") "base64Encode(" (e 1) ")" )
                 go ( "base64.StdEncoding.EncodeToString(" (e 1) ")" (imp "encoding/base64") )
-                rust ( "base64::encode(&" (e 1) ")" )
+                rust ( "rg_buffer_to_base64(&" (e 1) ")"
+(create_polyfill "
+fn rg_buffer_to_base64(b: &[u8]) -> String {
+    const A: &[u8; 64] = b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";
+    let mut s = String::with_capacity((b.len() + 2) / 3 * 4);
+    for c in b.chunks(3) {
+        let n = ((c[0] as u32) << 16) | ((*c.get(1).unwrap_or(&0) as u32) << 8) | *c.get(2).unwrap_or(&0) as u32;
+        s.push(A[(n >> 18) as usize & 63] as char);
+        s.push(A[(n >> 12) as usize & 63] as char);
+        s.push(if c.len() > 1 { A[(n >> 6) as usize & 63] as char } else { '=' });
+        s.push(if c.len() > 2 { A[n as usize & 63] as char } else { '=' });
+    }
+    s
+}
+")
+                )
                 cpp ( "r_buffer_to_base64(" (e 1) ")" (imp "<string>") (imp "<vector>")
 (create_polyfill "
 std::string r_buffer_to_base64(const std::vector<uint8_t>& data) {

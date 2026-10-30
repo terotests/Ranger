@@ -2239,6 +2239,11 @@ extension RangerRustClassWriter {
             }
           }
         }
+        ; …and a borrowed BUFFER parameter, whose element type is in its
+        ; type name (`return bytes` from `fn f:buffer (bytes:buffer)`)
+        if (this.rustSliceRefRead(retVal)) {
+          ret_to_vec = true
+        }
         if ret_to_vec {
           wr.out(".to_vec()" false)
         } {

@@ -3284,6 +3284,11 @@ class RangerRustClassWriter {
               }
             }
           }
+          ; a borrowed slice or buffer parameter bound to an owned local
+          ; (`def raw:buffer b`): the local is a Vec, the parameter a slice
+          if (this.rustSliceRefRead(valueInner)) {
+            should_clone_vardef = true
+          }
           if should_clone_vardef {
             ; a str reference (static string, borrowed &str parameter) makes
             ; an owned String with .to_string(); .clone() would copy the &str
