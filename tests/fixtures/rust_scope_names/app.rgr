@@ -1,0 +1,47 @@
+; Rust target: snake_case renaming asks only the name's own scope, an
+; optional local declared with a value stays optional when assigned, and a
+; pre-evaluated value takes its cell (tests/rust-scope-names.test.ts).
+
+Import "lib.rs"
+
+class Cmd {
+    def ringEnds:[int]
+    def maxY:int 4
+    ; both spellings in one class: the camelCase one keeps its name
+    def fooBar:int 1
+    def foo_bar:int 2
+    fn loadFont:int () {
+        return (maxY + (array_length ringEnds))
+    }
+}
+
+class Main {
+    sfn find@(optional):string (key:string) {
+        def o1@(optional):string
+        def found@(optional):string o1
+        if (key == "x") {
+            def o5@(optional):string
+            o5 = key
+            found = o5
+        }
+        return found
+    }
+
+    sfn m@(main):void () {
+        def c:Cmd (new Cmd)
+        push c.ringEnds 3
+        print ("" + (c.loadFont()) + " " + c.fooBar + " " + c.foo_bar)
+        def f@(optional):string (Main.find("x"))
+        if (!null? f) {
+            print (unwrap f)
+        }
+        def pluginFn:int 5
+        def plugin_fn:int 6
+        print ("" + (pluginFn + plugin_fn))
+        def s:Shape (Shape.new_())
+        push s.ring_ends 10
+        def all:[Shape]
+        push all (Shape.new_())
+        print ("" + (s.load_font()) + " " + (s.pair(all 0)))
+    }
+}
