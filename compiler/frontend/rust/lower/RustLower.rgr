@@ -2971,7 +2971,43 @@ class RustLower {
     if (t.kind == "tuple") {
       this.unsupported((new RustNode("none")) "comparing tuples with ==")
     }
+    if (t.kind == "vec") {
+      ; element by element: `==` on two arrays compares references in es6
+      ; and does not compile in Go
+      return (((((("(" + (this.vecEquals(t))) + "(") + a) + " ") + b) + "))")
+    }
     return (((("(" + a) + " == ") + b) + ")")
+  }
+
+  ; A static helper that compares two Vecs element by element.
+  fn vecEquals:string (t:RsType) {
+    def key:string ("eq_" + (this.mangleKey(t)))
+    def name:string ("RsClone." + key)
+    if (has genNames key) {
+      return name
+    }
+    set genNames key true
+    def rt:string (this.rtype(t))
+    def et:string (this.rtype((t.arg(0))))
+    def lines:[string]
+    push lines (((("  sfn " + key) + ":boolean (a:") + rt) + ((" b:" + rt) + ") {"))
+    push lines "    def n:int (array_length a)"
+    push lines "    if (n != (array_length b)) {"
+    push lines "      return false"
+    push lines "    }"
+    push lines "    def i:int 0"
+    push lines "    while (i < n) {"
+    push lines (("      def x:" + et) + " (itemAt a i)")
+    push lines (("      def y:" + et) + " (itemAt b i)")
+    push lines (("      if (false == " + (this.eqCode("x" "y" (t.arg(0))))) + ") {")
+    push lines "        return false"
+    push lines "      }"
+    push lines "      i = i + 1"
+    push lines "    }"
+    push lines "    return true"
+    push lines "  }"
+    push clonerOut (join lines "\n")
+    return name
   }
 
   fn emitDebugStruct:string (s:RsStruct cname:string) {
@@ -5391,6 +5427,23 @@ class RustLower {
 
   ; `code` as a name that is safe to repeat: itself when simple, else a
   ; temporary holding it.
+  ; Constructor arguments: an array literal is bound to a temporary first,
+  ; because `(new X(([] _:int (1 2))))` reads the literal's elements as the
+  ; arguments.
+  fn newArgs:[string] (codes:[string] types:[RsType]) {
+    def res:[string]
+    for codes c:string i {
+      if (((indexOf c "([]") == 0) && (i < (array_length types))) {
+        def nm:string (this.tmp("na"))
+        out.line(((("def " + (this.declText(nm (itemAt types i)))) + " ") + c))
+        push res nm
+      } {
+        push res c
+      }
+    }
+    return res
+  }
+
   fn bindTemp:string (v:RsExpr t:RsType base:string) {
     if (v.simple) {
       return v.code
@@ -6295,6 +6348,13 @@ class RustLower {
         return (("(! " + both) + ")")
       }
     }
+    if ((t.kind == "vec") && ((op == "==") || (op == "!="))) {
+      def veq:string (this.eqCode(l.code r.code t))
+      if (op == "==") {
+        return veq
+      }
+      return (("(! " + veq) + ")")
+    }
     if (op == "!=") {
       return (((("(" + l.code) + " != ") + r.code) + ")")
     }
@@ -6511,7 +6571,7 @@ class RustLower {
             for s.fields sf:RsField fi {
               push ftypes sf.ty
             }
-            def codes2:[string] (this.lowerArgs(args ftypes))
+            def codes2:[string] (this.newArgs((this.lowerArgs(args ftypes)) ftypes))
             return (RsExpr.of((((("(new " + (this.className(name))) + "(") + (join codes2 " ")) + "))") (RsType.named(name))))
           }
         }
@@ -6660,7 +6720,7 @@ class RustLower {
         for vv.fields vf:RsField fi {
           push ftypes vf.ty
         }
-        def vcodes:[string] (this.lowerArgs(args ftypes))
+        def vcodes:[string] (this.newArgs((this.lowerArgs(args ftypes)) ftypes))
         return (RsExpr.of((((("(new " + (this.caseType(head name))) + "(") + (join vcodes " ")) + "))") (RsType.named(head))))
       }
       def em@(optional):RsFn (e.method(name))
@@ -8309,6 +8369,17 @@ class RustLower {
     }
     def vt2:RsType (RsType.of1("vec" t2))
     def rt:string (this.rtype(t2))
+    if ((t2.kind == "vec") && ((array_length codes) > 0)) {
+      ; an array literal of arrays does not parse as one: built by pushes
+      def nm:string (this.tmp("arr"))
+      out.line(((("def " + nm) + ":") + (this.rtype(vt2))))
+      for codes ec:string ei {
+        out.line(((("push " + nm) + " ") + ec))
+      }
+      def ra:RsExpr (RsExpr.of(nm vt2))
+      ra.simple = true
+      return ra
+    }
     if (rt == "") {
       if ((array_length codes) == 0) {
         this.err(n "an empty array needs its element type: annotate the `let`")
