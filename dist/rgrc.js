@@ -95328,8 +95328,32 @@ class RustLower  {
           };
           const rv = this.lowerExpr(recvN, RsType.named(head));
           const recv = this.bindTemp(rv, rv.ty, "r");
+          if ( this.hasBoxed(mf) ) {
+            return this.boxedCall(
+              (((recv + ".") + mf.rname) + "("),
+              mf,
+              rest,
+              rv.ty,
+              "",
+              at
+            );
+          }
           const codes0 = this.lowerArgs(rest, this.paramTypes(mf));
           return RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + codes0.join(" ")) + "))"), mf.ret);
+        }
+        if ( (this.hasBoxed(mf) && false == mf.rgrCtor) && false == s.rgr ) {
+          let bsn = this.staticName(name);
+          if ( mf.statName != "" ) {
+            bsn = mf.statName;
+          }
+          return this.boxedCall(
+            (((this.className(head) + ".") + bsn) + "("),
+            mf,
+            args,
+            RsType.named(head),
+            "",
+            at
+          );
         }
         const codes = this.lowerArgs(args, this.paramTypes(mf));
         if ( mf.rgrCtor ) {
