@@ -24794,6 +24794,23 @@ class RangerFlowParser  {
         const modBase = importFileDir;
         const modName = RustLower.baseName(import_file);
         rl.setTarget(ctx.getCompilerSetting("l"));
+        let genDone = {};
+        const genSeen = Object.keys(ctx.already_imported);
+        let nCrates = 0;
+        // Loop start
+        for ( const gk of genSeen) {
+          if ( gk.startsWith("@rsgen:") ) {
+            genDone[gk.substring(7, gk.length )] = true;
+          }
+          if ( gk.startsWith("@rscrate:") ) {
+            nCrates = nCrates + 1;
+          }
+        }
+        rl.useSharedClasses(genDone);
+        if ( nCrates > 0 ) {
+          rl.cloneClass = "RsClone" + ((nCrates).toString());
+        }
+        ctx.already_imported["@rscrate:" + import_file] = true;
         rl.begin(source_code, modName);
         rl.setEntryName(import_file);
         if ( modBase != "" ) {
@@ -24804,6 +24821,11 @@ class RangerFlowParser  {
           };
         }
         const lowered = rl.finish();
+        const genNew = rl.sharedClasses();
+        // Loop start
+        for ( const gn of genNew) {
+          ctx.already_imported["@rsgen:" + gn] = true;
+        }
         if ( rl.errors.length > 0 ) {
           // Loop start
           for ( const rerr of rl.errors) {
@@ -89252,6 +89274,7 @@ class RustLower  {
     this.localReserved = {};
     this.memberUnsafe = {};
     this.genNames = {};
+    this.cloneClass = "RsClone";
     this.genOut = [];
     this.hoisted = [];     /* note: unused */
     this.out = new RustOut();
@@ -90827,8 +90850,26 @@ class RustLower  {
     }
     return name;
   };
+  genKey (t) {
+    if ( this.isBytes(t) ) {
+      return "bytes";
+    }
+    if ( t.args.length == 0 ) {
+      return t.key();
+    }
+    let parts = [];
+    // Loop start
+    for ( const a of t.args) {
+      parts.push(this.genKey(a));
+    }
+    let head = t.kind;
+    if ( t.kind == "named" ) {
+      head = t.name;
+    }
+    return (head + "_") + parts.join("_");
+  };
   mangleKey (t) {
-    const k = t.key();
+    const k = this.genKey(t);
     let out_1 = "";
     const cs = Array.from(k, (rg_c) => rg_c.codePointAt(0));
     // Loop start
@@ -90985,7 +91026,7 @@ class RustLower  {
   };
   collectionCloner (t) {
     const key = "c_" + this.mangleKey(t);
-    const name = "RsClone." + key;
+    const name = (this.cloneClass + ".") + key;
     if ( ( typeof(this.genNames[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, key) ) ) {
       return name;
     }
@@ -91470,7 +91511,7 @@ class RustLower  {
       parts.push(g);
     }
     if ( this.clonerOut.length > 0 ) {
-      parts.push(("class RsClone {\n" + this.clonerOut.join("\n")) + "\n}");
+      parts.push(((("class " + this.cloneClass) + " {\n") + this.clonerOut.join("\n")) + "\n}");
     }
     // Loop start
     for ( let ej = 0; ej < this.enumOrder.length; ej++) {
@@ -92043,7 +92084,7 @@ class RustLower  {
   };
   vecDebugger (t) {
     const key = "dbg_" + this.mangleKey(t);
-    const name = "RsClone." + key;
+    const name = (this.cloneClass + ".") + key;
     if ( ( typeof(this.genNames[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, key) ) ) {
       return name;
     }
@@ -96205,7 +96246,7 @@ class RustLower  {
   };
   vecInserter (t) {
     const key = "ins_" + this.mangleKey(t);
-    const name = "RsClone." + key;
+    const name = (this.cloneClass + ".") + key;
     if ( ( typeof(this.genNames[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, key) ) ) {
       return name;
     }
@@ -99612,6 +99653,24 @@ class RustLower  {
       }
     }
     return false;
+  };
+  useSharedClasses (done) {
+    const ks = Object.keys(done);
+    // Loop start
+    for ( const k of ks) {
+      this.genNames[k] = true;
+    }
+  };
+  sharedClasses () {
+    let res = [];
+    const ks = Object.keys(this.genNames);
+    // Loop start
+    for ( const k of ks) {
+      if ( k.startsWith("Rs") ) {
+        res.push(k);
+      }
+    }
+    return res;
   };
   boxClass (t) {
     const plain = t.copy();
