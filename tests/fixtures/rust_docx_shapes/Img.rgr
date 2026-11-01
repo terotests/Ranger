@@ -1,0 +1,3 @@
+class Img {
+    def pixels:buffer (buffer_alloc 4)
+}

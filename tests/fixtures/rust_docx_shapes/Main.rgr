@@ -1,0 +1,11 @@
+Import "Img.rgr"
+Import "lib.rs"
+
+class Main {
+    sfn main@(main):void () {
+        def img (new Img)
+        print (to_string (Shapes.fill(img)))
+        print (to_string (Shapes.shared()))
+        print (to_string (Shapes.sorted()))
+    }
+}

@@ -89058,6 +89058,11 @@ class RsRgrScan  {
     if ( t == "void" ) {
       return RsType.mk("unit");
     }
+    if ( t == "buffer" ) {
+      const bt = RsType.mk("int");
+      bt.name = "u8";
+      return RsType.of1("vec", bt);
+    }
     const n = t.length;
     if ( (n >= 2 && t.charCodeAt(0 ) == 91) && t.charCodeAt(n - 1 ) == 93 ) {
       const inner = t.substring(1, n - 1 );
@@ -95699,7 +95704,7 @@ class RustLower  {
         if ( (typeof(m) !== "undefined" && m != null )  ) {
           return this.userMethodCall(rv, m, args, n);
         }
-        if ( (name == "clone" && s3.rgr) && args.length == 0 ) {
+        if ( (name == "clone" && (s3.rgr || t.shared)) && args.length == 0 ) {
           return rv;
         }
         if ( name == "clone" && (s3.derivesTrait("Clone") || s3.derivesTrait("Copy")) ) {

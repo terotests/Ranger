@@ -7009,9 +7009,10 @@ class RustLower {
         if (!null? m) {
           return (this.userMethodCall(rv (unwrap m) args n))
         }
-        ; `e.borrow().width.clone()` on a .rgr class value: rustc copies the
-        ; Rc handle (or the Option of one), which is the same object here
-        if ((name == "clone") && s3.rgr && ((array_length args) == 0)) {
+        ; `e.borrow().width.clone()` on a .rgr class value, or `.clone()` of an
+        ; `Rc<RefCell<T>>` of any struct: rustc copies the Rc handle (or the
+        ; Option of one), which is the same object here. T needs no Clone.
+        if ((name == "clone") && (s3.rgr || t.shared) && ((array_length args) == 0)) {
           return rv
         }
         if ((name == "clone") && ((s3.derivesTrait("Clone")) || (s3.derivesTrait("Copy")))) {
