@@ -88231,7 +88231,7 @@ RustReserved.operatorNames = function() {
   parts.push("pushString random rawbytechar read_file read_file_sync regex_test");
   parts.push("remove removeLast remove_index replace ret return reverse rs_abs");
   parts.push("rs_byte_len rs_byte_slice rs_ceil rs_char_code rs_char_count");
-  parts.push("rs_char_from rs_dbg rs_div rs_f2i rs_find_bytes rs_floor rs_fmt");
+  parts.push("rs_bytes_extend rs_bytes_grow rs_bytes_push rs_char_from rs_dbg rs_div rs_f2i rs_find_bytes rs_floor rs_fmt");
   parts.push("rs_fmt_dbg_f64 rs_fmt_prec rs_i2f rs_lower rs_map_len rs_map_remove");
   parts.push("rs_max rs_min rs_neg rs_panic rs_pow rs_powi rs_rem rs_sqrt rs_str_cmp");
   parts.push("rs_upper rs_wrap_u16 rs_wrap_u8 run_process_result set set_at");
@@ -96042,11 +96042,13 @@ class RustLower  {
     let grown = "";
     if ( name == "push" ) {
       const pv = this.lowerExpr(args[0], it);
-      grown = ((("(RsBytes.push(" + v) + " ") + pv.code) + "))";
+      const pc = this.bindTemp(pv, it, "b");
+      grown = ((("(rs_bytes_push " + v) + " ") + pc) + ")";
     }
     if ( (name == "extend_from_slice" || name == "extend") || name == "append" ) {
       const ev = this.lowerExpr(args[0], t);
-      grown = ((("(RsBytes.extend(" + v) + " ") + ev.code) + "))";
+      const ec = this.bindTemp(ev, t, "m");
+      grown = ((("(rs_bytes_extend " + v) + " ") + ec) + ")";
       if ( name == "append" ) {
         this.assignTo(args[0], this.simpleExpr("(buffer_alloc 0)", t));
       }

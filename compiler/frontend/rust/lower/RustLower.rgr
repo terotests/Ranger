@@ -7330,11 +7330,15 @@ class RustLower {
     def grown:string ""
     if (name == "push") {
       def pv:RsExpr (this.lowerExpr((itemAt args 0) it))
-      grown = (((("(RsBytes.push(" + v) + " ") + pv.code) + "))")
+      ; the operators' fallback is a macro, which reads its arguments back as
+      ; text: a name keeps their types
+      def pc:string (this.bindTemp(pv it "b"))
+      grown = (((("(rs_bytes_push " + v) + " ") + pc) + ")")
     }
     if ((name == "extend_from_slice") || (name == "extend") || (name == "append")) {
       def ev:RsExpr (this.lowerExpr((itemAt args 0) t))
-      grown = (((("(RsBytes.extend(" + v) + " ") + ev.code) + "))")
+      def ec:string (this.bindTemp(ev t "m"))
+      grown = (((("(rs_bytes_extend " + v) + " ") + ec) + ")")
       if (name == "append") {
         this.assignTo((itemAt args 0) (this.simpleExpr("(buffer_alloc 0)" t)))
       }
