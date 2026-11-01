@@ -1,0 +1,272 @@
+class Metrics {
+  def width:double 0.0
+}
+class LineStyle {
+  def align:int 0
+}
+class Other {
+  sfn styleAt:int (ids:[int] i:int) {
+    return (itemAt ids i)
+  }
+}
+class Engine {
+  def cache:[string:Metrics]
+  def styles:[LineStyle]
+  fn measure:Metrics (text:string) {
+    def m:Metrics (new Metrics)
+    m.width = (to_double (strlen text))
+    set cache text m
+    return m
+  }
+  fn styleAt:LineStyle (i:int) {
+    if (i >= (array_length styles)) {
+      return (new LineStyle)
+    }
+    return (itemAt styles i)
+  }
+  fn fits:boolean (text:string max:double) {
+    if (((this.measure(text)).width) <= max) {
+      return true
+    }
+    return false
+  }
+}
+class Dialect {
+  fn name:string () {
+    return "base"
+  }
+}
+class PgDialect {
+  Extends(Dialect)
+  fn name:string () {
+    return "pg"
+  }
+}
+class Tok {
+  def dialect:Dialect
+  def count:int 0
+  sfn forDialect:Tok (d:Dialect) {
+    def t:Tok (new Tok)
+    t.dialect = d
+    return t
+  }
+}
+class Parser {
+  def pos:int 0
+  def text:string ""
+  fn rawGroup:string () {
+    pos = (pos + 1)
+    return (" g" + pos + " ")
+  }
+  fn environment:string (name:string) {
+    pos = (pos + 10)
+    return ("env:" + name)
+  }
+  fn parse:[string] () {
+    def list:[string]
+    push list (this.environment((trim (this.rawGroup()))))
+    return list
+  }
+}
+class Style {
+  def bold:boolean false
+  def size:int 0
+}
+class Styles {
+  sfn of:Style (flag:boolean) {
+    def st:Style (new Style)
+    if flag {
+      st.bold = true
+    }
+    return st
+  }
+}
+class Menu {
+  def last:string ""
+  def items:[string]
+  fn open:void (m:string x:double y:double arg:int) {
+    last = (m + " " + x + " " + y + " " + arg)
+  }
+  sfn restInt:int (id:string) {
+    return (strlen id)
+  }
+  fn click:void (id:string) {
+    push items id
+    def __arg_0:double ((to_double (array_length items)) + 0.5)
+    def __arg_1:double 2.5
+    this.open("histver" __arg_0 __arg_1 (Menu.restInt(id)))
+  }
+}
+class Measurer {
+  fn measureText:Metrics (t:string) {
+    def m:Metrics (new Metrics)
+    m.width = (to_double (strlen t))
+    return m
+  }
+}
+class HalfMeasurer {
+  Extends(Measurer)
+  fn measureText:Metrics (t:string) {
+    def m:Metrics (new Metrics)
+    m.width = ((to_double (strlen t)) / 2.0)
+    return m
+  }
+}
+class TextEngine {
+  def measurer:Measurer
+  def runStore:[Metrics]
+  def owner:TextEngine
+  Constructor () {
+    measurer = (new HalfMeasurer)
+  }
+  fn remember:void () {
+    Registry.add(this)
+  }
+  fn measureRun:Metrics (text:string) {
+    this.remember()
+    def m:Metrics (measurer.measureText(text))
+    push runStore m
+    return m
+  }
+  fn measureRunSpaced:Metrics (text:string spacing:double) {
+    def m:Metrics (this.measureRun(text))
+    if (spacing == 0.0) {
+      return m
+    }
+    def wider (new Metrics)
+    wider.width = (m.width + spacing)
+    return wider
+  }
+  fn fits:boolean (text:string max:double) {
+    if (((this.measureRunSpaced(text 0.0)).width) <= max) {
+      return true
+    }
+    return false
+  }
+}
+class Buffer {
+  def lineStyles:[LineStyle]
+  fn styleAt:LineStyle (i:int) {
+    if (i >= (array_length lineStyles)) {
+      return (new LineStyle)
+    }
+    return (itemAt lineStyles i)
+  }
+  fn keep:int (aLine:int) {
+    def keepAlign:int (this.styleAt(aLine)).align
+    return keepAlign
+  }
+}
+class Book {
+  def sheets:[LineStyle]
+  def self:Book
+  fn reg:void () {
+    Registry.addBook(this)
+  }
+  fn sheetAt:LineStyle (i:int) {
+    this.reg()
+    return (itemAt sheets i)
+  }
+}
+class Grid {
+  def book:Book
+  Constructor () {
+    book = (new Book)
+    def ls:LineStyle (new LineStyle)
+    ls.align = 7
+    push book.sheets ls
+  }
+  fn alignOf:int (at:int) {
+    def nm:int ((book.sheetAt(at)).align)
+    return nm
+  }
+}
+class Registry {
+  sfn add:void (e:TextEngine) {
+    e.runStore = e.runStore
+  }
+  sfn addBook:void (b:Book) {
+    b.sheets = b.sheets
+  }
+}
+class Holder {
+  def engines:[TextEngine]
+  def buffers:[Buffer]
+  def books:[Book]
+  def lastEngine:TextEngine
+  def lastBuffer:Buffer
+  def lastBook:Book
+}
+class StyleFlag {
+  def isSet:boolean false
+  def value:boolean false
+  fn set:void (v:boolean) {
+    isSet = true
+    value = v
+  }
+}
+class RunStyle {
+  def bold:StyleFlag (new StyleFlag)
+  def italic:StyleFlag (new StyleFlag)
+}
+class RunStyles {
+  sfn of:RunStyle (b:boolean) {
+    def st:RunStyle (new RunStyle)
+    if b {
+      st.bold.set(true)
+    }
+    return st
+  }
+}
+class Main {
+  sfn main@(main):void () {
+    def e:Engine (new Engine)
+    if (e.fits("abc" 4.0)) {
+      print "fits"
+    }
+    def ls:LineStyle (new LineStyle)
+    ls.align = 3
+    push e.styles ls
+    def keep:int ((e.styleAt(0)).align)
+    def ids:[int]
+    push ids 5
+    push ids 6
+    print ("" + keep + " " + (Other.styleAt(ids 1)))
+    def t:Tok (Tok.forDialect((new PgDialect)))
+    print (t.dialect.name())
+    def p:Parser (new Parser)
+    def got:[string] (p.parse())
+    print ((itemAt got 0) + " " + p.pos)
+    def st:Style (Styles.of(true))
+    def mn:Menu (new Menu)
+    mn.click("abcd")
+    print mn.last
+    def te:TextEngine (new TextEngine)
+    def ho:Holder (new Holder)
+    push ho.engines te
+    ho.lastEngine = te
+    if (te.fits("abcd" 2.0)) {
+      print "half fits"
+    }
+    def bu:Buffer (new Buffer)
+    push ho.buffers bu
+    ho.lastBuffer = bu
+    push bu.lineStyles ls
+    def g:Grid (new Grid)
+    def gb:Book (new Book)
+    def gls:LineStyle (new LineStyle)
+    gls.align = 7
+    push gb.sheets gls
+    g.book = gb
+    push ho.books gb
+    ho.lastBook = gb
+    print ("" + (bu.keep(0)) + " " + (g.alignOf(0)))
+    def rs:RunStyle (RunStyles.of(true))
+    if rs.bold.value {
+      print "run bold"
+    }
+    if st.bold {
+      print "bold"
+    }
+  }
+}
