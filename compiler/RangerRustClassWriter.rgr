@@ -3236,6 +3236,9 @@ class RangerRustClassWriter {
                 if (vp.ref_cnt > 1) {
                   should_clone_vardef = true
                 }
+                if ((should_clone_vardef == false) && (this.rustReadRepeatsInLoop(valueInner (unwrap vp) ctx))) {
+                  should_clone_vardef = true
+                }
               }
             }
           }
@@ -3304,7 +3307,7 @@ class RangerRustClassWriter {
           if valueInner.hasParamDesc {
             def vpL:RangerAppParamDesc valueInner.paramDesc
             if ((vpL.is_class_variable == false) && (vpL.rust_borrow_type == 0)) {
-              if (vpL.ref_cnt > 1) {
+              if ((vpL.ref_cnt > 1) || (this.rustReadRepeatsInLoop(valueInner (unwrap vpL) ctx))) {
                 def vpLNN@(optional):CodeNode vpL.nameNode
                 if (!null? vpLNN) {
                   def vpLN:CodeNode (unwrap vpLNN)

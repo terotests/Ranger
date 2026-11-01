@@ -1,0 +1,9 @@
+Import "lib.rs"
+class GenMain {
+    sfn main () {
+        def e:Ed (Ed.new_())
+        print ("" + (e.save("a")))
+        print ("" + (e.save("b")))
+        print (e.top())
+    }
+}

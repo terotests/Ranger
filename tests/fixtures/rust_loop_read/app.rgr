@@ -1,0 +1,24 @@
+; A string declared outside a loop and read into a `def` inside it: the
+; Rust target has to clone it, or the second pass reads a moved value.
+Import "lib.rs"
+class LoopReadApp {
+    sfn fromRgr:string (pts:[string] n:int) {
+        def last:string (itemAt pts 0)
+        def out:string ""
+        def j:int 0
+        while (j < n) {
+            def owner:string last
+            if (j < (array_length pts)) {
+                owner = (itemAt pts j)
+            }
+            out = (out + owner)
+            j = (j + 1)
+        }
+        return out
+    }
+    sfn main () {
+        def p:[string] ([] _:string ("a" "b"))
+        print (MvTest.pick(p 3))
+        print (LoopReadApp.fromRgr(p 3))
+    }
+}
