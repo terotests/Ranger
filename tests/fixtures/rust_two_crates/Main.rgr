@@ -1,0 +1,9 @@
+Import "a/lib.rs"
+Import "b/lib.rs"
+
+class Main {
+    sfn main@(main):void () {
+        print (to_string (Rows.total()))
+        print (to_string (Blobs.total()))
+    }
+}

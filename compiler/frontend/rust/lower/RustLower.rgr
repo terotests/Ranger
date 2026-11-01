@@ -102,6 +102,9 @@ class RustLower {
 
   ; generated concrete classes: tuples, monomorphized generics
   def genNames:[string:boolean]
+  ; the class holding this lowering's collection clone/debug helpers: another
+  ; `.rs` crate lowered into the same program has its own (FlowImport)
+  def cloneClass:string "RsClone"
   def genOut:[string]
   ; nested fns hoisted to the module class
   def hoisted:[string]
@@ -1866,8 +1869,28 @@ class RustLower {
     return name
   }
 
+  ; RsType.key with `Vec<u8>` (a buffer) as `bytes`: `Vec<i64>` and `Vec<u8>`
+  ; are different Ranger types, so their generated helpers must not share a name
+  fn genKey:string (t:RsType) {
+    if (this.isBytes(t)) {
+      return "bytes"
+    }
+    if ((array_length t.args) == 0) {
+      return (t.key())
+    }
+    def parts:[string]
+    for t.args a:RsType i {
+      push parts (this.genKey(a))
+    }
+    def head:string t.kind
+    if (t.kind == "named") {
+      head = t.name
+    }
+    return ((head + "_") + (join parts "_"))
+  }
+
   fn mangleKey:string (t:RsType) {
-    def k:string (t.key())
+    def k:string (this.genKey(t))
     def out:string ""
     def cs:[int] (to_chars k)
     for cs c:int i {
@@ -2045,7 +2068,7 @@ class RustLower {
   ; A static helper that copies a collection element by element.
   fn collectionCloner:string (t:RsType) {
     def key:string ("c_" + (this.mangleKey(t)))
-    def name:string ("RsClone." + key)
+    def name:string ((cloneClass + ".") + key)
     if (has genNames key) {
       return name
     }
@@ -2544,7 +2567,7 @@ class RustLower {
       push parts g
     }
     if ((array_length clonerOut) > 0) {
-      push parts (("class RsClone {\n" + (join clonerOut "\n")) + "\n}")
+      push parts (((("class " + cloneClass) + " {\n") + (join clonerOut "\n")) + "\n}")
     }
     for enumOrder en2:string ej {
       def eo2:RsEnum (unwrap (get enums en2))
@@ -3108,7 +3131,7 @@ class RustLower {
 
   fn vecDebugger:string (t:RsType) {
     def key:string ("dbg_" + (this.mangleKey(t)))
-    def name:string ("RsClone." + key)
+    def name:string ((cloneClass + ".") + key)
     if (has genNames key) {
       return name
     }
@@ -7515,7 +7538,7 @@ class RustLower {
 
   fn vecInserter:string (t:RsType) {
     def key:string ("ins_" + (this.mangleKey(t)))
-    def name:string ("RsClone." + key)
+    def name:string ((cloneClass + ".") + key)
     if (has genNames key) {
       return name
     }
@@ -11092,6 +11115,28 @@ class RustLower {
       }
     }
     return false
+  }
+
+  ; Generated classes (RsTup_, RsRes_, RsOMap_, RsBox_) another lowering of
+  ; the same program already wrote: marked done here so they are not defined
+  ; twice. The clone helpers are per lowering (cloneClass), so they stay.
+  fn useSharedClasses:void (done:[string:boolean]) {
+    def ks:[string] (keys done)
+    for ks k:string i {
+      set genNames k true
+    }
+  }
+
+  ; The generated class names of this lowering, for the next one.
+  fn sharedClasses:[string] () {
+    def res:[string]
+    def ks:[string] (keys genNames)
+    for ks k:string i {
+      if (startsWith k "Rs") {
+        push res k
+      }
+    }
+    return res
   }
 
   fn boxClass:string (t:RsType) {
