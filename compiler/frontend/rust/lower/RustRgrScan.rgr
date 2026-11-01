@@ -309,6 +309,13 @@ class RsRgrScan {
     if (t == "void") {
       return (RsType.mk("unit"))
     }
+    if (t == "buffer") {
+      ; a buffer field or parameter of a .rgr class is a `Vec<u8>` to the
+      ; Rust code, which the lowering writes as the same buffer
+      def bt:RsType (RsType.mk("int"))
+      bt.name = "u8"
+      return (RsType.of1("vec" bt))
+    }
     def n:int (strlen t)
     if ((n >= 2) && ((charAt t 0) == 91) && ((charAt t (n - 1)) == 93)) {
       def inner:string (substring t 1 (n - 1))

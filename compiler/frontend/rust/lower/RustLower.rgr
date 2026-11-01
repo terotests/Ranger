@@ -6707,6 +6707,15 @@ class RustLower {
           def codes0:[string] (this.lowerArgs(rest (this.paramTypes(mf))))
           return (RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + (join codes0 " ")) + "))") mf.ret))
         }
+        if ((false == mf.rgrCtor) && (false == s.rgr) && (this.hasBoxed(mf))) {
+          ; `Type::f(&mut v, …)`: the place goes in a box and back, as for a
+          ; module function
+          def bname:string (this.staticName(name))
+          if (mf.statName != "") {
+            bname = mf.statName
+          }
+          return (this.boxedCall(((((this.className(head)) + ".") + bname) + "(") mf args (RsType.mk("unknown")) "" at))
+        }
         def codes:[string] (this.lowerArgs(args (this.paramTypes(mf))))
         if mf.rgrCtor {
           ; the constructor of a `.rgr` class
@@ -6992,9 +7001,10 @@ class RustLower {
         if (!null? m) {
           return (this.userMethodCall(rv (unwrap m) args n))
         }
-        ; `e.borrow().width.clone()` on a .rgr class value: rustc copies the
-        ; Rc handle (or the Option of one), which is the same object here
-        if ((name == "clone") && s3.rgr && ((array_length args) == 0)) {
+        ; `e.borrow().width.clone()` on a .rgr class value, or `.clone()` of an
+        ; `Rc<RefCell<T>>` of any struct: rustc copies the Rc handle (or the
+        ; Option of one), which is the same object here. T needs no Clone.
+        if ((name == "clone") && (s3.rgr || t.shared) && ((array_length args) == 0)) {
           return rv
         }
         if ((name == "clone") && ((s3.derivesTrait("Clone")) || (s3.derivesTrait("Copy")))) {
