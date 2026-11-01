@@ -3,9 +3,9 @@
   "packages": {
     "evg": {
       "git": "https://github.com/terotests/evg.git",
-      "rev": "2b3492cf3b5ccca4b9ef6a195b57eee13f00048b",
+      "rev": "6b3681dc902713f6e02083bc05f48d8e216fd3b7",
       "subdir": "storm",
-      "sha256": "441f851f66f25f8eb8fd4a73afc497c634d756434d09f0edde5227a49b5efc13"
+      "sha256": "9252f35be463104b8949382d3f63c32366c5ddd6e70a5ee57213de4d533f5ca1"
     },
     "componentengine": {
       "git": "https://github.com/terotests/componentengine.git",
@@ -33,7 +33,7 @@
     },
     "image": {
       "git": "https://github.com/terotests/evg.git",
-      "rev": "2b3492cf3b5ccca4b9ef6a195b57eee13f00048b",
+      "rev": "6b3681dc902713f6e02083bc05f48d8e216fd3b7",
       "subdir": "image",
       "sha256": "ab9804949d5564dc802d6f236fff9f701519213add55d2b03b217ee50d369076"
     }
