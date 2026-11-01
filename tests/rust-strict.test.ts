@@ -399,3 +399,19 @@ describe("the ranger prelude crate", () => {
     expect(r.status, r.stdout + r.stderr).toBe(0);
   }, 300000);
 });
+
+// Vec<u8> push / extend_from_slice in a loop: linear on es6 and Go (a new
+// buffer per push was quadratic: 83 s for 200 000 pushes on es6). Two
+// million pushes run in well under a second on both.
+describe("Rust-syntax modules: growing a Vec<u8> is linear", () => {
+  const file = path.join(ROOT, "tests/fixtures/rust_perf/bytes_grow.rs");
+  for (const target of ["es6", "go"]) {
+    it.skipIf(!TOOLS[target])(`2 000 000 pushes on ${target}`, () => {
+      const t0 = Date.now();
+      const r = compileAndRun(file, "bytes_grow", target);
+      expect(r.ok, r.out).toBe(true);
+      expect(r.out).toBe("2000000 31 2000000\n");
+      expect(Date.now() - t0).toBeLessThan(30000);
+    }, 120000);
+  }
+});

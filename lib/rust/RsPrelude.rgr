@@ -1037,6 +1037,49 @@ inline void rs_map_erase(M& m, const K& k) {
 
   ; Rust's `find` answers a BYTE offset; `indexOf` answers the target's own
   ; unit, so the prefix before the hit is measured in UTF-8.
+  ; `v.push(x)` / `v.extend_from_slice(m)` on a Vec<u8>: the buffer with the
+  ; bytes added. The caller stores it back over the old one (a Rust Vec has
+  ; one owner), so it may be the same buffer grown in place. On es6 that is a
+  ; resizable ArrayBuffer whose capacity doubles, and on Go append: a loop of
+  ; pushes stays linear. Elsewhere a new buffer each time (RsBytes.push).
+  rs_bytes_push _:buffer (b:buffer v:int) {
+    templates {
+      es6 ( "rs_bytes_grow(" (e 1) ", 1, " (e 2) ", null)"
+(create_polyfill '
+// Vec<u8> push/extend: grows a resizable ArrayBuffer in place, its maximum
+// doubling, so a loop of pushes is linear. The DataView of a resizable
+// buffer tracks its length.
+function rs_bytes_grow(b, k, v, more) {
+  var n = b.byteLength;
+  if (more !== null) { k = more.byteLength; }
+  var out = b;
+  if (!(b.resizable && n + k <= b.maxByteLength)) {
+    var cap = Math.max(16, 2 * (n + k));
+    out = new ArrayBuffer(n, { maxByteLength: cap });
+    new Uint8Array(out).set(new Uint8Array(b, 0, n));
+    out._view = new DataView(out);
+  }
+  out.resize(n + k);
+  if (more === null) {
+    out._view.setUint8(n, v);
+  } else {
+    new Uint8Array(out, n, k).set(new Uint8Array(more, 0, k));
+  }
+  return out;
+}
+')
+      )
+      go ( "append(" (e 1) ", byte(" (e 2) "))" )
+      * @macro(true) ( "(RsBytes.push(" (e 1) " " (e 2) "))" )
+    }
+  }
+  rs_bytes_extend _:buffer (b:buffer more:buffer) {
+    templates {
+      es6 ( "rs_bytes_grow(" (e 1) ", -1, 0, " (e 2) ")" )
+      go ( "append(" (e 1) ", " (e 2) "...)" )
+      * @macro(true) ( "(RsBytes.extend(" (e 1) " " (e 2) "))" )
+    }
+  }
   rs_find_bytes _:int (s:string p:string) {
     templates {
       * @macro(true) ( "(RsStr.findBytes(" "(" (e 1) ")" " " "(" (e 2) ")" "))" )
