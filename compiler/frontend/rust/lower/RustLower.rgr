@@ -1719,6 +1719,9 @@ class RustLower {
     if (k == "unit") {
       return "void"
     }
+    if (this.isBytes(t)) {
+      return "buffer"
+    }
     if (k == "vec") {
       if ((t.arg(0)).kind == "opt") {
         ; a Ranger array has no empty element
@@ -1903,6 +1906,9 @@ class RustLower {
     if (t.kind == "opt") {
       return ""
     }
+    if (this.isBytes(t)) {
+      return "(buffer_alloc 0)"
+    }
     def k:string t.kind
     if (k == "int") {
       return "0"
@@ -1920,6 +1926,24 @@ class RustLower {
       return (("(new " + (this.omapClass(t))) + "())")
     }
     return ""
+  }
+
+  ; `Vec<u8>`, `&[u8]`, `[u8; N]`: a Ranger buffer (RsBytes in RsPrelude)
+  fn isBytes:boolean (t:RsType) {
+    if (t.kind != "vec") {
+      return false
+    }
+    if ((array_length t.args) == 0) {
+      return false
+    }
+    def e:RsType (t.arg(0))
+    return ((e.kind == "int") && (e.name == "u8"))
+  }
+
+  fn bytesType:RsType () {
+    def e:RsType (RsType.mk("int"))
+    e.name = "u8"
+    return (RsType.of1("vec" e))
   }
 
   ; A value of type `t` to start a temporary with: temporaries are never
@@ -1999,6 +2023,9 @@ class RustLower {
     }
     if (this.isDataEnum(t)) {
       return (((("(" + (this.implClass(t.name))) + ".cloneOf(") + code) + "))")
+    }
+    if (this.isBytes(t)) {
+      return (("(RsBytes.copy(" + code) + "))")
     }
     if ((k == "named") && ((has structs t.name) || ((array_length t.args) > 0))) {
       return (("(" + code) + ".rs_clone())")
@@ -2929,6 +2956,9 @@ class RustLower {
 
   ; A value for a constructor argument that has no zero (a collection).
   fn emptyValueCode:string (t:RsType) {
+    if (this.isBytes(t)) {
+      return "(buffer_alloc 0)"
+    }
     if (t.kind == "vec") {
       return (("([] _:" + (this.rtype((t.arg(0))))) + " ())")
     }
@@ -2962,6 +2992,9 @@ class RustLower {
   }
 
   fn eqCode:string (a:string b:string t:RsType) {
+    if (this.isBytes(t)) {
+      return (((("(RsBytes.eq(" + a) + " ") + b) + "))")
+    }
     if (this.isDataEnum(t)) {
       return (((((("(" + (this.implClass(t.name))) + ".eqOf(") + a) + " ") + b) + "))")
     }
@@ -3042,6 +3075,9 @@ class RustLower {
     }
     if ((k == "named") && (has enums t.name)) {
       return (((("(" + (this.implClass(t.name))) + ".dbgOf(") + code) + "))")
+    }
+    if (this.isBytes(t)) {
+      return (("(RsBytes.dbg(" + code) + "))")
     }
     if (k == "vec") {
       return ((("(" + (this.vecDebugger(t))) + "(") + (code + "))"))
@@ -4600,10 +4636,19 @@ class RustLower {
       elemT = (RsType.mk("int"))
       elemCode = (((("(charAt " + seq) + " ") + idx) + ")")
     }
+    def isBuf:boolean ((mode == "vec") && (this.isBytes(st)))
+    if (isBuf && mutElems) {
+      this.err(iter0 "`iter_mut()` over a `Vec<u8>` (a Ranger buffer): index it")
+      return
+    }
     if (mode == "vec") {
       seq = (this.bindTemp(sv st "seq"))
       elemT = (st.arg(0))
-      elemCode = (((("(itemAt " + seq) + " ") + idx) + ")")
+      if (isBuf) {
+        elemCode = (((("(buffer_get " + seq) + " ") + idx) + ")")
+      } {
+        elemCode = (((("(itemAt " + seq) + " ") + idx) + ")")
+      }
     }
     def mapT:RsType st
     if ((mode == "map") || (mode == "keys") || (mode == "values") || (mode == "values_mut")) {
@@ -4641,7 +4686,11 @@ class RustLower {
       ; bare `const char*`, whose length stops at the first NUL
       out.line((((("def " + n) + ":int (rs_byte_len ") + sv.code) + ")"))
     } {
-      out.line((((("def " + n) + ":int (array_length ") + seqName) + ")"))
+      if (isBuf) {
+        out.line((((("def " + n) + ":int (buffer_length ") + seqName) + ")"))
+      } {
+        out.line((((("def " + n) + ":int (array_length ") + seqName) + ")"))
+      }
     }
     if (rev) {
       out.line((((("def " + idx) + ":int (") + n) + " - 1)"))
@@ -5727,9 +5776,22 @@ class RustLower {
       if ((array_length cs) > 0) {
         code = (itemAt cs 0)
       }
-      def rb:RsExpr (RsExpr.of((to_string code) (RsType.mk("int"))))
+      def byT:RsType (RsType.mk("int"))
+      byT.name = "u8"
+      def rb:RsExpr (RsExpr.of((to_string code) byT))
       rb.simple = true
       return rb
+    }
+    if (n.hasMod("bytestr")) {
+      ; b"…": a buffer of its bytes
+      def bcs:[int] (to_chars n.value)
+      def bparts:[string]
+      for bcs bc:int bi {
+        push bparts (to_string bc)
+      }
+      def bt:RsType (this.bytesType())
+      bt.isRef = true
+      return (RsExpr.of((("(RsBytes.ofInts(([] _:int (" + (join bparts " ")) + "))))") bt))
     }
     if (n.hasMod("float") || (n.hasMod("f64")) || (n.hasMod("f32")) || (expect.kind == "double")) {
       def txt:string n.value
@@ -5741,7 +5803,11 @@ class RustLower {
       return rf
     }
     if (n.hasMod("int")) {
-      def ri:RsExpr (RsExpr.of((to_string (this.intValue(n))) (RsType.mk("int"))))
+      def intT:RsType (RsType.mk("int"))
+      if (n.hasMod("u8")) {
+        intT.name = "u8"
+      }
+      def ri:RsExpr (RsExpr.of((to_string (this.intValue(n))) intT))
       ri.simple = true
       return ri
     }
@@ -6251,6 +6317,13 @@ class RustLower {
       }
       return (("(!null? " + other) + ")")
     }
+    if ((this.isBytes(t)) && ((op == "==") || (op == "!="))) {
+      def beq:string (this.eqCode(l.code r.code t))
+      if (op == "==") {
+        return beq
+      }
+      return (("(! " + beq) + ")")
+    }
     if (this.isDataEnum(t)) {
       if ((op == "==") || (op == "!=")) {
         def eqc:string (this.eqCode(l.code r.code t))
@@ -6689,6 +6762,22 @@ class RustLower {
       def v:RsExpr (this.lowerExpr((itemAt args 0) (RsType.mk("string"))))
       return (RsExpr.of(v.code (this.ownedString())))
     }
+    ; bytes to text: the buffer decoded as UTF-8 (RsBytes.toUtf8)
+    if (((head == "String") || (head == "str")) && ((name == "from_utf8") || (name == "from_utf8_lossy"))) {
+      def ub:RsExpr (this.lowerExpr((itemAt args 0) (this.bytesType())))
+      def utext:string (("(RsBytes.toUtf8(" + ub.code) + "))")
+      if (name == "from_utf8_lossy") {
+        return (RsExpr.of(utext (this.ownedString())))
+      }
+      ; never an Err: invalid UTF-8 decodes to U+FFFD, as from_utf8_lossy
+      def urt:RsType (RsType.of2("result" (this.ownedString()) (this.ownedString())))
+      def ucls:string (this.resultClass(urt))
+      def un:string (this.tmp("res"))
+      out.line((((("def " + un) + ":") + ucls) + ((" (new " + ucls) + ")")))
+      out.line((un + ".ok = true"))
+      out.line((((un + ".v = ") + utext)))
+      return (this.simpleExpr(un urt))
+    }
     if (full == "String::new") {
       def e:RsExpr (RsExpr.of("\"\"" (this.ownedString())))
       e.simple = true
@@ -7042,7 +7131,7 @@ class RustLower {
       def rc:string (this.bindTemp(rv t "r"))
       return (RsExpr.of((this.cloneCode(rc t)) t))
     }
-    if ((name == "as_str") || (name == "as_ref") || (name == "borrow") || (name == "borrow_mut") || (name == "as_mut") || (name == "into")) {
+    if ((name == "as_str") || (name == "as_ref") || (name == "borrow") || (name == "borrow_mut") || (name == "as_mut") || (name == "into") || ((name == "into_owned") && (k == "string"))) {
       return rv
     }
     if ((name == "to_string") && (k != "vec")) {
@@ -7131,8 +7220,117 @@ class RustLower {
 
   def lastVecName:string ""
 
+  ; A method of a `Vec<u8>` / `&[u8]`: a Ranger buffer, which has a fixed
+  ; size, so what grows it makes a new buffer and stores it back.
+  fn bytesMethod:RsExpr (rv:RsExpr name:string args:[RustNode] at:RustNode expect:RsType) {
+    def t:RsType rv.ty
+    def v:string (this.bindTemp(rv t "buf"))
+    lastVecName = v
+    def it:RsType (RsType.mk("int"))
+    def bt:RsType (RsType.mk("bool"))
+    def recvN:RustNode (at.kid(0))
+    if (name == "len") {
+      return (RsExpr.of((("(buffer_length " + v) + ")") it))
+    }
+    if (name == "is_empty") {
+      return (RsExpr.of((("((buffer_length " + v) + ") == 0)") bt))
+    }
+    if ((name == "to_vec") || (name == "to_owned") || (name == "into_boxed_slice") || (name == "into_vec")) {
+      return (RsExpr.of((("(RsBytes.copy(" + v) + "))") (this.bytesType())))
+    }
+    if ((name == "as_slice") || (name == "as_mut_slice")) {
+      return rv
+    }
+    if (name == "fill") {
+      def fv:RsExpr (this.lowerExpr((itemAt args 0) it))
+      out.line((((("RsBytes.fillAll(" + v) + " ") + fv.code) + ")"))
+      return (this.unit())
+    }
+    if (name == "contains") {
+      def cv:RsExpr (this.lowerExpr((itemAt args 0) it))
+      return (RsExpr.of((((("((RsBytes.indexOf(" + v) + " ") + cv.code) + ")) >= 0)") bt))
+    }
+    if ((name == "first") || (name == "last") || (name == "get")) {
+      def ot:RsType (RsType.of1("opt" (t.arg(0))))
+      def nm:string (this.tmp("g"))
+      out.line(("def " + (this.declText(nm ot))))
+      def ix:string "0"
+      if (name == "get") {
+        def gv:RsExpr (this.lowerExpr((itemAt args 0) it))
+        ix = (this.bindTemp(gv it "i"))
+      }
+      if (name == "last") {
+        ix = (("((buffer_length " + v) + ") - 1)")
+      }
+      out.line((((((("if ((" + ix) + " >= 0) && (") + ix) + " < (buffer_length ") + v) + "))) {"))
+      out.line((((((("  " + nm) + " = (buffer_get ") + v) + " ") + ix) + ")"))
+      out.line("}")
+      return (this.simpleExpr(nm ot))
+    }
+    if (name == "copy_from_slice") {
+      def src:RsExpr (this.lowerExpr((itemAt args 0) t))
+      def sb:string (this.bindTemp(src t "src"))
+      ; `dst[a..b].copy_from_slice(src)`: into dst from a
+      def target:string v
+      def from:string "0"
+      if ((recvN.kind == "index") && ((recvN.kid(1)).kind == "range")) {
+        def base:RsExpr (this.lowerExpr((recvN.kid(0)) (RsType.mk("unknown"))))
+        target = (this.bindTemp(base base.ty "buf"))
+        def rng:RustNode (recvN.kid(1))
+        if (false == ((rng.kid(0)).isNone())) {
+          def lo:RsExpr (this.lowerExpr((rng.kid(0)) it))
+          from = lo.code
+        }
+      }
+      out.line((((((((("RsBytes.copyInto(" + target) + " ") + from) + " ") + sb) + " (buffer_length ") + sb) + "))"))
+      return (this.unit())
+    }
+    ; what changes the size: a new buffer, stored back where it came from
+    def grown:string ""
+    if (name == "push") {
+      def pv:RsExpr (this.lowerExpr((itemAt args 0) it))
+      grown = (((("(RsBytes.push(" + v) + " ") + pv.code) + "))")
+    }
+    if ((name == "extend_from_slice") || (name == "extend") || (name == "append")) {
+      def ev:RsExpr (this.lowerExpr((itemAt args 0) t))
+      grown = (((("(RsBytes.extend(" + v) + " ") + ev.code) + "))")
+      if (name == "append") {
+        this.assignTo((itemAt args 0) (this.simpleExpr("(buffer_alloc 0)" t)))
+      }
+    }
+    if (name == "clear") {
+      grown = "(buffer_alloc 0)"
+    }
+    if (name == "truncate") {
+      def tv:RsExpr (this.lowerExpr((itemAt args 0) it))
+      def tn:string (this.bindTemp(tv it "n"))
+      grown = (((("(RsBytes.resized(" + v) + " (? (") + tn) + ((" < (buffer_length " + v) + ")) ")) + ((tn + " (buffer_length ") + v) + ")) 0))"
+    }
+    if (name == "resize") {
+      def rn:RsExpr (this.lowerExpr((itemAt args 0) it))
+      def rx:RsExpr (this.lowerExpr((itemAt args 1) it))
+      grown = (((((("(RsBytes.resized(" + v) + " ") + rn.code) + " ") + rx.code) + "))")
+    }
+    if (grown != "") {
+      if (t.isMutRef && (recvN.kind == "path_expr")) {
+        this.err(at (("`." + name) + "()` on a `&mut Vec<u8>` parameter: a buffer cannot grow in place, so return the new `Vec<u8>`"))
+        return (this.unit())
+      }
+      def nb:string (this.tmp("buf"))
+      out.line((((("def " + nb) + ":buffer ") + grown)))
+      this.assignTo(recvN (this.simpleExpr(nb t)))
+      lastVecName = nb
+      return (this.unit())
+    }
+    this.err(at (("`." + name) + "()` on a `Vec<u8>` (a Ranger buffer): index it in a loop"))
+    return (this.unit())
+  }
+
   fn vecMethodInner:RsExpr (rv:RsExpr name:string args:[RustNode] at:RustNode expect:RsType) {
     def t:RsType rv.ty
+    if (this.isBytes(t)) {
+      return (this.bytesMethod(rv name args at expect))
+    }
     def et:RsType (t.arg(0))
     def v:string (this.bindTemp(rv t "vec"))
     lastVecName = v
@@ -7335,6 +7533,12 @@ class RustLower {
     }
     if (name == "is_empty") {
       return (RsExpr.of((("((strlen " + c) + ") == 0)") bt))
+    }
+    if ((name == "as_bytes") || (name == "into_bytes")) {
+      ; the UTF-8 bytes, as a buffer
+      def sbt:RsType (this.bytesType())
+      sbt.isRef = (name == "as_bytes")
+      return (RsExpr.of((("(RsBytes.ofUtf8(" + c) + "))") sbt))
     }
     if (name == "parse") {
       ; a Result, checked as strictly as Rust checks it: JavaScript's
@@ -8082,6 +8286,28 @@ class RustLower {
       }
       return (RsExpr.of((((((("(rs_byte_slice " + s) + " ") + lo) + " ") + hi) + ")") t))
     }
+    if (this.isBytes(t)) {
+      def bv:string (this.bindTemp(rv t "buf"))
+      if (ixN.kind == "range") {
+        ; `&b[a..b]`: a copy of the bytes (a buffer has no view)
+        def blo:string "0"
+        def bhi:string (("(buffer_length " + bv) + ")")
+        if (false == ((ixN.kid(0)).isNone())) {
+          def blv:RsExpr (this.lowerExpr((ixN.kid(0)) (RsType.mk("int"))))
+          blo = blv.code
+        }
+        if (false == ((ixN.kid(1)).isNone())) {
+          def bhv:RsExpr (this.lowerExpr((ixN.kid(1)) (RsType.mk("int"))))
+          bhi = bhv.code
+          if (ixN.name == "..=") {
+            bhi = (("(" + bhi) + " + 1)")
+          }
+        }
+        return (RsExpr.of((((((("(buffer_slice " + bv) + " ") + blo) + " ") + bhi) + ")") (this.bytesType())))
+      }
+      def biv:RsExpr (this.lowerExpr(ixN (RsType.mk("int"))))
+      return (RsExpr.of((((("(buffer_get " + bv) + " ") + biv.code) + ")") (t.arg(0))))
+    }
     if (t.kind == "vec") {
       if (ixN.kind == "range") {
         this.unsupported(n "slicing a Vec with a range (stage R2)")
@@ -8233,7 +8459,11 @@ class RustLower {
       }
       def vec:string (this.bindTemp(cv cv.ty "vec"))
       def iv:RsExpr (this.lowerExpr((lhs.kid(1)) (RsType.mk("int"))))
-      out.line(((((("set_at " + vec) + " ") + iv.code) + " ") + v.code))
+      if (this.isBytes(cv.ty)) {
+        out.line(((((("buffer_set " + vec) + " ") + iv.code) + " ") + v.code))
+      } {
+        out.line(((((("set_at " + vec) + " ") + iv.code) + " ") + v.code))
+      }
       ; rows[i][j] = x: the inner vector came out as a temporary, which is a
       ; copy where arrays are values (Swift), so it is stored back
       def inner:RustNode (lhs.kid(0))
@@ -8286,6 +8516,9 @@ class RustLower {
       }
       def cnt:RsExpr (this.lowerExpr((n.kid(1)) (RsType.mk("int"))))
       def vt:RsType (RsType.of1("vec" t))
+      if (this.isBytes(vt)) {
+        return (RsExpr.of((((("(RsBytes.filled(" + v.code) + " ") + cnt.code) + "))") vt))
+      }
       def name:string (this.tmp("arr"))
       out.line(((("def " + name) + ":") + (this.rtype(vt))))
       def k:string (this.tmp("k"))
@@ -8308,6 +8541,9 @@ class RustLower {
       push codes v2.code
     }
     def vt2:RsType (RsType.of1("vec" t2))
+    if (this.isBytes(vt2)) {
+      return (RsExpr.of((("(RsBytes.ofInts(([] _:int (" + (join codes " ")) + "))))") vt2))
+    }
     def rt:string (this.rtype(t2))
     if (rt == "") {
       if ((array_length codes) == 0) {
@@ -10661,7 +10897,7 @@ class RustLower {
 
   ; ` (new RsOMap_…())` after a declaration that needs a constructed value.
   fn initSuffix:string (t:RsType) {
-    if ((t.kind == "map") && (t.name == "ordered")) {
+    if ((this.isBytes(t)) || ((t.kind == "map") && (t.name == "ordered"))) {
       return (" " + (this.defaultValue(t)))
     }
     return ""

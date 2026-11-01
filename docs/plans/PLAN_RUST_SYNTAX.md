@@ -164,6 +164,7 @@ fn main() {
 | `(idiv a b)` / `(a / b)` | `a / b`, by the operand types |
 | `push arr x` | `arr.push(x)` |
 | `[T]`, `[K:V]` | `Vec<T>`, `Map<K, V>` |
+| `buffer` | `Vec<u8>`, `&[u8]`, `&mut [u8]`, `[u8; N]` (§5.1) |
 | lambdas | closures; `Box<dyn Fn(T) -> U>` as a stored type |
 | `try` / `throw` | `Result<T, E>` and `?`, lowered to exceptions where the target has them |
 | `print x` | `println!("{}", x)`; Ranger understands `format!` / `println!` with `{}` and `{:?}` |
@@ -263,6 +264,28 @@ Byte offsets from `find` feeding a slice are consistent with each other, which
 is the property whose absence cut text on Go and C++ (the `substring` row
 above). The UTF-16 targets need a byte-offset helper in their runtime; a
 program that only iterates never pays for it.
+
+### 5.1 Bytes
+
+`Vec<u8>`, `&[u8]`, `&mut [u8]` and `[u8; N]` are a Ranger `buffer`, so a
+strict module and a `.rgr` module pass bytes to each other as they are, and Go
+keeps a `[]byte` (not a `[]int64`). A buffer has a fixed size on every target:
+
+| Rust | Lowering |
+| --- | --- |
+| `b[i]`, `b[i] = x`, `b.len()`, `b.is_empty()` | `buffer_get` / `buffer_set` / `buffer_length` |
+| `vec![0u8; n]`, `vec![1, 2]`, `b"AB"`, `Vec::new()` | `buffer_alloc`, `RsBytes.filled` / `ofInts` |
+| `&b[a..c]`, `b.to_vec()`, `b.clone()` | a copy (`buffer_slice`): a slice is not a view |
+| `dst[a..c].copy_from_slice(src)`, `b.fill(x)` | written in place |
+| `for x in b.iter()`, `for &x in &b`, `enumerate()` | an index loop |
+| `b.push(x)`, `extend_from_slice`, `append`, `truncate`, `resize`, `clear` | a new buffer stored back into the receiver: `push` in a loop copies each time, so size it first |
+| `s.as_bytes()`, `s.into_bytes()` | the UTF-8 bytes on every target (`RsBytes.ofUtf8`) |
+| `String::from_utf8_lossy(&b)`, `String::from_utf8(b)` | UTF-8 decoded, invalid sequences as U+FFFD; `from_utf8` is never `Err` |
+| `a == b`, `{:?}` | `RsBytes.eq`, `[1, 2]` |
+
+Refused: growing a `&mut Vec<u8>` parameter (the caller would not see the new
+buffer: return it), `iter_mut()` over bytes, and the other iterator methods on
+bytes (index them). Fixture: `tests/fixtures/rust_strict/r8_bytes.rs`.
 
 ---
 
