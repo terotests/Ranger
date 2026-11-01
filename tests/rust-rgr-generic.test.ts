@@ -15,7 +15,7 @@ import { execSync, spawnSync } from "child_process";
 const ROOT = path.resolve(__dirname, "..");
 const SRC = "tests/fixtures/rust_rgr_generic/app.rgr";
 const OUT = path.join(ROOT, "tests", ".output", "rust-rgr-generic");
-const EXPECTED = "1\n2\nb\n";
+const EXPECTED = "1\n2\nb\nb\n";
 
 function has(cmd: string): boolean {
   try {

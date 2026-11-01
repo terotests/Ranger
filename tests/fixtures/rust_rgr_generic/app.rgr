@@ -5,5 +5,6 @@ class GenMain {
         print ("" + (e.save("a")))
         print ("" + (e.save("b")))
         print (e.top())
+        print (e.top_via())
     }
 }

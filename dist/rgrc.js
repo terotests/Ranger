@@ -95557,8 +95557,15 @@ class RustLower  {
               at
             );
           }
-          const codes0 = this.lowerArgs(rest, this.paramTypes(mf));
-          return RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + codes0.join(" ")) + "))"), mf.ret);
+          const menv = this.methodEnv(rv.ty);
+          let ptypes0 = [];
+          // Loop start
+          for ( let pti0 = 0; pti0 < this.paramTypes(mf).length; pti0++) {
+            var pt0 = this.paramTypes(mf)[pti0];
+            ptypes0.push(this.subst(pt0, menv));
+          }
+          const codes0 = this.lowerArgs(rest, ptypes0);
+          return RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + codes0.join(" ")) + "))"), this.subst(mf.ret, menv));
         }
         if ( (this.hasBoxed(mf) && false == mf.rgrCtor) && false == s.rgr ) {
           let bsn = this.staticName(name);

@@ -27,4 +27,9 @@ impl Ed {
         let s: Rc<RefCell<Snap>> = self.history.borrow().peek();
         return s.borrow().name.clone();
     }
+    // the associated-function spelling of the same call
+    pub fn top_via(&self) -> String {
+        let s: Rc<RefCell<Snap>> = Hist::peek(&self.history);
+        return s.borrow().name.clone();
+    }
 }

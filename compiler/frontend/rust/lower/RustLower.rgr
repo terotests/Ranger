@@ -6752,8 +6752,14 @@ class RustLower {
           if (this.hasBoxed(mf)) {
             return (this.boxedCall((((recv + ".") + mf.rname) + "(") mf rest rv.ty "" at))
           }
-          def codes0:[string] (this.lowerArgs(rest (this.paramTypes(mf))))
-          return (RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + (join codes0 " ")) + "))") mf.ret))
+          ; seen through the receiver's instance, as a `recv.method()` is
+          def menv:[string:RsType] (this.methodEnv(rv.ty))
+          def ptypes0:[RsType]
+          for (this.paramTypes(mf)) pt0:RsType pti0 {
+            push ptypes0 (this.subst(pt0 menv))
+          }
+          def codes0:[string] (this.lowerArgs(rest ptypes0))
+          return (RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + (join codes0 " ")) + "))") (this.subst(mf.ret menv))))
         }
         if ((this.hasBoxed(mf)) && (false == mf.rgrCtor) && (false == s.rgr)) {
           ; `Type::f(&mut v, …)`: the `&mut` places boxed, as for a module fn
