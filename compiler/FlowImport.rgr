@@ -322,6 +322,24 @@ extension RangerFlowParser {
         def modBase:string importFileDir
         def modName:string (RustLower.baseName(import_file))
         rl.setTarget((ctx.getCompilerSetting("l")))
+        ; a second crate in the program: the generated classes the earlier
+        ; ones wrote are reused, and its clone helpers get their own class
+        def genDone:[string:boolean]
+        def genSeen:[string] (keys ctx.already_imported)
+        def nCrates:int 0
+        for genSeen gk:string gi {
+          if (startsWith gk "@rsgen:") {
+            set genDone (substring gk 7 (strlen gk)) true
+          }
+          if (startsWith gk "@rscrate:") {
+            nCrates = nCrates + 1
+          }
+        }
+        rl.useSharedClasses(genDone)
+        if (nCrates > 0) {
+          rl.cloneClass = ("RsClone" + (to_string nCrates))
+        }
+        set ctx.already_imported ("@rscrate:" + import_file) true
         rl.begin(source_code modName)
         rl.setEntryName(import_file)
         if (modBase != "") {
@@ -332,6 +350,10 @@ extension RangerFlowParser {
           }
         }
         def lowered:string (rl.finish())
+        def genNew:[string] (rl.sharedClasses())
+        for genNew gn:string gj {
+          set ctx.already_imported ("@rsgen:" + gn) true
+        }
         if ((array_length rl.errors) > 0) {
           for rl.errors rerr:string ri {
             ctx.addError(node rerr)
