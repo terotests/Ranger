@@ -6701,6 +6701,12 @@ class RustLower {
       def iv:RsExpr (this.lowerExpr((itemAt args 0) expect))
       return iv
     }
+    ; `Rc::ptr_eq(&a, &b)`: the same object, as `==` of two objects is in .rgr
+    if ((full == "Rc::ptr_eq") || (full == "Arc::ptr_eq") || (full == "std::ptr::eq") || (full == "ptr::eq")) {
+      def pa:RsExpr (this.lowerExpr((itemAt args 0) (RsType.mk("unknown"))))
+      def pb:RsExpr (this.lowerExpr((itemAt args 1) (RsType.mk("unknown"))))
+      return (RsExpr.of((((("(identical " + pa.code) + " ") + pb.code) + ")") (RsType.mk("bool"))))
+    }
     ; `Rc::downgrade(&x)`: the object, held weakly where it is stored (R7)
     if ((full == "Rc::downgrade") || (full == "Arc::downgrade")) {
       def dv:RsExpr (this.lowerExpr((itemAt args 0) (RsType.mk("unknown"))))

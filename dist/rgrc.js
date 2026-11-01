@@ -95396,6 +95396,11 @@ class RustLower  {
       const iv = this.lowerExpr(args[0], expect);
       return iv;
     }
+    if ( ((full == "Rc::ptr_eq" || full == "Arc::ptr_eq") || full == "std::ptr::eq") || full == "ptr::eq" ) {
+      const pa = this.lowerExpr(args[0], RsType.mk("unknown"));
+      const pb = this.lowerExpr(args[1], RsType.mk("unknown"));
+      return RsExpr.of((((("(identical " + pa.code) + " ") + pb.code) + ")"), RsType.mk("bool"));
+    }
     if ( full == "Rc::downgrade" || full == "Arc::downgrade" ) {
       const dv = this.lowerExpr(args[0], RsType.mk("unknown"));
       const wt = dv.ty.copy();
