@@ -3034,8 +3034,11 @@ extension RangerRustClassWriter {
         if ((strlen cbcT) > 0) {
           if (ctx.isDefinedClass(cbcT)) {
             def tc:RangerAppClassDesc (ctx.findClass(cbcT))
+            ; a class with subclasses is held as Rc<RefCell<dyn XTrait>>,
+            ; which clones as any Rc does: it never blocks Clone (rustc
+            ; asked for a clone of SqlTokenizer, whose dialect is one)
             if tc.is_extended_by_children {
-              return true
+              continue
             }
             if ((this.rustClassIsShared(cbcT ctx)) == false) {
               if (tc.name != cl.name) {

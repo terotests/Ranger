@@ -182,7 +182,9 @@ extension RangerRustClassWriter {
             argNeedsTmp = false
           }
           if argNeedsTmp {
-            def tmpVarName:string ("__arg_" + (to_string tmpVarIdx))
+            tmpVarIdx = (this.rustFreeArgIdx(ctx tmpVarIdx))
+            tmpVarIdx = (this.rustFreeArgIdx(ctx tmpVarIdx))
+        def tmpVarName:string ("__arg_" + (to_string tmpVarIdx))
             tmpVarIdx = tmpVarIdx + 1
 
             ; Generate: let __arg_N = <arg>;
@@ -777,6 +779,7 @@ extension RangerRustClassWriter {
         if (this.rustArgIsOutParam(node i)) {
           continue
         }
+        tmpVarIdx = (this.rustFreeArgIdx(ctx tmpVarIdx))
         def tmpVarName:string ("__arg_" + (to_string tmpVarIdx))
         tmpVarIdx = tmpVarIdx + 1
         
@@ -824,6 +827,18 @@ extension RangerRustClassWriter {
     if ((ctx.expressionLevel()) == 0) {
       wr.out(";" true)
     }
+  }
+
+  ; The first `__arg_N` from idx on that no name in scope has. A .rs module
+  ; converted from earlier output declares `__arg_0` itself, and a
+  ; temporary of the same name shadowed it: `openMenu(m __arg_0 __arg_1
+  ; (restInt …))` handed the hoisted int over as the x coordinate.
+  fn rustFreeArgIdx:int (ctx:RangerAppWriterContext idx:int) {
+    def i:int idx
+    while (ctx.isVarDefined(("__arg_" + (to_string i)))) {
+      i = (i + 1)
+    }
+    return i
   }
 
   fn isSelfMethodCall:boolean (node:CodeNode) {
@@ -1000,6 +1015,7 @@ extension RangerRustClassWriter {
 
           if argHasSelfRef {
             ; Pre-evaluate this argument
+            tmpIdx = (this.rustFreeArgIdx(ctx tmpIdx))
             def tmpName:string ("__arg_" + (to_string tmpIdx))
             tmpIdx = tmpIdx + 1
             push tempVars tmpName

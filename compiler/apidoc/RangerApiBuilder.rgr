@@ -200,6 +200,11 @@ class RangerApiBuilder {
       if pcl.is_template {
         continue
       }
+      ; `History@(Op)` made for one Op is the template's, and a template is
+      ; not classified either: the instance is no class anybody declares
+      if ((strlen pcl.generic_template) > 0) {
+        continue
+      }
       def pnode@(optional):CodeNode pcl.classNode
       def isApi:boolean false
       if ((null? pnode) == false) {

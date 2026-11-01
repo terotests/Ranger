@@ -2451,6 +2451,13 @@ extension RangerRustClassWriter {
     if (cmd == "push") {
       def left:CodeNode (node.getSecond())
       def right:CodeNode (node.getThird())
+      ; `push list (this.environment((trim (this.rawGroup()))))`: the push
+      ; is the statement, so the value's call never got its own statement-
+      ; level extraction, and the nested self call borrowed `self` mutably a
+      ; second time inside the outer one's argument list (E0499)
+      if (((ctx.expressionLevel()) == 0) && ((strlen right.rust_use_tmpvar) == 0)) {
+        this.rustExtractSelfCallConflicts(right ctx wr)
+      }
       ; `push stack ("+" + (this.pop1(stack)))`: a value that calls with the
       ; same collection borrows it while the push holds it mutably (E0499),
       ; so the value is computed first, into a local

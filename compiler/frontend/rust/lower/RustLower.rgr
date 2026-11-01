@@ -663,6 +663,15 @@ class RustLower {
 
   ; `class X extends P` of a .rgr file: X answers for P's fields and methods
   ; as the .rgr class does (its own spelling of a name wins), parents first
+  fn isRgrClass:boolean (name:string) {
+    for rgrClassNames cn:string ci {
+      if (cn == name) {
+        return true
+      }
+    }
+    return false
+  }
+
   ; a scalar or string field of some .rgr class has this name
   fn isRgrCellField:boolean (fname:string) {
     for rgrClassNames cn:string ci {
@@ -1782,6 +1791,15 @@ class RustLower {
         return (this.dynUnion(t.name))
       }
       if ((array_length t.args) > 0) {
+        ; a generic class of an included .rgr file is not instantiated
+        ; here: Ranger's own `@(…)` spelling names it
+        if (this.isRgrClass(t.name)) {
+          def gas:[string]
+          for t.args ga:RsType gai {
+            push gas (this.rtype(ga))
+          }
+          return (((this.className(t.name)) + "@(") + (join gas " ")) + ")"
+        }
         return (this.instanceClass(t))
       }
       return (this.className(t.name))
@@ -2000,7 +2018,11 @@ class RustLower {
       if (has structs t.name) {
         def zs:RsStruct (unwrap (get structs t.name))
         if zs.rgr {
-          ; a class of an imported .rgr file has no zeroOf: its constructor
+          ; a class of an imported .rgr file has no zeroOf: its constructor,
+          ; `new H@(T) ()` for a generic one
+          if ((array_length t.args) > 0) {
+            return (("(new " + (this.rtype(t))) + " ())")
+          }
           return (("(new " + t.name) + "())")
         }
         if ((array_length t.args) > 0) {
@@ -6716,7 +6738,7 @@ class RustLower {
     if (has structs head) {
       def s:RsStruct (unwrap (get structs head))
       def m@(optional):RsFn (s.method(name))
-      if ((!null? m) && ((array_length s.generics) > 0)) {
+      if ((!null? m) && ((array_length s.generics) > 0) && (false == s.rgr)) {
         return (this.genericAssocCall(s (unwrap m) args expect at))
       }
       if (!null? m) {
@@ -6735,8 +6757,14 @@ class RustLower {
           if (this.hasBoxed(mf)) {
             return (this.boxedCall((((recv + ".") + mf.rname) + "(") mf rest rv.ty "" at))
           }
-          def codes0:[string] (this.lowerArgs(rest (this.paramTypes(mf))))
-          return (RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + (join codes0 " ")) + "))") mf.ret))
+          ; seen through the receiver's instance, as a `recv.method()` is
+          def menv:[string:RsType] (this.methodEnv(rv.ty))
+          def ptypes0:[RsType]
+          for (this.paramTypes(mf)) pt0:RsType pti0 {
+            push ptypes0 (this.subst(pt0 menv))
+          }
+          def codes0:[string] (this.lowerArgs(rest ptypes0))
+          return (RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + (join codes0 " ")) + "))") (this.subst(mf.ret menv))))
         }
         if ((this.hasBoxed(mf)) && (false == mf.rgrCtor) && (false == s.rgr)) {
           ; `Type::f(&mut v, …)`: the `&mut` places boxed, as for a module fn
@@ -6748,7 +6776,15 @@ class RustLower {
         }
         def codes:[string] (this.lowerArgs(args (this.paramTypes(mf))))
         if mf.rgrCtor {
-          ; the constructor of a `.rgr` class
+          ; the constructor of a `.rgr` class; a generic one takes its
+          ; arguments from the type the value goes to: `new H@(T) ()`
+          if ((array_length s.generics) > 0) {
+            def eT:RsType expect
+            if ((eT.kind == "named") && (eT.name == head) && ((array_length eT.args) == (array_length s.generics))) {
+              return (RsExpr.of((((("(new " + (this.rtype(eT))) + " (") + (join codes " ")) + "))") eT))
+            }
+            this.err(at (("the type arguments of the .rgr class `" + head) + "` are not known here: give the binding its type"))
+          }
           return (RsExpr.of((((("(new " + head) + "(") + (join codes " ")) + "))") (RsType.named(head))))
         }
         if s.rgr {

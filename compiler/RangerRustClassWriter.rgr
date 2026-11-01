@@ -2589,6 +2589,22 @@ class RangerRustClassWriter {
             }
           }
         }
+      }
+      ; `name.field.m(…)` spelled as a call node, `(call obj m args)`: a call
+      ; through one of the local's fields writes into the local itself when
+      ; the field is a value (`st.bold.set(v)` on a fresh OfficeTextStyle,
+      ; E0596). The local's own methods are answered above.
+      if item.has_call {
+        if ((array_length item.children) >= 3) {
+          def nmCo:CodeNode (item.getSecond())
+          if ((array_length nmCo.ns) >= 2) {
+            if (this.rustNmIsName((itemAt nmCo.ns 0) srcName cName)) {
+              nmNeeds = true
+            }
+          }
+        }
+      }
+      if (item.hasFnCall) {
         ; `f(name)` where the callee takes that parameter by `&mut`
         if ((array_length item.children) > 1) {
           def nmArgs:CodeNode (item.getSecond())
@@ -3236,6 +3252,9 @@ class RangerRustClassWriter {
                 if (vp.ref_cnt > 1) {
                   should_clone_vardef = true
                 }
+                if ((should_clone_vardef == false) && (this.rustReadRepeatsInLoop(valueInner (unwrap vp) ctx))) {
+                  should_clone_vardef = true
+                }
               }
             }
           }
@@ -3304,7 +3323,7 @@ class RangerRustClassWriter {
           if valueInner.hasParamDesc {
             def vpL:RangerAppParamDesc valueInner.paramDesc
             if ((vpL.is_class_variable == false) && (vpL.rust_borrow_type == 0)) {
-              if (vpL.ref_cnt > 1) {
+              if ((vpL.ref_cnt > 1) || (this.rustReadRepeatsInLoop(valueInner (unwrap vpL) ctx))) {
                 def vpLNN@(optional):CodeNode vpL.nameNode
                 if (!null? vpLNN) {
                   def vpLN:CodeNode (unwrap vpLNN)
@@ -3956,21 +3975,10 @@ class RangerRustClassWriter {
     ; …but a CALL already hands back a borrow of its own result, and a
     ; second one is `.borrow().borrow()`
     def pgInner:CodeNode (this.rustUnwrapParens(obj))
-    ; …except a STATIC function's: it returns the owned Rc itself
-    ; (`(VlTime.partsOfUtc(ms)).year`)
-    if (pgInner.hasFnCall || pgInner.has_call) {
-      def pgStatic:boolean false
-      if (!null? pgInner.fnDesc) {
-        def pgFd:RangerAppFunctionDesc (unwrap pgInner.fnDesc)
-        pgStatic = pgFd.is_static
-      }
-      if (pgStatic == false) {
-        pgType = ""
-      }
-    }
-    ; …and so does the PROPERTY, when the front end resolved which class it
-    ; belongs to — WriteVRef writes the borrow in front of a `.name` whose
-    ; desc names a shared owner. Only the unresolved ones are left here.
+    ; The PROPERTY writes the borrow itself when the front end resolved
+    ; which class it belongs to — WriteVRef writes it in front of a `.name`
+    ; whose desc names a shared owner. Only the unresolved ones are left here.
+    def pgPropBorrows:boolean false
     if ((strlen prop.vref) > 0) {
       if ((charAt prop.vref 0) == 46) {
         if prop.hasParamDesc {
@@ -3979,7 +3987,39 @@ class RangerRustClassWriter {
           if (!null? pgOwner) {
             def pgOwnerC:RangerAppClassDesc (unwrap pgOwner)
             if (this.rustClassIsShared(pgOwnerC.name ctx)) {
-              pgType = ""
+              pgPropBorrows = true
+            }
+          }
+        }
+      }
+    }
+    if pgPropBorrows {
+      pgType = ""
+    }
+    ; A call's result is the owned Rc of a shared class, static or not
+    ; (`(VlTime.partsOfUtc(ms)).year`): the borrow goes here unless the
+    ; property writes it. A method's own declared return type answers when
+    ; the expression's is missing — `(this.styleAt(i)).align` and
+    ; `(book.sheetAt(at)).name` came out without the borrow (E0609).
+    if (pgInner.hasFnCall || pgInner.has_call) {
+      def pgStatic:boolean false
+      if (!null? pgInner.fnDesc) {
+        def pgSFd:RangerAppFunctionDesc (unwrap pgInner.fnDesc)
+        pgStatic = pgSFd.is_static
+      }
+      if (pgStatic == false) {
+        pgType = ""
+      }
+      if (pgPropBorrows == false) {
+        if (!null? pgInner.fnDesc) {
+          def pgFd:RangerAppFunctionDesc (unwrap pgInner.fnDesc)
+          def pgRetN@(optional):CodeNode pgFd.nameNode
+          if (!null? pgRetN) {
+            def pgRet:CodeNode (unwrap pgRetN)
+            if (((strlen pgRet.type_name) > 0) && ((strlen pgRet.array_type) == 0)) {
+              if (this.rustClassIsShared(pgRet.type_name ctx)) {
+                pgType = pgRet.type_name
+              }
             }
           }
         }

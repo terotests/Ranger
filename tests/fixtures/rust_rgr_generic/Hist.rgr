@@ -1,0 +1,15 @@
+; A generic .rgr class (`class Hist @params(Op)`) held and called from Rust
+; syntax: `Hist<Rc<RefCell<Snap>>>` is Ranger's `Hist@(Snap)`.
+class Hist @params(Op) {
+    def ops:[Op]
+    fn record:void (op:Op) {
+        push ops op
+    }
+    fn depth:int () {
+        return (array_length ops)
+    }
+    fn peek:Op () {
+        def v:Op (itemAt ops ((array_length ops) - 1))
+        return v
+    }
+}
