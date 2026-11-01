@@ -91,3 +91,17 @@ describe("a .rs struct field of a class from an imported .rgr file", () => {
     expect(build(RGR_FIELD, "cpp", "rgrfield")).toBe("2\n");
   });
 });
+
+const RGR_SUBDIR = "tests/fixtures/rust_rgr_subdir/crate/app/Main.rgr";
+
+describe("an import_rgr! path out of the crate, lib.rs imported from a subfolder", () => {
+  it("es6", () => {
+    expect(build(RGR_SUBDIR, "es6", "rgrsubdir")).toBe("2\n");
+  });
+  it.skipIf(!HAS_GO)("go", () => {
+    expect(build(RGR_SUBDIR, "go", "rgrsubdir")).toBe("2\n");
+  });
+  it.skipIf(!HAS_CPP)("cpp", () => {
+    expect(build(RGR_SUBDIR, "cpp", "rgrsubdir")).toBe("2\n");
+  });
+});
