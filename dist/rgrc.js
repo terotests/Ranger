@@ -36167,6 +36167,18 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             }
           }
         }
+      }
+      if ( item.has_call ) {
+        if ( item.children.length >= 3 ) {
+          const nmCo = item.getSecond();
+          if ( nmCo.ns.length >= 2 ) {
+            if ( this.rustNmIsName(nmCo.ns[0], srcName, cName) ) {
+              nmNeeds = true;
+            }
+          }
+        }
+      }
+      if ( item.hasFnCall ) {
         if ( item.children.length > 1 ) {
           const nmArgs = item.getSecond();
           const nmFd = item.fnDesc;
@@ -37035,16 +37047,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       pgType = obj.type_name;
     }
     const pgInner = this.rustUnwrapParens(obj);
-    if ( pgInner.hasFnCall || pgInner.has_call ) {
-      let pgStatic = false;
-      if ( (typeof(pgInner.fnDesc) !== "undefined" && pgInner.fnDesc != null )  ) {
-        const pgFd = pgInner.fnDesc;
-        pgStatic = pgFd.is_static;
-      }
-      if ( pgStatic == false ) {
-        pgType = "";
-      }
-    }
+    let pgPropBorrows = false;
     if ( prop.vref.length > 0 ) {
       if ( prop.vref.charCodeAt(0 ) == 46 ) {
         if ( prop.hasParamDesc ) {
@@ -37053,7 +37056,34 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           if ( (typeof(pgOwner) !== "undefined" && pgOwner != null )  ) {
             const pgOwnerC = pgOwner;
             if ( this.rustClassIsShared(pgOwnerC.name, ctx) ) {
-              pgType = "";
+              pgPropBorrows = true;
+            }
+          }
+        }
+      }
+    }
+    if ( pgPropBorrows ) {
+      pgType = "";
+    }
+    if ( pgInner.hasFnCall || pgInner.has_call ) {
+      let pgStatic = false;
+      if ( (typeof(pgInner.fnDesc) !== "undefined" && pgInner.fnDesc != null )  ) {
+        const pgSFd = pgInner.fnDesc;
+        pgStatic = pgSFd.is_static;
+      }
+      if ( pgStatic == false ) {
+        pgType = "";
+      }
+      if ( pgPropBorrows == false ) {
+        if ( (typeof(pgInner.fnDesc) !== "undefined" && pgInner.fnDesc != null )  ) {
+          const pgFd = pgInner.fnDesc;
+          const pgRetN = pgFd.nameNode;
+          if ( (typeof(pgRetN) !== "undefined" && pgRetN != null )  ) {
+            const pgRet = pgRetN;
+            if ( pgRet.type_name.length > 0 && pgRet.array_type.length == 0 ) {
+              if ( this.rustClassIsShared(pgRet.type_name, ctx) ) {
+                pgType = pgRet.type_name;
+              }
             }
           }
         }
@@ -38771,6 +38801,8 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             argNeedsTmp = false;
           }
           if ( argNeedsTmp ) {
+            tmpVarIdx = this.rustFreeArgIdx(ctx, tmpVarIdx);
+            tmpVarIdx = this.rustFreeArgIdx(ctx, tmpVarIdx);
             const tmpVarName = "__arg_" + ((tmpVarIdx).toString());
             tmpVarIdx = tmpVarIdx + 1;
             wr.out(("let " + tmpVarName) + " = ", false);
@@ -39275,6 +39307,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         if ( this.rustArgIsOutParam(node, i_1) ) {
           continue;
         }
+        tmpVarIdx = this.rustFreeArgIdx(ctx, tmpVarIdx);
         const tmpVarName = "__arg_" + ((tmpVarIdx).toString());
         tmpVarIdx = tmpVarIdx + 1;
         wr.out(("let " + tmpVarName) + " = ", false);
@@ -39314,6 +39347,13 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     if ( ctx.expressionLevel() == 0 ) {
       wr.out(";", true);
     }
+  };
+  rustFreeArgIdx (ctx, idx) {
+    let i = idx;
+    while (ctx.isVarDefined("__arg_" + ((i).toString()))) {
+      i = i + 1;
+    };
+    return i;
   };
   isSelfMethodCall (node) {
     if ( node.hasFnCall ) {
@@ -39444,6 +39484,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             argHasSelfRef = false;
           }
           if ( argHasSelfRef ) {
+            tmpIdx = this.rustFreeArgIdx(ctx, tmpIdx);
             const tmpName = "__arg_" + ((tmpIdx).toString());
             tmpIdx = tmpIdx + 1;
             tempVars.push(tmpName);
@@ -43042,6 +43083,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       const left_1 = node.getSecond();
       const right_1 = node.getThird();
       if ( ctx.expressionLevel() == 0 && right_1.rust_use_tmpvar.length == 0 ) {
+        this.rustExtractSelfCallConflicts(right_1, ctx, wr);
+      }
+      if ( ctx.expressionLevel() == 0 && right_1.rust_use_tmpvar.length == 0 ) {
         if ( this.rustNodeContainsCall(right_1) ) {
           let pushRoot = left_1.vref;
           if ( left_1.ns.length > 0 ) {
@@ -46193,7 +46237,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           if ( ctx.isDefinedClass(cbcT) ) {
             const tc = ctx.findClass(cbcT);
             if ( tc.is_extended_by_children ) {
-              return true;
+              continue;
             }
             if ( this.rustClassIsShared(cbcT, ctx) == false ) {
               if ( tc.name != cl.name ) {
