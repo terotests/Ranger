@@ -90680,6 +90680,9 @@ class RustLower  {
     if ( k == "unit" ) {
       return "void";
     }
+    if ( this.isBytes(t) ) {
+      return "buffer";
+    }
     if ( k == "vec" ) {
       const __REGx1 = t.arg(0);
       if ( __REGx1.kind == "opt" ) {
@@ -90853,6 +90856,9 @@ class RustLower  {
     if ( t.kind == "opt" ) {
       return "";
     }
+    if ( this.isBytes(t) ) {
+      return "(buffer_alloc 0)";
+    }
     const k = t.kind;
     if ( k == "int" ) {
       return "0";
@@ -90870,6 +90876,21 @@ class RustLower  {
       return ("(new " + this.omapClass(t)) + "())";
     }
     return "";
+  };
+  isBytes (t) {
+    if ( t.kind != "vec" ) {
+      return false;
+    }
+    if ( t.args.length == 0 ) {
+      return false;
+    }
+    const e = t.arg(0);
+    return e.kind == "int" && e.name == "u8";
+  };
+  bytesType () {
+    const e = RsType.mk("int");
+    e.name = "u8";
+    return RsType.of1("vec", e);
   };
   zeroCode (t) {
     const dv = this.defaultValue(t);
@@ -90939,6 +90960,9 @@ class RustLower  {
     }
     if ( this.isDataEnum(t) ) {
       return ((("(" + this.implClass(t.name)) + ".cloneOf(") + code) + "))";
+    }
+    if ( this.isBytes(t) ) {
+      return ("(RsBytes.copy(" + code) + "))";
     }
     if ( k == "named" && (( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) || t.args.length > 0) ) {
       return ("(" + code) + ".rs_clone())";
@@ -91861,6 +91885,9 @@ class RustLower  {
     return lines.join("\n");
   };
   emptyValueCode (t) {
+    if ( this.isBytes(t) ) {
+      return "(buffer_alloc 0)";
+    }
     if ( t.kind == "vec" ) {
       return ("([] _:" + this.rtype(t.arg(0))) + " ())";
     }
@@ -91891,6 +91918,9 @@ class RustLower  {
     return acc;
   };
   eqCode (a, b, t) {
+    if ( this.isBytes(t) ) {
+      return ((("(RsBytes.eq(" + a) + " ") + b) + "))";
+    }
     if ( this.isDataEnum(t) ) {
       return ((((("(" + this.implClass(t.name)) + ".eqOf(") + a) + " ") + b) + "))";
     }
@@ -91974,6 +92004,9 @@ class RustLower  {
     }
     if ( k == "named" && ( typeof(this.enums[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, t.name) ) ) {
       return ((("(" + this.implClass(t.name)) + ".dbgOf(") + code) + "))";
+    }
+    if ( this.isBytes(t) ) {
+      return ("(RsBytes.dbg(" + code) + "))";
     }
     if ( k == "vec" ) {
       return (("(" + this.vecDebugger(t)) + "(") + (code + "))");
@@ -93418,10 +93451,19 @@ class RustLower  {
       elemT = RsType.mk("int");
       elemCode = ((("(charAt " + seq) + " ") + idx) + ")";
     }
+    const isBuf = mode == "vec" && this.isBytes(st);
+    if ( isBuf && mutElems ) {
+      this.err(iter0, "`iter_mut()` over a `Vec<u8>` (a Ranger buffer): index it");
+      return;
+    }
     if ( mode == "vec" ) {
       seq = this.bindTemp(sv, st, "seq");
       elemT = st.arg(0);
-      elemCode = ((("(itemAt " + seq) + " ") + idx) + ")";
+      if ( isBuf ) {
+        elemCode = ((("(buffer_get " + seq) + " ") + idx) + ")";
+      } else {
+        elemCode = ((("(itemAt " + seq) + " ") + idx) + ")";
+      }
     }
     let mapT = st;
     if ( ((mode == "map" || mode == "keys") || mode == "values") || mode == "values_mut" ) {
@@ -93456,7 +93498,11 @@ class RustLower  {
     if ( mode == "bytes" ) {
       this.out.line(((("def " + n) + ":int (rs_byte_len ") + sv.code) + ")");
     } else {
-      this.out.line(((("def " + n) + ":int (array_length ") + seqName) + ")");
+      if ( isBuf ) {
+        this.out.line(((("def " + n) + ":int (buffer_length ") + seqName) + ")");
+      } else {
+        this.out.line(((("def " + n) + ":int (array_length ") + seqName) + ")");
+      }
     }
     if ( rev ) {
       this.out.line(((("def " + idx) + ":int (") + n) + " - 1)");
@@ -94468,9 +94514,22 @@ class RustLower  {
       if ( cs.length > 0 ) {
         code = cs[0];
       }
-      const rb = RsExpr.of(((code).toString()), RsType.mk("int"));
+      const byT = RsType.mk("int");
+      byT.name = "u8";
+      const rb = RsExpr.of(((code).toString()), byT);
       rb.simple = true;
       return rb;
+    }
+    if ( n.hasMod("bytestr") ) {
+      const bcs = Array.from(n.value, (rg_c) => rg_c.codePointAt(0));
+      let bparts = [];
+      // Loop start
+      for ( const bc of bcs) {
+        bparts.push(((bc).toString()));
+      }
+      const bt = this.bytesType();
+      bt.isRef = true;
+      return RsExpr.of((("(RsBytes.ofInts(([] _:int (" + bparts.join(" ")) + "))))"), bt);
     }
     if ( ((n.hasMod("float") || n.hasMod("f64")) || n.hasMod("f32")) || expect.kind == "double" ) {
       let txt = n.value;
@@ -94482,7 +94541,11 @@ class RustLower  {
       return rf;
     }
     if ( n.hasMod("int") ) {
-      const ri = RsExpr.of(((this.intValue(n)).toString()), RsType.mk("int"));
+      const intT = RsType.mk("int");
+      if ( n.hasMod("u8") ) {
+        intT.name = "u8";
+      }
+      const ri = RsExpr.of(((this.intValue(n)).toString()), intT);
       ri.simple = true;
       return ri;
     }
@@ -94964,6 +95027,13 @@ class RustLower  {
       }
       return ("(!null? " + other) + ")";
     }
+    if ( this.isBytes(t) && (op == "==" || op == "!=") ) {
+      const beq = this.eqCode(l.code, r.code, t);
+      if ( op == "==" ) {
+        return beq;
+      }
+      return ("(! " + beq) + ")";
+    }
     if ( this.isDataEnum(t) ) {
       if ( op == "==" || op == "!=" ) {
         const eqc = this.eqCode(l.code, r.code, t);
@@ -95384,6 +95454,20 @@ class RustLower  {
       const v_1 = this.lowerExpr(args[0], RsType.mk("string"));
       return RsExpr.of(v_1.code, this.ownedString());
     }
+    if ( (head == "String" || head == "str") && (name == "from_utf8" || name == "from_utf8_lossy") ) {
+      const ub = this.lowerExpr(args[0], this.bytesType());
+      const utext = ("(RsBytes.toUtf8(" + ub.code) + "))";
+      if ( name == "from_utf8_lossy" ) {
+        return RsExpr.of(utext, this.ownedString());
+      }
+      const urt = RsType.of2("result", this.ownedString(), this.ownedString());
+      const ucls = this.resultClass(urt);
+      const un = this.tmp("res");
+      this.out.line(((("def " + un) + ":") + ucls) + ((" (new " + ucls) + ")"));
+      this.out.line(un + ".ok = true");
+      this.out.line((un + ".v = ") + utext);
+      return this.simpleExpr(un, urt);
+    }
     if ( full == "String::new" ) {
       const e_1 = RsExpr.of("\"\"", this.ownedString());
       e_1.simple = true;
@@ -95726,7 +95810,7 @@ class RustLower  {
       const rc = this.bindTemp(rv, t, "r");
       return RsExpr.of(this.cloneCode(rc, t), t);
     }
-    if ( ((((name == "as_str" || name == "as_ref") || name == "borrow") || name == "borrow_mut") || name == "as_mut") || name == "into" ) {
+    if ( (((((name == "as_str" || name == "as_ref") || name == "borrow") || name == "borrow_mut") || name == "as_mut") || name == "into") || name == "into_owned" && k == "string" ) {
       return rv;
     }
     if ( name == "to_string" && k != "vec" ) {
@@ -95817,8 +95901,113 @@ class RustLower  {
       }
     }
   };
+  bytesMethod (rv, name, args, at, expect) {
+    const t = rv.ty;
+    const v = this.bindTemp(rv, t, "buf");
+    this.lastVecName = v;
+    const it = RsType.mk("int");
+    const bt = RsType.mk("bool");
+    const recvN = at.kid(0);
+    if ( name == "len" ) {
+      return RsExpr.of((("(buffer_length " + v) + ")"), it);
+    }
+    if ( name == "is_empty" ) {
+      return RsExpr.of((("((buffer_length " + v) + ") == 0)"), bt);
+    }
+    if ( ((name == "to_vec" || name == "to_owned") || name == "into_boxed_slice") || name == "into_vec" ) {
+      return RsExpr.of((("(RsBytes.copy(" + v) + "))"), this.bytesType());
+    }
+    if ( name == "as_slice" || name == "as_mut_slice" ) {
+      return rv;
+    }
+    if ( name == "fill" ) {
+      const fv = this.lowerExpr(args[0], it);
+      this.out.line(((("RsBytes.fillAll(" + v) + " ") + fv.code) + ")");
+      return this.unit();
+    }
+    if ( name == "contains" ) {
+      const cv = this.lowerExpr(args[0], it);
+      return RsExpr.of((((("((RsBytes.indexOf(" + v) + " ") + cv.code) + ")) >= 0)"), bt);
+    }
+    if ( (name == "first" || name == "last") || name == "get" ) {
+      const ot = RsType.of1("opt", t.arg(0));
+      const nm = this.tmp("g");
+      this.out.line("def " + this.declText(nm, ot));
+      let ix = "0";
+      if ( name == "get" ) {
+        const gv = this.lowerExpr(args[0], it);
+        ix = this.bindTemp(gv, it, "i");
+      }
+      if ( name == "last" ) {
+        ix = ("((buffer_length " + v) + ") - 1)";
+      }
+      this.out.line(((((("if ((" + ix) + " >= 0) && (") + ix) + " < (buffer_length ") + v) + "))) {");
+      this.out.line(((((("  " + nm) + " = (buffer_get ") + v) + " ") + ix) + ")");
+      this.out.line("}");
+      return this.simpleExpr(nm, ot);
+    }
+    if ( name == "copy_from_slice" ) {
+      const src = this.lowerExpr(args[0], t);
+      const sb = this.bindTemp(src, t, "src");
+      let target_1 = v;
+      let from = "0";
+      const __REGx1 = recvN.kid(1);
+      if ( recvN.kind == "index" && __REGx1.kind == "range" ) {
+        const base = this.lowerExpr(recvN.kid(0), RsType.mk("unknown"));
+        target_1 = this.bindTemp(base, base.ty, "buf");
+        const rng = recvN.kid(1);
+        if ( false == rng.kid(0).isNone() ) {
+          const lo = this.lowerExpr(rng.kid(0), it);
+          from = lo.code;
+        }
+      }
+      this.out.line(((((((("RsBytes.copyInto(" + target_1) + " ") + from) + " ") + sb) + " (buffer_length ") + sb) + "))");
+      return this.unit();
+    }
+    let grown = "";
+    if ( name == "push" ) {
+      const pv = this.lowerExpr(args[0], it);
+      grown = ((("(RsBytes.push(" + v) + " ") + pv.code) + "))";
+    }
+    if ( (name == "extend_from_slice" || name == "extend") || name == "append" ) {
+      const ev = this.lowerExpr(args[0], t);
+      grown = ((("(RsBytes.extend(" + v) + " ") + ev.code) + "))";
+      if ( name == "append" ) {
+        this.assignTo(args[0], this.simpleExpr("(buffer_alloc 0)", t));
+      }
+    }
+    if ( name == "clear" ) {
+      grown = "(buffer_alloc 0)";
+    }
+    if ( name == "truncate" ) {
+      const tv = this.lowerExpr(args[0], it);
+      const tn = this.bindTemp(tv, it, "n");
+      grown = ((((("(RsBytes.resized(" + v) + " (? (") + tn) + ((" < (buffer_length " + v) + ")) ")) + ((tn + " (buffer_length ") + v)) + ")) 0))";
+    }
+    if ( name == "resize" ) {
+      const rn = this.lowerExpr(args[0], it);
+      const rx = this.lowerExpr(args[1], it);
+      grown = ((((("(RsBytes.resized(" + v) + " ") + rn.code) + " ") + rx.code) + "))";
+    }
+    if ( grown != "" ) {
+      if ( t.isMutRef && recvN.kind == "path_expr" ) {
+        this.err(at, ("`." + name) + "()` on a `&mut Vec<u8>` parameter: a buffer cannot grow in place, so return the new `Vec<u8>`");
+        return this.unit();
+      }
+      const nb = this.tmp("buf");
+      this.out.line((("def " + nb) + ":buffer ") + grown);
+      this.assignTo(recvN, this.simpleExpr(nb, t));
+      this.lastVecName = nb;
+      return this.unit();
+    }
+    this.err(at, ("`." + name) + "()` on a `Vec<u8>` (a Ranger buffer): index it in a loop");
+    return this.unit();
+  };
   vecMethodInner (rv, name, args, at, expect) {
     const t = rv.ty;
+    if ( this.isBytes(t) ) {
+      return this.bytesMethod(rv, name, args, at, expect);
+    }
     const et = t.arg(0);
     const v = this.bindTemp(rv, t, "vec");
     this.lastVecName = v;
@@ -96017,6 +96206,11 @@ class RustLower  {
     }
     if ( name == "is_empty" ) {
       return RsExpr.of((("((strlen " + c) + ") == 0)"), bt);
+    }
+    if ( name == "as_bytes" || name == "into_bytes" ) {
+      const sbt = this.bytesType();
+      sbt.isRef = name == "as_bytes";
+      return RsExpr.of((("(RsBytes.ofUtf8(" + c) + "))"), sbt);
     }
     if ( name == "parse" ) {
       let target_1 = RsType.mk("unknown");
@@ -96740,6 +96934,27 @@ class RustLower  {
       }
       return RsExpr.of((((((("(rs_byte_slice " + s) + " ") + lo) + " ") + hi) + ")"), t);
     }
+    if ( this.isBytes(t) ) {
+      const bv_1 = this.bindTemp(rv, t, "buf");
+      if ( ixN.kind == "range" ) {
+        let blo = "0";
+        let bhi = ("(buffer_length " + bv_1) + ")";
+        if ( false == ixN.kid(0).isNone() ) {
+          const blv = this.lowerExpr(ixN.kid(0), RsType.mk("int"));
+          blo = blv.code;
+        }
+        if ( false == ixN.kid(1).isNone() ) {
+          const bhv = this.lowerExpr(ixN.kid(1), RsType.mk("int"));
+          bhi = bhv.code;
+          if ( ixN.name == "..=" ) {
+            bhi = ("(" + bhi) + " + 1)";
+          }
+        }
+        return RsExpr.of((((((("(buffer_slice " + bv_1) + " ") + blo) + " ") + bhi) + ")"), this.bytesType());
+      }
+      const biv = this.lowerExpr(ixN, RsType.mk("int"));
+      return RsExpr.of((((("(buffer_get " + bv_1) + " ") + biv.code) + ")"), t.arg(0));
+    }
     if ( t.kind == "vec" ) {
       if ( ixN.kind == "range" ) {
         this.unsupported(n, "slicing a Vec with a range (stage R2)");
@@ -96883,7 +97098,11 @@ class RustLower  {
       }
       const vec = this.bindTemp(cv, cv.ty, "vec");
       const iv = this.lowerExpr(lhs.kid(1), RsType.mk("int"));
-      this.out.line((((("set_at " + vec) + " ") + iv.code) + " ") + v.code);
+      if ( this.isBytes(cv.ty) ) {
+        this.out.line((((("buffer_set " + vec) + " ") + iv.code) + " ") + v.code);
+      } else {
+        this.out.line((((("set_at " + vec) + " ") + iv.code) + " ") + v.code);
+      }
       const inner = lhs.kid(0);
       if ( inner.kind == "index" && vec != cv.code ) {
         this.assignTo(inner, this.simpleExpr(vec, cv.ty));
@@ -96931,6 +97150,9 @@ class RustLower  {
       }
       const cnt = this.lowerExpr(n.kid(1), RsType.mk("int"));
       const vt = RsType.of1("vec", t);
+      if ( this.isBytes(vt) ) {
+        return RsExpr.of((((("(RsBytes.filled(" + v.code) + " ") + cnt.code) + "))"), vt);
+      }
       const name = this.tmp("arr");
       this.out.line((("def " + name) + ":") + this.rtype(vt));
       const k = this.tmp("k");
@@ -96954,6 +97176,9 @@ class RustLower  {
       codes.push(v2.code);
     }
     const vt2 = RsType.of1("vec", t2);
+    if ( this.isBytes(vt2) ) {
+      return RsExpr.of((("(RsBytes.ofInts(([] _:int (" + codes.join(" ")) + "))))"), vt2);
+    }
     const rt = this.rtype(t2);
     if ( rt == "" ) {
       if ( codes.length == 0 ) {
@@ -99198,7 +99423,7 @@ class RustLower  {
     return ("(keys " + m) + ")";
   };
   initSuffix (t) {
-    if ( t.kind == "map" && t.name == "ordered" ) {
+    if ( this.isBytes(t) || t.kind == "map" && t.name == "ordered" ) {
       return " " + this.defaultValue(t);
     }
     return "";

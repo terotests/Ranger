@@ -1,0 +1,12 @@
+make [0, 30, 60, 90, 120, 150, 180, 210, 240, 14] len 10 sum 1094
+range [60, 90, 120] from [210, 240, 14] to [0, 30]
+read 1 770 [4, 5, 6] at 6
+wrote [7, 255, 0, 30, 60, 65, 66] empty false
+total 513
+utf8 [104, 195, 169, 240, 159, 152, 128] hé😀
+back hé😀 eq true ne true
+bad h�i
+dst [1, 9, 8, 7, 1] has9 true has5 false
+first Some(1) last Some(1) get Some(8) none None
+filled [200, 8, 3, 3, 3, 3, 3] clone [200, 8, 3, 3, 3, 3, 3]
+cleared 0

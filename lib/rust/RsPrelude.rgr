@@ -2087,3 +2087,193 @@ class RsChar {
     return ((rs_upper c) != c)
   }
 }
+
+; `Vec<u8>` and `&[u8]` are Ranger buffers (a fixed-size byte array on every
+; target). What a buffer has no operator for: a buffer that grows makes a new
+; one, so `push` in a loop copies (keep the size known and index instead).
+class RsBytes {
+  ; the first n bytes of src into dst at `at` (a loop: not every target has
+  ; buffer_copy)
+  sfn copyInto:void (dst:buffer at:int src:buffer n:int) {
+    def i:int 0
+    while (i < n) {
+      buffer_set dst (at + i) (buffer_get src i)
+      i = i + 1
+    }
+  }
+
+  sfn copy:buffer (b:buffer) {
+    return (buffer_slice b 0 (buffer_length b))
+  }
+
+  sfn push:buffer (b:buffer v:int) {
+    def n:int (buffer_length b)
+    def out:buffer (buffer_alloc (n + 1))
+    RsBytes.copyInto(out 0 b n)
+    buffer_set out n v
+    return out
+  }
+
+  sfn extend:buffer (b:buffer more:buffer) {
+    def n:int (buffer_length b)
+    def m:int (buffer_length more)
+    def out:buffer (buffer_alloc (n + m))
+    RsBytes.copyInto(out 0 b n)
+    RsBytes.copyInto(out n more m)
+    return out
+  }
+
+  ; `b.fill(v)`
+  sfn fillAll:void (b:buffer v:int) {
+    def n:int (buffer_length b)
+    def i:int 0
+    while (i < n) {
+      buffer_set b i v
+      i = i + 1
+    }
+  }
+
+  ; `vec![v; n]`
+  sfn filled:buffer (v:int n:int) {
+    def out:buffer (buffer_alloc n)
+    if (v != 0) {
+      def i:int 0
+      while (i < n) {
+        buffer_set out i v
+        i = i + 1
+      }
+    }
+    return out
+  }
+
+  ; `vec![1, 2, 3]`, `b"…"`
+  sfn ofInts:buffer (xs:[int]) {
+    def n:int (array_length xs)
+    def out:buffer (buffer_alloc n)
+    def i:int 0
+    while (i < n) {
+      buffer_set out i (itemAt xs i)
+      i = i + 1
+    }
+    return out
+  }
+
+  ; `v.truncate(n)`, `v.resize(n, x)`
+  sfn resized:buffer (b:buffer n:int v:int) {
+    def have:int (buffer_length b)
+    if (n <= have) {
+      return (buffer_slice b 0 n)
+    }
+    def out:buffer (RsBytes.filled(v n))
+    RsBytes.copyInto(out 0 b have)
+    return out
+  }
+
+  sfn eq:boolean (a:buffer b:buffer) {
+    def n:int (buffer_length a)
+    if (n != (buffer_length b)) {
+      return false
+    }
+    def i:int 0
+    while (i < n) {
+      if ((buffer_get a i) != (buffer_get b i)) {
+        return false
+      }
+      i = i + 1
+    }
+    return true
+  }
+
+  sfn indexOf:int (b:buffer v:int) {
+    def n:int (buffer_length b)
+    def i:int 0
+    while (i < n) {
+      if ((buffer_get b i) == v) {
+        return i
+      }
+      i = i + 1
+    }
+    return -1
+  }
+
+  ; `s.as_bytes()`: the UTF-8 bytes on every target (buffer_from_string is
+  ; Latin-1 in JavaScript)
+  sfn ofUtf8:buffer (s:string) {
+    def n:int (rs_byte_len s)
+    def cb:charbuffer (to_charbuffer s)
+    def out:buffer (buffer_alloc n)
+    def i:int 0
+    while (i < n) {
+      def ch:int (charAt cb i)
+      buffer_set out i ch
+      i = i + 1
+    }
+    return out
+  }
+
+  ; `String::from_utf8_lossy(&b)`: invalid sequences become U+FFFD
+  sfn toUtf8:string (b:buffer) {
+    def parts:[string]
+    def n:int (buffer_length b)
+    def i:int 0
+    while (i < n) {
+      def c:int (buffer_get b i)
+      def need:int 0
+      def cp:int c
+      if (c >= 240) {
+        need = 3
+        cp = (c - 240)
+      } {
+        if (c >= 224) {
+          need = 2
+          cp = (c - 224)
+        } {
+          if (c >= 192) {
+            need = 1
+            cp = (c - 192)
+          } {
+            if (c >= 128) {
+              need = -1
+            }
+          }
+        }
+      }
+      if ((need < 0) || (((i + need) >= n) && (need > 0))) {
+        push parts (rs_char_from 65533)
+        i = i + 1
+        continue
+      }
+      def j:int 1
+      def ok:boolean true
+      while (j <= need) {
+        def d:int (buffer_get b (i + j))
+        if ((d < 128) || (d >= 192)) {
+          ok = false
+          break
+        }
+        cp = ((cp * 64) + (d - 128))
+        j = j + 1
+      }
+      if (ok) {
+        push parts (rs_char_from cp)
+        i = ((i + need) + 1)
+      } {
+        push parts (rs_char_from 65533)
+        i = i + 1
+      }
+    }
+    return (join parts "")
+  }
+
+  ; `{:?}`: [1, 2, 3]
+  sfn dbg:string (b:buffer) {
+    def parts:[string]
+    def n:int (buffer_length b)
+    def i:int 0
+    while (i < n) {
+      push parts (to_string (buffer_get b i))
+      i = i + 1
+    }
+    return (("[" + (join parts ", ")) + "]")
+  }
+}
