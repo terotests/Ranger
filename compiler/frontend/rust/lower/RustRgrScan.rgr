@@ -18,6 +18,8 @@ class RsRgrScan {
   ; the file's own `Import "x.rgr"` lines (not pkg:), where a parent class
   ; declared elsewhere is looked for
   def imports:[string]
+  ; the type parameters of the class being read: `class H @params(Op)`
+  def curGenerics:[string]
 
   fn scan:void (src:string file:string) {
     def lines:[string] (strsplit src "\n")
@@ -51,6 +53,22 @@ class RsRgrScan {
         def ex:int (indexOf line " extends ")
         if (ex > 0) {
           s.parent = (this.wordAt(line (ex + 9)))
+        }
+        def noG:[string]
+        curGenerics = noG
+        def gp:int (indexOf line "@params(")
+        if (gp > 0) {
+          def gRest:string (substring line (gp + 8) (strlen line))
+          def gEnd:int (indexOf gRest ")")
+          if (gEnd > 0) {
+            for (strsplit (substring gRest 0 gEnd) " ") gw:string gwi {
+              def gn:string (trim gw)
+              if ((strlen gn) > 0) {
+                push s.generics gn
+                push curGenerics gn
+              }
+            }
+          }
         }
         push classes s
         cur = s
@@ -290,6 +308,13 @@ class RsRgrScan {
   ; A Ranger type as the lowering's type: int, double, string, boolean,
   ; [T], [K:V], a class (a shared handle on the Rust side).
   fn rsType:RsType (t:string) {
+    for curGenerics cg:string cgi {
+      if (cg == t) {
+        def pt:RsType (RsType.mk("param"))
+        pt.name = t
+        return pt
+      }
+    }
     if ((t == "int") || (t == "char")) {
       def it:RsType (RsType.mk("int"))
       it.name = "i64"
