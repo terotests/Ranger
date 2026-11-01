@@ -95398,8 +95398,32 @@ class RustLower  {
           };
           const rv = this.lowerExpr(recvN, RsType.named(head));
           const recv = this.bindTemp(rv, rv.ty, "r");
+          if ( this.hasBoxed(mf) ) {
+            return this.boxedCall(
+              (((recv + ".") + mf.rname) + "("),
+              mf,
+              rest,
+              rv.ty,
+              "",
+              at
+            );
+          }
           const codes0 = this.lowerArgs(rest, this.paramTypes(mf));
           return RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + codes0.join(" ")) + "))"), mf.ret);
+        }
+        if ( (this.hasBoxed(mf) && false == mf.rgrCtor) && false == s.rgr ) {
+          let bsn = this.staticName(name);
+          if ( mf.statName != "" ) {
+            bsn = mf.statName;
+          }
+          return this.boxedCall(
+            (((this.className(head) + ".") + bsn) + "("),
+            mf,
+            args,
+            RsType.named(head),
+            "",
+            at
+          );
         }
         const codes = this.lowerArgs(args, this.paramTypes(mf));
         if ( mf.rgrCtor ) {
@@ -95479,6 +95503,11 @@ class RustLower  {
     if ( (((((full == "Box::new" || full == "Rc::new") || full == "Arc::new") || full == "RefCell::new") || full == "Cell::new") || full == "Rc::clone") || full == "Arc::clone" ) {
       const iv = this.lowerExpr(args[0], expect);
       return iv;
+    }
+    if ( ((full == "Rc::ptr_eq" || full == "Arc::ptr_eq") || full == "std::ptr::eq") || full == "ptr::eq" ) {
+      const pa = this.lowerExpr(args[0], RsType.mk("unknown"));
+      const pb = this.lowerExpr(args[1], RsType.mk("unknown"));
+      return RsExpr.of((((("(identical " + pa.code) + " ") + pb.code) + ")"), RsType.mk("bool"));
     }
     if ( full == "Rc::downgrade" || full == "Arc::downgrade" ) {
       const dv = this.lowerExpr(args[0], RsType.mk("unknown"));
