@@ -192,12 +192,17 @@ class RangerApiBuilder {
     def root:RangerAppWriterContext (ctx.getRoot())
     ; pass one: which declared classes are API. A method can name a class the
     ; registry lists after it, so the answer has to exist before the check.
-    for root.tables.definedClassList cname:string pi {
-      def pcl:RangerAppClassDesc (unwrap (get root.tables.definedClasses cname))
+    for root.definedClassList cname:string pi {
+      def pcl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
       if ((pcl.isNormalClass()) == false) {
         continue
       }
       if pcl.is_template {
+        continue
+      }
+      ; `History@(Op)` made for one Op is the template's, and a template is
+      ; not classified either: the instance is no class anybody declares
+      if ((strlen pcl.generic_template) > 0) {
         continue
       }
       def pnode@(optional):CodeNode pcl.classNode
@@ -215,8 +220,8 @@ class RangerApiBuilder {
         set internalClassNames pcl.name true
       }
     }
-    for root.tables.definedClassList cname:string ci {
-      def cl:RangerAppClassDesc (unwrap (get root.tables.definedClasses cname))
+    for root.definedClassList cname:string ci {
+      def cl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
       if (cl.is_system) {
         continue
       }

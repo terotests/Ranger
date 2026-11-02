@@ -166,6 +166,9 @@ class RsType {
 
 class RsField {
   def name:string ""
+  ; a `.rgr` class's field by its Rust name (`auto_complete`): the field's
+  ; Ranger name (`autoComplete`), which the lowering writes
+  def rname:string ""
   def ty:RsType (new RsType("unknown"))
   def node@(optional):RustNode
 }
@@ -233,6 +236,8 @@ class RsStruct {
   ; a class of a `.rgr` file included with `ranger::import_rgr!` (R6): known
   ; to the lowering, written by the `.rgr` import
   def rgr:boolean false
+  ; `class X extends P` in that file: X has P's fields and methods too
+  def parent:string ""
   ; `#[ranger::serialize]`: to_json / from_json are written for it (R7)
   def serialize:boolean false
 
@@ -354,6 +359,14 @@ class RsLocal {
   def slotMap:string ""
   def slotKey:string ""
   def slotTy:RsType (new RsType("unknown"))
+  ; a `ref mut` pattern binding (`match v { V::N(n) => *n += 1.0 }` with
+  ; `v: &mut V`): the place it was read from, written back after each change;
+  ; backBad when that place cannot be written (the whole subject)
+  def backTo:string ""
+  def backBad:boolean false
+  ; `Enum.Variant` when backTo is a field of an enum variant (its case is
+  ; then written `@(reference)`: a value case cannot change)
+  def backCase:string ""
 }
 
 class RsScope {

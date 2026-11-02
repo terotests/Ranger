@@ -822,7 +822,7 @@ template <class T, class S> inline T rg_cast(const S& v) {
                 swift6 ( "Int.random(in: " (e 1) " ... " (e 2) ")" )
                 python ( "random.randint(" (e 1) ", " (e 2) ")" (imp "random") )
                 swift3 ( "(" (e 1) " + Int(arc4random_uniform(UInt32(" (e 2) " - " (e 1) " + 1))))" (imp "Foundation") )
-                kotlin ('(Math.floor(Math.random() * (' (e 2) ' - ' (e 1) ' + 1)).toInt() + ' (e 1) ')' (imp "java.lang.Math"))
+                kotlin ('(Math.floor(Math.random() * (' (e 2) ' - ' (e 1) ' + 1)).toLong() + ' (e 1) ')' (imp "java.lang.Math"))
                 csharp ( "rg_random.Next(" (e 1) ", (" (e 2) ") + 1)"
 (create_polyfill "
 static readonly System.Random rg_random = new System.Random();
@@ -1357,7 +1357,7 @@ const double rg_pi = pi;
                 dart ( "(" (e 1) ").abs()" )
                 java7 ( "Math.abs(" (e 1) ")" (imp "java.lang.Math"))
                 php ( "abs(" (e 1) ")")
-                cpp ( "std::fabs(" (e 1) ")" (imp "<cmath>"))
+                cpp ("fabs(" (e 1) ")" (imp "<cmath>"))
                 kotlin ( "Math.abs(" (e 1) ")" (imp "java.lang.Math"))
                 csharp ( "Math.Abs(" (e 1) ")" (imp "System"))
                 scala ( "math.abs(" (e 1) ")" (imp "scala.math"))
@@ -1375,7 +1375,7 @@ const double rg_pi = pi;
                 java7 ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))
                 php ( "tan(" (e 1) ")")
                 llvm ( "(tan " (e 1) ")" )
-                cpp ( "std::tan(" (e 1) ")" (imp "<cmath>"))
+                cpp ("tan(" (e 1) ")" (imp "<math.h>"))
                 kotlin ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))
                 csharp ( "Math.Tan(" (e 1) ")" (imp "System"))
                 scala ( "math.tan(" (e 1) ")" (imp "scala.math"))
@@ -1394,7 +1394,7 @@ const double rg_pi = pi;
                 csharp ( "Math.Atan2(" (e 1) ", " (e 2) ")" (imp "System"))
                 rust ( "" (e 1) ".atan2(" (e 2) ")" )
                 scala ( "math.atan2(" (e 1) ", " (e 2) ")" (imp "scala.math"))
-                cpp ( "std::atan2(" (e 1) ", " (e 2) ")" (imp "<cmath>"))
+                cpp ( "atan2(" (e 1) ", " (e 2) ")" (imp "<math.h>"))
                 swift6 ( "atan2(" (e 1) ", " (e 2) ")" (imp "Foundation"))
                 kotlin ( "Math.atan2(" (e 1) ", " (e 2) ")" (imp "java.lang.Math"))
                 python ( "math.atan2(" (e 1) ", " (e 2) ")" (imp "math"))
@@ -1547,7 +1547,7 @@ inline std::optional<std::string> r_cpp_env_var(const std::string& name) {
                 swift6 ("CommandLine.arguments[" (e 1) " + 1]")
                 es6 ( "process.argv[ 2 + " (e 1) "]")
                 rust ( "std::env::args().nth((" (e 1) " + 1) as usize).unwrap_or_default()")
-                kotlin ( "__g_args[" (e 1) "]")
+                kotlin ( "__g_args[(" (e 1) ").toInt()]")
                 ; Dart hands the list to main(List<String> args) and nothing
                 ; else can see it, so main copies it into __g_args (the writer
                 ; emits that line) and every read goes through the global -- the
@@ -1572,7 +1572,7 @@ inline std::optional<std::string> r_cpp_env_var(const std::string& name) {
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
-                kotlin ( "__g_args.size")
+                kotlin ( "__g_args.size.toLong()")
                 dart ( "__g_args.length" )
                 python ( "(len(sys.argv) - 1)" (imp "sys") )
                 ranger ("( shell_arg_cnt )")
@@ -3460,7 +3460,7 @@ func r_file_mtime ( path:String, name:String ) -> Int {
 }
 ") (imp "Foundation")
                 )
-                kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").lastModified().toInt()" )
+                kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").lastModified()" )
                 python ( "int(os.path.getmtime(" (e 1) " + \"/\" + " (e 2) ") * 1000)" (imp "os") )
                 java7 ( "((int)(new File(" (e 1) " + \"/\" + " (e 2) ").lastModified()))" (imp "java.io.File") )
                 csharp ( "((int)(long)(System.IO.File.GetLastWriteTimeUtc(" (e 1) " + \"/\" + " (e 2) ") - new System.DateTime(1970, 1, 1)).TotalMilliseconds)" )
@@ -4266,14 +4266,6 @@ inline bool rg_opt_bool(const std::optional<bool> & b) { return b.value(); }
             }
         }
 
-        ; an optional buffer is a bare std::vector<uint8_t> on C++ (writeTypeDef
-        ; does not wrap it), so, as for charbuffer, the value is the variable
-        unwrap       cmdUnwrap:buffer        ( arg@(optional):buffer ) {
-            templates {
-                cpp ( (e 1) )
-            }
-        }
-
         unwrap       cmdUnwrap:T        ( arg@(optional):T ) {
             templates {
                 ranger ( "( unwrap " (e 1) ")" )
@@ -4640,7 +4632,7 @@ inline std::string r_double_to_string(double v) {
                 java7 ( "((" (e 1) ") << (" (e 2) "))" )
                 python ( "((" (e 1) ") << (" (e 2) "))" )
                 swift6 ( "((" (e 1) ") << (" (e 2) "))" )
-                kotlin ( "((" (e 1) ") shl (" (e 2) "))" )
+                kotlin ( "((" (e 1) ") shl (" (e 2) ").toInt())" )
                 csharp ( "((" (e 1) ") << (int)(" (e 2) "))" )
                 * ( "((" (e 1) ") << (" (e 2) "))" )
             }
@@ -4656,7 +4648,7 @@ inline std::string r_double_to_string(double v) {
                 java7 ( "((" (e 1) ") >> (" (e 2) "))" )
                 python ( "((" (e 1) ") >> (" (e 2) "))" )
                 swift6 ( "((" (e 1) ") >> (" (e 2) "))" )
-                kotlin ( "((" (e 1) ") shr (" (e 2) "))" )
+                kotlin ( "((" (e 1) ") shr (" (e 2) ").toInt())" )
                 csharp ( "((" (e 1) ") >> (int)(" (e 2) "))" )
                 * ( "((" (e 1) ") >> (" (e 2) "))" )
             }
@@ -4676,7 +4668,7 @@ inline std::string r_double_to_string(double v) {
                 python ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
                 dart ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
                 swift6 ( "Int(bitPattern: UInt(bitPattern: " (e 1) ") >> UInt(" (e 2) "))" )
-                kotlin ( "((" (e 1) ") ushr (" (e 2) "))" )
+                kotlin ( "((" (e 1) ") ushr (" (e 2) ").toInt())" )
                 csharp ( "(int)((uint)(" (e 1) ") >> (int)(" (e 2) "))" )
                 php ( "((" (e 1) " & 0xFFFFFFFF) >> (" (e 2) "))" )
                 * ( "(" (e 1) " >>> " (e 2) ")" )
@@ -4826,7 +4818,7 @@ def r_div_f64(a, b):
                 scala ( '( if (' (e 1) ")  " (e 2) " else " (e 3) ')' ) 
                 kotlin ( '(if (' (e 1) ') ' (e 2) ' else ' (e 3) ')' )
                 python ( '(' (e 2) " if " (e 1) " else " (e 3) ')' ) 
-                rust ( 'if ' (e 1) ' { ' (e 2) ' } else { ' (e 3) ' }' )
+                rust ( 'if ' (e 1) ' { ' (eown 2) ' } else { ' (eown 3) ' }' )
                 * ( (e 1) " ? " (e 2) " : " (e 3) ) 
             } 
         }
@@ -4903,9 +4895,9 @@ def r_div_f64(a, b):
                 ranger ( "(ceil " (e 1) ")" ) 
                 swift3 ( "Int(ceil(" (e 1) "))" (imp "Foundation"))
                 swift6 ( "Int(ceil(" (e 1) "))" (imp "Foundation"))
-                kotlin ( "(Math.ceil(" (e 1) ")).toInt()" (imp "java.lang.Math"))
+                kotlin ( "(Math.ceil(" (e 1) ")).toLong()" (imp "java.lang.Math"))
                 dart ( "(" (e 1) ").ceil()" )
-                cpp ( "(int)std::ceil(" (e 1) ")" (imp "<cmath>"))
+                cpp ( "(int)ceil(" (e 1) ")" (imp "<cmath>"))
                 csharp ( "(int)Math.Ceiling(" (e 1) ")" (imp "System"))
                 go ( "int64(math.Ceil(" (e 1) "))" (imp "math"))
                 php ( "ceil(" (e 1) ")" )    
@@ -4921,14 +4913,14 @@ def r_div_f64(a, b):
             templates {
                 ranger ( "(floor " (e 1) ")" ) 
                 swift3 ( "Int(floor(" (e 1) "))" (imp "Foundation"))               
-                cpp ( "(int)std::floor(" (e 1) ")" (imp "<cmath>"))
+                cpp ( "(int)floor(" (e 1) ")" (imp "<cmath>"))
                 csharp ( "(int)Math.Floor(" (e 1) ")" (imp "System"))    
                 go ( "int64(math.Floor(" (e 1) "))" (imp "math"))                                
                 php ( "floor(" (e 1) ")" )    
                 rust ( "" (e 1) ".floor() as i64" )                
                 scala ( "math.floor(" (e 1) ").toInt" (imp "scala.math"))                
                 java7 ( "(int)Math.floor(" (e 1) ")" (imp "java.lang.Math"))
-                kotlin ( "(Math.floor(" (e 1) ")).toInt()" (imp "java.lang.Math"))
+                kotlin ( "(Math.floor(" (e 1) ")).toLong()" (imp "java.lang.Math"))
                 dart ( "(" (e 1) ").floor()" )
                 swift6 ( "Int(floor(" (e 1) "))" (imp "Foundation"))
                 python ( "math.floor(" (e 1) ")" (imp "math"))
@@ -4941,7 +4933,7 @@ def r_div_f64(a, b):
             templates {
                 ranger ( "(asin " (e 1) ")" ) 
                 swift3 ( "asin(" (e 1) ")" (imp "Foundation"))               
-                cpp ( "std::asin(" (e 1) ")" (imp "<cmath>"))
+                cpp ( "asin(" (e 1) ")" (imp "<cmath>"))
                 csharp ( "Math.Asin(" (e 1) ")" (imp "System"))    
                 go ( "math.Asin(" (e 1) ")" (imp "math"))                                
                 php ( "asin(" (e 1) ")" )    
@@ -4962,7 +4954,7 @@ def r_div_f64(a, b):
             templates {
                 ranger ( "(acos " (e 1) ")" ) 
                 swift3 ( "acos(" (e 1) ")" (imp "Foundation"))               
-                cpp ( "std::acos(" (e 1) ")" (imp "<cmath>"))
+                cpp ( "acos(" (e 1) ")" (imp "<cmath>"))
                 csharp ( "Math.Acos(" (e 1) ")" (imp "System"))    
                 go ( "math.Acos(" (e 1) ")" (imp "math"))                                
                 php ( "acos(" (e 1) ")" )    
@@ -4981,7 +4973,7 @@ def r_div_f64(a, b):
             templates {
                 ranger ( "(cos " (e 1) ")" )
                 swift3 ( "cos(" (e 1) ")" (imp "Foundation"))               
-                cpp ( "std::cos(" (e 1) ")" (imp "<cmath>"))
+                cpp ( "cos(" (e 1) ")" (imp "<cmath>"))
                 csharp ( "Math.Cos(" (e 1) ")" (imp "System"))    
                 go ( "math.Cos(" (e 1) ")" (imp "math"))                                
                 php ( "cos(" (e 1) ")" )    
@@ -5000,7 +4992,7 @@ def r_div_f64(a, b):
             templates {
                 ranger ( "(sin " (e 1) ")" )
                 swift3 ( "sin(" (e 1) ")" (imp "Foundation"))               
-                cpp ( "std::sin(" (e 1) ")" (imp "<cmath>"))
+                cpp ( "sin(" (e 1) ")" (imp "<cmath>"))
                 csharp ( "Math.Sin(" (e 1) ")" (imp "System"))    
                 go ( "math.Sin(" (e 1) ")" (imp "math"))                                
                 php ( "sin(" (e 1) ")" )    
@@ -5019,7 +5011,7 @@ def r_div_f64(a, b):
             templates {
                 ranger ( "(sqrt " (e 1) ")" )
                 swift3 ( "sqrt(" (e 1) ")" (imp "Foundation"))               
-                cpp ( "std::sqrt(" (e 1) ")" (imp "<cmath>"))
+                cpp ( "sqrt(" (e 1) ")" (imp "<cmath>"))
                 csharp ( "Math.Sqrt(" (e 1) ")" (imp "System"))                                
                 php ( "sqrt(" (e 1) ")" )                
                 go ( "math.Sqrt(" (e 1) ")" (imp "math"))  
@@ -6104,6 +6096,7 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
                 go ( "int64(len(" (e 1) "))")
                 python ( "len(" (e 1) ")")
                 rust ( "(" (e 1) ".len() as i64)")
+                kotlin ( (e 1) ".length.toLong()" )
                 * ( (e 1) ".length")
             }
         }
@@ -6122,7 +6115,7 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
         iso_compare   cmdIsoCompare:int   ( a:string b:string ) {
             templates {
                 ranger ( "(DateMath.compareIso " (e 1) " " (e 2) ")")
-                kotlin ( "java.time.LocalDate.parse(" (e 1) ").compareTo(java.time.LocalDate.parse(" (e 2) "))" (imp "java.time.LocalDate"))
+                kotlin ( "java.time.LocalDate.parse(" (e 1) ").compareTo(java.time.LocalDate.parse(" (e 2) ")).toLong()" (imp "java.time.LocalDate"))
                 java7 ( "java.time.LocalDate.parse(" (e 1) ").compareTo(java.time.LocalDate.parse(" (e 2) "))" (imp "java.time.LocalDate"))
                 es6 ( "((a,b)=>a<b?-1:a>b?1:0)(" (e 1) "," (e 2) ")")
                 * ( "(DateMath.compareIso " (e 1) " " (e 2) ")")
@@ -6318,7 +6311,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 java7 ( "new String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) ", java.nio.charset.StandardCharsets.UTF_8)")
                 swift3 ( "String(data: Data(bytes:" (e 1) "[" (e 2) " ..< " (e 3) "]), encoding: .utf8)!"  (imp "Foundation"))
                 swift6 ( "String(data: Data(" (e 1) "[" (e 2) " ..< " (e 3) "]), encoding: .utf8)!"  (imp "Foundation"))
-                kotlin ( "String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) ", Charsets.UTF_8)")           
+                kotlin ( "String(" (e 1) ", (" (e 2) ").toInt(), (" (e 3) " - " (e 2) ").toInt(), Charsets.UTF_8)")           
                 go ( "fmt.Sprintf(\"%s\", " (e 1) "[" (e 2) ":" (e 3) "])"               
                  (imp "fmt")
                 )
@@ -6482,12 +6475,12 @@ static java.util.ArrayList<Integer> rg_to_chars(String s) {
                 )
                 kotlin ( "rg_to_chars(" (e 1) ")"
 (create_polyfill "
-fun rg_to_chars(s: String): MutableList<Int> {
-  val out = mutableListOf<Int>()
+fun rg_to_chars(s: String): MutableList<Long> {
+  val out = mutableListOf<Long>()
   var i = 0
   while (i < s.length) {
     val cp = s.codePointAt(i)
-    out.add(cp)
+    out.add(cp.toLong())
     i += Character.charCount(cp)
   }
   return out
@@ -6604,8 +6597,8 @@ static int rg_char_length(String s) {
                 )
                 kotlin ( "rg_char_length(" (e 1) ")"
 (create_polyfill "
-fun rg_char_length(s: String): Int {
-  return s.codePointCount(0, s.length)
+fun rg_char_length(s: String): Long {
+  return s.codePointCount(0, s.length).toLong()
 }
 ")
                 )
@@ -6715,7 +6708,7 @@ const r_cb_dec = new TextDecoder();
                 dart ( (imp "dart:typed_data") "Uint8List(" (e 1) ")" )
                 swift6 ( "[UInt8](repeating: 0, count: Int(" (e 1) "))" )
                 swift3 ( "[UInt8](repeating: 0, count: Int(" (e 1) "))" )
-                kotlin ( "ByteArray(" (e 1) ")" )
+                kotlin ( "ByteArray((" (e 1) ").toInt())" )
                 csharp ( "new byte[" (e 1) "]" )
                 php ( "r_buf_alloc(" (e 1) ")"
                 (create_polyfill "
@@ -6768,7 +6761,7 @@ function r_buf_slice($buf, $start, $end) {
                 dart ( (e 1) ".length" )
                 swift6 ( (e 1) ".count" )
                 csharp ( (e 1) ".Length" )
-                kotlin ( (e 1) ".size" )
+                kotlin ( (e 1) ".size.toLong()" )
                 php ( "strlen(" (e 1) "->d)" )
             }
         }
@@ -6787,7 +6780,7 @@ function r_buf_slice($buf, $start, $end) {
                 dart ( (e 1) "[" (e 2) "]" )
                 swift6 ( "Int(" (e 1) "[Int(" (e 2) ")])" )
                 csharp ( "((int)" (e 1) "[" (e 2) "])" )
-                kotlin ( "(" (e 1) "[" (e 2) "].toInt() and 0xFF)" )
+                kotlin ( "(" (e 1) "[(" (e 2) ").toInt()].toLong() and 0xFFL)" )
                 php ( "ord(" (e 1) "->d[" (e 2) "])" )
             }
         }
@@ -6806,7 +6799,7 @@ function r_buf_slice($buf, $start, $end) {
                 dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                 swift6 ( (e 1) "[Int(" (e 2) ")] = UInt8(" (e 3) ")" )
                 csharp ( (e 1) "[" (e 2) "] = (byte)" (e 3) ";" )
-                kotlin ( (e 1) "[" (e 2) "] = (" (e 3) ").toByte()" )
+                kotlin ( (e 1) "[(" (e 2) ").toInt()] = (" (e 3) ").toByte()" )
                 php ( (e 1) "->d[" (e 2) "] = chr(" (e 3) " & 255);" )
             }
         }
@@ -6883,7 +6876,22 @@ std::string r_buffer_to_string(const std::vector<uint8_t>& data) {
                 es6 ( "Buffer.from(" (e 1) ").toString('base64')" )
                 dart ( (imp "dart:convert") "base64Encode(" (e 1) ")" )
                 go ( "base64.StdEncoding.EncodeToString(" (e 1) ")" (imp "encoding/base64") )
-                rust ( "base64::encode(&" (e 1) ")" )
+                rust ( "rg_buffer_to_base64(&" (e 1) ")"
+(create_polyfill "
+fn rg_buffer_to_base64(b: &[u8]) -> String {
+    const A: &[u8; 64] = b\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";
+    let mut s = String::with_capacity((b.len() + 2) / 3 * 4);
+    for c in b.chunks(3) {
+        let n = ((c[0] as u32) << 16) | ((*c.get(1).unwrap_or(&0) as u32) << 8) | *c.get(2).unwrap_or(&0) as u32;
+        s.push(A[(n >> 18) as usize & 63] as char);
+        s.push(A[(n >> 12) as usize & 63] as char);
+        s.push(if c.len() > 1 { A[(n >> 6) as usize & 63] as char } else { '=' });
+        s.push(if c.len() > 2 { A[n as usize & 63] as char } else { '=' });
+    }
+    s
+}
+")
+                )
                 cpp ( "r_buffer_to_base64(" (e 1) ")" (imp "<string>") (imp "<vector>")
 (create_polyfill "
 std::string r_buffer_to_base64(const std::vector<uint8_t>& data) {
@@ -6996,7 +7004,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
                 csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
-                kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
+                kotlin ( "System.arraycopy(" (e 3) ", (" (e 4) ").toInt(), " (e 1) ", (" (e 2) ").toInt(), (" (e 5) ").toInt())" )
                 php ( "r_buf_copy(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ");" )
             }
         }
@@ -7015,7 +7023,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 3) ")..<Int(" (e 4) "), with: repeatElement(UInt8(" (e 2) "), count: Int(" (e 4) "-" (e 3) ")))" )
                 csharp ( "Array.Fill(" (e 1) ", (byte)" (e 2) ", (int)" (e 3) ", (int)(" (e 4) "-" (e 3) "))" )
-                kotlin ( "java.util.Arrays.fill(" (e 1) ", " (e 3) ", " (e 4) ", (" (e 2) ").toByte())" )
+                kotlin ( "java.util.Arrays.fill(" (e 1) ", (" (e 3) ").toInt(), (" (e 4) ").toInt(), (" (e 2) ").toByte())" )
             }
         }
 
@@ -7032,7 +7040,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 python ( "bytearray(" (e 1) "[" (e 2) ":" (e 3) "])" )
                 swift6 ( "Array(" (e 1) "[Int(" (e 2) ")..<Int(" (e 3) ")])" )
                 csharp ( (e 1) "[((int)" (e 2) ")..((int)" (e 3) ")]" )
-                kotlin ( (e 1) ".copyOfRange(" (e 2) ", " (e 3) ")" )
+                kotlin ( (e 1) ".copyOfRange((" (e 2) ").toInt(), (" (e 3) ").toInt())" )
                 php ( "r_buf_slice(" (e 1) ", " (e 2) ", " (e 3) ")" )
             }
         }
@@ -7060,7 +7068,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 ; Match Ranger int -> Swift Int (not Int64).
                 swift6 ( "[Int](repeating: 0, count: Int(" (e 1) "))" )
                 csharp ( "new long[" (e 1) "]" )
-                kotlin ( "LongArray(" (e 1) ")" )
+                kotlin ( "LongArray((" (e 1) ").toInt())" )
             }
         }
 
@@ -7077,7 +7085,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 python ( "len(" (e 1) ")" )
                 swift6 ( (e 1) ".count" )
                 csharp ( (e 1) ".Length" )
-                kotlin ( (e 1) ".size" )
+                kotlin ( (e 1) ".size.toLong()" )
             }
         }
 
@@ -7095,7 +7103,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 python ( (e 1) "[" (e 2) "]" )
                 swift6 ( (e 1) "[Int(" (e 2) ")]" )
                 csharp ( (e 1) "[" (e 2) "]" )
-                kotlin ( (e 1) "[" (e 2) "].toInt()" )
+                kotlin ( (e 1) "[(" (e 2) ").toInt()]" )
             }
         }
 
@@ -7113,7 +7121,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
                 swift6 ( (e 1) "[Int(" (e 2) ")] = " (e 3) )
                 csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
-                kotlin ( (e 1) "[" (e 2) "] = (" (e 3) ").toLong()" )
+                kotlin ( (e 1) "[(" (e 2) ").toInt()] = " (e 3) )
             }
         }
 
@@ -7131,7 +7139,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 3) ")..<Int(" (e 4) "), with: repeatElement(" (e 2) ", count: Int(" (e 4) "-" (e 3) ")))" )
                 csharp ( "Array.Fill(" (e 1) ", " (e 2) ", (int)" (e 3) ", (int)(" (e 4) "-" (e 3) "))" )
-                kotlin ( "java.util.Arrays.fill(" (e 1) ", " (e 3) ", " (e 4) ", (" (e 2) ").toLong())" )
+                kotlin ( "java.util.Arrays.fill(" (e 1) ", (" (e 3) ").toInt(), (" (e 4) ").toInt(), " (e 2) ")" )
             }
         }
 
@@ -7148,7 +7156,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
                 csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
-                kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
+                kotlin ( "System.arraycopy(" (e 3) ", (" (e 4) ").toInt(), " (e 1) ", (" (e 2) ").toInt(), (" (e 5) ").toInt())" )
             }
         }
 
@@ -7190,7 +7198,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 dart ( (imp "dart:typed_data") "Float64List(" (e 1) ")" )
                 swift6 ( "[Double](repeating: 0.0, count: Int(" (e 1) "))" )
                 csharp ( "new double[" (e 1) "]" )
-                kotlin ( "DoubleArray(" (e 1) ")" )
+                kotlin ( "DoubleArray((" (e 1) ").toInt())" )
             }
         }
 
@@ -7207,7 +7215,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 python ( "len(" (e 1) ")" )
                 swift6 ( (e 1) ".count" )
                 csharp ( (e 1) ".Length" )
-                kotlin ( (e 1) ".size" )
+                kotlin ( (e 1) ".size.toLong()" )
             }
         }
 
@@ -7224,7 +7232,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 python ( (e 1) "[" (e 2) "]" )
                 swift6 ( (e 1) "[Int(" (e 2) ")]" )
                 csharp ( (e 1) "[" (e 2) "]" )
-                kotlin ( (e 1) "[" (e 2) "]" )
+                kotlin ( (e 1) "[(" (e 2) ").toInt()]" )
             }
         }
 
@@ -7241,7 +7249,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 python ( (e 1) "[" (e 2) "] = " (e 3) )
                 swift6 ( (e 1) "[Int(" (e 2) ")] = " (e 3) )
                 csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
-                kotlin ( (e 1) "[" (e 2) "] = " (e 3) )
+                kotlin ( (e 1) "[(" (e 2) ").toInt()] = " (e 3) )
             }
         }
 
@@ -7258,7 +7266,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 python ( (e 1) "[" (e 3) ":" (e 4) "] = [" (e 2) "] * (" (e 4) " - " (e 3) ")" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 3) ")..<Int(" (e 4) "), with: repeatElement(" (e 2) ", count: Int(" (e 4) "-" (e 3) ")))" )
                 csharp ( "Array.Fill(" (e 1) ", " (e 2) ", (int)" (e 3) ", (int)(" (e 4) "-" (e 3) "))" )
-                kotlin ( "java.util.Arrays.fill(" (e 1) ", " (e 3) ", " (e 4) ", " (e 2) ")" )
+                kotlin ( "java.util.Arrays.fill(" (e 1) ", (" (e 3) ").toInt(), (" (e 4) ").toInt(), " (e 2) ")" )
             }
         }
 
@@ -7275,7 +7283,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
                 csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
-                kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
+                kotlin ( "System.arraycopy(" (e 3) ", (" (e 4) ").toInt(), " (e 1) ", (" (e 2) ").toInt(), (" (e 5) ").toInt())" )
             }
         }
 
@@ -7303,14 +7311,14 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 csharp ( "(int)" (e 1 ) "" )
                 swift3 ( "Int(" (e 1 ) ")" )
                 swift6 ( "Int(" (e 1 ) ")" )
-                kotlin ( (e 1 ) ".toInt()" )
+                kotlin ( (e 1 ) ".toLong()" )
                 dart ( "(" (e 1) ").floor()" )
                 scala ( (e 1 ) ".toInt" )
                 rust ( (custom _) )
                 go ( "int64(math.Floor(" (e 1) "))" (imp "math"))
                 php ( "floor(" (e 1) ")")
                 java7 ( "Double.valueOf(" (e 1) ").intValue()")
-                cpp ( "(int)std::floor( " (e 1) ")" (imp "<cmath>"))
+                cpp ( "(int)floor( " (e 1) ")" (imp "<math.h>"))
                 python ( "math.floor(" (e 1) ")" (imp "math"))
                 * ( "Math.floor( " (e 1) ")" )
             }
@@ -7321,7 +7329,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 ranger ( "(to_int " (e 1) ")") 
                 csharp ( "(int)" (e 1 ) "" )
                 swift3 ( "Int(" (e 1 ) ")" )
-                kotlin ( (e 1 ) ".toInt()" )
+                kotlin ( (e 1 ) ".toLong()" )
                 scala ( (e 1 ) ".toInt" )
                 rust ( (e 1 ) " as i64 " )
                 go ( "int64(" (e 1) ")")
@@ -7344,9 +7352,10 @@ static byte[] r_buffer_read_file(String path, String filename) {
             templates {
                 ranger ( "(length " (e 1) ")") 
                 csharp ( (e 1 ) ".Length" )
-                kotlin ( (e 1 ) ".size" )
+                kotlin ( (e 1 ) ".size.toLong()" )
                 scala ( (e 1 ) ".length" )
                 swift3 ( (e 1 ) ".count" )
+                swift6 ( (e 1 ) ".count" )
                 rust ( "(" (e 1 ) ".len() as i64)" )
                 java7 ( (e 1 ) ".length" )
                 cpp( "strlen( " (e 1) " )" (imp "<cstring>"))
@@ -7434,7 +7443,7 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 csharp ( (e 1) ".Substring(" (e 2) ", 1)")
                 php ( "substr(" (e 1) ", " (e 2) ", 1)")               
                 java7 ( (e 1) ".substring(" (e 2) ", " (e 2) " + 1)")  
-                kotlin ( (e 1) ".substring(" (e 2) ", " (e 2) " + 1)")
+                kotlin ( (e 1) ".substring((" (e 2) ").toInt(), (" (e 2) ").toInt() + 1)")
                 ; Dart `s[i]` is a code unit (int), not a one-character string.
                 dart ( (e 1) ".substring(" (e 2) ", " (e 2) " + 1)")
                 scala ( (e 1) "(" (e 2) ")")    
@@ -7553,7 +7562,7 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
                 java7 ( "(int)" (e 1) ".charAt(" (e 2) ")")  
-                kotlin ( (e 1) "[" (e 2) "].code")    
+                kotlin ( (e 1) "[(" (e 2) ").toInt()].code.toLong()")    
                 dart ( (e 1) ".codeUnitAt(" (e 2) ")" )
                 scala ( (e 1) "(" (e 2) ")")    
                 ; A Ranger string index is the target's own unit, and on Go
@@ -7789,7 +7798,7 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 ; a byte is SIGNED on the JVM, so & 0xFF is what makes the
                 ; answer the 0..255 the operator is declared to return
                 java7 ( "((" (e 1) "[(int)" (e 2) "]) & 0xFF)")  
-                kotlin ( "(" (e 1) "[(" (e 2) ").toInt()].toInt() and 0xFF)")    
+                kotlin ( "(" (e 1) "[(" (e 2) ").toInt()].toLong() and 0xFFL)")    
                 scala ( "(" (e 1) "(" (e 2) ".toInt) & 0xFF)")    
                 go ( (e 1) "[" (e 2) "]")  
                 swift3 ( (e 1) "[" (e 2) "]")    
@@ -7973,6 +7982,7 @@ fn rg_substring(s: &str, from: i64, to: i64) -> String {
 }
 ")
                 )
+                kotlin ( (e 1) ".substring((" (e 2) ").toInt(), (" (e 3) ").toInt())" )
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
             }
         }
@@ -8027,7 +8037,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 ; offsetByCodePoints turns a code point index into the UTF-16
                 ; index String.substring wants
                 java7 ( (e 1) ".substring(" (e 1) ".offsetByCodePoints(0, " (e 2) "), " (e 1) ".offsetByCodePoints(0, " (e 3) "))" )
-                kotlin ( (e 1) ".substring(" (e 1) ".offsetByCodePoints(0, " (e 2) "), " (e 1) ".offsetByCodePoints(0, " (e 3) "))" )
+                kotlin ( (e 1) ".substring(" (e 1) ".offsetByCodePoints(0, (" (e 2) ").toInt()), " (e 1) ".offsetByCodePoints(0, (" (e 3) ").toInt()))" )
                 scala ( (e 1) ".substring(" (e 1) ".offsetByCodePoints(0, " (e 2) "), " (e 1) ".offsetByCodePoints(0, " (e 3) "))" )
                 ; a C# string is UTF-16, so a code point outside the basic
                 ; plane is two chars. Char.IsHighSurrogate finds the pairs and
@@ -8265,7 +8275,7 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
 ")
                 )
                 python ( "ord(" (e 1) "[0])" )
-                kotlin ( (e 1) "[0].code" )
+                kotlin ( (e 1) "[0].code.toLong()" )
                 csharp ( "(byte)(" (e 1) "[0])" )
                 scala ( (e 1) ".charAt(0).toInt" )
                 rust ( "(" (e 1) ".as_bytes()[0] as i64)" )
@@ -8275,6 +8285,8 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
 
         ccode       cmdCharCode:char ( text:string ) { 
             templates {
+                ; a Kotlin char is a Long, and `c == 94` is no Kotlin when c is one
+                kotlin ( (cc 1) "L" )
                 * ( (cc 1) )
             }
         }
@@ -8287,7 +8299,7 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
                 ; `byte`, and a byte in a char[] initialiser is a narrowing
                 ; conversion javac refuses
                 java7 ( "(new String( new char[] {(char)(" (e 1) ") }))") 
-                kotlin ( (e 1) ".toChar().toString()")
+                kotlin ( "(" (e 1) ").toInt().toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ) )))") 
                 ; A named helper, not an inline expression. UnicodeScalar has
                 ; no Int initialiser and its UInt8 one is not failable, so the
@@ -8346,7 +8358,7 @@ std::string r_str_from_code(int cp) {
                 ranger ( "(strfromcode " (e 1) ")")
                 csharp ( "((char)" (e 1) ").ToString()") 
                 java7 ( "(new String( Character.toChars(" (e 1) ")))") 
-                kotlin ( (e 1) ".toChar().toString()")
+                kotlin ( "(" (e 1) ").toInt().toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " )! )))") 
                 ; A named helper, not an inline expression. UnicodeScalar has
                 ; no Int initialiser and its UInt8 one is not failable, so the
@@ -8457,7 +8469,8 @@ std::string r_str_from_code(int cp) {
                 csharp ( (e 1) ".ToString()" )
                 python ( "str(" (e 1) ")" )
                 rust ( (e 1) ".to_string()" )
-                * ( "(" (e 1) ".toString())")
+                ; the value in parentheses: `10.toString()` does not parse
+                * ( "((" (e 1) ").toString())")
             }
         }          
 
@@ -8629,9 +8642,9 @@ func r_str_2_i64(s string) *GoNullable {
                 scala ( "Try(" (e 1) ".toInt).toOption" (imp "scala.util.Try"))
                 kotlin ( "rangerStr2IntPrefix(" (e 1) ")"
 (create_polyfill "
-fun rangerStr2IntPrefix(s: String): Int? {
+fun rangerStr2IntPrefix(s: String): Long? {
   val m = Regex(\"^-?\\\\d+\").find(s) ?: return null
-  return m.value.toIntOrNull()
+  return m.value.toLongOrNull()
 }
 ")
                 )
@@ -8639,17 +8652,18 @@ fun rangerStr2IntPrefix(s: String): Int? {
 (create_polyfill "
 func rangerStr2IntPrefix(_ s: String) -> Int? {
   var i = s.startIndex
-  if i < s.endIndex && s[i] == \"-\" {
+  if i < s.endIndex && (s[i] == \"-\" || s[i] == \"+\") {
     i = s.index(after: i)
   }
   var end = i
-  while end < s.endIndex && s[end].isNumber {
+  while end < s.endIndex && s[end].isASCII && s[end].isNumber {
     end = s.index(after: end)
   }
   if end == i {
     return nil
   }
-  return Int(s[i..<end])
+  // the sign is part of the number
+  return Int(s[s.startIndex..<end])
 }
 ")
                 )
@@ -8657,17 +8671,18 @@ func rangerStr2IntPrefix(_ s: String) -> Int? {
 (create_polyfill "
 func rangerStr2IntPrefix(_ s: String) -> Int? {
   var i = s.startIndex
-  if i < s.endIndex && s[i] == \"-\" {
+  if i < s.endIndex && (s[i] == \"-\" || s[i] == \"+\") {
     i = s.index(after: i)
   }
   var end = i
-  while end < s.endIndex && s[end].isNumber {
+  while end < s.endIndex && s[end].isASCII && s[end].isNumber {
     end = s.index(after: end)
   }
   if end == i {
     return nil
   }
-  return Int(s[i..<end])
+  // the sign is part of the number
+  return Int(s[s.startIndex..<end])
 }
 ")
                 )
@@ -8929,6 +8944,7 @@ std::string join(const T& v, const std::string& delim) {
                 ranger ( "(get " (e 1) " " (e 2) ")")
                 llvm ( "(get " (e 1) " " (e 2) ")")
                 python ( "(" (e 1) "[" (e 2) "] if (0 <= (" (e 2) ") < len(" (e 1) ")) else None)" )
+                kotlin ( (e 1) "[(" (e 2) ").toInt()]" )
                 * ( (e 1) "[" (e 2) "]" )
             } 
         }
@@ -8936,9 +8952,6 @@ std::string join(const T& v, const std::string& delim) {
 
         get             cmdGet@(optional weak):int          ( map:[K:int] key:K ) { 
             templates {
-                ; `??` is a macro on C++: it writes this call back as Ranger and
-                ; re-parses it, and without a form here the arguments ran together
-                ranger ( "(get " (e 1) " " (e 2) ")")
                 cpp( "cpp_get_map_int_value(" (e 1) ", " (e 2) ")"
 (imp "<optional>") 
 (macro
@@ -8966,9 +8979,6 @@ std::optional<int> cpp_get_map_int_value( const M & m , const K & key) {
 
         get             cmdGet@(optional weak):double          ( map:[K:double] key:K ) {
             templates {
-                ; `??` is a macro on C++: it writes this call back as Ranger and
-                ; re-parses it, and without a form here the arguments ran together
-                ranger ( "(get " (e 1) " " (e 2) ")")
                 cpp( "cpp_get_map_string_double_value(" (e 1) ", " (e 2) ")"
 (imp "<optional>")
 (macro
@@ -9021,9 +9031,6 @@ i "}" nl ))
         ; generic overload below.
         get             cmdGet@(optional weak):boolean          ( map:[K:boolean] key:K ) {
             templates {
-                ; `??` is a macro on C++: it writes this call back as Ranger and
-                ; re-parses it, and without a form here the arguments ran together
-                ranger ( "(get " (e 1) " " (e 2) ")")
                 rust ( (e 1) ".get(" (kref 2) ").cloned()" )
                 csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? (bool?)" (e 1) "[" (e 2) "] : null)" )
                 ; An optional boolean is a bare bool on C++, so a miss reads
@@ -9105,7 +9112,7 @@ i "}" nl ))
                 java7 ( (e 1) ".set(" (e 2) ", " (e 3) ");" )
                 rust ( (e 1) "[" (idx 2) "] = " (mvarg 3) ";" )
                 scala ( (e 1) "(" (e 2) ") =  " (e 3)  )
-                kotlin ( (e 1) ".set(" (e 2) ", " (e 3) ")" )
+                kotlin ( (e 1) ".set((" (e 2) ").toInt(), " (e 3) ")" )
                 php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                 cpp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                 ; * ( (e 1) "[" (e 2) "] = " (e 3) )
@@ -9135,6 +9142,7 @@ i "}" nl ))
                  ; lift return optional type => safer                             
                  scala ( (e 1) ".lift(" (e 2) ")" )  
                  swift3 ( (e 1) "[" (e 2) "]" )    
+                 kotlin ( (e 1) "[(" (e 2) ").toInt()]" )
                  * (  (e 1) "[" (e 2) "]" )                                              
             }
         }
@@ -9148,6 +9156,7 @@ i "}" nl ))
                  ; lift return optional type => safer                             
                  scala ( (e 1) "(" (e 2) ")" )
                  rust ( (e 1) "[" (idx 2) "]" (cloneif 1) )
+                 kotlin ( (e 1) "[(" (e 2) ").toInt()]" )
                  * ( (e 1) "[" (e 2) "]" )                                              
             }
         }
@@ -9161,7 +9170,7 @@ i "}" nl ))
                 es6 ( (e 1) ".indexOf(" (e 2 ) ")" )
                 llvm ( "(indexOf " (e 1) " " (e 2) ")" )
                 java7 ( (e 1) ".indexOf(" (e 2 ) ")" )
-                kotlin ( (e 1) ".indexOf(" (e 2) ")" )
+                kotlin ( (e 1) ".indexOf(" (e 2) ").toLong()" )
                 dart ( (e 1) ".indexOf(" (e 2) ")" )
                 python ( (e 1) ".find(" (e 2) ")" )
                 swift3 ( (e 1) ".range(of:" (e 2) ")?.lowerBound.encodedOffset ?? -1" )
@@ -9391,7 +9400,7 @@ int r_string_index_of_from( const std::string& str, const std::string& key, int 
 " )                   
                 )
                 rust ( "rg_index_of_from(&" (e 1) ", " (kref 2) ", " (e 3) ")" )
-                kotlin ( (e 1) ".indexOf(" (e 2 ) ", " (e 3) ")" )
+                kotlin ( (e 1) ".indexOf(" (e 2 ) ", (" (e 3) ").toInt()).toLong()" )
                 dart ( (e 1) ".indexOf(" (e 2) ", " (e 3) ")" )
                 ranger ( "(indexOfFrom " (e 1) " " (e 2) " " (e 3) ")")
             }        
@@ -9513,7 +9522,7 @@ int r_string_last_index_of( const std::string& str, const std::string& key )  {
 " )                   
                 )
                 rust ( "rg_last_index_of(&" (e 1) ", " (kref 2) ")" )
-                kotlin ( (e 1) ".lastIndexOf(" (e 2) ")" )
+                kotlin ( (e 1) ".lastIndexOf(" (e 2) ").toLong()" )
                 dart ( (e 1) ".lastIndexOf(" (e 2) ")" )
                 ranger ( "(lastIndexOf " (e 1) " " (e 2) ")")
             }        
@@ -9698,6 +9707,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
 "}" nl ) )                
                  )
                  python ( (e 1) ".index(" (e 2) ") if " (e 2) " in " (e 1) " else -1" )
+                 kotlin ( (e 1) ".indexOf(" (e 2) ").toLong()" )
                  * ( (e 1) ".indexOf(" (e 2) ")" )                                              
             }
         }
@@ -9710,7 +9720,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  swift3 ( (e 1) ".remove(at:" (e 2)")")
                  swift6 ( (e 1) ".remove(at:" (e 2)")")
                  php ( "array_splice(" (e 1) ", " (e 2 )", 1);")
-                 kotlin ( (e 1) ".removeAt(" (e 2) ")" ) 
+                 kotlin ( (e 1) ".removeAt((" (e 2) ").toInt())" ) 
                  java7 ( (e 1) ".remove((int)(" (e 2) "));" )
                  scala ( (e 1) ".remove((" (e 2) ").toInt)" )
                  go ( (e 1) " = append(" (e 1) "[:" (e 2) "], " (e 1) "[" (e 2) "+1:]...)" )
@@ -9735,7 +9745,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  es6 ( (e 1) ".splice(" (e 2) ", 0, " (e 3) ");" )  
                  cpp ( (e 1) ".insert(" (e 1) ".begin() + " (e 2) ", " (e 3) ");")          
                  swift6 ( (e 1) ".insert(" (e 3) ", at:" (e 2) ")")
-                 kotlin ( (e 1) ".add(" (e 2) ", " (e 3) ")" )
+                 kotlin ( (e 1) ".add((" (e 2) ").toInt(), " (e 3) ")" )
                  dart ( (e 1) ".insert(" (e 2) ", " (e 3) ");" )
                  go( (e 1 ) " = append(" (e 1) "[:" (e 2) "], append(" (typeof 1) "{" (e 3) "}, " (e 1) "[" (e 2) ":]...)...)")   
                  php ( "array_splice(" (e 1) ", " (e 2) ", 0, " (e 3) ");")
@@ -9755,7 +9765,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  es6 ( (e 1) ".splice(" (e 2) ", 1);" )
                  swift6 ( (e 1) ".remove(at:" (e 2) ")" )
                  swift3 ( (e 1) ".remove(at:" (e 2) ")" )
-                 kotlin ( (e 1) ".removeAt(" (e 2) ")" )
+                 kotlin ( (e 1) ".removeAt((" (e 2) ").toInt())" )
                  dart ( (e 1) ".removeAt(" (e 2) ");" )
                  python ( "del " (e 1) "[" (e 2) "]" )
                  php ( "array_splice(" (e 1) ", " (e 2) ", 1);" )
@@ -9778,14 +9788,15 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
             templates {
                  ranger ( nl "set_at " (e 1) " " (e 2) " " (e 3) nl)
                  es6 ( (e 1) "[" (e 2) "] = " (e 3) ";" )
-                 go ( (e 1) "[" (e 2) "] = " (e 3) )
+                 ; a union element is wrapped (mk_<union>_<case>): CustomOperator
+                 go ( (custom _) )
                  cpp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                  swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
                  swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
                  php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                  python ( (e 1) "[" (e 2) "] = " (e 3) )
                  java7 ( (e 1) ".set(" (e 2) ", " (e 3) ");" )
-                 kotlin ( (e 1) "[" (e 2) "] = " (e 3) )
+                 kotlin ( (e 1) "[(" (e 2) ").toInt()] = " (e 3) )
                  dart ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                  csharp ( (e 1) "[" (e 2) "] = " (e 3) ";" )
                  scala ( (e 1) "(" (e 2) ") = " (e 3) )
@@ -9896,7 +9907,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  python ( "len(" (e 1) ")")
                  java7 ( (e 1) ".size()" )                                                              
                  scala ( (e 1) ".length" )
-                 kotlin ( (e 1) ".size" )                                                              
+                 kotlin ( (e 1) ".size.toLong()" )                                                              
                  * ( (e 1) ".length" )                                              
             }
         }
@@ -9916,6 +9927,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 rust ( "(" (e 1 ) ".chars().count() as i64)" )
                 go( "int64(len([]rune(" (e 1) ")))")
                 php ( "strlen(" (e 1) ")")               
+                kotlin ( (e 1) ".length.toLong()" )
                 * ( (e 1) ".length")
             }
         }
@@ -10019,7 +10031,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 cpp ( "[&]() { auto __v = " (e 1) "; auto __cb = " (e 2) "; std::stable_sort(__v.begin(), __v.end(), [&](const auto& __a, const auto& __b) { return __cb(__a, __b) < 0; }); return __v; }()" (imp "<algorithm>") )
                 ; .toMutableList(): sortedWith answers a read only List, and every
                 ; array in the writer is a MutableList
-                kotlin ( (e 1) ".sortedWith(Comparator { __a, __b -> (" (e 2) ")(__a, __b).toInt() }).toMutableList()" )
+                kotlin ( (e 1) ".sortedWith(Comparator { __a, __b -> (" (e 2) ")(__a, __b).compareTo(0L) }).toMutableList()" )
                 ; Java 7 has no lambdas and no statement expressions, so the
                 ; callback arrives as a LambdaSignature object and the sort
                 ; itself is a helper. Collections.sort is in place, and `sort`
@@ -10181,7 +10193,7 @@ static <T> ArrayList<T> r_reverse_copy(ArrayList<T> v) {
                  scala ( (e 1) ".length" )
                  rust ( (e 1 ) ".len() as i64" )
                  go ( "int64(len(" (e 1 ) "))" )
-                 kotlin ( (e 1) ".size" )       
+                 kotlin ( (e 1) ".size.toLong()" )       
                  csharp ( (e 1) ".Count")
                  python ( "len(" (e 1) ")" )                                                       
                  * ( (e 1) ".length" )                                              
@@ -10215,7 +10227,7 @@ auto r_m_arr_extract( T & a, int i )  {
 }" )                  
                  
                  )                 
-                 kotlin ( (e 1) ".removeAt(" (e 2) ")" ) 
+                 kotlin ( (e 1) ".removeAt((" (e 2) ").toInt())" ) 
                  java7 ( "_arr_extract(" (e 1) ", " (e 2) ")" 
 (create_polyfill
 "
@@ -11112,7 +11124,7 @@ fun r_read_key(): String {
                  llvm ( nl "exit " (e 1) nl)
                  ranger ( nl "set_exit_code " (e 1) nl)
                  cpp ( nl "exit(" (e 1) ");" nl (imp "<cstdlib>"))
-                 kotlin ( nl "System.exit(" (e 1) ")" nl )
+                 kotlin ( nl "System.exit((" (e 1) ").toInt())" nl )
                  scala ( nl "System.exit(" (e 1) ")" nl )
                  ; Narrowed for the same reason as in `exit` below.
                  go ( nl "os.Exit(int(" (e 1) "))" nl (imp "os"))
@@ -11133,7 +11145,7 @@ fun r_read_key(): String {
                  llvm ( nl "exit " (e 1) nl)
                  ranger ( nl "exit " (e 1) nl)
                  cpp ( nl "exit(" (e 1) ");" nl (imp "<cstdlib>"))
-                 kotlin ( nl "System.exit(" (e 1) ")" nl )
+                 kotlin ( nl "System.exit((" (e 1) ").toInt())" nl )
                  scala ( nl "System.exit(" (e 1) ")" nl )
                  ; The int these targets spell an exit code with is not the
                  ; one Ranger's `int` maps to -- go wants a plain `int` where

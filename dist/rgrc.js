@@ -1135,13 +1135,16 @@ class RangerApiBuilder  {
     }
     const root = ctx.getRoot();
     // Loop start
-    for ( let pi = 0; pi < root.tables.definedClassList.length; pi++) {
-      var cname = root.tables.definedClassList[pi];
-      const pcl = ( Object.prototype.hasOwnProperty.call(root.tables.definedClasses, cname) ? root.tables.definedClasses[cname] : undefined );
+    for ( let pi = 0; pi < root.definedClassList.length; pi++) {
+      var cname = root.definedClassList[pi];
+      const pcl = ( Object.prototype.hasOwnProperty.call(root.definedClasses, cname) ? root.definedClasses[cname] : undefined );
       if ( pcl.isNormalClass() == false ) {
         continue;
       }
       if ( pcl.is_template ) {
+        continue;
+      }
+      if ( pcl.generic_template.length > 0 ) {
         continue;
       }
       const pnode = pcl.classNode;
@@ -1160,9 +1163,9 @@ class RangerApiBuilder  {
       }
     }
     // Loop start
-    for ( let ci = 0; ci < root.tables.definedClassList.length; ci++) {
-      var cname_1 = root.tables.definedClassList[ci];
-      const cl = ( Object.prototype.hasOwnProperty.call(root.tables.definedClasses, cname_1) ? root.tables.definedClasses[cname_1] : undefined );
+    for ( let ci = 0; ci < root.definedClassList.length; ci++) {
+      var cname_1 = root.definedClassList[ci];
+      const cl = ( Object.prototype.hasOwnProperty.call(root.definedClasses, cname_1) ? root.definedClasses[cname_1] : undefined );
       if ( cl.is_system ) {
         continue;
       }
@@ -3250,9 +3253,9 @@ class RangerDocCommentWriter  {
 RangerDocCommentWriter.lookupFn = function(ctx, name) {
   const root = ctx.getRoot();
   // Loop start
-  for ( let ci = 0; ci < root.tables.definedClassList.length; ci++) {
-    var cname = root.tables.definedClassList[ci];
-    const cl = ( Object.prototype.hasOwnProperty.call(root.tables.definedClasses, cname) ? root.tables.definedClasses[cname] : undefined );
+  for ( let ci = 0; ci < root.definedClassList.length; ci++) {
+    var cname = root.definedClassList[ci];
+    const cl = ( Object.prototype.hasOwnProperty.call(root.definedClasses, cname) ? root.definedClasses[cname] : undefined );
     const m = cl.findStaticMethod(name);
     if ( (typeof(m) === "undefined") == false ) {
       return m;
@@ -3804,7 +3807,7 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
       }
     }));
     const root = ctx.getRoot();
-    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       if ( item.extends_classes.indexOf(cc.name) >= 0 ) {
         if ( item.hasMethod(f.name) ) {
           const m_1 = item.findMethod(f.name);
@@ -4090,7 +4093,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
   methodParamSignature (fnDesc) {
     let sig = "";
     const pc = fnDesc.params.length;
-    sig = (pc.toString());
+    sig = ((pc).toString());
     // Loop start
     for ( const p of fnDesc.params) {
       const pn = p.nameNode;
@@ -4507,7 +4510,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
       const new_v2 = defVs;
       const variantIdx = new_v2.variants.length;
       if ( variantIdx > 0 ) {
-        desc.compiledName = (desc.name + "_") + (variantIdx.toString());
+        desc.compiledName = (desc.name + "_") + ((variantIdx).toString());
       }
       new_v2.variants.push(desc);
     }
@@ -5270,7 +5273,7 @@ class CodeNode  {
     if ( sci ) {
       const n = Math.floor( v);
       if ( n == v ) {
-        return (n.toString()) + ".0";
+        return ((n).toString()) + ".0";
       }
       return s;
     }
@@ -6591,86 +6594,96 @@ class RangerRegisteredPlugin  {
     this.features = [];
   }
 }
-class RangerRootTables  {
-  constructor() {
-    this.op_list = {};
-    this.active_macros = {};
-    this.already_imported = {};
-    this.typeClasses = {};
-    this.definedClasses = {};
-    this.definedClassList = [];
-    this.templateClassNodes = {};
-    this.templateClassList = [];
-    this.nativeGenerics = {};
-    this.genericFormUses = {};
-    this.classStaticWriters = {};
-    this.compilerFlags = {};
-    this.compilerMessages = [];
-    this.todoList = [];
-    this.pluginSpecificOperators = {};
-    this.appPages = {};
-    this.appServices = {};
-    this.libraryPaths = [];
-    this.moduleFunctions = {};
-    this.fileModules = {};
-    this.typedNodes = {};
-    this.registered_plugins = [];
-  }
-}
 class RangerAppWriterContext  {
   constructor() {
     this.langOperators = undefined;
     this.stdCommands = undefined;
     this.operators = undefined;
+    this.op_list = {};
     this.automatically_unwrapped = {};
     this.known_present = {};
     this.flow_narrowed = {};
     this.auto_unwrap_suppression = 0;
     this.reservedWords = undefined;
+    this.intRootCounter = 1;     /* note: unused */
     this.targetLangName = "";
     this.parent = undefined;
     this.cachedRoot = undefined;
-    this.tables = undefined;
+    this.defined_imports = [];     /* note: unused */
+    this.active_macros = {};
     this.macro_expansion_depth = 0;
+    this.already_imported = {};
     this.fileSystem = undefined;
     this.is_function = false;
     this.class_level_context = false;
     this.function_level_context = false;
     this.in_main = false;
+    this.is_block = false;     /* note: unused */
     this.is_lambda = false;
     this.is_capturing = false;
     this.is_catch_block = false;
     this.is_try_block = false;
     this.captured_variables = [];
+    this.has_block_exited = false;     /* note: unused */
+    this.in_expression = false;     /* note: unused */
     this.expr_stack = [];
     this.expr_restart = false;
     this.expr_restart_block = false;
     this.in_lhs_of_assignment = false;
     this.in_method = false;
     this.method_stack = [];
+    this.typeNames = [];     /* note: unused */
+    this.typeClasses = {};
+    this.currentClassName = undefined;     /* note: unused */
     this.in_class = false;
     this.in_static_method = false;
     this.currentClass = undefined;
     this.currentMethod = undefined;
     this.thisName = "this";
     this.definedEnums = {};
+    this.definedInterfaces = {};     /* note: unused */
+    this.definedInterfaceList = [];     /* note: unused */
+    this.definedClasses = {};
+    this.definedClassList = [];
+    this.definedTasks = {};     /* note: unused */
+    this.templateClassNodes = {};
+    this.templateClassList = [];
     this.classSignatures = {};
     this.classToSignature = {};
+    this.templateClasses = {};     /* note: unused */
+    this.nativeGenerics = {};
+    this.genericFormUses = {};
+    this.classStaticWriters = {};
     this.localVariables = {};
     this.localVarNames = [];
     this.contextFlags = {};
     this.settings = {};
+    this.compilerFlags = {};
     this.compilerSettings = {};
     this.parserErrors = [];
     this.compilerErrors = [];
+    this.compilerMessages = [];
+    this.compilerLog = {};     /* note: unused */
+    this.todoList = [];
+    this.definedMacro = {};     /* note: unused */
     this.defCounts = {};
     this.refTransform = {};
     this.staticClassBodies = [];
+    this.pluginSpecificOperators = {};
     this.viewClassBody = {};
+    this.appPages = {};
+    this.appServices = {};
     this.opNs = [];
+    this.langFilePath = "";     /* note: unused */
+    this.libraryPaths = [];
+    this.moduleFunctions = {};
+    this.fileModules = {};
+    this.outputPath = "";     /* note: unused */
     this.counters = new TypeCounts();
     this.parser = undefined;
     this.compiler = undefined;
+    this.typedNodes = {};
+    this.registered_plugins = [];
     this.operatorFunction = undefined;
     this.lastBlockOp = undefined;
     this.opFnsList = {};
@@ -6807,8 +6820,9 @@ class RangerAppWriterContext  {
     return false;
   };
   rustGetTempVar () {
-    this.rust_temp_counter = this.rust_temp_counter + 1;
-    return "_tmp_" + this.rust_temp_counter;
+    const root = this.getRoot();
+    root.rust_temp_counter = root.rust_temp_counter + 1;
+    return "_tmp_" + root.rust_temp_counter;
   };
   getEnv () {
     const root = this.getRoot();
@@ -6881,7 +6895,7 @@ class RangerAppWriterContext  {
   };
   removePluginOp (name) {
     const root = this.getRoot();
-    root.tables.pluginSpecificOperators[name] = false;
+    root.pluginSpecificOperators[name] = false;
   };
   isPluginOp (node) {
     if ( node.children.length > 0 ) {
@@ -6889,8 +6903,8 @@ class RangerAppWriterContext  {
       if ( fc.ns.length > 0 ) {
         const firstNS = fc.ns[0];
         const root = this.getRoot();
-        if ( ( typeof(root.tables.pluginSpecificOperators[firstNS] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.pluginSpecificOperators, firstNS) ) ) {
-          return ( Object.prototype.hasOwnProperty.call(root.tables.pluginSpecificOperators, firstNS) ? root.tables.pluginSpecificOperators[firstNS] : undefined );
+        if ( ( typeof(root.pluginSpecificOperators[firstNS] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.pluginSpecificOperators, firstNS) ) ) {
+          return ( Object.prototype.hasOwnProperty.call(root.pluginSpecificOperators, firstNS) ? root.pluginSpecificOperators[firstNS] : undefined );
         }
       }
     }
@@ -6898,12 +6912,12 @@ class RangerAppWriterContext  {
   };
   addPlugin (p) {
     const root = this.getRoot();
-    root.tables.registered_plugins.push(p);
+    root.registered_plugins.push(p);
   };
   findPluginsFor (featureName) {
     let res = [];
     // Loop start
-    for ( const p of this.tables.registered_plugins) {
+    for ( const p of this.registered_plugins) {
       if ( p.features.indexOf(featureName) >= 0 ) {
         res.push(p.name);
       }
@@ -6912,16 +6926,16 @@ class RangerAppWriterContext  {
   };
   addTypeClass (name) {
     const root = this.getRoot();
-    if ( false == ( typeof(root.tables.typeClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.typeClasses, name) ) ) {
+    if ( false == ( typeof(root.typeClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.typeClasses, name) ) ) {
       const newClass = new RangerTypeClass();
-      root.tables.typeClasses[name] = newClass;
+      root.typeClasses[name] = newClass;
       return newClass;
     }
-    return ( Object.prototype.hasOwnProperty.call(root.tables.typeClasses, name) ? root.tables.typeClasses[name] : undefined );
+    return ( Object.prototype.hasOwnProperty.call(root.typeClasses, name) ? root.typeClasses[name] : undefined );
   };
   getTypeClass (name) {
     const root = this.getRoot();
-    return ( Object.prototype.hasOwnProperty.call(root.tables.typeClasses, name) ? root.tables.typeClasses[name] : undefined );
+    return ( Object.prototype.hasOwnProperty.call(root.typeClasses, name) ? root.typeClasses[name] : undefined );
   };
   getParser () {
     if ( typeof(this.parser) === "undefined" ) {
@@ -6942,7 +6956,7 @@ class RangerAppWriterContext  {
   getTypedNodes (name) {
     const root = this.getRoot();
     let res = [];
-    const list = ( Object.prototype.hasOwnProperty.call(root.tables.typedNodes, name) ? root.tables.typedNodes[name] : undefined );
+    const list = ( Object.prototype.hasOwnProperty.call(root.typedNodes, name) ? root.typedNodes[name] : undefined );
     if ( (typeof(list) !== "undefined" && list != null )  ) {
       operatorsOf.forEach_7(list.items, ((item, index) => { 
         const tmp = item;
@@ -6953,32 +6967,32 @@ class RangerAppWriterContext  {
   };
   addTypedNode (name, op) {
     const root = this.getRoot();
-    if ( ( typeof(root.tables.typedNodes[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.typedNodes, name) ) ) {
-      const orig_list = ( Object.prototype.hasOwnProperty.call(root.tables.typedNodes, name) ? root.tables.typedNodes[name] : undefined );
+    if ( ( typeof(root.typedNodes[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.typedNodes, name) ) ) {
+      const orig_list = ( Object.prototype.hasOwnProperty.call(root.typedNodes, name) ? root.typedNodes[name] : undefined );
       orig_list.items.push(op);
     } else {
       const new_list = new RangerNodeList();
       new_list.items.push(op);
-      root.tables.typedNodes[name] = new_list;
+      root.typedNodes[name] = new_list;
     }
   };
   addOperator (op) {
     const root = this.getRoot();
     if ( op.name.length > 0 ) {
-      if ( ( typeof(root.tables.op_list[op.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.op_list, op.name) ) ) {
-        const orig_list = ( Object.prototype.hasOwnProperty.call(root.tables.op_list, op.name) ? root.tables.op_list[op.name] : undefined );
+      if ( ( typeof(root.op_list[op.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.op_list, op.name) ) ) {
+        const orig_list = ( Object.prototype.hasOwnProperty.call(root.op_list, op.name) ? root.op_list[op.name] : undefined );
         orig_list.items.push(op);
       } else {
         const new_list = new RangerOperatorList();
         new_list.items.push(op);
-        root.tables.op_list[op.name] = new_list;
+        root.op_list[op.name] = new_list;
       }
     }
   };
   getAllOperators () {
     const root = this.getRoot();
     let res = [];
-    operatorsOf_5.forEach_8(root.tables.op_list, ((item, index) => { 
+    operatorsOf_5.forEach_8(root.op_list, ((item, index) => { 
       operatorsOf.forEach_9(item.items, ((item, index) => { 
         const tmp = item;
         res.push(tmp);
@@ -6989,7 +7003,7 @@ class RangerAppWriterContext  {
   getOperatorsOf (name) {
     const root = this.getRoot();
     let res = [];
-    const list = ( Object.prototype.hasOwnProperty.call(root.tables.op_list, name) ? root.tables.op_list[name] : undefined );
+    const list = ( Object.prototype.hasOwnProperty.call(root.op_list, name) ? root.op_list[name] : undefined );
     if ( (typeof(list) !== "undefined" && list != null )  ) {
       return operatorsOf.clone_10(list.items);
     }
@@ -7114,11 +7128,11 @@ class RangerAppWriterContext  {
   };
   addPage (name, classDef) {
     const root = this.getRoot();
-    root.tables.appPages[name] = classDef;
+    root.appPages[name] = classDef;
   };
   addService (name, classDef) {
     const root = this.getRoot();
-    root.tables.appServices[name] = classDef;
+    root.appServices[name] = classDef;
   };
   getViewClass (s_name) {
     let res;
@@ -7966,12 +7980,12 @@ class RangerAppWriterContext  {
   };
   setNativeGeneric (templateName, isNative) {
     const root = this.getRoot();
-    root.tables.nativeGenerics[templateName] = isNative;
+    root.nativeGenerics[templateName] = isNative;
   };
   isNativeGeneric (templateName) {
     const root = this.getRoot();
-    if ( ( typeof(root.tables.nativeGenerics[templateName] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.nativeGenerics, templateName) ) ) {
-      const v = ( Object.prototype.hasOwnProperty.call(root.tables.nativeGenerics, templateName) ? root.tables.nativeGenerics[templateName] : undefined );
+    if ( ( typeof(root.nativeGenerics[templateName] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.nativeGenerics, templateName) ) ) {
+      const v = ( Object.prototype.hasOwnProperty.call(root.nativeGenerics, templateName) ? root.nativeGenerics[templateName] : undefined );
       return v;
     }
     return false;
@@ -8042,7 +8056,7 @@ class RangerAppWriterContext  {
     e.description = descr;
     e.todonode = node;
     const root = this.getRoot();
-    root.tables.todoList.push(e);
+    root.todoList.push(e);
   };
   setThisName (the_name) {
     const root = this.getRoot();
@@ -8061,7 +8075,7 @@ class RangerAppWriterContext  {
     e.description = descr;
     e.node = node;
     const root = this.getRoot();
-    root.tables.compilerMessages.push(e);
+    root.compilerMessages.push(e);
   };
   errCnt () {
     const root = this.getRoot();
@@ -8091,24 +8105,24 @@ class RangerAppWriterContext  {
   };
   addTemplateClass (name, node) {
     const root = this.getRoot();
-    root.tables.templateClassList.push(name);
-    root.tables.templateClassNodes[name] = node;
+    root.templateClassList.push(name);
+    root.templateClassNodes[name] = node;
   };
   hasTemplateNode (name) {
     const root = this.getRoot();
-    return ( typeof(root.tables.templateClassNodes[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.templateClassNodes, name) );
+    return ( typeof(root.templateClassNodes[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.templateClassNodes, name) );
   };
   findTemplateNode (name) {
     const root = this.getRoot();
-    return ( Object.prototype.hasOwnProperty.call(root.tables.templateClassNodes, name) ? root.tables.templateClassNodes[name] : undefined );
+    return ( Object.prototype.hasOwnProperty.call(root.templateClassNodes, name) ? root.templateClassNodes[name] : undefined );
   };
   setStaticWriter (className, writer) {
     const root = this.getRoot();
-    root.tables.classStaticWriters[className] = writer;
+    root.classStaticWriters[className] = writer;
   };
   getStaticWriter (className) {
     const root = this.getRoot();
-    return ( Object.prototype.hasOwnProperty.call(root.tables.classStaticWriters, className) ? root.tables.classStaticWriters[className] : undefined );
+    return ( Object.prototype.hasOwnProperty.call(root.classStaticWriters, className) ? root.classStaticWriters[className] : undefined );
   };
   isEnumDefined (n) {
     if ( ( typeof(this.definedEnums[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.definedEnums, n) ) ) {
@@ -8176,12 +8190,12 @@ class RangerAppWriterContext  {
   };
   setCompilerFlag (name, value) {
     const root = this.getRoot();
-    root.tables.compilerFlags[name] = value;
+    root.compilerFlags[name] = value;
   };
   hasCompilerFlag (s_name) {
     const root = this.getRoot();
-    if ( ( typeof(root.tables.compilerFlags[s_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.compilerFlags, s_name) ) ) {
-      return ( Object.prototype.hasOwnProperty.call(root.tables.compilerFlags, s_name) ? root.tables.compilerFlags[s_name] : undefined );
+    if ( ( typeof(root.compilerFlags[s_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.compilerFlags, s_name) ) ) {
+      return ( Object.prototype.hasOwnProperty.call(root.compilerFlags, s_name) ? root.compilerFlags[s_name] : undefined );
     }
     return false;
   };
@@ -8395,7 +8409,7 @@ class RangerAppWriterContext  {
   };
   isDefinedClass (name) {
     const root = this.getRoot();
-    return ( typeof(root.tables.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.definedClasses, name) );
+    return ( typeof(root.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.definedClasses, name) );
   };
   getRoot () {
     if ( typeof(this.parent) === "undefined" ) {
@@ -8409,27 +8423,26 @@ class RangerAppWriterContext  {
   getClasses () {
     let list = [];
     // Loop start
-    for ( let i = 0; i < this.tables.definedClassList.length; i++) {
-      var n = this.tables.definedClassList[i];
-      list.push(( Object.prototype.hasOwnProperty.call(this.tables.definedClasses, n) ? this.tables.definedClasses[n] : undefined ));
+    for ( const n of this.definedClassList) {
+      list.push(( Object.prototype.hasOwnProperty.call(this.definedClasses, n) ? this.definedClasses[n] : undefined ));
     }
     return list;
   };
   addClass (name, desc) {
     const root = this.getRoot();
-    if ( ( typeof(root.tables.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.definedClasses, name) ) ) {
+    if ( ( typeof(root.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.definedClasses, name) ) ) {
     } else {
-      root.tables.definedClasses[name] = desc;
-      root.tables.definedClassList.push(name);
+      root.definedClasses[name] = desc;
+      root.definedClassList.push(name);
     }
   };
   findClass (name) {
     const root = this.getRoot();
-    return ( Object.prototype.hasOwnProperty.call(root.tables.definedClasses, name) ? root.tables.definedClasses[name] : undefined );
+    return ( Object.prototype.hasOwnProperty.call(root.definedClasses, name) ? root.definedClasses[name] : undefined );
   };
   hasClass (name) {
     const root = this.getRoot();
-    return ( typeof(root.tables.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.definedClasses, name) );
+    return ( typeof(root.definedClasses[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.definedClasses, name) );
   };
   getCurrentMethod () {
     if ( (typeof(this.currentMethod) !== "undefined" && this.currentMethod != null )  ) {
@@ -8582,7 +8595,6 @@ class RangerAppWriterContext  {
     const new_ctx = new RangerAppWriterContext();
     new_ctx.parent = this;
     new_ctx.cachedRoot = this.getRoot();
-    new_ctx.tables = this.tables;
     return new_ctx;
   };
   getRootFile () {
@@ -8601,11 +8613,6 @@ class RangerAppWriterContext  {
     root.rootFile = file_name;
   };
 }
-RangerAppWriterContext.createRoot = function() {
-  const ctx = new RangerAppWriterContext();
-  ctx.tables = new RangerRootTables();
-  return ctx;
-};
 class SourceMapEntry  {
   constructor() {
     this.genLine = 0;
@@ -11408,7 +11415,7 @@ class RangerLispParser  {
                   const blk65 = current_3;
                   const recv65 = blk65.children.splice(blk65.children.length - 1, 1).pop();
                   this.recv_tmp_count = this.recv_tmp_count + 1;
-                  const tmp65 = "__rgr_recv_" + (this.recv_tmp_count.toString());
+                  const tmp65 = "__rgr_recv_" + ((this.recv_tmp_count).toString());
                   const defNode65 = new CodeNode(this.code, fp_sp, fp_ep);
                   defNode65.expression = true;
                   defNode65.parent = blk65;
@@ -11735,7 +11742,7 @@ class RangerLispParser  {
                   }
                   if ( stmtIdx76 >= 0 ) {
                     this.recv_tmp_count = this.recv_tmp_count + 1;
-                    const tmp76 = "__rgr_recv_" + (this.recv_tmp_count.toString());
+                    const tmp76 = "__rgr_recv_" + ((this.recv_tmp_count).toString());
                     const defNode76 = new CodeNode(this.code, sp, ep);
                     defNode76.expression = true;
                     defNode76.parent = blk76;
@@ -14046,9 +14053,9 @@ RangerProcessProcSend.isReservedHandler = function(name) {
 RangerProcessProcSend.collectProcessClasses = function(ctx) {
   let res = [];
   const root = ctx.getRoot();
-  for( var i in root.tables.definedClasses) {
-    if(root.tables.definedClasses.hasOwnProperty(i)) {
-      var cl = root.tables.definedClasses[i] 
+  for( var i in root.definedClasses) {
+    if(root.definedClasses.hasOwnProperty(i)) {
+      var cl = root.definedClasses[i] 
       if ( cl.is_process ) {
         res.push(cl);
       }
@@ -14345,7 +14352,7 @@ class RangerProcessCodegen  {
   };
   writeProcessInstanceRegisterCall (wr, lang) {
     if ( lang == "kotlin" ) {
-      wr.out("if (this is RangerProcessBase && (this as RangerProcessBase).__rangerId != 0) { __rgr_proc.__rangerRegisterChild(this as RangerProcessBase) } else { __rgr_proc.__rangerRegisterRoot() }", false);
+      wr.out("if (this is RangerProcessBase && (this as RangerProcessBase).__rangerId != 0L) { __rgr_proc.__rangerRegisterChild(this as RangerProcessBase) } else { __rgr_proc.__rangerRegisterRoot() }", false);
       return;
     }
     if ( lang == "swift6" || lang == "swift3" ) {
@@ -16180,7 +16187,7 @@ class RangerFlowParser  {
   CreateCTTI (node, ctx, orig_wr) {
     const root = ctx.getRoot();
     const wr = new CodeWriter();
-    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       if ( item.isNormalClass() ) {
         wr.raw(((("\n      operators {\n        class_name _:string ( " + item.name) + "@(keyword) ) {\n          templates {\n            * ( '\"") + item.name) + "\"' )\n          }\n        }\n      }    \n          ", true);
       }
@@ -16195,7 +16202,7 @@ class RangerFlowParser  {
     wr.out("fn rtti_get_classes:[string] () {", true);
     wr.indent(1);
     wr.out("return ([] ", false);
-    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       if ( item.isNormalClass() ) {
         wr.out(("'" + item.name) + "' ", false);
       }
@@ -16206,7 +16213,7 @@ class RangerFlowParser  {
     wr.out("fn rtti_get_fields:[RTTIClassField] (className:string) {", true);
     wr.indent(1);
     wr.out("def fields:[RTTIClassField]", true);
-    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       if ( item.isNormalClass() ) {
         wr.out(("if(className == '" + item.name) + "') {", true);
         wr.indent(1);
@@ -16415,7 +16422,7 @@ class RangerFlowParser  {
   };
   SolveAsyncFuncs (node, ctx, wr) {
     const root = ctx.getRoot();
-    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       operatorsOf.forEach_24(item.static_methods, ((item, index) => { 
         const thisFn = item;
         let visited = [];
@@ -16478,7 +16485,7 @@ class RangerFlowParser  {
       }));
     }));
     let notUsedFunctionCnt = 0;
-    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       operatorsOf_5.forEach_26(item.method_variants, ((item, index) => { 
         operatorsOf.forEach_24(item.variants, ((item, index) => { 
           if ( item.isCalledBy.length == 0 ) {
@@ -16501,7 +16508,7 @@ class RangerFlowParser  {
     let use_dce = false;
     if ( ctx.hasCompilerFlag("dead4main") ) {
       let mainFn;
-      operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
         const cl = item;
         // Loop start
         for ( let i = 0; i < cl.static_methods.length; i++) {
@@ -16523,7 +16530,7 @@ class RangerFlowParser  {
     if ( ctx.hasCompilerSetting("dceclass") ) {
       const dc = ctx.getCompilerSetting("dceclass");
       console.log("DCE : " + dc);
-      operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
         const cl_1 = item;
         if ( cl_1.name == dc ) {
           use_dce = true;
@@ -16542,7 +16549,7 @@ class RangerFlowParser  {
     }
     if ( use_dce ) {
       const verbose = ctx.hasCompilerFlag("verbose");
-      operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
         if ( item.is_used_by_main == false && verbose ) {
           console.log("class not used by main : " + item.name);
         }
@@ -16569,7 +16576,7 @@ class RangerFlowParser  {
       }));
     }
     if ( ctx.hasCompilerFlag("deadcode") ) {
-      operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
         operatorsOf_5.forEach_26(item.method_variants, ((item, index) => { 
           item.variants = operatorsOf.filter_27(item.variants, ((item, index) => { 
             return item.is_unsed == false;
@@ -18693,8 +18700,8 @@ class RangerFlowParser  {
     const lang = ctx.getTargetLangName();
     const root = ctx.getRoot();
     // Loop start
-    for ( let i = 0; i < root.tables.definedClassList.length; i++) {
-      var cn = root.tables.definedClassList[i];
+    for ( let i = 0; i < root.definedClassList.length; i++) {
+      var cn = root.definedClassList[i];
       const cl = root.findClass(cn);
       if ( cl.generic_template != templateName ) {
         continue;
@@ -18725,8 +18732,8 @@ class RangerFlowParser  {
       progress = false;
       let todo = [];
       // Loop start
-      for ( let i = 0; i < root.tables.definedClassList.length; i++) {
-        var cn = root.tables.definedClassList[i];
+      for ( let i = 0; i < root.definedClassList.length; i++) {
+        var cn = root.definedClassList[i];
         const cl = root.findClass(cn);
         const tn = cl.generic_template;
         if ( tn.length == 0 ) {
@@ -18758,8 +18765,8 @@ class RangerFlowParser  {
     while (changed) {
       changed = false;
       // Loop start
-      for ( let i_1 = 0; i_1 < root.tables.definedClassList.length; i_1++) {
-        var cn_1 = root.tables.definedClassList[i_1];
+      for ( let i_1 = 0; i_1 < root.definedClassList.length; i_1++) {
+        var cn_1 = root.definedClassList[i_1];
         const cl_1 = root.findClass(cn_1);
         if ( cl_1.generic_has_placeholder == false || cl_1.is_generic_form ) {
           continue;
@@ -18768,14 +18775,14 @@ class RangerFlowParser  {
           continue;
         }
         // Loop start
-        for ( let oi = 0; oi < root.tables.templateClassList.length; oi++) {
-          var owner = root.tables.templateClassList[oi];
+        for ( let oi = 0; oi < root.templateClassList.length; oi++) {
+          var owner = root.templateClassList[oi];
           if ( root.isNativeGeneric(owner) == false ) {
             continue;
           }
           const ownerForm = "__gf_" + owner;
-          if ( ( typeof(root.tables.genericFormUses[ownerForm] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.tables.genericFormUses, ownerForm) ) ) {
-            const uses = ( Object.prototype.hasOwnProperty.call(root.tables.genericFormUses, ownerForm) ? root.tables.genericFormUses[ownerForm] : undefined );
+          if ( ( typeof(root.genericFormUses[ownerForm] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.genericFormUses, ownerForm) ) ) {
+            const uses = ( Object.prototype.hasOwnProperty.call(root.genericFormUses, ownerForm) ? root.genericFormUses[ownerForm] : undefined );
             if ( uses.indexOf(cn_1) >= 0 ) {
               root.setNativeGeneric(owner, false);
               changed = true;
@@ -18815,7 +18822,7 @@ class RangerFlowParser  {
     }
     this.genericCheckNodes.push(typeArgs);
     const errBefore = root.compilerErrors.length;
-    const classesBefore = root.tables.definedClassList.length;
+    const classesBefore = root.definedClassList.length;
     const made = ctx.createGenericClassInstance(
       tpl,
       formName,
@@ -18842,13 +18849,13 @@ class RangerFlowParser  {
       ok = false;
     }
     let uses = [];
-    const classesAfter = root.tables.definedClassList.length;
+    const classesAfter = root.definedClassList.length;
     let k = classesBefore;
     while (k < classesAfter) {
-      uses.push(root.tables.definedClassList[k]);
+      uses.push(root.definedClassList[k]);
       k = k + 1;
     };
-    root.tables.genericFormUses["__gf_" + tpl] = uses;
+    root.genericFormUses["__gf_" + tpl] = uses;
     if ( ok == false ) {
       return false;
     }
@@ -20027,10 +20034,10 @@ class RangerFlowParser  {
           }
           if ( is_macro ) {
             const macroRoot = ctx.getRoot();
-            const macroKey = (((fc.vref + "@") + callArgs.getFilename()) + ":") + (callArgs.sp.toString());
+            const macroKey = (((fc.vref + "@") + callArgs.getFilename()) + ":") + ((callArgs.sp).toString());
             let macroActive = false;
-            if ( ( typeof(macroRoot.tables.active_macros[macroKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(macroRoot.tables.active_macros, macroKey) ) ) {
-              macroActive = ( Object.prototype.hasOwnProperty.call(macroRoot.tables.active_macros, macroKey) ? macroRoot.tables.active_macros[macroKey] : undefined );
+            if ( ( typeof(macroRoot.active_macros[macroKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(macroRoot.active_macros, macroKey) ) ) {
+              macroActive = ( Object.prototype.hasOwnProperty.call(macroRoot.active_macros, macroKey) ? macroRoot.active_macros[macroKey] : undefined );
             }
             if ( macroActive ) {
               ctx.addError(callArgs, ("Macro expansion of operator '" + fc.vref) + "' is recursive: expanding it reaches the same call site again, so it never terminates.");
@@ -20042,7 +20049,7 @@ class RangerFlowParser  {
               ctx.removeOpNs(added_ns);
               return true;
             }
-            macroRoot.tables.active_macros[macroKey] = true;
+            macroRoot.active_macros[macroKey] = true;
             macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth + 1;
             const macroNode = this.buildMacro(langOper, callArgs, ctx);
             let arg_len_1 = callArgs.children.length;
@@ -20054,7 +20061,7 @@ class RangerFlowParser  {
             macroNode.parent = callArgs;
             this.WalkNode(macroNode, ctx, wr);
             macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth - 1;
-            macroRoot.tables.active_macros[macroKey] = false;
+            macroRoot.active_macros[macroKey] = false;
             match.setRvBasedOn(nameNode, callArgs);
             ctx.removeOpNs(added_ns);
             return true;
@@ -21201,7 +21208,8 @@ class RangerFlowParser  {
       const clsName = (shapeName + "_") + cn_2;
       const recNode = shapeNode.newExpressionNode();
       recNode.children.push(shapeNode.newVRefNode("record"));
-      recNode.children.push(shapeNode.newVRefNode(clsName));
+      const recNameNode = shapeNode.newVRefNode(clsName);
+      recNode.children.push(recNameNode);
       const blk = shapeNode.newExpressionNode();
       blk.is_block_node = true;
       if ( ownGroup_1.length > 0 ) {
@@ -21251,6 +21259,9 @@ class RangerFlowParser  {
         isValue = false;
       }
       this.caseIsValue[clsName] = isValue;
+      if ( semanticsGiven && isValue == false ) {
+        recNameNode.setFlag("reference");
+      }
       this.caseFieldNames[clsName] = scalarFields;
       this.caseFieldNames[clsName + "__all"] = allFieldNames;
       let ctorArgs = "";
@@ -22638,10 +22649,10 @@ class RangerFlowParser  {
       this.walkAlso.push(rn_2);
     }
     // Loop start
-    for ( let i_11 = 0; i_11 < ctx.tables.definedClassList.length; i_11++) {
-      var cname = ctx.tables.definedClassList[i_11];
+    for ( let i_11 = 0; i_11 < ctx.definedClassList.length; i_11++) {
+      var cname = ctx.definedClassList[i_11];
       allTypes.push(cname);
-      const c = ( Object.prototype.hasOwnProperty.call(ctx.tables.definedClasses, cname) ? ctx.tables.definedClasses[cname] : undefined );
+      const c = ( Object.prototype.hasOwnProperty.call(ctx.definedClasses, cname) ? ctx.definedClasses[cname] : undefined );
       if ( ((c.is_system || c.is_interface) || c.is_template) || c.is_trait ) {
         continue;
       }
@@ -22660,7 +22671,7 @@ class RangerFlowParser  {
       }));
     }
     // Loop start
-    for ( const cname_1 of ctx.tables.definedClassList) {
+    for ( const cname_1 of ctx.definedClassList) {
       allTypes.push(cname_1);
     }
     allTypes.push("int");
@@ -23254,15 +23265,6 @@ class RangerFlowParser  {
         ctx.addError(node, "import expects a file name string");
         return;
       }
-      if ( ( typeof(ctx.tables.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.tables.already_imported, import_file) ) ) {
-        // Loop start
-        for ( const item_4 of node.children) {
-          this.WalkCollectMethods(item_4, ctx, wr);
-        }
-        return;
-      } else {
-        ctx.tables.already_imported[import_file] = true;
-      }
       const envOpt = ctx.getEnv();
       if ( typeof(envOpt) === "undefined" ) {
         ctx.addError(node, "Environment not defined");
@@ -23284,8 +23286,8 @@ class RangerFlowParser  {
         }
       }
       let wi = 0;
-      while (wi < rootCtx.tables.libraryPaths.length) {
-        searchPaths.push(rootCtx.tables.libraryPaths[wi]);
+      while (wi < rootCtx.libraryPaths.length) {
+        searchPaths.push(rootCtx.libraryPaths[wi]);
         wi = wi + 1;
       };
       const filePathIs = TFiles.searchEnv(env, searchPaths, searchName);
@@ -23294,14 +23296,14 @@ class RangerFlowParser  {
         return;
       }
       const seenKey2 = "@" + PkgImport.foldPath(((filePathIs + "/") + searchName));
-      if ( ( typeof(ctx.tables.already_imported[seenKey2] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.tables.already_imported, seenKey2) ) ) {
+      if ( ( typeof(ctx.already_imported[seenKey2] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, seenKey2) ) ) {
         // Loop start
         for ( const item2 of node.children) {
           this.WalkCollectMethods(item2, ctx, wr);
         }
         return;
       }
-      ctx.tables.already_imported[seenKey2] = true;
+      ctx.already_imported[seenKey2] = true;
       const c = operatorsOf_17.readc95file_18(env, filePathIs, searchName);
       const code = new SourceCode(c);
       code.filename = import_file;
@@ -23311,11 +23313,11 @@ class RangerFlowParser  {
       const fullPath = (filePathIs + "/") + searchName;
       const importFileDir = require("path").dirname(fullPath);
       if ( importFileDir.length > 0 ) {
-        rootCtx.tables.libraryPaths.push(importFileDir);
+        rootCtx.libraryPaths.push(importFileDir);
       }
       this.WalkCollectMethods(rnode, ctx, wr);
       if ( importFileDir.length > 0 ) {
-        rootCtx.tables.libraryPaths.pop();
+        rootCtx.libraryPaths.pop();
       }
       find_more = false;
     }
@@ -23339,9 +23341,9 @@ class RangerFlowParser  {
         if ( staticCmd == "def" || staticCmd == "let" ) {
           const staticDecl = node.newExpressionNode();
           // Loop start
-          for ( let i_9 = 0; i_9 < node.children.length; i_9++) {
-            var ch_1 = node.children[i_9];
-            if ( i_9 == 0 ) {
+          for ( let i_8 = 0; i_8 < node.children.length; i_8++) {
+            var ch_1 = node.children[i_8];
+            if ( i_8 == 0 ) {
               continue;
             }
             staticDecl.children.push(ch_1);
@@ -23455,8 +23457,8 @@ class RangerFlowParser  {
     }
     if ( find_more ) {
       // Loop start
-      for ( const item_5 of node.children) {
-        this.WalkCollectMethods(item_5, ctx, wr);
+      for ( const item_4 of node.children) {
+        this.WalkCollectMethods(item_4, ctx, wr);
       }
     }
     if ( node.hasBooleanProperty("serialize") ) {
@@ -24372,7 +24374,7 @@ class RangerFlowParser  {
     }
     const clsName = ( Object.prototype.hasOwnProperty.call(this.treeTags, key) ? this.treeTags[key] : undefined );
     this.treeTmpCount = this.treeTmpCount + 1;
-    const reg = "_tree" + (this.treeTmpCount.toString());
+    const reg = "_tree" + ((this.treeTmpCount).toString());
     const defNode = el.newExpressionNode();
     defNode.add(el.newVRefNode("def"));
     defNode.add(el.newVRefNode(reg));
@@ -24605,8 +24607,8 @@ class RangerFlowParser  {
   finalizeRecordClasses (ctx, wr) {
     const rootCtx = ctx.getRoot();
     // Loop start
-    for ( let i = 0; i < rootCtx.tables.definedClassList.length; i++) {
-      var cname = rootCtx.tables.definedClassList[i];
+    for ( let i = 0; i < rootCtx.definedClassList.length; i++) {
+      var cname = rootCtx.definedClassList[i];
       const cl = rootCtx.findClass(cname);
       if ( cl.is_record ) {
         if ( cl.has_constructor == false ) {
@@ -24724,11 +24726,11 @@ class RangerFlowParser  {
     const env = envOpt;
     const rootCtx = ctx.getRoot();
     let startDir = ".";
-    const lp = rootCtx.tables.libraryPaths.length;
+    const lp = rootCtx.libraryPaths.length;
     if ( lp > 0 ) {
-      startDir = rootCtx.tables.libraryPaths[(lp - 1)];
+      startDir = rootCtx.libraryPaths[(lp - 1)];
     }
-    return PkgImport.resolve(env, startDir, spec, rootCtx.tables.libraryPaths);
+    return PkgImport.resolve(env, startDir, spec, rootCtx.libraryPaths);
   };
   mergeImports (node, ctx, wr) {
     const envOpt = ctx.getEnv();
@@ -24740,11 +24742,7 @@ class RangerFlowParser  {
     if ( node.isFirstVref("Import") ) {
       const fNameNode = node.children[1];
       const import_file = fNameNode.string_value;
-      if ( ( typeof(ctx.tables.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.tables.already_imported, import_file) ) ) {
-        return;
-      }
       let source_code = "";
-      ctx.tables.already_imported[import_file] = true;
       const rootCtx = ctx.getRoot();
       let importFileDir = "";
       if ( source_code.length == 0 ) {
@@ -24762,8 +24760,8 @@ class RangerFlowParser  {
           }
         }
         let pi = 0;
-        while (pi < rootCtx.tables.libraryPaths.length) {
-          searchPaths.push(rootCtx.tables.libraryPaths[pi]);
+        while (pi < rootCtx.libraryPaths.length) {
+          searchPaths.push(rootCtx.libraryPaths[pi]);
           pi = pi + 1;
         };
         const filePathIs = TFiles.searchEnv(env, searchPaths, searchName);
@@ -24778,10 +24776,14 @@ class RangerFlowParser  {
           console.log((("importing " + import_file) + " from ") + filePathIs);
         }
         const seenKey = "@" + PkgImport.foldPath(((filePathIs + "/") + searchName));
-        if ( ( typeof(ctx.tables.already_imported[seenKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.tables.already_imported, seenKey) ) ) {
+        if ( ( typeof(ctx.already_imported[seenKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, seenKey) ) ) {
+          node.expression = true;
+          node.vref = "";
+          node.children.pop();
+          node.children.pop();
           return;
         }
-        ctx.tables.already_imported[seenKey] = true;
+        ctx.already_imported[seenKey] = true;
         const c = operatorsOf_17.readc95file_18(env, filePathIs, searchName);
         source_code = c;
         const fullPath = (filePathIs + "/") + searchName;
@@ -24795,28 +24797,38 @@ class RangerFlowParser  {
         const modBase = importFileDir;
         const modName = RustLower.baseName(import_file);
         rl.setTarget(ctx.getCompilerSetting("l"));
+        let genDone = {};
+        const genSeen = Object.keys(ctx.already_imported);
+        let nCrates = 0;
+        // Loop start
+        for ( const gk of genSeen) {
+          if ( gk.startsWith("@rsgen:") ) {
+            genDone[gk.substring(7, gk.length )] = true;
+          }
+          if ( gk.startsWith("@rscrate:") ) {
+            nCrates = nCrates + 1;
+          }
+        }
+        rl.useSharedClasses(genDone);
+        if ( nCrates > 0 ) {
+          rl.cloneClass = "RsClone" + ((nCrates).toString());
+        }
+        ctx.already_imported["@rscrate:" + import_file] = true;
         rl.begin(source_code, modName);
         rl.setEntryName(import_file);
-        while (rl.hasPendingModule()) {
-          const modFiles = rl.nextModuleFiles();
-          let modFound = false;
-          // Loop start
-          for ( const modFile of modFiles) {
-            if ( (modFound == false && modBase != "") && operatorsOf_17.filec95exists_18(env, modBase, modFile) ) {
-              const modSrc = operatorsOf_17.readc95file_18(
-                env,
-                modBase,
-                modFile
-              );
-              rl.addModule(modFile, modSrc);
-              modFound = true;
-            }
-          }
-          if ( modFound == false ) {
+        if ( modBase != "" ) {
+          RustCrateLoader.load(rl, env, modBase, modName);
+        } else {
+          while (rl.hasPendingModule()) {
             rl.moduleNotFound();
-          }
-        };
+          };
+        }
         const lowered = rl.finish();
+        const genNew = rl.sharedClasses();
+        // Loop start
+        for ( const gn of genNew) {
+          ctx.already_imported["@rsgen:" + gn] = true;
+        }
         if ( rl.errors.length > 0 ) {
           // Loop start
           for ( const rerr of rl.errors) {
@@ -24842,14 +24854,14 @@ class RangerFlowParser  {
       const rn = parser.rootNode;
       ModuleFunctions.hoist(rn, import_file, ctx);
       if ( importFileDir.length > 0 ) {
-        rootCtx.tables.libraryPaths.push(importFileDir);
+        rootCtx.libraryPaths.push(importFileDir);
         if ( ctx.hasCompilerFlag("verbose") ) {
           console.log("  -> pushed importFileDir to libraryPaths: " + importFileDir);
         }
       }
       this.mergeImports(rn, ctx, wr);
       if ( importFileDir.length > 0 ) {
-        rootCtx.tables.libraryPaths.pop();
+        rootCtx.libraryPaths.pop();
       }
       node.children.push(rn);
       if ( ctx.hasCompilerFlag("verbose") ) {
@@ -24951,7 +24963,7 @@ ModuleFunctions.hoist = function(root, fileName, ctx) {
   }
   const target = body;
   const rootCtx = ctx.getRoot();
-  rootCtx.tables.fileModules[fileName] = modName;
+  rootCtx.fileModules[fileName] = modName;
   // Loop start
   for ( const f of fns) {
     const head = f.getFirst();
@@ -24960,27 +24972,27 @@ ModuleFunctions.hoist = function(root, fileName, ctx) {
     f.parent = target;
     const nameNode = f.getSecond();
     const fname = nameNode.vref;
-    if ( ( typeof(rootCtx.tables.moduleFunctions[fname] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.tables.moduleFunctions, fname) ) ) {
-      const prev = ( Object.prototype.hasOwnProperty.call(rootCtx.tables.moduleFunctions, fname) ? rootCtx.tables.moduleFunctions[fname] : undefined );
+    if ( ( typeof(rootCtx.moduleFunctions[fname] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, fname) ) ) {
+      const prev = ( Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, fname) ? rootCtx.moduleFunctions[fname] : undefined );
       const parts = prev.split("|");
       if ( parts.indexOf(modName) < 0 ) {
-        rootCtx.tables.moduleFunctions[fname] = (prev + "|") + modName;
+        rootCtx.moduleFunctions[fname] = (prev + "|") + modName;
       }
     } else {
-      rootCtx.tables.moduleFunctions[fname] = modName;
+      rootCtx.moduleFunctions[fname] = modName;
     }
   }
   root.children = rest;
 };
 ModuleFunctions.resolve = function(name, fileName, ctx) {
   const rootCtx = ctx.getRoot();
-  if ( false == ( typeof(rootCtx.tables.moduleFunctions[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.tables.moduleFunctions, name) ) ) {
+  if ( false == ( typeof(rootCtx.moduleFunctions[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, name) ) ) {
     return "";
   }
-  const mods = ( Object.prototype.hasOwnProperty.call(rootCtx.tables.moduleFunctions, name) ? rootCtx.tables.moduleFunctions[name] : undefined );
+  const mods = ( Object.prototype.hasOwnProperty.call(rootCtx.moduleFunctions, name) ? rootCtx.moduleFunctions[name] : undefined );
   const parts = mods.split("|");
-  if ( ( typeof(rootCtx.tables.fileModules[fileName] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.tables.fileModules, fileName) ) ) {
-    const own = ( Object.prototype.hasOwnProperty.call(rootCtx.tables.fileModules, fileName) ? rootCtx.tables.fileModules[fileName] : undefined );
+  if ( ( typeof(rootCtx.fileModules[fileName] ) != "undefined" && Object.prototype.hasOwnProperty.call(rootCtx.fileModules, fileName) ) ) {
+    const own = ( Object.prototype.hasOwnProperty.call(rootCtx.fileModules, fileName) ? rootCtx.fileModules[fileName] : undefined );
     if ( parts.indexOf(own) >= 0 ) {
       return own;
     }
@@ -25491,9 +25503,9 @@ class RangerGenericClassWriter  {
   sealableUnionNames (ctx) {
     let out = [];
     const rootCtx = ctx.getRoot();
-    for( var uci in rootCtx.tables.definedClasses) {
-      if(rootCtx.tables.definedClasses.hasOwnProperty(uci)) {
-        var ucl = rootCtx.tables.definedClasses[uci] 
+    for( var uci in rootCtx.definedClasses) {
+      if(rootCtx.definedClasses.hasOwnProperty(uci)) {
+        var ucl = rootCtx.definedClasses[uci] 
         if ( this.unionIsSealable(ucl, ctx) ) {
           out.push(ucl.name);
         }
@@ -25505,9 +25517,9 @@ class RangerGenericClassWriter  {
     if ( this.unionIfacesBuilt == false ) {
       this.unionIfacesBuilt = true;
       const rootCtx = ctx.getRoot();
-      for( var uci in rootCtx.tables.definedClasses) {
-        if(rootCtx.tables.definedClasses.hasOwnProperty(uci)) {
-          var ucl = rootCtx.tables.definedClasses[uci] 
+      for( var uci in rootCtx.definedClasses) {
+        if(rootCtx.definedClasses.hasOwnProperty(uci)) {
+          var ucl = rootCtx.definedClasses[uci] 
           if ( this.unionIsSealable(ucl, ctx) ) {
             const iface = this.unionInterfaceName(ucl.name);
             // Loop start
@@ -25607,12 +25619,37 @@ class RangerGenericClassWriter  {
           encoded_str_2 = (encoded_str_2 + String.fromCharCode(92)) + String.fromCharCode(92);
           break;
         default: 
-          encoded_str_2 = encoded_str_2 + node.string_value.substring(ii, ii + 1 );
+          if ( cc < 32 || cc == 127 ) {
+            encoded_str_2 = encoded_str_2 + this.controlEscape(cc, ctx);
+          } else {
+            encoded_str_2 = encoded_str_2 + node.string_value.substring(ii, ii + 1 );
+          }
           break;
       };
       ii = ii + 1;
     };
     return encoded_str_2;
+  };
+  controlEscape (cc, ctx) {
+    const hex = "0123456789abcdef";
+    const lang = operatorsOf_15.getTargetLang_16(ctx);
+    const bs = String.fromCharCode(92);
+    const hi = ((cc / 16) | 0);
+    const lo = cc % 16;
+    const h2 = hex.substring(hi, hi + 1 ) + hex.substring(lo, lo + 1 );
+    if ( lang == "cpp" ) {
+      const o1 = ((cc / 64) | 0);
+      const o2 = ((cc / 8) | 0) % 8;
+      const o3 = cc % 8;
+      return ((bs + ((o1).toString())) + ((o2).toString())) + ((o3).toString());
+    }
+    if ( ((((lang == "go" || lang == "es6") || lang == "es5") || lang == "ts") || lang == "rust") || lang == "python" ) {
+      return (bs + "x") + h2;
+    }
+    if ( lang == "swift3" || lang == "swift6" ) {
+      return ((bs + "u{") + h2) + "}";
+    }
+    return (bs + "u00") + h2;
   };
   CustomOperator (node, ctx, wr) {
   };
@@ -25690,6 +25727,9 @@ class RangerGenericClassWriter  {
     return type_string;
   };
   emptyBlockFiller () {
+    return "";
+  };
+  ownedValueSuffix (node, ctx) {
     return "";
   };
   import_lib (lib_name, ctx, wr) {
@@ -26229,9 +26269,9 @@ class TraitInterfaceAnalysis  {
     }
     this.computed = true;
     const root = ctx.getRoot();
-    for( var ti in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ti)) {
-        var tc = root.tables.definedClasses[ti] 
+    for( var ti in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ti)) {
+        var tc = root.definedClasses[ti] 
         if ( tc.is_trait == false ) {
           continue;
         }
@@ -26243,9 +26283,9 @@ class TraitInterfaceAnalysis  {
         }
         let used = false;
         let consumed = false;
-        for( var ui in root.tables.definedClasses) {
-          if(root.tables.definedClasses.hasOwnProperty(ui)) {
-            var uc = root.tables.definedClasses[ui] 
+        for( var ui in root.definedClasses) {
+          if(root.definedClasses.hasOwnProperty(ui)) {
+            var uc = root.definedClasses[ui] 
             if ( uc.is_trait || uc.is_system ) {
               continue;
             }
@@ -26564,9 +26604,9 @@ class EnumNativeAnalysis  {
     for ( let ei = 0; ei < Object.keys(root.definedEnums).length; ei++) {
       var ename = Object.keys(root.definedEnums)[ei];
       let reason = "";
-      for( var ci in root.tables.definedClasses) {
-        if(root.tables.definedClasses.hasOwnProperty(ci)) {
-          var cl = root.tables.definedClasses[ci] 
+      for( var ci in root.definedClasses) {
+        if(root.definedClasses.hasOwnProperty(ci)) {
+          var cl = root.definedClasses[ci] 
           if ( reason.length > 0 ) {
             continue;
           }
@@ -26740,9 +26780,9 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
   };
   javaProgramUsesJson (ctx) {
     const root = ctx.getRoot();
-    for( var jci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(jci)) {
-        var jc = root.tables.definedClasses[jci] 
+    for( var jci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(jci)) {
+        var jc = root.definedClasses[jci] 
         if ( jc.is_system ) {
           continue;
         }
@@ -27675,7 +27715,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     const root = ctx.getRoot();
     const counters = root.counters;
     if ( counters.b_counted == false ) {
-      const list = Object.keys(root.tables.definedClasses);
+      const list = Object.keys(root.definedClasses);
       // Loop start
       for ( const name of list) {
         if ( name.indexOf("operatorsOf") == 0 ) {
@@ -27947,7 +27987,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
         for ( let smi = 0; smi < Object.keys(seDef.values).length; smi++) {
           var smn = Object.keys(seDef.values)[smi];
           const smv = ( Object.prototype.hasOwnProperty.call(seDef.values, smn) ? seDef.values[smn] : undefined );
-          wr.out((("case " + ctx.transformWord(smn)) + " = ") + (smv.toString()), true);
+          wr.out((("case " + ctx.transformWord(smn)) + " = ") + ((smv).toString()), true);
         }
         wr.indent(-1);
         wr.out("}", true);
@@ -29088,13 +29128,13 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       if ( this.swEnumIsNative(sen, ctx) ) {
         const seDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, sen) ? enumRoot.definedEnums[sen] : undefined );
         wr.out("", true);
-        wr.out(("enum " + sen) + " : Int {", true);
+        wr.out(("public enum " + sen) + " : Int {", true);
         wr.indent(1);
         // Loop start
         for ( let smi = 0; smi < Object.keys(seDef.values).length; smi++) {
           var smn = Object.keys(seDef.values)[smi];
           const smv = ( Object.prototype.hasOwnProperty.call(seDef.values, smn) ? seDef.values[smn] : undefined );
-          wr.out((("case " + ctx.transformWord(smn)) + " = ") + (smv.toString()), true);
+          wr.out((("case " + ctx.transformWord(smn)) + " = ") + ((smv).toString()), true);
         }
         wr.indent(-1);
         wr.out("}", true);
@@ -29145,7 +29185,19 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
     for ( const uname of names) {
       const ucl = ctx.findClass(uname);
       const enumName = this.unionInterfaceName(uname);
+      const uVis = new RangerDocCommentWriter();
+      let allPublic = ucl.is_union_of.length > 0;
+      // Loop start
+      for ( const memName of ucl.is_union_of) {
+        const mcl = ctx.findClass(memName);
+        if ( uVis.classVisibility(mcl, "", "public ", "") != "public " ) {
+          allPublic = false;
+        }
+      }
       wr.out("", true);
+      if ( allPublic ) {
+        wr.out("public ", false);
+      }
       wr.out(("enum " + enumName) + " {", true);
       wr.indent(1);
       // Loop start
@@ -30893,9 +30945,9 @@ class CppValueClassAnalysis  {
       return "it extends another class";
     }
     const rootCtx = ctx.getRoot();
-    for( var oci in rootCtx.tables.definedClasses) {
-      if(rootCtx.tables.definedClasses.hasOwnProperty(oci)) {
-        var ocl = rootCtx.tables.definedClasses[oci] 
+    for( var oci in rootCtx.definedClasses) {
+      if(rootCtx.definedClasses.hasOwnProperty(oci)) {
+        var ocl = rootCtx.definedClasses[oci] 
         if ( ocl.extends_classes.indexOf(cl.name) >= 0 ) {
           return "it is extended by " + ocl.name;
         }
@@ -30925,14 +30977,14 @@ class CppValueClassAnalysis  {
     if ( ctx.hasCompilerFlag("cpp-shared-classes") ) {
       return;
     }
-    for( var ci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.tables.definedClasses[ci] 
+    for( var ci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.definedClasses[ci] 
         let reason = this.classReason(cl, ctx);
         if ( reason.length == 0 ) {
-          for( var oci in root.tables.definedClasses) {
-            if(root.tables.definedClasses.hasOwnProperty(oci)) {
-              var ocl = root.tables.definedClasses[oci] 
+          for( var oci in root.definedClasses) {
+            if(root.definedClasses.hasOwnProperty(oci)) {
+              var ocl = root.definedClasses[oci] 
               if ( reason.length > 0 ) {
                 continue;
               }
@@ -31149,16 +31201,17 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   WriteScalarValue (node, ctx, wr) {
     switch (node.value_type ) { 
       case 2 : 
-        const dd_str = "" + node.double_value;
-        if ( this.doubleNeedsPointZero(dd_str) ) {
-          wr.out(dd_str + ".0", false);
-        } else {
-          wr.out(dd_str, false);
-        }
+        wr.out("" + node.double_value, false);
         break;
       case 4 : 
         const s = this.escapeCppTrigraphs(this.EncodeString(node, ctx, wr));
-        wr.out(("std::string(" + (("\"" + s) + "\"")) + ")", false);
+        if ( node.string_value.indexOf(String.fromCharCode(0)) >= 0 ) {
+          const nbuf = r_cb_enc.encode(node.string_value);
+          const nbytes = nbuf.length;
+          wr.out(((("std::string(" + (("\"" + s) + "\"")) + ", ") + ((nbytes).toString())) + ")", false);
+        } else {
+          wr.out(("std::string(" + (("\"" + s) + "\"")) + ")", false);
+        }
         break;
       case 3 : 
         wr.out("" + node.int_value, false);
@@ -31311,9 +31364,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     let inFamily = false;
     const rootCtx = ctx.getRoot();
-    for( var uci in rootCtx.tables.definedClasses) {
-      if(rootCtx.tables.definedClasses.hasOwnProperty(uci)) {
-        var ucl = rootCtx.tables.definedClasses[uci] 
+    for( var uci in rootCtx.definedClasses) {
+      if(rootCtx.definedClasses.hasOwnProperty(uci)) {
+        var ucl = rootCtx.definedClasses[uci] 
         if ( this.unionIsSealable(ucl, ctx) ) {
           if ( ucl.is_union_of.indexOf(cl.name) >= 0 ) {
             inFamily = true;
@@ -31323,6 +31376,13 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     };
     if ( inFamily == false ) {
       return false;
+    }
+    const clNN = cl.nameNode;
+    if ( (typeof(clNN) !== "undefined" && clNN != null )  ) {
+      const clNameNode = clNN;
+      if ( clNameNode.hasFlag("reference") ) {
+        return false;
+      }
     }
     let allScalar = true;
     // Loop start
@@ -31807,22 +31867,6 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     wr.out(this.adjustType(node.ns[index]), false);
   };
-  cppRenameStaticsShadowingFields (ctx) {
-    const root = ctx.getRoot();
-    // Loop start
-    for ( let i = 0; i < root.getClasses().length; i++) {
-      var cl = root.getClasses()[i];
-      // Loop start
-      for ( let si = 0; si < cl.static_methods.length; si++) {
-        var sm = cl.static_methods[si];
-        if ( (typeof(cl.findVariable(sm.name)) !== "undefined" && cl.findVariable(sm.name) != null )  ) {
-          if ( sm.compiledName == sm.name ) {
-            sm.compiledName = sm.name + "_static";
-          }
-        }
-      }
-    }
-  };
   cppWriteVRefPath (node, fromIndex, toIndex, ctx, wr) {
     let had_static = false;
     // Loop start
@@ -31925,32 +31969,6 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     const pu = parent;
     return pu.getVRefAt(0) == "=";
-  };
-  cppVRefIsAssignedOptional (node) {
-    if ( node.nsp.length > 1 ) {
-      return false;
-    }
-    if ( this.cppVRefIsAssignmentTarget(node) == false ) {
-      return false;
-    }
-    const pu = node.parent;
-    if ( pu.children.length < 3 ) {
-      return false;
-    }
-    const lhs = pu.children[1];
-    return (lhs.vref == node.vref && lhs.sp == node.sp) && lhs.ep == node.ep;
-  };
-  cppThisIsCallReceiver (node) {
-    const parent = node.parent;
-    if ( typeof(parent) === "undefined" ) {
-      return false;
-    }
-    const pu = parent;
-    if ( pu.has_call == false || pu.children.length < 2 ) {
-      return false;
-    }
-    const recv = pu.children[1];
-    return (recv.vref == "this" && recv.sp == node.sp) && recv.ep == node.ep;
   };
   cppVRefIsCallTarget (node) {
     const parent = node.parent;
@@ -32055,10 +32073,6 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   };
   WriteVRef (node, ctx, wr) {
     if ( node.vref == "this" ) {
-      if ( this.cppThisIsCallReceiver(node) ) {
-        wr.out("this", false);
-        return;
-      }
       const currC = ctx.getCurrentClass();
       let sft = "shared_from_this()";
       if ( (typeof(currC) !== "undefined" && currC != null )  ) {
@@ -32116,7 +32130,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           }
         }
         if ( i == 0 ) {
-          if ( this.cppShouldAutoUnwrap(p, ctx) && this.cppVRefIsAssignedOptional(node) == false ) {
+          if ( this.cppShouldAutoUnwrap(p, ctx) ) {
             const uv = ("(" + this.adjustType(p.compiledName)) + ".value())";
             wr.out(uv, false);
             continue;
@@ -32139,7 +32153,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
       const pu = p_1;
       wr.out(pu.compiledName, false);
-      if ( this.cppShouldAutoUnwrap(pu, ctx) && this.cppVRefIsAssignedOptional(node) == false ) {
+      if ( this.cppShouldAutoUnwrap(pu, ctx) ) {
         wr.out(".value()", false);
       }
       return;
@@ -32807,9 +32821,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   };
   cppProgramUsesHash (ctx) {
     const root = ctx.getRoot();
-    for( var i in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(i)) {
-        var cl = root.tables.definedClasses[i] 
+    for( var i in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(i)) {
+        var cl = root.definedClasses[i] 
         if ( (((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
           continue;
         }
@@ -32883,9 +32897,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   };
   cppProgramUsesType (tn, ctx) {
     const root = ctx.getRoot();
-    for( var i in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(i)) {
-        var cl = root.tables.definedClasses[i] 
+    for( var i in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(i)) {
+        var cl = root.definedClasses[i] 
         if ( (((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
           continue;
         }
@@ -32945,9 +32959,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   };
   cppProgramUsesOptionalUnion (ctx) {
     const root = ctx.getRoot();
-    for( var i in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(i)) {
-        var cl = root.tables.definedClasses[i] 
+    for( var i in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(i)) {
+        var cl = root.definedClasses[i] 
         if ( ((cl.is_system || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
           continue;
         }
@@ -32981,9 +32995,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   cppProgramHasWeakField (ctx) {
     let found = false;
     const root = ctx.getRoot();
-    for( var i in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(i)) {
-        var cl = root.tables.definedClasses[i] 
+    for( var i in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(i)) {
+        var cl = root.definedClasses[i] 
         // Loop start
         for ( const pvar of cl.variables) {
           if ( (typeof(pvar.nameNode) !== "undefined" && pvar.nameNode != null )  ) {
@@ -33450,7 +33464,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
             this.writeTypeDef(arg.nameNode, ctx, wr);
             wr.out("(", false);
           }
+          ctx.setInExpr();
           this.WalkNode(n, ctx, wr);
+          ctx.unsetInExpr();
           if ( tempCopy ) {
             wr.out(")", false);
           }
@@ -33659,7 +33675,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     let wroteOptionalUnion = false;
     const needsOptionalUnion = this.cppProgramUsesOptionalUnion(ctx);
     const anyIsUsed = this.cppProgramUsesType("Any", ctx);
-    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       if ( item.is_union ) {
         if ( item.name == "Any" ) {
           if ( anyIsUsed == false ) {
@@ -33764,7 +33780,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           for ( let cmi = 0; cmi < Object.keys(ceDef.values).length; cmi++) {
             var cmn = Object.keys(ceDef.values)[cmi];
             const cmv = ( Object.prototype.hasOwnProperty.call(ceDef.values, cmn) ? ceDef.values[cmn] : undefined );
-            const ceLine = (cmn + " = ") + (cmv.toString());
+            const ceLine = (cmn + " = ") + ((cmv).toString());
             wr.out(ceLine + ",", true);
             wroteAnyEnum = true;
           }
@@ -34021,7 +34037,6 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       wr.out("char **__g_argv;", true);
       this.CreateUnions(this.compiler.parser, ctx, wr.getTag("c++unions"));
       this.writeCppTraitInterfaces(ctx, wr.getTag("c++TraitDefs"));
-      this.cppRenameStaticsShadowingFields(ctx);
       this.header_created = true;
     }
     const classWriter = orig_wr.getTag("c++ClassDefs");
@@ -34042,7 +34057,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       for ( let i_1 = 0; i_1 < cl.extends_classes.length; i_1++) {
         var pName = cl.extends_classes[i_1];
         const pcc = ctx.findClass(pName);
-        if ( pcc.has_constructor && ((typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null ) ) ) {
+        if ( pcc.has_constructor ) {
           wr.out((" : " + pcc.name) + "(", false);
           const constr_1 = cl.constructor_fn;
           // Loop start
@@ -34232,6 +34247,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     this.rustModuleOut = false;
     this.rustClippyNoteWritten = false;
     this.rustIdentNames = {};
+    this.rustAllIdentNames = {};
     this.rustIdentNamesDone = false;
     this.rustEnums = new EnumNativeAnalysis();
     this.rust_in_cell_assign = false;
@@ -34248,39 +34264,77 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     }
     this.rustIdentNamesDone = true;
     const inRoot = ctx.getRoot();
-    for( var ici in inRoot.tables.definedClasses) {
-      if(inRoot.tables.definedClasses.hasOwnProperty(ici)) {
-        var icl = inRoot.tables.definedClasses[ici] 
-        // Loop start
-        for ( const iv of icl.variables) {
-          this.rustIdentNames[iv.name] = true;
-        }
+    for( var ici in inRoot.definedClasses) {
+      if(inRoot.definedClasses.hasOwnProperty(ici)) {
+        var icl = inRoot.definedClasses[ici] 
+        let members = {};
+        this.rustCollectMemberNames(icl, members, ctx, 0);
+        this.rustKeepColliding(members);
         this.rustCollectFnNames(icl.methods);
         this.rustCollectFnNames(icl.static_methods);
+      }
+    };
+  };
+  rustCollectMemberNames (cl, members, ctx, depth) {
+    if ( depth > 32 ) {
+      return;
+    }
+    // Loop start
+    for ( const iv of cl.variables) {
+      members[iv.name] = true;
+    }
+    // Loop start
+    for ( const im of cl.methods) {
+      members[im.name] = true;
+    }
+    // Loop start
+    for ( const ism of cl.static_methods) {
+      members[ism.name] = true;
+    }
+    // Loop start
+    for ( const pName of cl.extends_classes) {
+      const pClO = ctx.findClass(pName);
+      if ( (typeof(pClO) !== "undefined" && pClO != null )  ) {
+        this.rustCollectMemberNames(pClO, members, ctx, depth + 1);
+      }
+    }
+  };
+  rustKeepColliding (names) {
+    for( var kn in names) {
+      if(names.hasOwnProperty(kn)) {
+        var kv = names[kn] 
+        this.rustAllIdentNames[kn] = true;
+        const ksn = this.rustSnakeCase(kn);
+        if ( ksn != kn ) {
+          if ( ( typeof(names[ksn] ) != "undefined" && Object.prototype.hasOwnProperty.call(names, ksn) ) ) {
+            this.rustIdentNames[kn] = true;
+          }
+        }
       }
     };
   };
   rustCollectFnNames (fns) {
     // Loop start
     for ( const fd of fns) {
-      this.rustIdentNames[fd.name] = true;
+      let locals = {};
       // Loop start
       for ( const fp of fd.params) {
-        this.rustIdentNames[fp.name] = true;
+        locals[fp.name] = true;
       }
       const bOpt = fd.node;
       if ( (typeof(bOpt) !== "undefined" && bOpt != null )  ) {
-        this.rustCollectVrefs(bOpt);
+        this.rustCollectVrefs(bOpt, locals);
       }
+      this.rustKeepColliding(locals);
     }
   };
-  rustCollectVrefs (node) {
+  rustCollectVrefs (node, locals) {
     if ( node.vref.length > 0 ) {
-      this.rustIdentNames[node.vref] = true;
+      locals[node.vref] = true;
     }
     // Loop start
     for ( const ch of node.children) {
-      this.rustCollectVrefs(ch);
+      this.rustCollectVrefs(ch, locals);
     }
   };
   rustSnakeCase (n) {
@@ -34327,7 +34381,14 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   adjustType (tn) {
     const sn = this.rustSnakeCase(tn);
     if ( sn != tn ) {
-      if ( ( typeof(this.rustIdentNames[sn] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rustIdentNames, sn) ) ) {
+      let keepName = ( typeof(this.rustIdentNames[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rustIdentNames, tn) );
+      if ( keepName == false ) {
+        const tnLead = tn.charCodeAt(0 );
+        if ( tnLead >= 65 && tnLead <= 90 ) {
+          keepName = ( typeof(this.rustAllIdentNames[sn] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rustAllIdentNames, sn) );
+        }
+      }
+      if ( keepName ) {
         return this.adjustReserved(tn);
       }
     }
@@ -34461,7 +34522,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustStaticStrRead (node) {
     let v = node;
-    while (v.expression && v.children.length == 1) {
+    while ((v.expression && v.children.length == 1) && v.is_array_literal == false) {
       v = v.getFirst();
     };
     if ( v.expression ) {
@@ -34482,7 +34543,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustWriteStaticStrValue (node, ctx, wr) {
     let v = node;
-    while (v.expression && v.children.length == 1) {
+    while ((v.expression && v.children.length == 1) && v.is_array_literal == false) {
       v = v.getFirst();
     };
     if ( v.expression == false && v.value_type == 4 ) {
@@ -34495,7 +34556,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustTryBareStrLitArg (nVal, ctx, wr) {
     let v = nVal;
-    while (v.expression && v.children.length == 1) {
+    while ((v.expression && v.children.length == 1) && v.is_array_literal == false) {
       v = v.getFirst();
     };
     if ( v.expression ) {
@@ -34509,7 +34570,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustArgIsNameRead (nVal) {
     let v = nVal;
-    while (v.expression && v.children.length == 1) {
+    while ((v.expression && v.children.length == 1) && v.is_array_literal == false) {
       v = v.getFirst();
     };
     if ( v.value_type == 11 ) {
@@ -34528,7 +34589,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustSliceRefRead (node) {
     let v = node;
-    while (v.expression && v.children.length == 1) {
+    while ((v.expression && v.children.length == 1) && v.is_array_literal == false) {
       v = v.getFirst();
     };
     if ( v.expression ) {
@@ -34561,7 +34622,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       return true;
     }
     let v = node;
-    while (v.expression && v.children.length == 1) {
+    while ((v.expression && v.children.length == 1) && v.is_array_literal == false) {
       v = v.getFirst();
     };
     if ( v.expression ) {
@@ -35437,9 +35498,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           let dotDecl = 0;
           let dotShared = 0;
           const dotRoot = ctx.getRoot();
-          for( var dci in dotRoot.tables.definedClasses) {
-            if(dotRoot.tables.definedClasses.hasOwnProperty(dci)) {
-              var dcl = dotRoot.tables.definedClasses[dci] 
+          for( var dci in dotRoot.definedClasses) {
+            if(dotRoot.definedClasses.hasOwnProperty(dci)) {
+              var dcl = dotRoot.definedClasses[dci] 
               const dfv = dcl.findVariable(node.vref);
               if ( (typeof(dfv) !== "undefined" && dfv != null )  ) {
                 dotDecl = dotDecl + 1;
@@ -36000,14 +36061,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         if ( nsName.length == 0 ) {
           continue;
         }
-        const nsSn = this.rustSnakeCase(nsName);
         const nsLead = nsName.charCodeAt(0 );
         if ( nsLead < 65 || nsLead > 90 ) {
-          if ( nsSn != nsName ) {
-            if ( ( typeof(this.rustIdentNames[nsSn] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rustIdentNames, nsSn) ) ) {
-              return true;
-            }
-          }
+          return true;
         }
       }
     };
@@ -36111,6 +36167,18 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             }
           }
         }
+      }
+      if ( item.has_call ) {
+        if ( item.children.length >= 3 ) {
+          const nmCo = item.getSecond();
+          if ( nmCo.ns.length >= 2 ) {
+            if ( this.rustNmIsName(nmCo.ns[0], srcName, cName) ) {
+              nmNeeds = true;
+            }
+          }
+        }
+      }
+      if ( item.hasFnCall ) {
         if ( item.children.length > 1 ) {
           const nmArgs = item.getSecond();
           const nmFd = item.fnDesc;
@@ -36118,7 +36186,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           for ( let nmAi = 0; nmAi < nmArgs.children.length; nmAi++) {
             var nmA = nmArgs.children[nmAi];
             let nmAr = nmA;
-            while (nmAr.expression && nmAr.children.length == 1) {
+            while ((nmAr.expression && nmAr.children.length == 1) && nmAr.is_array_literal == false) {
               nmAr = nmAr.getFirst();
             };
             if ( nmAr.ns.length == 1 ) {
@@ -36247,6 +36315,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               const vp = fVal.paramDesc;
               if ( this.adjustType(vp.compiledName) == emitted ) {
                 shorthand = true;
+              }
+              if ( ctx.isMemberVariable(fVal.vref) ) {
+                shorthand = false;
               }
             }
           }
@@ -36443,6 +36514,12 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           eff_optional = true;
         }
       }
+      let keepOptLocal = false;
+      if ( (rhs_is_optional_field && eff_optional) && local_needs_rc_wrap == false ) {
+        if ( nameN.array_type.length == 0 && nameN.key_type.length == 0 ) {
+          keepOptLocal = true;
+        }
+      }
       if ( local_needs_rc_wrap ) {
         const localSharedT = this.rustSharedTypeString(nameN.type_name, ctx);
         if ( eff_optional && (nameN.array_type.length == 0 && nameN.key_type.length == 0) ) {
@@ -36457,7 +36534,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           }
         }
       } else {
-        if ( rhs_is_optional_field ) {
+        if ( rhs_is_optional_field && keepOptLocal == false ) {
           let v_type = nameN.value_type;
           if ( (v_type == 10 || v_type == 11) || v_type == 0 ) {
             v_type = nameN.typeNameAsType(ctx);
@@ -36562,7 +36639,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             wr.out(".clone()", false);
           }
         }
-        if ( rhs_is_optional_field && (local_needs_rc_wrap && eff_optional) == false ) {
+        if ( keepOptLocal && value_1.value_type == 11 ) {
+          wr.out(".clone()", false);
+        }
+        if ( (rhs_is_optional_field && (local_needs_rc_wrap && eff_optional) == false) && keepOptLocal == false ) {
           let v_type_1 = nameN.value_type;
           if ( (v_type_1 == 10 || v_type_1 == 11) || v_type_1 == 0 ) {
             v_type_1 = nameN.typeNameAsType(ctx);
@@ -36597,6 +36677,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               if ( valueInner.hasParamDesc ) {
                 const vp_1 = valueInner.paramDesc;
                 if ( vp_1.ref_cnt > 1 ) {
+                  should_clone_vardef = true;
+                }
+                if ( should_clone_vardef == false && this.rustReadRepeatsInLoop(valueInner, vp_1, ctx) ) {
                   should_clone_vardef = true;
                 }
               }
@@ -36651,7 +36734,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           if ( valueInner.hasParamDesc ) {
             const vpL = valueInner.paramDesc;
             if ( vpL.is_class_variable == false && vpL.rust_borrow_type == 0 ) {
-              if ( vpL.ref_cnt > 1 ) {
+              if ( vpL.ref_cnt > 1 || this.rustReadRepeatsInLoop(valueInner, vpL, ctx) ) {
                 const vpLNN = vpL.nameNode;
                 if ( (typeof(vpLNN) !== "undefined" && vpLNN != null )  ) {
                   const vpLN = vpLNN;
@@ -36664,6 +36747,19 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                 }
               }
             }
+          }
+          if ( this.rust_receiverless_method && valueInner.ns.length == 1 ) {
+            if ( valueInner.hasParamDesc ) {
+              const bfP = valueInner.paramDesc;
+              if ( bfP.varType == 8 ) {
+                if ( this.rustFieldIsCopyScalar(bfP, ctx) == false ) {
+                  should_clone_vardef = true;
+                }
+              }
+            }
+          }
+          if ( this.rustSliceRefRead(valueInner) ) {
+            should_clone_vardef = true;
           }
           if ( should_clone_vardef ) {
             if ( vardef_src_ref_str == false ) {
@@ -36857,7 +36953,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       this.WalkNode(item, ctx, wr);
       ctx.unsetInExpr();
       let alCloned = false;
-      if ( this.rustArgIsNameRead(item) ) {
+      if ( this.rustArgIsNameRead(item) && this.rustStrRefRead(item) ) {
+        wr.out(".to_string()", false);
+        alCloned = true;
+      }
+      if ( alCloned == false && this.rustArgIsNameRead(item) ) {
         let alCopy = false;
         if ( item.hasParamDesc ) {
           const alP = item.paramDesc;
@@ -36908,6 +37008,36 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     }
     return false;
   };
+  ownedValueSuffix (inNode, ctx) {
+    const node = this.rustUnwrapParens(inNode);
+    if ( node.value_type != 11 ) {
+      return "";
+    }
+    if ( this.rustStrRefRead(node) ) {
+      return ".to_string()";
+    }
+    const nsLen = node.ns.length;
+    if ( nsLen >= 2 ) {
+      if ( node.nsp.length >= nsLen ) {
+        const last = node.nsp[(nsLen - 1)];
+        if ( last.varType == 8 ) {
+          if ( this.rustFieldIsCopyScalar(last, ctx) == false ) {
+            return ".clone()";
+          }
+        }
+      }
+      return "";
+    }
+    if ( nsLen == 1 && node.hasParamDesc ) {
+      const bp = node.paramDesc;
+      if ( bp.varType == 8 ) {
+        if ( this.rustFieldIsCopyScalar(bp, ctx) == false ) {
+          return ".clone()";
+        }
+      }
+    }
+    return "";
+  };
   CreatePropertyGet (node, ctx, wr) {
     const obj = node.getSecond();
     const prop = node.getThird();
@@ -36917,9 +37047,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       pgType = obj.type_name;
     }
     const pgInner = this.rustUnwrapParens(obj);
-    if ( pgInner.hasFnCall || pgInner.has_call ) {
-      pgType = "";
-    }
+    let pgPropBorrows = false;
     if ( prop.vref.length > 0 ) {
       if ( prop.vref.charCodeAt(0 ) == 46 ) {
         if ( prop.hasParamDesc ) {
@@ -36928,7 +37056,34 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           if ( (typeof(pgOwner) !== "undefined" && pgOwner != null )  ) {
             const pgOwnerC = pgOwner;
             if ( this.rustClassIsShared(pgOwnerC.name, ctx) ) {
-              pgType = "";
+              pgPropBorrows = true;
+            }
+          }
+        }
+      }
+    }
+    if ( pgPropBorrows ) {
+      pgType = "";
+    }
+    if ( pgInner.hasFnCall || pgInner.has_call ) {
+      let pgStatic = false;
+      if ( (typeof(pgInner.fnDesc) !== "undefined" && pgInner.fnDesc != null )  ) {
+        const pgSFd = pgInner.fnDesc;
+        pgStatic = pgSFd.is_static;
+      }
+      if ( pgStatic == false ) {
+        pgType = "";
+      }
+      if ( pgPropBorrows == false ) {
+        if ( (typeof(pgInner.fnDesc) !== "undefined" && pgInner.fnDesc != null )  ) {
+          const pgFd = pgInner.fnDesc;
+          const pgRetN = pgFd.nameNode;
+          if ( (typeof(pgRetN) !== "undefined" && pgRetN != null )  ) {
+            const pgRet = pgRetN;
+            if ( pgRet.type_name.length > 0 && pgRet.array_type.length == 0 ) {
+              if ( this.rustClassIsShared(pgRet.type_name, ctx) ) {
+                pgType = pgRet.type_name;
+              }
             }
           }
         }
@@ -36982,6 +37137,56 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       }
     }
     return "";
+  };
+  rustReadRepeatsInLoop (read, vp, ctx) {
+    const defNN = vp.nameNode;
+    if ( typeof(defNN) === "undefined" ) {
+      return false;
+    }
+    const defN = defNN;
+    const fnD = ctx.getCurrentMethod();
+    const bodyN = fnD.fnBody;
+    if ( typeof(bodyN) === "undefined" ) {
+      return false;
+    }
+    let loops = [];
+    if ( this.rustLoopsAround(bodyN, read, loops) == false ) {
+      return false;
+    }
+    let i = 0;
+    while (i < loops.length) {
+      const loopN = loops[i];
+      let none = [];
+      if ( this.rustLoopsAround(loopN, defN, none) == false ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  rustLoopsAround (node, target, loops) {
+    if ( node == target ) {
+      return true;
+    }
+    let isLoop = false;
+    if ( node.expression && node.children.length > 0 ) {
+      const head = node.getFirst();
+      if ( head.vref == "while" || head.vref == "for" ) {
+        isLoop = true;
+      }
+    }
+    let i = 0;
+    while (i < node.children.length) {
+      const ch = node.children[i];
+      if ( this.rustLoopsAround(ch, target, loops) ) {
+        if ( isLoop ) {
+          loops.push(node);
+        }
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
   };
   rustReceiverPathClass (fc, ctx) {
     let rpRes;
@@ -37790,6 +37995,13 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         if ( opRoot == "this" ) {
           opIsOwn = true;
         }
+        if ( opTarget.ns.length > 1 ) {
+          if ( ctx.isMemberVariable(opRoot) ) {
+            if ( this.rustCallThroughSharedField(opTarget, ctx) == false ) {
+              opIsOwn = true;
+            }
+          }
+        }
         if ( opTarget.ns.length <= 1 ) {
           if ( opTarget.hasParamDesc ) {
             const opTP = opTarget.paramDesc;
@@ -38112,9 +38324,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     }
     pathRoot.rust_path_names_ready = true;
     // Loop start
-    for ( let pathCi = 0; pathCi < pathRoot.tables.definedClassList.length; pathCi++) {
-      var pathCn = pathRoot.tables.definedClassList[pathCi];
-      const pathC = ( Object.prototype.hasOwnProperty.call(pathRoot.tables.definedClasses, pathCn) ? pathRoot.tables.definedClasses[pathCn] : undefined );
+    for ( let pathCi = 0; pathCi < pathRoot.definedClassList.length; pathCi++) {
+      var pathCn = pathRoot.definedClassList[pathCi];
+      const pathC = ( Object.prototype.hasOwnProperty.call(pathRoot.definedClasses, pathCn) ? pathRoot.definedClasses[pathCn] : undefined );
       const pathCtorO = pathC.constructor_fn;
       if ( (typeof(pathCtorO) !== "undefined" && pathCtorO != null )  ) {
         const pathCtor = pathCtorO;
@@ -38589,12 +38801,17 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             argNeedsTmp = false;
           }
           if ( argNeedsTmp ) {
-            const tmpVarName = "__arg_" + (tmpVarIdx.toString());
+            tmpVarIdx = this.rustFreeArgIdx(ctx, tmpVarIdx);
+            tmpVarIdx = this.rustFreeArgIdx(ctx, tmpVarIdx);
+            const tmpVarName = "__arg_" + ((tmpVarIdx).toString());
             tmpVarIdx = tmpVarIdx + 1;
             wr.out(("let " + tmpVarName) + " = ", false);
             ctx.setInExpr();
             this.WalkNode(arg, ctx, wr);
             ctx.unsetInExpr();
+            if ( arg.value_type == 11 && arg.ns.length > 1 ) {
+              wr.out(".clone()", false);
+            }
             wr.out(";", true);
             arg.rust_use_tmpvar = tmpVarName;
           }
@@ -38643,7 +38860,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             if ( (typeof(stCC) !== "undefined" && stCC != null )  ) {
               const stC = stCC;
               if ( exprSelfRcNeeded ) {
-                if ( obj.expression ) {
+                if ( obj.expression || obj.ns.length > 1 ) {
                   exprSelfRcTmp = ctx.rustGetTempVar();
                   wr.out(("{ let " + exprSelfRcTmp) + " = ", false);
                   ctx.setInExpr();
@@ -38698,7 +38915,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             wr.out(this.rustThisPrefix(ctx) + ".", false);
           } else {
             let rcvClose = ")";
-            if ( exprSelfRcNeeded && obj.expression ) {
+            if ( exprSelfRcNeeded && (obj.expression || obj.ns.length > 1) ) {
               exprSelfRcTmp = ctx.rustGetTempVar();
               wr.out(("{ let " + exprSelfRcTmp) + " = ", false);
               ctx.setInExpr();
@@ -39090,7 +39307,8 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         if ( this.rustArgIsOutParam(node, i_1) ) {
           continue;
         }
-        const tmpVarName = "__arg_" + (tmpVarIdx.toString());
+        tmpVarIdx = this.rustFreeArgIdx(ctx, tmpVarIdx);
+        const tmpVarName = "__arg_" + ((tmpVarIdx).toString());
         tmpVarIdx = tmpVarIdx + 1;
         wr.out(("let " + tmpVarName) + " = ", false);
         ctx.setInExpr();
@@ -39129,6 +39347,13 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     if ( ctx.expressionLevel() == 0 ) {
       wr.out(";", true);
     }
+  };
+  rustFreeArgIdx (ctx, idx) {
+    let i = idx;
+    while (ctx.isVarDefined("__arg_" + ((i).toString()))) {
+      i = i + 1;
+    };
+    return i;
   };
   isSelfMethodCall (node) {
     if ( node.hasFnCall ) {
@@ -39259,7 +39484,8 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             argHasSelfRef = false;
           }
           if ( argHasSelfRef ) {
-            const tmpName = "__arg_" + (tmpIdx.toString());
+            tmpIdx = this.rustFreeArgIdx(ctx, tmpIdx);
+            const tmpName = "__arg_" + ((tmpIdx).toString());
             tmpIdx = tmpIdx + 1;
             tempVars.push(tmpName);
             let needsMutDecl = false;
@@ -39460,11 +39686,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                 }
                 let borrowRcWrap3 = false;
                 if ( needsImmutableRef && borrowedLitDone2 == false ) {
-                  if ( arg.rust_needs_rc_wrap ) {
-                    if ( this.rustInitRcState(nVal, ctx) == 0 ) {
-                      borrowRcWrap3 = true;
-                    }
-                  }
+                  borrowRcWrap3 = this.rustArgNeedsCellWrap(arg, nVal, ctx);
+                }
+                if ( needsImmutableRef == false && needsMutRef == false ) {
+                  borrowRcWrap3 = this.rustArgNeedsCellWrap(arg, nVal, ctx);
                 }
                 if ( borrowedLitDone2 == false ) {
                   if ( borrowRcWrap3 ) {
@@ -39657,12 +39882,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             } else {
               if ( needsImmutableRef2 ) {
                 wr.out("&", false);
-                let borrowRcWrap2 = false;
-                if ( arg_1.rust_needs_rc_wrap ) {
-                  if ( this.rustInitRcState(nVal_1, ctx) == 0 ) {
-                    borrowRcWrap2 = true;
-                  }
-                }
+                const borrowRcWrap2 = this.rustArgNeedsCellWrap(
+                  arg_1,
+                  nVal_1,
+                  ctx
+                );
                 if ( borrowRcWrap2 ) {
                   wr.out("Rc::new(RefCell::new(", false);
                 }
@@ -39818,12 +40042,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                   if ( this.rustArgIsAlreadyRef(nVal_2) == false ) {
                     wr.out("&", false);
                   }
-                  let stRcWrap = false;
-                  if ( arg_2.rust_needs_rc_wrap ) {
-                    if ( this.rustInitRcState(nVal_2, ctx) == 0 ) {
-                      stRcWrap = true;
-                    }
-                  }
+                  const stRcWrap = this.rustArgNeedsCellWrap(
+                    arg_2,
+                    nVal_2,
+                    ctx
+                  );
                   if ( stRcWrap ) {
                     wr.out("Rc::new(RefCell::new(", false);
                   }
@@ -39837,11 +40060,18 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                   }
                 }
               } else {
+                const byValWrap = this.rustArgNeedsCellWrap(arg_2, nVal_2, ctx);
+                if ( byValWrap ) {
+                  wr.out("Rc::new(RefCell::new(", false);
+                }
                 ctx.setInExpr();
                 wr.suppress_expr_parens = true;
                 this.WalkNode(nVal_2, ctx, wr);
                 wr.suppress_expr_parens = false;
                 ctx.unsetInExpr();
+                if ( byValWrap ) {
+                  wr.out("))", false);
+                }
                 const argNameN_1 = arg_2.nameNode;
                 let arg_type_1 = argNameN_1.value_type;
                 if ( (arg_type_1 == 10 || arg_type_1 == 11) || arg_type_1 == 0 ) {
@@ -39986,11 +40216,18 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                   if ( this.rustArgIsAlreadyRef(nVal_3) == false ) {
                     wr.out("&", false);
                   }
+                  const ib3Wrap = this.rustArgNeedsCellWrap(arg_3, nVal_3, ctx);
+                  if ( ib3Wrap ) {
+                    wr.out("Rc::new(RefCell::new(", false);
+                  }
                   ctx.setInExpr();
                   wr.suppress_expr_parens = true;
                   this.WalkNode(nVal_3, ctx, wr);
                   wr.suppress_expr_parens = false;
                   ctx.unsetInExpr();
+                  if ( ib3Wrap ) {
+                    wr.out("))", false);
+                  }
                 }
               } else {
                 const stdCellWrap = this.rustArgNeedsCellWrap(
@@ -40199,12 +40436,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               if ( this.rustArgIsAlreadyRef(nVal_4) == false ) {
                 wr.out("&", false);
               }
-              let borrowNeedsRcWrap = false;
-              if ( arg_4.rust_needs_rc_wrap ) {
-                if ( this.rustInitRcState(nVal_4, ctx) == 0 ) {
-                  borrowNeedsRcWrap = true;
-                }
-              }
+              const borrowNeedsRcWrap = this.rustArgNeedsCellWrap(
+                arg_4,
+                nVal_4,
+                ctx
+              );
               if ( borrowNeedsRcWrap ) {
                 wr.out("Rc::new(RefCell::new(", false);
               }
@@ -40290,7 +40526,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                   wr.out("panic!(\"Cannot pass 'this' to trait-type parameter in Rust. Object must be externally wrapped in Rc<RefCell<...>>\")", false);
                 }
               } else {
-                const needs_rc_wrap = arg_4.rust_needs_rc_wrap;
+                const needs_rc_wrap = arg_4.rust_needs_rc_wrap || this.rustArgNeedsCellWrap(
+                  arg_4,
+                  nVal_4,
+                  ctx
+                );
                 let value_already_rc_wrapped = false;
                 if ( needs_rc_wrap ) {
                   if ( nVal_4.value_type == 11 ) {
@@ -41130,9 +41370,6 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     return true;
   };
   rustArgNeedsCellWrap (arg, nVal, ctx) {
-    if ( arg.rust_needs_rc_wrap == false ) {
-      return false;
-    }
     const acNN = arg.nameNode;
     if ( typeof(acNN) === "undefined" ) {
       return false;
@@ -41141,7 +41378,32 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     if ( acN.array_type.length > 0 || acN.key_type.length > 0 ) {
       return false;
     }
+    if ( arg.rust_needs_rc_wrap == false ) {
+      if ( nVal.hasNewOper && this.rustClassIsShared(acN.type_name, ctx) ) {
+        return true;
+      }
+      return false;
+    }
     return this.rustInitRcState(nVal, ctx) == 0;
+  };
+  rustSubtreeNames (n, name) {
+    if ( n.expression == false && n.value_type == 11 ) {
+      if ( n.vref == name ) {
+        return true;
+      }
+      if ( n.ns.length > 0 ) {
+        if ( n.ns[0] == name ) {
+          return true;
+        }
+      }
+    }
+    // Loop start
+    for ( const ch of n.children) {
+      if ( this.rustSubtreeNames(ch, name) ) {
+        return true;
+      }
+    }
+    return false;
   };
   rustWalkOperand (n, ctx, wr) {
     if ( n.rust_use_tmpvar.length > 0 ) {
@@ -41597,10 +41859,20 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         this.WriteVRef(left, ctx, wr);
         this.rust_in_cell_assign = false;
         ctx.unsetInLhs();
+        let cellVal = cellTmp;
+        let cellOpt = true;
+        if ( (cellCopy || this.rustCellIsString(cellLP)) || this.rustCellIsCollection(cellLP) ) {
+          cellOpt = false;
+        }
+        if ( cellOpt ) {
+          if ( right.hasFlag("optional") == false && this.rustExprIsOptional(right, ctx) == false ) {
+            cellVal = ("Some(" + cellTmp) + ")";
+          }
+        }
         if ( cellCopy ) {
-          wr.out((".set(" + cellTmp) + "); }", true);
+          wr.out((".set(" + cellVal) + "); }", true);
         } else {
-          wr.out((".replace(" + cellTmp) + "); }", true);
+          wr.out((".replace(" + cellVal) + "); }", true);
         }
         return;
       }
@@ -41653,6 +41925,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         if ( (typeof(nameN) !== "undefined" && nameN != null )  ) {
           const nn = nameN;
           field_type_name = nn.type_name;
+          if ( is_optional == false && pp.is_class_variable == false ) {
+            if ( nn.hasFlag("optional") ) {
+              is_optional = true;
+            }
+          }
           if ( is_optional ) {
             if ( nn.array_type.length > 0 || nn.key_type.length > 0 ) {
               is_optional = false;
@@ -42019,6 +42296,19 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           }
         }
         if ( preevalWroteUnion == false ) {
+          let preevalRcWrap = false;
+          if ( is_optional == false && left_is_trait_type == false ) {
+            if ( this.rustClassIsShared(field_type_name, ctx) ) {
+              if ( this.rustLhsHoldsRc(left) ) {
+                if ( this.rustInitRcState(right, ctx) == 0 ) {
+                  preevalRcWrap = true;
+                }
+              }
+            }
+          }
+          if ( preevalRcWrap ) {
+            wr.out("Rc::new(RefCell::new(", false);
+          }
           this.WalkNode(right, ctx, wr);
           if ( should_clone_rhs ) {
             if ( rhs_str_ref ) {
@@ -42026,6 +42316,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             } else {
               wr.out(".clone()", false);
             }
+          }
+          if ( preevalRcWrap ) {
+            wr.out("))", false);
           }
         }
         ctx.unsetInExpr();
@@ -42638,6 +42931,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             }
           }
         }
+        if ( this.rustSliceRefRead(retVal) ) {
+          ret_to_vec = true;
+        }
         if ( ret_to_vec ) {
           wr.out(".to_vec()", false);
         } else {
@@ -42786,6 +43082,28 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     if ( cmd == "push" ) {
       const left_1 = node.getSecond();
       const right_1 = node.getThird();
+      if ( ctx.expressionLevel() == 0 && right_1.rust_use_tmpvar.length == 0 ) {
+        this.rustExtractSelfCallConflicts(right_1, ctx, wr);
+      }
+      if ( ctx.expressionLevel() == 0 && right_1.rust_use_tmpvar.length == 0 ) {
+        if ( this.rustNodeContainsCall(right_1) ) {
+          let pushRoot = left_1.vref;
+          if ( left_1.ns.length > 0 ) {
+            pushRoot = left_1.ns[0];
+          }
+          if ( pushRoot.length > 0 ) {
+            if ( this.rustSubtreeNames(right_1, pushRoot) ) {
+              const pushTmp = ctx.rustGetTempVar();
+              wr.out(("let " + pushTmp) + " = ", false);
+              ctx.setInExpr();
+              this.WalkNode(right_1, ctx, wr);
+              ctx.unsetInExpr();
+              wr.out(";", true);
+              right_1.rust_use_tmpvar = pushTmp;
+            }
+          }
+        }
+      }
       let arr_type = "";
       if ( left_1.hasParamDesc ) {
         const pp_2 = left_1.paramDesc;
@@ -43233,6 +43551,12 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         return true;
       }
     }
+    if ( fcbRoot == "this" || ctx.isMemberVariable(fcbRoot) ) {
+      const fcbFn = ctx.getCurrentMethod();
+      if ( fcbFn.rust_mut_self ) {
+        return true;
+      }
+    }
     const fcbCls = ctx.getCurrentClass();
     let fcbI = 0;
     while (fcbI < fcbN - 1) {
@@ -43663,9 +43987,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustNeedsCollapsibleIf (ctx) {
     const ciRoot = ctx.getRoot();
-    for( var ciCi in ciRoot.tables.definedClasses) {
-      if(ciRoot.tables.definedClasses.hasOwnProperty(ciCi)) {
-        var ciCl = ciRoot.tables.definedClasses[ciCi] 
+    for( var ciCi in ciRoot.definedClasses) {
+      if(ciRoot.definedClasses.hasOwnProperty(ciCi)) {
+        var ciCl = ciRoot.definedClasses[ciCi] 
         if ( this.rustClassIsEmitted(ciCl) == false ) {
           continue;
         }
@@ -43714,9 +44038,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustNeedsPtrArg (ctx) {
     const paRoot = ctx.getRoot();
-    for( var paCi in paRoot.tables.definedClasses) {
-      if(paRoot.tables.definedClasses.hasOwnProperty(paCi)) {
-        var paCl = paRoot.tables.definedClasses[paCi] 
+    for( var paCi in paRoot.definedClasses) {
+      if(paRoot.definedClasses.hasOwnProperty(paCi)) {
+        var paCl = paRoot.definedClasses[paCi] 
         if ( this.rustClassIsEmitted(paCl) == false ) {
           continue;
         }
@@ -43860,9 +44184,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustNeedsUnusedAssignments (ctx) {
     const uaRoot = ctx.getRoot();
-    for( var uaCi in uaRoot.tables.definedClasses) {
-      if(uaRoot.tables.definedClasses.hasOwnProperty(uaCi)) {
-        var uaCl = uaRoot.tables.definedClasses[uaCi] 
+    for( var uaCi in uaRoot.definedClasses) {
+      if(uaRoot.definedClasses.hasOwnProperty(uaCi)) {
+        var uaCl = uaRoot.definedClasses[uaCi] 
         if ( this.rustClassIsEmitted(uaCl) == false ) {
           continue;
         }
@@ -43884,9 +44208,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustNeedsUnusedVariables (ctx) {
     const uvRoot = ctx.getRoot();
-    for( var uvCi in uvRoot.tables.definedClasses) {
-      if(uvRoot.tables.definedClasses.hasOwnProperty(uvCi)) {
-        var uvCl = uvRoot.tables.definedClasses[uvCi] 
+    for( var uvCi in uvRoot.definedClasses) {
+      if(uvRoot.definedClasses.hasOwnProperty(uvCi)) {
+        var uvCl = uvRoot.definedClasses[uvCi] 
         if ( this.rustClassIsEmitted(uvCl) == false ) {
           continue;
         }
@@ -43918,9 +44242,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustNeedsTooManyArgs (ctx) {
     const tmaRoot = ctx.getRoot();
-    for( var tmaCi in tmaRoot.tables.definedClasses) {
-      if(tmaRoot.tables.definedClasses.hasOwnProperty(tmaCi)) {
-        var tmaCl = tmaRoot.tables.definedClasses[tmaCi] 
+    for( var tmaCi in tmaRoot.definedClasses) {
+      if(tmaRoot.definedClasses.hasOwnProperty(tmaCi)) {
+        var tmaCl = tmaRoot.definedClasses[tmaCi] 
         if ( this.rustClassIsEmitted(tmaCl) == false ) {
           continue;
         }
@@ -43950,14 +44274,14 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       return true;
     }
     // Loop start
-    for ( const tName of root.tables.definedClassList) {
+    for ( const tName of root.definedClassList) {
       if ( this.rustTraitIsInterface(tName, ctx) ) {
         return true;
       }
     }
-    for( var ci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.tables.definedClasses[ci] 
+    for( var ci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.definedClasses[ci] 
         if ( (((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
           continue;
         }
@@ -44181,6 +44505,26 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       return "";
     }
     return want;
+  };
+  rustCallsSelfRcMethod (node) {
+    if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+      if ( node.children.length > 0 ) {
+        const fc = node.children[0];
+        if ( fc.ns.length == 2 && fc.ns[0] == "this" ) {
+          const fd = node.fnDesc;
+          if ( fd.rust_needs_self_rc ) {
+            return true;
+          }
+        }
+      }
+    }
+    // Loop start
+    for ( const ch of node.children) {
+      if ( this.rustCallsSelfRcMethod(ch) ) {
+        return true;
+      }
+    }
+    return false;
   };
   writeSelfRcReceiverArg (node, fc, ctx, wr) {
     if ( typeof(node.fnDesc) === "undefined" ) {
@@ -44560,9 +44904,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   rustHeaderHelperNeeds (ctx) {
     let res = 0;
     const root = ctx.getRoot();
-    for( var ci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.tables.definedClasses[ci] 
+    for( var ci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.definedClasses[ci] 
         if ( (((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
           continue;
         }
@@ -44657,9 +45001,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       }
       let anyWeakField = false;
       const hdrRoot = ctx.getRoot();
-      for( var hci in hdrRoot.tables.definedClasses) {
-        if(hdrRoot.tables.definedClasses.hasOwnProperty(hci)) {
-          var hcl = hdrRoot.tables.definedClasses[hci] 
+      for( var hci in hdrRoot.definedClasses) {
+        if(hdrRoot.definedClasses.hasOwnProperty(hci)) {
+          var hcl = hdrRoot.definedClasses[hci] 
           const hclSpecial = ((((hcl.is_system || hcl.is_trait) || hcl.is_template) || hcl.is_operator_class) || hcl.is_generic_instance) || hcl.is_union;
           if ( hclSpecial == false ) {
             // Loop start
@@ -44686,8 +45030,8 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       }
       const hdrTraitRoot = ctx.getRoot();
       // Loop start
-      for ( let hti = 0; hti < hdrTraitRoot.tables.definedClassList.length; hti++) {
-        var htName = hdrTraitRoot.tables.definedClassList[hti];
+      for ( let hti = 0; hti < hdrTraitRoot.definedClassList.length; hti++) {
+        var htName = hdrTraitRoot.definedClassList[hti];
         if ( this.rustTraitIsInterface(htName, ctx) ) {
           const htc = hdrTraitRoot.findClass(htName);
           header.out("", true);
@@ -44727,7 +45071,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           for ( let hmi = 0; hmi < Object.keys(heDef.values).length; hmi++) {
             var hmn = Object.keys(heDef.values)[hmi];
             const hmv = ( Object.prototype.hasOwnProperty.call(heDef.values, hmn) ? heDef.values[hmn] : undefined );
-            const heLine = (("    " + hmn) + " = ") + (hmv.toString());
+            const heLine = (("    " + hmn) + " = ") + ((hmv).toString());
             header.out(heLine + ",", true);
           }
           header.out("}", true);
@@ -44981,16 +45325,16 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         mutChanged = false;
         this.rust_field_call_mut_ready = mutPass > 0;
         if ( mutPass > 0 ) {
-          for( var rci in hdrRoot.tables.definedClasses) {
-            if(hdrRoot.tables.definedClasses.hasOwnProperty(rci)) {
-              var rcl = hdrRoot.tables.definedClasses[rci] 
+          for( var rci in hdrRoot.definedClasses) {
+            if(hdrRoot.definedClasses.hasOwnProperty(rci)) {
+              var rcl = hdrRoot.definedClasses[rci] 
               rcl.rust_trait_mut_ready = false;
             }
           };
         }
-        for( var mci in hdrRoot.tables.definedClasses) {
-          if(hdrRoot.tables.definedClasses.hasOwnProperty(mci)) {
-            var mcl = hdrRoot.tables.definedClasses[mci] 
+        for( var mci in hdrRoot.definedClasses) {
+          if(hdrRoot.definedClasses.hasOwnProperty(mci)) {
+            var mcl = hdrRoot.definedClasses[mci] 
             const mclSpecial = ((((mcl.is_system || mcl.is_trait) || mcl.is_template) || mcl.is_operator_class) || mcl.is_generic_instance) || mcl.is_union;
             const mclTraitRel = mcl.is_extended_by_children || mcl.extends_classes.length > 0;
             if ( mclSpecial == false ) {
@@ -45102,9 +45446,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         mutPass = mutPass + 1;
       };
       this.rust_field_call_mut_ready = true;
-      for( var aCi in hdrRoot.tables.definedClasses) {
-        if(hdrRoot.tables.definedClasses.hasOwnProperty(aCi)) {
-          var aCl = hdrRoot.tables.definedClasses[aCi] 
+      for( var aCi in hdrRoot.definedClasses) {
+        if(hdrRoot.definedClasses.hasOwnProperty(aCi)) {
+          var aCl = hdrRoot.definedClasses[aCi] 
           this.alignTraitSelfRcNeeds(aCl, ctx);
         }
       };
@@ -45316,6 +45660,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       wr.out("};", true);
       wr.newline();
       const constr_1 = cl.constructor_fn;
+      let ctorViaRc = false;
       if ( (typeof(constr_1) !== "undefined" && constr_1 != null )  ) {
         const c_1 = constr_1;
         const subCtx = c_1.fnCtx;
@@ -45323,10 +45668,27 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           const sCtx = subCtx;
           sCtx.is_function = true;
           const fnB = c_1.fnBody;
-          this.WalkNode(fnB, sCtx, wr);
+          if ( this.rustClassIsShared(cl.name, ctx) && this.rustCallsSelfRcMethod(fnB) ) {
+            ctorViaRc = true;
+            wr.out("let __self_cell = Rc::new(RefCell::new(me));", true);
+            wr.out("let __self_rc = &__self_cell;", true);
+            const wasRl = this.rust_receiverless_method;
+            const wasNeeds = c_1.rust_needs_self_rc;
+            this.rust_receiverless_method = true;
+            c_1.rust_needs_self_rc = true;
+            this.WalkNode(fnB, sCtx, wr);
+            this.rust_receiverless_method = wasRl;
+            c_1.rust_needs_self_rc = wasNeeds;
+          } else {
+            this.WalkNode(fnB, sCtx, wr);
+          }
         }
       }
-      wr.out("me", true);
+      if ( ctorViaRc ) {
+        wr.out(("match Rc::try_unwrap(__self_cell) { Ok(c) => c.into_inner(), Err(_) => panic!(\"" + cl.name) + "'s constructor kept `this`\") }", true);
+      } else {
+        wr.out("me", true);
+      }
     } else {
       wr.out("}", true);
     }
@@ -45833,9 +46195,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustProgramHasMainFlag (ctx) {
     const root = ctx.getRoot();
-    for( var rci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(rci)) {
-        var rcl = root.tables.definedClasses[rci] 
+    for( var rci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(rci)) {
+        var rcl = root.definedClasses[rci] 
         // Loop start
         for ( const sm of rcl.static_methods) {
           const smNN = sm.nameNode;
@@ -45875,7 +46237,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           if ( ctx.isDefinedClass(cbcT) ) {
             const tc = ctx.findClass(cbcT);
             if ( tc.is_extended_by_children ) {
-              return true;
+              continue;
             }
             if ( this.rustClassIsShared(cbcT, ctx) == false ) {
               if ( tc.name != cl.name ) {
@@ -46002,9 +46364,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       return false;
     }
     const rootCtx = ctx.getRoot();
-    for( var uci in rootCtx.tables.definedClasses) {
-      if(rootCtx.tables.definedClasses.hasOwnProperty(uci)) {
-        var ucl = rootCtx.tables.definedClasses[uci] 
+    for( var uci in rootCtx.definedClasses) {
+      if(rootCtx.definedClasses.hasOwnProperty(uci)) {
+        var ucl = rootCtx.definedClasses[uci] 
         if ( this.unionIsSealable(ucl, ctx) ) {
           if ( ucl.is_union_of.indexOf(cl.name) >= 0 ) {
             return true;
@@ -46127,7 +46489,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   }
   ktEnumIsNative (enumName, ctx) {
     this.ktEnums.targetName = "kotlin";
-    this.ktEnums.fallbackType = "Int";
+    this.ktEnums.fallbackType = "Long";
     return this.ktEnums.isNative(enumName, ctx);
   };
   writeKotlinNativeEnums (ctx, wr) {
@@ -46212,11 +46574,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         wr.out(("\"" + s) + "\"", false);
         break;
       case 3 : 
-        if ( node.int_value > 2147483647 || node.int_value < (0 - 2147483647) - 1 ) {
-          wr.out(("(" + node.int_value) + "L).toInt()", false);
-        } else {
-          wr.out("" + node.int_value, false);
-        }
+        wr.out(("" + node.int_value) + "L", false);
         break;
       case 5 : 
         if ( node.boolean_value ) {
@@ -46297,7 +46655,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     }
     switch (type_string ) { 
       case "int" : 
-        return "Int";
+        return "Long";
       case "string" : 
         return "String";
       case "chararray" : 
@@ -46309,14 +46667,14 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       case "double_buffer" : 
         return "DoubleArray";
       case "char" : 
-        return "Int";
+        return "Long";
       case "boolean" : 
         return "Boolean";
       case "double" : 
         return "Double";
     };
     if ( ctx.isEnumDefined(type_string) ) {
-      return "Int";
+      return "Long";
     }
     return type_string;
   };
@@ -46350,7 +46708,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   getTypeString (type_string) {
     switch (type_string ) { 
       case "int" : 
-        return "Int";
+        return "Long";
       case "string" : 
         return "String";
       case "chararray" : 
@@ -46362,7 +46720,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       case "double_buffer" : 
         return "DoubleArray";
       case "char" : 
-        return "Int";
+        return "Long";
       case "boolean" : 
         return "Boolean";
       case "double" : 
@@ -46409,17 +46767,17 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         if ( this.ktEnumIsNative(ktEnumName, ctx) ) {
           wr.out(ktEnumName, false);
         } else {
-          wr.out("Int", false);
+          wr.out("Long", false);
         }
         break;
       case 3 : 
-        wr.out("Int", false);
+        wr.out("Long", false);
         break;
       case 2 : 
         wr.out("Double", false);
         break;
       case 14 : 
-        wr.out("Int", false);
+        wr.out("Long", false);
         break;
       case 15 : 
         wr.out("ByteArray", false);
@@ -46516,7 +46874,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
             wr.out((rootObjName + ".") + ctx.transformWord(enumName), false);
             return;
           }
-          wr.out("" + ( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined ), false);
+          wr.out(("" + ( Object.prototype.hasOwnProperty.call(e.values, enumName) ? e.values[enumName] : undefined )) + "L", false);
           return;
         }
       }
@@ -47319,9 +47677,9 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     }
     wr.out("for ( ", false);
     this.ktWriteOperand(idx, ctx, wr);
-    wr.out(" in ", false);
+    wr.out(" in 0L until ", false);
     this.ktWriteOperand(coll, ctx, wr);
-    wr.out(".indices ) {", true);
+    wr.out(".size.toLong() ) {", true);
     wr.indent(1);
     wr.out("val ", false);
     this.ktWriteOperand(item, ctx, wr);
@@ -47329,7 +47687,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     this.ktWriteOperand(coll, ctx, wr);
     wr.out("[", false);
     this.ktWriteOperand(idx, ctx, wr);
-    wr.out("]", true);
+    wr.out(".toInt()]", true);
     const sCtx = ctx.fork();
     sCtx.restartExpressionLevel();
     this.WalkNode(body, sCtx, wr);
@@ -48498,7 +48856,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
         for ( let cmi = 0; cmi < Object.keys(ceDef.values).length; cmi++) {
           var cmn = Object.keys(ceDef.values)[cmi];
           const cmv = ( Object.prototype.hasOwnProperty.call(ceDef.values, cmn) ? ceDef.values[cmn] : undefined );
-          wr.out(((ctx.transformWord(cmn) + " = ") + (cmv.toString())) + ",", true);
+          wr.out(((ctx.transformWord(cmn) + " = ") + ((cmv).toString())) + ",", true);
         }
         wr.indent(-1);
         wr.out("}", true);
@@ -50178,7 +50536,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
         for ( let smi = 0; smi < Object.keys(seDef.values).length; smi++) {
           var smn = Object.keys(seDef.values)[smi];
           const smv = ( Object.prototype.hasOwnProperty.call(seDef.values, smn) ? seDef.values[smn] : undefined );
-          wr.out(((((("case object " + ctx.transformWord(smn)) + " extends ") + sen) + "(") + (smv.toString())) + ")", true);
+          wr.out(((((("case object " + ctx.transformWord(smn)) + " extends ") + sen) + "(") + ((smv).toString())) + ")", true);
         }
         wr.indent(-1);
         wr.out("}", true);
@@ -50509,7 +50867,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             gen,
             gmn,
             ctx
-          ) + " ") + gen) + " = ") + (gmv.toString()), true);
+          ) + " ") + gen) + " = ") + ((gmv).toString()), true);
         }
         wr.indent(-1);
         wr.out(")", true);
@@ -51922,7 +52280,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           }
         }
         if ( false == wroteUnion ) {
+          ctx.setInExpr();
           this.WalkNode(n, ctx, wr);
+          ctx.unsetInExpr();
         }
       }
       wr.out(")", false);
@@ -52064,25 +52424,13 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     const item = node.children[2];
     const idx = node.children[3];
     const body = node.children[4];
-    const once = (coll.vref.length == 0 && coll.ns.length == 0) && idx.vref.length > 0;
-    let collName = "";
-    if ( once ) {
-      collName = idx.vref + "_of";
-      wr.out(collName + " := ", false);
-      this.goWriteOperand(coll, ctx, wr);
-      wr.newline();
-    }
     wr.out("var ", false);
     this.goWriteOperand(idx, ctx, wr);
     wr.out(" int64 = 0;  ", true);
     wr.out("for ; ", false);
     this.goWriteOperand(idx, ctx, wr);
     wr.out(" < int64(len(", false);
-    if ( once ) {
-      wr.out(collName, false);
-    } else {
-      this.goWriteOperand(coll, ctx, wr);
-    }
+    this.goWriteOperand(coll, ctx, wr);
     wr.out(")) ; ", false);
     this.goWriteOperand(idx, ctx, wr);
     wr.out("++ {", true);
@@ -52092,11 +52440,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       if ( this.goLoops.treeMentions(body, itemName) ) {
         this.goWriteOperand(item, ctx, wr);
         wr.out(" := ", false);
-        if ( once ) {
-          wr.out(collName, false);
-        } else {
-          this.goWriteOperand(coll, ctx, wr);
-        }
+        this.goWriteOperand(coll, ctx, wr);
         wr.out("[", false);
         this.goWriteOperand(idx, ctx, wr);
         wr.out("]", true);
@@ -52111,6 +52455,40 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
   CustomOperator (node, ctx, wr) {
     const fc = node.getFirst();
     const cmd = fc.vref;
+    if ( cmd == "set_at" ) {
+      const arr = node.getSecond();
+      const idx = node.getThird();
+      const val = node.children[3];
+      let elemType = "";
+      if ( arr.hasParamDesc ) {
+        const arrDesc = arr.paramDesc;
+        const arrNN = arrDesc.nameNode;
+        if ( (typeof(arrNN) !== "undefined" && arrNN != null )  ) {
+          const arrNode = arrNN;
+          elemType = arrNode.array_type;
+        }
+      }
+      if ( elemType.length == 0 ) {
+        elemType = arr.eval_array_type;
+      }
+      ctx.setInExpr();
+      this.WalkNode(arr, ctx, wr);
+      wr.out("[", false);
+      this.WalkNode(idx, ctx, wr);
+      wr.out("] = ", false);
+      let wrote = false;
+      if ( elemType.length > 0 ) {
+        wrote = this.goWriteUnionValue(elemType, val, ctx, wr);
+      }
+      if ( wrote == false ) {
+        this.WalkNode(val, ctx, wr);
+      }
+      ctx.unsetInExpr();
+      if ( ctx.expressionLevel() == 0 ) {
+        wr.newline();
+      }
+      return;
+    }
     if ( cmd == "for" ) {
       this.goWriteForLoop(node, ctx, wr);
       return;
@@ -52577,9 +52955,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
   };
   goProgramUsesOptional (ctx) {
     const root = ctx.getRoot();
-    for( var i in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(i)) {
-        var cl = root.tables.definedClasses[i] 
+    for( var i in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(i)) {
+        var cl = root.definedClasses[i] 
         if ( (((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
           continue;
         }
@@ -52670,9 +53048,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     this.go_slice_ptr_ready = true;
     const root = ctx.getRoot();
     const keys = this.goSliceKeys;
-    for( var ci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.tables.definedClasses[ci] 
+    for( var ci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.definedClasses[ci] 
         this.goSlicePtrScan(cl, cl.methods, "m", keys, false);
         this.goSlicePtrScan(cl, cl.static_methods, "s", keys, false);
         if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
@@ -52682,9 +53060,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
       }
     };
-    for( var ci_1 in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ci_1)) {
-        var cl_1 = root.tables.definedClasses[ci_1] 
+    for( var ci_1 in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci_1)) {
+        var cl_1 = root.definedClasses[ci_1] 
         this.goSlicePtrScan(cl_1, cl_1.methods, "m", keys, true);
         this.goSlicePtrScan(cl_1, cl_1.static_methods, "s", keys, true);
         if ( (typeof(cl_1.constructor_fn) !== "undefined" && cl_1.constructor_fn != null )  ) {
@@ -52826,60 +53204,6 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             this.writeTypeDef(variant.nameNode, ctx, wr);
           }
           wr.out("", true);
-        }
-      }
-      let ifVariable = {};
-      // Loop start
-      for ( const ownVar of cl.variables) {
-        ifVariable[ownVar.name] = true;
-      }
-      // Loop start
-      for ( let ipi = 0; ipi < this.goAncestors(cl, ctx).length; ipi++) {
-        var ifParent = this.goAncestors(cl, ctx)[ipi];
-        const ipC = ctx.findClass(ifParent);
-        // Loop start
-        for ( const ip of ipC.variables) {
-          if ( ( typeof(ifVariable[ip.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(ifVariable, ip.name) ) ) {
-            continue;
-          }
-          ifVariable[ip.name] = true;
-          wr.out("Get_", false);
-          wr.out(ip.compiledName + "() ", false);
-          if ( ip.nameNode.hasFlag("optional") ) {
-            wr.out("*GoNullable", false);
-          } else {
-            this.writeTypeDef(ip.nameNode, ctx, wr);
-          }
-          wr.out("", true);
-          wr.out("Set_", false);
-          wr.out(ip.compiledName + "(value ", false);
-          if ( ip.nameNode.hasFlag("optional") ) {
-            wr.out("*GoNullable", false);
-          } else {
-            this.writeTypeDef(ip.nameNode, ctx, wr);
-          }
-          wr.out(") ", true);
-        }
-        // Loop start
-        for ( let ipf = 0; ipf < ipC.defined_variants.length; ipf++) {
-          var ipFn = ipC.defined_variants[ipf];
-          const ipVs = ( Object.prototype.hasOwnProperty.call(ipC.method_variants, ipFn) ? ipC.method_variants[ipFn] : undefined );
-          // Loop start
-          for ( const ipVariant of ipVs.variants) {
-            if ( ( typeof(declaredIfFunction[ipVariant.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredIfFunction, ipVariant.name) ) ) {
-              continue;
-            }
-            declaredIfFunction[ipVariant.name] = true;
-            wr.out(ipVariant.compiledName + "(", false);
-            this.writeArgsDef(ipVariant, ctx, wr);
-            wr.out(") ", false);
-            if ( ipVariant.nameNode.hasFlag("optional") ) {
-              wr.out("*GoNullable", false);
-            } else {
-              this.writeTypeDef(ipVariant.nameNode, ctx, wr);
-            }
-            wr.out("", true);
-          }
         }
       }
       wr.indent(-1);
@@ -53306,7 +53630,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
         for ( let pmi = 0; pmi < Object.keys(peDef.values).length; pmi++) {
           var pmn = Object.keys(peDef.values)[pmi];
           const pmv = ( Object.prototype.hasOwnProperty.call(peDef.values, pmn) ? peDef.values[pmn] : undefined );
-          wr.out(((("case " + ctx.transformWord(pmn)) + " = ") + (pmv.toString())) + ";", true);
+          wr.out(((("case " + ctx.transformWord(pmn)) + " = ") + ((pmv).toString())) + ";", true);
         }
         wr.indent(-1);
         wr.out("}", true);
@@ -54227,7 +54551,7 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
         for ( let pmi = 0; pmi < Object.keys(peDef.values).length; pmi++) {
           var pmn = Object.keys(peDef.values)[pmi];
           const pmv = ( Object.prototype.hasOwnProperty.call(peDef.values, pmn) ? peDef.values[pmn] : undefined );
-          wr.out((ctx.transformWord(pmn) + " = ") + (pmv.toString()), true);
+          wr.out((ctx.transformWord(pmn) + " = ") + ((pmv).toString()), true);
         }
         wr.indent(-1);
         wr.out("", true);
@@ -55518,7 +55842,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
   };
   CreateTsUnions (parser, ctx, wr) {
     const root = ctx.getRoot();
-    operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       if ( this.unionIsSealable(item, ctx) ) {
         wr.out(("type union_" + index) + " = ", false);
         wr.indent(1);
@@ -56203,7 +56527,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         for ( let tmi = 0; tmi < Object.keys(teDef.values).length; tmi++) {
           var tmn = Object.keys(teDef.values)[tmi];
           const tmv = ( Object.prototype.hasOwnProperty.call(teDef.values, tmn) ? teDef.values[tmn] : undefined );
-          wr.out(((ctx.transformWord(tmn) + " = ") + (tmv.toString())) + ",", true);
+          wr.out(((ctx.transformWord(tmn) + " = ") + ((tmv).toString())) + ",", true);
         }
         wr.indent(-1);
         wr.out("}", true);
@@ -56480,7 +56804,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
       if ( (ctx.hasCompilerFlag("nodemodule") && this.target_typescript == false) && this.target_esm == false ) {
         const root = ctx.getRoot();
-        operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+        operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
           if ( ctx.hasCompilerFlag("dead4main") || ctx.hasCompilerSetting("dceclass") ) {
             if ( item.is_used_by_main == false ) {
               return;
@@ -57005,6 +57329,9 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
     super()
     this.compiler = undefined;     /* note: unused */
   }
+  formatterEnabled (ctx) {
+    return false;
+  };
   adjustType (tn) {
     if ( tn == "this" ) {
       return "this";
@@ -61247,10 +61574,10 @@ class LowIRBuilderPass  {
   };
   fieldArrayElemType (className, fieldName, lctx) {
     const appCtx = lctx.ctx;
-    if ( false == ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) ) {
+    if ( false == ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) ) {
       return "";
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
     const allVars = this.collectStructVars(cl, appCtx);
     // Loop start
     for ( const v of allVars) {
@@ -61510,10 +61837,10 @@ class LowIRBuilderPass  {
   };
   initFieldDefaultsInObject (className, objPtr, lctx) {
     const appCtx = lctx.ctx;
-    if ( false == ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) ) {
+    if ( false == ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) ) {
       return;
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
     const allVars = this.collectStructVars(cl, appCtx);
     // Loop start
     for ( const v of allVars) {
@@ -61592,10 +61919,10 @@ class LowIRBuilderPass  {
     if ( fnDesc.name != "Constructor" ) {
       return false;
     }
-    if ( ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) == false ) {
+    if ( ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) == false ) {
       return false;
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
     return cl.has_constructor;
   };
   isClassField (fieldName, className, module) {
@@ -62302,10 +62629,10 @@ class LowIRBuilderPass  {
     if ( depth > 16 ) {
       return false;
     }
-    if ( ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) == false ) {
+    if ( ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) == false ) {
       return false;
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
     // Loop start
     for ( const b of cl.extends_classes) {
       if ( b == baseName ) {
@@ -65427,7 +65754,7 @@ class LowIRBuilderPass  {
         this.ensureIMapExterns();
         let ikArgs = [];
         let ikTypes = [];
-        ikArgs.push(lctx.builder.emitConst("i32", (this.imapValueOwnKind(nameNode.array_type).toString())));
+        ikArgs.push(lctx.builder.emitConst("i32", ((this.imapValueOwnKind(nameNode.array_type)).toString())));
         ikTypes.push("i32");
         const newIMap = lctx.builder.emitCall(
           "RtIMap_new_kind",
@@ -66342,10 +66669,10 @@ class LowIRBuilderPass  {
   };
   fieldObjectClassName (className, fieldName, lctx) {
     const appCtx = lctx.ctx;
-    if ( false == ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) ) {
+    if ( false == ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) ) {
       return "";
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
     const allVars = this.collectStructVars(cl, appCtx);
     // Loop start
     for ( const v of allVars) {
@@ -66356,7 +66683,7 @@ class LowIRBuilderPass  {
         const nn = v.nameNode;
         const tn = nn.type_name;
         if ( tn.length > 0 ) {
-          if ( ( typeof(appCtx.tables.definedClasses[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, tn) ) ) {
+          if ( ( typeof(appCtx.definedClasses[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, tn) ) ) {
             return tn;
           }
         }
@@ -66377,19 +66704,19 @@ class LowIRBuilderPass  {
     const sec = node.getSecond();
     const nm = sec.vref;
     if ( nm.length > 0 ) {
-      if ( ( typeof(appCtx.tables.definedClasses[nm] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, nm) ) ) {
+      if ( ( typeof(appCtx.definedClasses[nm] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, nm) ) ) {
         return nm;
       }
     }
     const tn = node.eval_type_name;
     if ( tn.length > 0 ) {
-      if ( ( typeof(appCtx.tables.definedClasses[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, tn) ) ) {
+      if ( ( typeof(appCtx.definedClasses[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, tn) ) ) {
         return tn;
       }
     }
     const tn2 = node.type_name;
     if ( tn2.length > 0 ) {
-      if ( ( typeof(appCtx.tables.definedClasses[tn2] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, tn2) ) ) {
+      if ( ( typeof(appCtx.definedClasses[tn2] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, tn2) ) ) {
         return tn2;
       }
     }
@@ -66415,7 +66742,7 @@ class LowIRBuilderPass  {
           const imVal = this.fieldArrayElemType(className, f.name, lctx);
           let imArgs = [];
           let imTypes = [];
-          imArgs.push(lctx.builder.emitConst("i32", (this.imapValueOwnKind(imVal).toString())));
+          imArgs.push(lctx.builder.emitConst("i32", ((this.imapValueOwnKind(imVal)).toString())));
           imTypes.push("i32");
           const im = lctx.builder.emitCall(
             "RtIMap_new_kind",
@@ -66553,8 +66880,8 @@ class LowIRBuilderPass  {
     let ctorDesc;
     if ( (typeof(lctx.ctx) !== "undefined" && lctx.ctx != null )  ) {
       const appCtx = lctx.ctx;
-      if ( ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) ) {
-        const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
+      if ( ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) ) {
+        const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
         if ( cl.has_constructor ) {
           if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
             ctorDesc = cl.constructor_fn;
@@ -66864,10 +67191,10 @@ class LowIRBuilderPass  {
     if ( depth > 16 ) {
       return className;
     }
-    if ( ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) == false ) {
+    if ( ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) == false ) {
       return className;
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
     // Loop start
     for ( const m of cl.methods) {
       if ( m.name == methodName ) {
@@ -66901,10 +67228,10 @@ class LowIRBuilderPass  {
     if ( depth > 16 ) {
       return className;
     }
-    if ( ( typeof(appCtx.tables.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ) == false ) {
+    if ( ( typeof(appCtx.definedClasses[className] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ) == false ) {
       return className;
     }
-    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, className) ? appCtx.tables.definedClasses[className] : undefined );
+    const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, className) ? appCtx.definedClasses[className] : undefined );
     // Loop start
     for ( const baseName of cl.extends_classes) {
       if ( appCtx.isDefinedClass(baseName) ) {
@@ -66932,12 +67259,12 @@ class LowIRBuilderPass  {
   };
   collectVirtualMethods (appCtx) {
     // Loop start
-    for ( let ci = 0; ci < appCtx.tables.definedClassList.length; ci++) {
-      var cName = appCtx.tables.definedClassList[ci];
+    for ( let ci = 0; ci < appCtx.definedClassList.length; ci++) {
+      var cName = appCtx.definedClassList[ci];
       if ( cName == "RangerStaticMethods" ) {
         continue;
       }
-      const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName) ? appCtx.tables.definedClasses[cName] : undefined );
+      const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
       if ( this.classIsLowered(cl) == false ) {
         continue;
       }
@@ -66958,7 +67285,7 @@ class LowIRBuilderPass  {
         this.virtualKeys.push(key);
         let emptyCases = [];
         this.virtualCases[key] = emptyCases;
-        const topCl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, top) ? appCtx.tables.definedClasses[top] : undefined );
+        const topCl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, top) ? appCtx.definedClasses[top] : undefined );
         // Loop start
         for ( const tm of topCl.methods) {
           if ( tm.name == m.name ) {
@@ -66978,15 +67305,15 @@ class LowIRBuilderPass  {
       const meth = parts[1];
       let cases = [];
       // Loop start
-      for ( let di = 0; di < appCtx.tables.definedClassList.length; di++) {
-        var dName = appCtx.tables.definedClassList[di];
+      for ( let di = 0; di < appCtx.definedClassList.length; di++) {
+        var dName = appCtx.definedClassList[di];
         if ( dName == "RangerStaticMethods" ) {
           continue;
         }
         if ( dName == top_1 ) {
           continue;
         }
-        const dcl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, dName) ? appCtx.tables.definedClasses[dName] : undefined );
+        const dcl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, dName) ? appCtx.definedClasses[dName] : undefined );
         if ( this.classIsLowered(dcl) == false ) {
           continue;
         }
@@ -66997,7 +67324,7 @@ class LowIRBuilderPass  {
         if ( impl == top_1 ) {
           continue;
         }
-        if ( ( typeof(appCtx.tables.definedClasses[impl] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, impl) ) == false ) {
+        if ( ( typeof(appCtx.definedClasses[impl] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, impl) ) == false ) {
           continue;
         }
         cases.push(dName);
@@ -67221,7 +67548,7 @@ class LowIRBuilderPass  {
     const appCtx0 = lctx.ctx;
     if ( callee.ns.length >= 2 ) {
       const ns0 = callee.ns[0];
-      if ( ( typeof(appCtx0.tables.definedClasses[ns0] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx0.tables.definedClasses, ns0) ) ) {
+      if ( ( typeof(appCtx0.definedClasses[ns0] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx0.definedClasses, ns0) ) ) {
         return false;
       }
       if ( ns0 == "this" ) {
@@ -67245,7 +67572,7 @@ class LowIRBuilderPass  {
       return false;
     }
     const appCtx = lctx.ctx;
-    if ( ( typeof(appCtx.tables.definedClasses[p0] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, p0) ) ) {
+    if ( ( typeof(appCtx.definedClasses[p0] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, p0) ) ) {
       return false;
     }
     if ( ( typeof(lctx.slots[p0] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slots, p0) ) ) {
@@ -67966,7 +68293,7 @@ class LowIRBuilderPass  {
       kps,
       lctx
     );
-    const want = builder.emitConst("i32", (wantKind.toString()));
+    const want = builder.emitConst("i32", ((wantKind).toString()));
     const hit = builder.emitIcmp("eq", kind, want);
     const bodyL = builder.freshLabel("json_case_body");
     const doneL = builder.freshLabel("json_case_done");
@@ -68932,12 +69259,12 @@ class LowIRBuilderPass  {
     }
     this.collectLambdas(appCtx);
     // Loop start
-    for ( let i0 = 0; i0 < appCtx.tables.definedClassList.length; i0++) {
-      var cName0 = appCtx.tables.definedClassList[i0];
+    for ( let i0 = 0; i0 < appCtx.definedClassList.length; i0++) {
+      var cName0 = appCtx.definedClassList[i0];
       if ( cName0 == "RangerStaticMethods" ) {
         continue;
       }
-      const cl0 = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName0) ? appCtx.tables.definedClasses[cName0] : undefined );
+      const cl0 = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName0) ? appCtx.definedClasses[cName0] : undefined );
       if ( ((cl0.is_operator_class || cl0.is_trait) || cl0.is_system) || cl0.is_union ) {
         continue;
       }
@@ -68945,12 +69272,12 @@ class LowIRBuilderPass  {
     }
     this.collectVirtualMethods(appCtx);
     // Loop start
-    for ( let i = 0; i < appCtx.tables.definedClassList.length; i++) {
-      var cName = appCtx.tables.definedClassList[i];
+    for ( let i = 0; i < appCtx.definedClassList.length; i++) {
+      var cName = appCtx.definedClassList[i];
       if ( cName == "RangerStaticMethods" ) {
         continue;
       }
-      const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName) ? appCtx.tables.definedClasses[cName] : undefined );
+      const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
       if ( (cl.is_trait || cl.is_system) || cl.is_union ) {
         continue;
       }
@@ -69231,15 +69558,15 @@ class LowIRBuilderPass  {
     const target = LowIRTarget.resolve(appCtx);
     const pt = target.ptrType;
     // Loop start
-    for ( let i = 0; i < appCtx.tables.definedClassList.length; i++) {
-      var cName = appCtx.tables.definedClassList[i];
+    for ( let i = 0; i < appCtx.definedClassList.length; i++) {
+      var cName = appCtx.definedClassList[i];
       if ( cName == "RangerStaticMethods" ) {
         continue;
       }
-      if ( false == ( typeof(appCtx.tables.definedClasses[cName] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName) ) ) {
+      if ( false == ( typeof(appCtx.definedClasses[cName] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ) ) {
         continue;
       }
-      const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName) ? appCtx.tables.definedClasses[cName] : undefined );
+      const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
       if ( cl.is_trait ) {
         continue;
       }
@@ -72991,7 +73318,7 @@ class LiveCompiler  {
           if ( node.children.length >= idx ) {
             const arg = node.children[idx];
             const root = ctx.getRoot();
-            const sNode = ( Object.prototype.hasOwnProperty.call(root.tables.appServices, arg.vref) ? root.tables.appServices[arg.vref] : undefined );
+            const sNode = ( Object.prototype.hasOwnProperty.call(root.appServices, arg.vref) ? root.appServices[arg.vref] : undefined );
             if ( (typeof(sNode) !== "undefined" && sNode != null )  ) {
               wr.out(sNode.appGUID, false);
             } else {
@@ -73026,15 +73353,30 @@ class LiveCompiler  {
             );
           }
           break;
-        case "block" : 
+        case "eown" : 
           const idx_3 = cmdArg.int_value;
           if ( node.children.length > idx_3 ) {
             const arg_3 = node.children[idx_3];
+            if ( arg_3.rust_use_tmpvar.length > 0 ) {
+              wr.out(arg_3.rust_use_tmpvar, false);
+              arg_3.rust_use_tmpvar = "";
+              return;
+            }
+            ctx.setInExpr();
+            this.WalkNode(arg_3, ctx, wr);
+            ctx.unsetInExpr();
+            wr.out(this.langWriter.ownedValueSuffix(arg_3, ctx), false);
+          }
+          break;
+        case "block" : 
+          const idx_4 = cmdArg.int_value;
+          if ( node.children.length > idx_4 ) {
+            const arg_4 = node.children[idx_4];
             const sCtx = ctx.fork();
             sCtx.restartExpressionLevel();
             const lineBefore = wr.lineNumber;
             const colBefore = wr.currentLine.length;
-            this.WalkNode(arg_3, sCtx, wr);
+            this.WalkNode(arg_4, sCtx, wr);
             if ( wr.lineNumber == lineBefore && wr.currentLine.length == colBefore ) {
               const filler = this.langWriter.emptyBlockFiller();
               if ( filler.length > 0 ) {
@@ -73059,10 +73401,10 @@ class LiveCompiler  {
           ctx.defineVariable(p_1.name, p_1);
           break;
         case "cc" : 
-          const idx_4 = cmdArg.int_value;
-          if ( node.children.length > idx_4 ) {
-            const arg_4 = node.children[idx_4];
-            const ccChars = Array.from(arg_4.string_value, (rg_c) => rg_c.codePointAt(0));
+          const idx_5 = cmdArg.int_value;
+          if ( node.children.length > idx_5 ) {
+            const arg_5 = node.children[idx_5];
+            const ccChars = Array.from(arg_5.string_value, (rg_c) => rg_c.codePointAt(0));
             let ccVal = 0;
             if ( ccChars.length > 0 ) {
               ccVal = ccChars[0];
@@ -73071,58 +73413,58 @@ class LiveCompiler  {
           }
           break;
         case "optional_option" : 
-          const idx_5 = cmdArg.int_value;
-          if ( node.children.length > idx_5 ) {
-            const arg_5 = node.children[idx_5];
-            if ( ctx.hasCompilerSetting(arg_5.string_value) ) {
-              const setting = ctx.getCompilerSetting(arg_5.string_value);
+          const idx_6 = cmdArg.int_value;
+          if ( node.children.length > idx_6 ) {
+            const arg_6 = node.children[idx_6];
+            if ( ctx.hasCompilerSetting(arg_6.string_value) ) {
+              const setting = ctx.getCompilerSetting(arg_6.string_value);
               wr.out(setting, false);
             }
           }
           break;
         case "required_option" : 
-          const idx_6 = cmdArg.int_value;
-          if ( node.children.length > idx_6 ) {
-            const arg_6 = node.children[idx_6];
-            if ( ctx.hasCompilerSetting(arg_6.string_value) ) {
-              const setting_1 = ctx.getCompilerSetting(arg_6.string_value);
+          const idx_7 = cmdArg.int_value;
+          if ( node.children.length > idx_7 ) {
+            const arg_7 = node.children[idx_7];
+            if ( ctx.hasCompilerSetting(arg_7.string_value) ) {
+              const setting_1 = ctx.getCompilerSetting(arg_7.string_value);
               wr.out(setting_1, false);
             } else {
-              ctx.addError(node, ("This source code requires compiler option -" + arg_6.string_value) + "=<> to be set ");
+              ctx.addError(node, ("This source code requires compiler option -" + arg_7.string_value) + "=<> to be set ");
             }
           }
           break;
         case "java_case" : 
-          const idx_7 = cmdArg.int_value;
-          if ( node.children.length > idx_7 ) {
-            const arg_7 = node.children[idx_7];
-            this.WalkNode(arg_7, ctx, wr);
-            if ( arg_7.didReturnAtIndex < 0 ) {
+          const idx_8 = cmdArg.int_value;
+          if ( node.children.length > idx_8 ) {
+            const arg_8 = node.children[idx_8];
+            this.WalkNode(arg_8, ctx, wr);
+            if ( arg_8.didReturnAtIndex < 0 ) {
               wr.newline();
               wr.out("break;", true);
             }
           }
           break;
         case "lambda" : 
-          const idx_8 = cmdArg.int_value;
-          if ( node.children.length > idx_8 ) {
-            const arg_8 = node.children[idx_8];
+          const idx_9 = cmdArg.int_value;
+          if ( node.children.length > idx_9 ) {
+            const arg_9 = node.children[idx_9];
             ctx.setInExpr();
-            this.WalkNode(arg_8, ctx, wr);
+            this.WalkNode(arg_9, ctx, wr);
             ctx.unsetInExpr();
           }
           break;
         case "e" : 
-          const idx_9 = cmdArg.int_value;
-          if ( node.children.length > idx_9 ) {
-            const arg_9 = node.children[idx_9];
-            if ( arg_9.rust_use_tmpvar.length > 0 ) {
-              wr.out(arg_9.rust_use_tmpvar, false);
-              arg_9.rust_use_tmpvar = "";
+          const idx_10 = cmdArg.int_value;
+          if ( node.children.length > idx_10 ) {
+            const arg_10 = node.children[idx_10];
+            if ( arg_10.rust_use_tmpvar.length > 0 ) {
+              wr.out(arg_10.rust_use_tmpvar, false);
+              arg_10.rust_use_tmpvar = "";
               return;
             }
             let mutTarget = false;
-            if ( idx_9 == 1 ) {
+            if ( idx_10 == 1 ) {
               if ( node.children.length > 0 ) {
                 const opN = node.getFirst();
                 if ( this.isMutatingOpName(opN.vref) ) {
@@ -73135,14 +73477,14 @@ class LiveCompiler  {
               ctx.setInLhs();
             }
             let explicitUnwrap = false;
-            if ( idx_9 == 1 && node.children.length > 0 ) {
+            if ( idx_10 == 1 && node.children.length > 0 ) {
               const opN_1 = node.getFirst();
               if ( opN_1.vref == "unwrap" ) {
                 explicitUnwrap = true;
                 ctx.suppressAutoUnwrap();
               }
             }
-            this.WalkNode(arg_9, ctx, wr);
+            this.WalkNode(arg_10, ctx, wr);
             if ( explicitUnwrap ) {
               ctx.restoreAutoUnwrap();
             }
@@ -73153,34 +73495,14 @@ class LiveCompiler  {
           }
           break;
         case "idx" : 
-          const idx_10 = cmdArg.int_value;
-          if ( node.children.length > idx_10 ) {
-            let arg_10 = node.children[idx_10];
-            if ( arg_10.rust_use_tmpvar.length > 0 ) {
-              wr.out(("(" + arg_10.rust_use_tmpvar) + ") as usize", false);
-              arg_10.rust_use_tmpvar = "";
-              return;
-            }
-            while (arg_10.expression && arg_10.children.length == 1) {
-              arg_10 = arg_10.getFirst();
-            };
-            if ( arg_10.value_type == 3 ) {
-              wr.out("" + arg_10.int_value, false);
-            } else {
-              wr.out("(", false);
-              ctx.setInExpr();
-              wr.suppress_expr_parens = true;
-              this.WalkNode(arg_10, ctx, wr);
-              wr.suppress_expr_parens = false;
-              ctx.unsetInExpr();
-              wr.out(") as usize", false);
-            }
-          }
-          break;
-        case "u8v" : 
           const idx_11 = cmdArg.int_value;
           if ( node.children.length > idx_11 ) {
             let arg_11 = node.children[idx_11];
+            if ( arg_11.rust_use_tmpvar.length > 0 ) {
+              wr.out(("(" + arg_11.rust_use_tmpvar) + ") as usize", false);
+              arg_11.rust_use_tmpvar = "";
+              return;
+            }
             while (arg_11.expression && arg_11.children.length == 1) {
               arg_11 = arg_11.getFirst();
             };
@@ -73193,17 +73515,37 @@ class LiveCompiler  {
               this.WalkNode(arg_11, ctx, wr);
               wr.suppress_expr_parens = false;
               ctx.unsetInExpr();
+              wr.out(") as usize", false);
+            }
+          }
+          break;
+        case "u8v" : 
+          const idx_12 = cmdArg.int_value;
+          if ( node.children.length > idx_12 ) {
+            let arg_12 = node.children[idx_12];
+            while (arg_12.expression && arg_12.children.length == 1) {
+              arg_12 = arg_12.getFirst();
+            };
+            if ( arg_12.value_type == 3 ) {
+              wr.out("" + arg_12.int_value, false);
+            } else {
+              wr.out("(", false);
+              ctx.setInExpr();
+              wr.suppress_expr_parens = true;
+              this.WalkNode(arg_12, ctx, wr);
+              wr.suppress_expr_parens = false;
+              ctx.unsetInExpr();
               wr.out(") as u8", false);
             }
           }
           break;
         case "cloneif" : 
-          const idx_12 = cmdArg.int_value;
-          if ( node.children.length > idx_12 ) {
-            const arg_12 = node.children[idx_12];
+          const idx_13 = cmdArg.int_value;
+          if ( node.children.length > idx_13 ) {
+            const arg_13 = node.children[idx_13];
             let tn = "";
-            if ( arg_12.hasParamDesc ) {
-              const cip = arg_12.paramDesc;
+            if ( arg_13.hasParamDesc ) {
+              const cip = arg_13.paramDesc;
               const cipNN = cip.nameNode;
               if ( (typeof(cipNN) !== "undefined" && cipNN != null )  ) {
                 const cipN = cipNN;
@@ -73213,9 +73555,9 @@ class LiveCompiler  {
                 }
               }
             } else {
-              tn = arg_12.type_name;
-              if ( arg_12.array_type.length > 0 ) {
-                tn = arg_12.array_type;
+              tn = arg_13.type_name;
+              if ( arg_13.array_type.length > 0 ) {
+                tn = arg_13.array_type;
               }
             }
             let isCopyScalar = false;
@@ -73243,47 +73585,47 @@ class LiveCompiler  {
           }
           break;
         case "ckey" : 
-          const idx_13 = cmdArg.int_value;
-          if ( node.children.length > idx_13 ) {
-            let arg_13 = node.children[idx_13];
-            while (arg_13.expression && arg_13.children.length == 1) {
-              arg_13 = arg_13.getFirst();
-            };
-            if ( arg_13.value_type == 4 ) {
-              wr.out(("\"" + this.langWriter.EncodeString(
-                arg_13,
-                ctx,
-                wr
-              )) + "\"", false);
-            } else {
-              ctx.setInExpr();
-              this.WalkNode(arg_13, ctx, wr);
-              ctx.unsetInExpr();
-            }
-          }
-          break;
-        case "kref" : 
           const idx_14 = cmdArg.int_value;
           if ( node.children.length > idx_14 ) {
             let arg_14 = node.children[idx_14];
             while (arg_14.expression && arg_14.children.length == 1) {
               arg_14 = arg_14.getFirst();
             };
-            let krefDone = false;
             if ( arg_14.value_type == 4 ) {
               wr.out(("\"" + this.langWriter.EncodeString(
                 arg_14,
                 ctx,
                 wr
               )) + "\"", false);
+            } else {
+              ctx.setInExpr();
+              this.WalkNode(arg_14, ctx, wr);
+              ctx.unsetInExpr();
+            }
+          }
+          break;
+        case "kref" : 
+          const idx_15 = cmdArg.int_value;
+          if ( node.children.length > idx_15 ) {
+            let arg_15 = node.children[idx_15];
+            while (arg_15.expression && arg_15.children.length == 1) {
+              arg_15 = arg_15.getFirst();
+            };
+            let krefDone = false;
+            if ( arg_15.value_type == 4 ) {
+              wr.out(("\"" + this.langWriter.EncodeString(
+                arg_15,
+                ctx,
+                wr
+              )) + "\"", false);
               krefDone = true;
             }
             if ( krefDone == false ) {
-              if ( (arg_14.expression == false && arg_14.hasParamDesc) && arg_14.ns.length == 1 ) {
-                const kpd = arg_14.paramDesc;
+              if ( (arg_15.expression == false && arg_15.hasParamDesc) && arg_15.ns.length == 1 ) {
+                const kpd = arg_15.paramDesc;
                 if ( kpd.rust_borrow_type > 0 ) {
                   ctx.setInExpr();
-                  this.WalkNode(arg_14, ctx, wr);
+                  this.WalkNode(arg_15, ctx, wr);
                   ctx.unsetInExpr();
                   krefDone = true;
                 }
@@ -73291,17 +73633,17 @@ class LiveCompiler  {
             }
             if ( krefDone == false ) {
               let ksd;
-              if ( arg_14.ns.length == 1 && arg_14.hasParamDesc ) {
-                ksd = arg_14.paramDesc;
+              if ( arg_15.ns.length == 1 && arg_15.hasParamDesc ) {
+                ksd = arg_15.paramDesc;
               }
-              if ( arg_14.ns.length > 1 && arg_14.nsp.length > 0 ) {
-                ksd = arg_14.nsp[(arg_14.nsp.length - 1)];
+              if ( arg_15.ns.length > 1 && arg_15.nsp.length > 0 ) {
+                ksd = arg_15.nsp[(arg_15.nsp.length - 1)];
               }
               if ( (typeof(ksd) !== "undefined" && ksd != null )  ) {
                 const ksp = ksd;
                 if ( ksp.rust_static_str ) {
                   ctx.setInExpr();
-                  this.WalkNode(arg_14, ctx, wr);
+                  this.WalkNode(arg_15, ctx, wr);
                   ctx.unsetInExpr();
                   krefDone = true;
                 }
@@ -73310,22 +73652,22 @@ class LiveCompiler  {
             if ( krefDone == false ) {
               wr.out("&", false);
               ctx.setInExpr();
-              this.WalkNode(arg_14, ctx, wr);
+              this.WalkNode(arg_15, ctx, wr);
               ctx.unsetInExpr();
             }
           }
           break;
         case "mvarg" : 
-          const idx_15 = cmdArg.int_value;
-          if ( node.children.length > idx_15 ) {
-            const arg_15 = node.children[idx_15];
-            if ( arg_15.rust_use_tmpvar.length > 0 ) {
-              wr.out(arg_15.rust_use_tmpvar, false);
-              arg_15.rust_use_tmpvar = "";
+          const idx_16 = cmdArg.int_value;
+          if ( node.children.length > idx_16 ) {
+            const arg_16 = node.children[idx_16];
+            if ( arg_16.rust_use_tmpvar.length > 0 ) {
+              wr.out(arg_16.rust_use_tmpvar, false);
+              arg_16.rust_use_tmpvar = "";
               return;
             }
             let mvRcWrap = false;
-            if ( arg_15.hasNewOper ) {
+            if ( arg_16.hasNewOper ) {
               const mvCont = node.children[1];
               let mvElem = "";
               const mvNsp = mvCont.nsp.length;
@@ -73359,12 +73701,12 @@ class LiveCompiler  {
               wr.out("Rc::new(RefCell::new(", false);
             }
             ctx.setInExpr();
-            this.WalkNode(arg_15, ctx, wr);
+            this.WalkNode(arg_16, ctx, wr);
             ctx.unsetInExpr();
             if ( mvRcWrap ) {
               wr.out("))", false);
             }
-            let barg = arg_15;
+            let barg = arg_16;
             while (barg.expression && barg.children.length == 1) {
               barg = barg.getFirst();
             };
@@ -73467,72 +73809,59 @@ class LiveCompiler  {
           }
           break;
         case "goset" : 
-          const idx_16 = cmdArg.int_value;
-          if ( node.children.length > idx_16 ) {
-            const arg_16 = node.children[idx_16];
+          const idx_17 = cmdArg.int_value;
+          if ( node.children.length > idx_17 ) {
+            const arg_17 = node.children[idx_17];
             ctx.setInExpr();
-            this.langWriter.WriteSetterVRef(arg_16, ctx, wr);
+            this.langWriter.WriteSetterVRef(arg_17, ctx, wr);
             ctx.unsetInExpr();
           }
           break;
         case "pe" : 
-          const idx_17 = cmdArg.int_value;
-          if ( node.children.length > idx_17 ) {
-            const arg_17 = node.children[idx_17];
-            this.WalkNode(arg_17, ctx, wr);
-          }
-          break;
-        case "ptr" : 
           const idx_18 = cmdArg.int_value;
           if ( node.children.length > idx_18 ) {
             const arg_18 = node.children[idx_18];
-            let tn_1 = arg_18;
-            if ( arg_18.hasParamDesc ) {
-              tn_1 = arg_18.paramDesc.nameNode;
-            }
-            let elem = tn_1.array_type;
-            if ( tn_1.eval_type != 0 && tn_1.eval_array_type.length > 0 ) {
-              elem = tn_1.eval_array_type;
-            }
-            if ( elem.length > 0 ) {
-              if ( ctx.isPrimitiveType(elem) == false ) {
-                if ( ctx.isDefinedClass(elem) ) {
-                  const ec = ctx.findClass(elem);
-                  if ( ec.is_union == false && ec.doesInherit() == false ) {
-                    wr.out("*", false);
-                  }
-                }
+            this.WalkNode(arg_18, ctx, wr);
+          }
+          break;
+        case "ptr" : 
+          const idx_19 = cmdArg.int_value;
+          if ( node.children.length > idx_19 ) {
+            const arg_19 = node.children[idx_19];
+            if ( arg_19.hasParamDesc ) {
+              if ( arg_19.paramDesc.nameNode.isAPrimitiveType() == false ) {
+                wr.out("*", false);
               }
             } else {
-              if ( tn_1.isAPrimitiveType() == false ) {
+              if ( arg_19.isAPrimitiveType() == false ) {
                 wr.out("*", false);
               }
             }
           }
           break;
         case "ptrsrc" : 
-          const idx_19 = cmdArg.int_value;
-          if ( node.children.length > idx_19 ) {
-            const arg_19 = node.children[idx_19];
-            if ( arg_19.isPrimitiveType() == false && arg_19.isPrimitive() == false ) {
+          const idx_20 = cmdArg.int_value;
+          if ( node.children.length > idx_20 ) {
+            const arg_20 = node.children[idx_20];
+            if ( arg_20.isPrimitiveType() == false && arg_20.isPrimitive() == false ) {
               wr.out("&", false);
             }
           }
           break;
         case "nameof" : 
-          const idx_20 = cmdArg.int_value;
-          if ( node.children.length > idx_20 ) {
-            const arg_20 = node.children[idx_20];
-            wr.out(arg_20.vref, false);
-          }
-          break;
-        case "list" : 
           const idx_21 = cmdArg.int_value;
           if ( node.children.length > idx_21 ) {
             const arg_21 = node.children[idx_21];
+            wr.out(arg_21.vref, false);
+          }
+          break;
+        case "list" : 
+          const idx_22 = cmdArg.int_value;
+          if ( node.children.length > idx_22 ) {
+            const arg_22 = node.children[idx_22];
             // Loop start
-            for ( let i = 0; i < arg_21.children.length; i++) {
-              var ch = arg_21.children[i];
+            for ( let i = 0; i < arg_22.children.length; i++) {
+              var ch = arg_22.children[i];
               if ( i > 0 ) {
                 wr.out(" ", false);
               }
@@ -73543,13 +73872,13 @@ class LiveCompiler  {
           }
           break;
         case "repeat" : 
-          const idx_22 = cmdArg.int_value;
-          this.repeat_index = idx_22;
-          if ( node.children.length >= idx_22 ) {
+          const idx_23 = cmdArg.int_value;
+          this.repeat_index = idx_23;
+          if ( node.children.length >= idx_23 ) {
             const cmdToRepeat = cmd.getThird();
-            let i_1 = idx_22;
+            let i_1 = idx_23;
             while (i_1 < node.children.length) {
-              if ( i_1 >= idx_22 ) {
+              if ( i_1 >= idx_23 ) {
                 // Loop start
                 for ( const cc of cmdToRepeat.children) {
                   if ( cc.children.length > 0 ) {
@@ -73571,13 +73900,13 @@ class LiveCompiler  {
           }
           break;
         case "repeat_from" : 
-          const idx_23 = cmdArg.int_value;
-          this.repeat_index = idx_23;
-          if ( node.children.length >= idx_23 ) {
+          const idx_24 = cmdArg.int_value;
+          this.repeat_index = idx_24;
+          if ( node.children.length >= idx_24 ) {
             const cmdToRepeat_1 = cmd.getThird();
-            let i_2 = idx_23;
+            let i_2 = idx_24;
             while (i_2 < node.children.length) {
-              if ( i_2 >= idx_23 ) {
+              if ( i_2 >= idx_24 ) {
                 // Loop start
                 for ( const cc_1 of cmdToRepeat_1.children) {
                   if ( cc_1.children.length > 0 ) {
@@ -73602,12 +73931,12 @@ class LiveCompiler  {
           }
           break;
         case "comma" : 
-          const idx_24 = cmdArg.int_value;
-          if ( node.children.length > idx_24 ) {
-            const arg_22 = node.children[idx_24];
+          const idx_25 = cmdArg.int_value;
+          if ( node.children.length > idx_25 ) {
+            const arg_23 = node.children[idx_25];
             // Loop start
-            for ( let i_3 = 0; i_3 < arg_22.children.length; i_3++) {
-              var ch_1 = arg_22.children[i_3];
+            for ( let i_3 = 0; i_3 < arg_23.children.length; i_3++) {
+              var ch_1 = arg_23.children[i_3];
               if ( i_3 > 0 ) {
                 wr.out(",", false);
               }
@@ -73618,30 +73947,30 @@ class LiveCompiler  {
           }
           break;
         case "swift_rc" : 
-          const idx_25 = cmdArg.int_value;
+          const idx_26 = cmdArg.int_value;
           const blockIdx = 4;
-          if ( node.children.length > idx_25 ) {
-            const arg_23 = node.children[idx_25];
+          if ( node.children.length > idx_26 ) {
+            const arg_24 = node.children[idx_26];
             let isRead = true;
             if ( node.children.length > blockIdx ) {
               const blockNode = node.children[blockIdx];
-              if ( arg_23.vref.length > 0 ) {
-                isRead = this.treeReferencesVRef(blockNode, arg_23.vref);
+              if ( arg_24.vref.length > 0 ) {
+                isRead = this.treeReferencesVRef(blockNode, arg_24.vref);
               }
             } else {
-              if ( arg_23.hasParamDesc ) {
-                const argDesc = arg_23.paramDesc;
+              if ( arg_24.hasParamDesc ) {
+                const argDesc = arg_24.paramDesc;
                 isRead = argDesc.ref_cnt != 0;
               }
             }
             if ( isRead == false ) {
               wr.out("_", false);
             } else {
-              if ( arg_23.hasParamDesc ) {
-                const p_2 = ctx.getVariableDef(arg_23.vref);
+              if ( arg_24.hasParamDesc ) {
+                const p_2 = ctx.getVariableDef(arg_24.vref);
                 wr.out(p_2.compiledName, false);
               } else {
-                wr.out(arg_23.vref, false);
+                wr.out(arg_24.vref, false);
               }
             }
           }
@@ -73681,46 +74010,46 @@ class LiveCompiler  {
           }
           break;
         case "r_ktype" : 
-          const idx_26 = cmdArg.int_value;
-          if ( node.children.length > idx_26 ) {
-            const arg_24 = node.children[idx_26];
-            if ( arg_24.hasParamDesc ) {
-              const argDesc_1 = arg_24.paramDesc;
+          const idx_27 = cmdArg.int_value;
+          if ( node.children.length > idx_27 ) {
+            const arg_25 = node.children[idx_27];
+            if ( arg_25.hasParamDesc ) {
+              const argDesc_1 = arg_25.paramDesc;
               const argumentName = argDesc_1.nameNode;
               const ss = this.langWriter.getObjectTypeString(argumentName.key_type, ctx);
               wr.out(ss, false);
             } else {
-              const ss_1 = this.langWriter.getObjectTypeString(arg_24.key_type, ctx);
+              const ss_1 = this.langWriter.getObjectTypeString(arg_25.key_type, ctx);
               wr.out(ss_1, false);
             }
           }
           break;
         case "r_atype" : 
-          const idx_27 = cmdArg.int_value;
-          if ( node.children.length > idx_27 ) {
-            const arg_25 = node.children[idx_27];
-            if ( arg_25.hasParamDesc ) {
-              const argDesc_2 = arg_25.paramDesc;
+          const idx_28 = cmdArg.int_value;
+          if ( node.children.length > idx_28 ) {
+            const arg_26 = node.children[idx_28];
+            if ( arg_26.hasParamDesc ) {
+              const argDesc_2 = arg_26.paramDesc;
               const argumentName_1 = argDesc_2.nameNode;
               const ss_2 = this.langWriter.getObjectTypeString(argumentName_1.array_type, ctx);
               wr.out(ss_2, false);
             } else {
-              const ss_3 = this.langWriter.getObjectTypeString(arg_25.array_type, ctx);
+              const ss_3 = this.langWriter.getObjectTypeString(arg_26.array_type, ctx);
               wr.out(ss_3, false);
             }
           }
           break;
         case "r_atype_fname" : 
-          const idx_28 = cmdArg.int_value;
-          if ( node.children.length > idx_28 ) {
-            const arg_26 = node.children[idx_28];
-            if ( arg_26.hasParamDesc ) {
-              const argDesc_3 = arg_26.paramDesc;
+          const idx_29 = cmdArg.int_value;
+          if ( node.children.length > idx_29 ) {
+            const arg_27 = node.children[idx_29];
+            if ( arg_27.hasParamDesc ) {
+              const argDesc_3 = arg_27.paramDesc;
               const argumentName_2 = argDesc_3.nameNode;
               const ss_4 = this.langWriter.getObjectTypeString(argumentName_2.array_type, ctx);
               wr.out(this.typeNameToIdentifier(ss_4), false);
             } else {
-              const ss_5 = this.langWriter.getObjectTypeString(arg_26.array_type, ctx);
+              const ss_5 = this.langWriter.getObjectTypeString(arg_27.array_type, ctx);
               wr.out(this.typeNameToIdentifier(ss_5), false);
             }
           }
@@ -73729,17 +74058,17 @@ class LiveCompiler  {
           this.langWriter.CustomOperator(node, ctx, wr);
           break;
         case "arraytype" : 
-          const idx_29 = cmdArg.int_value;
-          if ( node.children.length > idx_29 ) {
-            const arg_27 = node.children[idx_29];
-            if ( arg_27.hasParamDesc ) {
+          const idx_30 = cmdArg.int_value;
+          if ( node.children.length > idx_30 ) {
+            const arg_28 = node.children[idx_30];
+            if ( arg_28.hasParamDesc ) {
               this.langWriter.writeArrayTypeDef(
-                arg_27.paramDesc.nameNode,
+                arg_28.paramDesc.nameNode,
                 ctx,
                 wr
               );
             } else {
-              this.langWriter.writeArrayTypeDef(arg_27, ctx, wr);
+              this.langWriter.writeArrayTypeDef(arg_28, ctx, wr);
             }
           }
           break;
@@ -73762,17 +74091,17 @@ class LiveCompiler  {
           }
           break;
         case "rawtype" : 
-          const idx_30 = cmdArg.int_value;
-          if ( node.children.length > idx_30 ) {
-            const arg_28 = node.children[idx_30];
-            if ( arg_28.hasParamDesc ) {
+          const idx_31 = cmdArg.int_value;
+          if ( node.children.length > idx_31 ) {
+            const arg_29 = node.children[idx_31];
+            if ( arg_29.hasParamDesc ) {
               this.langWriter.writeRawTypeDef(
-                arg_28.paramDesc.nameNode,
+                arg_29.paramDesc.nameNode,
                 ctx,
                 wr
               );
             } else {
-              this.langWriter.writeRawTypeDef(arg_28, ctx, wr);
+              this.langWriter.writeRawTypeDef(arg_29, ctx, wr);
             }
           }
           break;
@@ -73800,14 +74129,14 @@ class LiveCompiler  {
           this.createPolyfillLegacy(cmdArg.string_value, ctx, wr);
           break;
         case "typeof" : 
-          const idx_31 = cmdArg.int_value;
-          if ( node.children.length >= idx_31 ) {
-            const arg_29 = node.children[idx_31];
+          const idx_32 = cmdArg.int_value;
+          if ( node.children.length >= idx_32 ) {
+            const arg_30 = node.children[idx_32];
             ctx.setInExpr();
-            if ( arg_29.hasParamDesc ) {
-              this.writeTypeDef(arg_29.paramDesc.nameNode, ctx, wr);
+            if ( arg_30.hasParamDesc ) {
+              this.writeTypeDef(arg_30.paramDesc.nameNode, ctx, wr);
             } else {
-              this.writeTypeDef(arg_29, ctx, wr);
+              this.writeTypeDef(arg_30, ctx, wr);
             }
             ctx.unsetInExpr();
           }
@@ -73824,26 +74153,26 @@ class LiveCompiler  {
           }
           break;
         case "atype" : 
-          const idx_32 = cmdArg.int_value;
-          if ( node.children.length >= idx_32 ) {
-            const arg_30 = node.children[idx_32];
-            let tn_2 = "";
-            const p_4 = this.findParamDesc(arg_30, ctx, wr);
+          const idx_33 = cmdArg.int_value;
+          if ( node.children.length >= idx_33 ) {
+            const arg_31 = node.children[idx_33];
+            let tn_1 = "";
+            const p_4 = this.findParamDesc(arg_31, ctx, wr);
             if ( (typeof(p_4) !== "undefined" && p_4 != null )  ) {
               const pDesc = p_4;
               const nnOpt = pDesc.nameNode;
               if ( (typeof(nnOpt) !== "undefined" && nnOpt != null )  ) {
                 const nameNode = nnOpt;
-                tn_2 = nameNode.array_type;
+                tn_1 = nameNode.array_type;
               }
             }
-            if ( tn_2.length == 0 ) {
-              tn_2 = arg_30.eval_array_type;
+            if ( tn_1.length == 0 ) {
+              tn_1 = arg_31.eval_array_type;
             }
-            if ( tn_2.length == 0 ) {
-              tn_2 = arg_30.array_type;
+            if ( tn_1.length == 0 ) {
+              tn_1 = arg_31.array_type;
             }
-            wr.out(this.langWriter.getObjectTypeString(tn_2, ctx), false);
+            wr.out(this.langWriter.getObjectTypeString(tn_1, ctx), false);
           }
           break;
       };
@@ -74183,19 +74512,19 @@ class CLIConsole  {
   step (stepNum, stepName) {
     this.currentStep = stepNum;
     this.stepStartTime = Date.now();
-    const stepLabel = ((("[" + (stepNum.toString())) + "/") + (this.totalSteps.toString())) + "]";
+    const stepLabel = ((("[" + ((stepNum).toString())) + "/") + ((this.totalSteps).toString())) + "]";
     console.log(((this.cyan(stepLabel) + " ") + stepName) + "...");
   };
   stepWithDetail (stepNum, stepName, detail) {
     this.currentStep = stepNum;
     this.stepStartTime = Date.now();
-    const stepLabel = ((("[" + (stepNum.toString())) + "/") + (this.totalSteps.toString())) + "]";
+    const stepLabel = ((("[" + ((stepNum).toString())) + "/") + ((this.totalSteps).toString())) + "]";
     console.log((((this.cyan(stepLabel) + " ") + stepName) + " ") + this.gray(detail));
   };
   printSuccess (outputPath) {
     const endTime = Date.now();
     const duration = endTime - this.startTime;
-    const durationStr = (Math.floor( duration).toString());
+    const durationStr = ((Math.floor( duration)).toString());
     console.log("");
     console.log(this.divider());
     console.log("");
@@ -74213,12 +74542,12 @@ class CLIConsole  {
     if ( errorCount > 1 ) {
       errorWord = "errors";
     }
-    console.log((this.error("Compilation FAILED") + " ") + this.gray((((("(" + (errorCount.toString())) + " ") + errorWord) + ")")));
+    console.log((this.error("Compilation FAILED") + " ") + this.gray((((("(" + ((errorCount).toString())) + " ") + errorWord) + ")")));
     console.log("");
   };
   printCompilerError (filename, lineNum, colNum, description, lineContent, prevLine, nextLine) {
     console.log("");
-    console.log((((this.bold(filename) + ":") + this.yellow((lineNum.toString()))) + ":") + (colNum.toString()));
+    console.log((((this.bold(filename) + ":") + this.yellow(((lineNum).toString()))) + ":") + ((colNum).toString()));
     console.log("");
     console.log("  " + this.error(description));
     console.log("");
@@ -74226,10 +74555,10 @@ class CLIConsole  {
     const prevLineNum = lineNum - 1;
     const nextLineNum = lineNum + 1;
     if ( prevLine.length > 0 ) {
-      const prevNumStr = this.padLeft((prevLineNum.toString()), lineNumWidth);
+      const prevNumStr = this.padLeft(((prevLineNum).toString()), lineNumWidth);
       console.log(("  " + this.gray((prevNumStr + " │ "))) + this.dim(prevLine));
     }
-    const lineNumStr = this.padLeft((lineNum.toString()), lineNumWidth);
+    const lineNumStr = this.padLeft(((lineNum).toString()), lineNumWidth);
     console.log(("  " + this.red((lineNumStr + " │ "))) + lineContent);
     let pointerPad = "";
     let pi = 0;
@@ -74239,14 +74568,14 @@ class CLIConsole  {
     };
     console.log(("  " + pointerPad) + this.red("^── here"));
     if ( nextLine.length > 0 ) {
-      const nextNumStr = this.padLeft((nextLineNum.toString()), lineNumWidth);
+      const nextNumStr = this.padLeft(((nextLineNum).toString()), lineNumWidth);
       console.log(("  " + this.gray((nextNumStr + " │ "))) + this.dim(nextLine));
     }
     console.log("");
   };
   printSimpleError (filename, lineNum, description, lineContent) {
     console.log("");
-    console.log((this.bold(filename) + ":") + this.yellow((lineNum.toString())));
+    console.log((this.bold(filename) + ":") + this.yellow(((lineNum).toString())));
     console.log("");
     console.log("  " + this.error(description));
     console.log("");
@@ -74494,7 +74823,7 @@ GitSha1.hashHex = function(data) {
   return GitSha1.toHex(GitSha1.hash(data));
 };
 GitSha1.objectId = function(kind, payload) {
-  const sizeText = (payload.byteLength.toString());
+  const sizeText = ((payload.byteLength).toString());
   const prefix = (kind + " ") + sizeText;
   const pLen = prefix.length;
   const n = payload.byteLength;
@@ -74879,7 +75208,7 @@ GitPktIO.buildWantFetch = function(sha, deepen, filter, extras) {
     i = i + 1;
   };
   if ( deepen > 0 ) {
-    parts.push(GitPktIO.encodeLine(("deepen " + (deepen.toString())) + "\n"));
+    parts.push(GitPktIO.encodeLine(("deepen " + ((deepen).toString())) + "\n"));
   }
   if ( filter.length > 0 ) {
     parts.push(GitPktIO.encodeLine(("filter " + filter) + "\n"));
@@ -74921,7 +75250,7 @@ GitPktIO.buildFetchV2 = function(sha, deepen, filter) {
   parts.push(GitPktIO.encodeDelim());
   parts.push(GitPktIO.encodeLine("want " + sha));
   if ( deepen > 0 ) {
-    parts.push(GitPktIO.encodeLine("deepen " + (deepen.toString())));
+    parts.push(GitPktIO.encodeLine("deepen " + ((deepen).toString())));
   }
   if ( filter.length > 0 ) {
     parts.push(GitPktIO.encodeLine("filter " + filter));
@@ -75104,12 +75433,6 @@ class ZipBuffer  {
     return ((b0 + b1 * 256) + b2 * 65536) + b3 * 16777216;
   };
   readBytes (count) {
-    if ( count > this.length - this.pos ) {
-      count = this.length - this.pos;
-    }
-    if ( count < 0 ) {
-      count = 0;
-    }
     let result = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(count));
     let i = 0;
     while (i < count) {
@@ -75429,7 +75752,6 @@ class InflateBitReader  {
     this.bitPos = 0;
     this.currentByte = 0;
     this.dataLength = 0;
-    this.overrun = false;
   }
   init (buf, offset, length) {
     this.data = buf;
@@ -75437,12 +75759,10 @@ class InflateBitReader  {
     this.dataLength = offset + length;
     this.bitPos = 0;
     this.currentByte = 0;
-    this.overrun = false;
   };
   readBit () {
     if ( this.bitPos == 0 ) {
       if ( this.bytePos >= this.dataLength ) {
-        this.overrun = true;
         return 0;
       }
       this.currentByte = this.data._view.getUint8(this.bytePos);
@@ -75472,7 +75792,6 @@ class InflateBitReader  {
   readByte () {
     this.alignToByte();
     if ( this.bytePos >= this.dataLength ) {
-      this.overrun = true;
       return 0;
     }
     const b = this.data._view.getUint8(this.bytePos);
@@ -75498,9 +75817,6 @@ class Inflate  {
     this.outBuf = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
     this.outLen = 0;
     this.outCap = 0;
-    this.maxOutput = 0;
-    this.error = "";
-    this.truncated = false;
     this.fixedLitLen = new InflateHuffmanTable();
     this.fixedDist = new InflateHuffmanTable();
     this.fixedTablesBuilt = false;
@@ -75515,36 +75831,18 @@ class Inflate  {
     if ( cap < 4096 ) {
       cap = 4096;
     }
-    if ( this.maxOutput > 0 && cap > this.maxOutput ) {
-      cap = this.maxOutput;
-    }
     this.outBuf = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(cap));
     this.outCap = cap;
     this.outLen = 0;
   };
-  fail (why) {
-    if ( this.error.length == 0 ) {
-      this.error = why;
-    }
-  };
-  going () {
-    return this.error.length == 0 && this.reader.overrun == false;
-  };
   ensureCapacity (extra) {
     const need = this.outLen + extra;
-    if ( this.maxOutput > 0 && need > this.maxOutput ) {
-      this.fail(("output larger than " + (this.maxOutput.toString())) + " bytes");
-      return false;
-    }
     if ( need <= this.outCap ) {
-      return true;
+      return;
     }
     let newCap = this.outCap * 2;
     if ( newCap < need ) {
       newCap = need;
-    }
-    if ( this.maxOutput > 0 && newCap > this.maxOutput ) {
-      newCap = this.maxOutput;
     }
     let grown = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(newCap));
     (function(
@@ -75556,12 +75854,9 @@ class Inflate  {
     ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(grown,0,this.outBuf,0,this.outLen);
     this.outBuf = grown;
     this.outCap = newCap;
-    return true;
   };
   pushByte (b) {
-    if ( this.ensureCapacity(1) == false ) {
-      return;
-    }
+    this.ensureCapacity(1);
     this.outBuf._view.setUint8(this.outLen, b);
     this.outLen = this.outLen + 1;
   };
@@ -75742,8 +76037,6 @@ class Inflate  {
   };
   decompressFrom (data, offset) {
     this.input = data;
-    this.error = "";
-    this.truncated = false;
     const dataLen = data.byteLength;
     let from = offset;
     if ( from < 0 ) {
@@ -75757,7 +76050,7 @@ class Inflate  {
     this.reader.init(data, from, rest);
     this.buildFixedTables();
     let finalBlock = false;
-    while (false == finalBlock && this.going()) {
+    while (false == finalBlock) {
       const bfinal = this.reader.readBit();
       const btype = this.reader.readBits(2);
       finalBlock = bfinal == 1;
@@ -75770,15 +76063,7 @@ class Inflate  {
       if ( btype == 2 ) {
         this.decompressDynamic();
       }
-      if ( btype == 3 ) {
-        this.fail("reserved block type");
-      }
     };
-    if ( this.error.length > 0 ) {
-      this.outLen = 0;
-      return (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
-    }
-    this.truncated = this.reader.overrun;
     return this.finalOutput();
   };
   inputPos () {
@@ -75789,16 +76074,10 @@ class Inflate  {
     const __len = this.reader.readUint16LE();
     const nlen = this.reader.readUint16LE();
     if ( __len + nlen != 65535 ) {
-      if ( this.reader.overrun == false ) {
-        this.fail("stored block length does not match its complement");
-      }
-      return;
     }
-    if ( this.ensureCapacity(__len) == false ) {
-      return;
-    }
+    this.ensureCapacity(__len);
     let i = 0;
-    while (i < __len && this.going()) {
+    while (i < __len) {
       const b = this.reader.readByte();
       this.pushByte(b);
       i = i + 1;
@@ -75806,15 +76085,8 @@ class Inflate  {
   };
   decompressHuffman (litLenTable, distTable) {
     let done = false;
-    while (false == done && this.going()) {
+    while (false == done) {
       const sym = litLenTable.decode(this.reader);
-      if ( this.reader.overrun ) {
-        return;
-      }
-      if ( sym < 0 || sym > 285 ) {
-        this.fail("invalid literal/length code");
-        return;
-      }
       if ( sym < 256 ) {
         this.pushByte(sym);
       }
@@ -75829,21 +76101,10 @@ class Inflate  {
           length = length + this.reader.readBits(extraBits);
         }
         const distCode = distTable.decode(this.reader);
-        if ( distCode < 0 || distCode > 29 ) {
-          this.fail("invalid distance code");
-          return;
-        }
         let dist = this.distBase[distCode];
         const distExtraBits = this.distExtra[distCode];
         if ( distExtraBits > 0 ) {
           dist = dist + this.reader.readBits(distExtraBits);
-        }
-        if ( this.reader.overrun ) {
-          return;
-        }
-        if ( dist > this.outLen ) {
-          this.fail("distance before the start of the output");
-          return;
         }
         this.copyFromOutput(dist, length);
       }
@@ -75891,12 +76152,8 @@ class Inflate  {
     let allLengths = [];
     const totalCodes = hlit + hdist;
     i = 0;
-    while (i < totalCodes && this.going()) {
+    while (i < totalCodes) {
       const sym = clTable.decode(this.reader);
-      if ( sym < 0 || sym > 18 ) {
-        this.fail("invalid code length code");
-        return;
-      }
       if ( sym < 16 ) {
         allLengths.push(sym);
         i = i + 1;
@@ -75934,13 +76191,6 @@ class Inflate  {
         i = i + repeat_2;
       }
     };
-    if ( this.going() == false ) {
-      return;
-    }
-    if ( i > totalCodes ) {
-      this.fail("code lengths run past the table");
-      return;
-    }
     let litLenLengths = [];
     let distLengths = [];
     i = 0;
@@ -75960,9 +76210,7 @@ class Inflate  {
   };
   copyFromOutput (distance, length) {
     const srcPos = this.outLen - distance;
-    if ( this.ensureCapacity(length) == false ) {
-      return;
-    }
+    this.ensureCapacity(length);
     let i = 0;
     while (i < length) {
       let b = 0;
@@ -75978,6 +76226,708 @@ class Inflate  {
     };
   };
 }
+class DeflateTables  {
+  constructor() {
+    this.lenBase = [];
+    this.lenExtra = [];
+    this.distBase = [];
+    this.distExtra = [];
+    this.clOrder = [];
+    this.lenBase = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
+    this.lenExtra = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
+    this.distBase = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577];
+    this.distExtra = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
+    this.clOrder = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+  }
+  lenIndex (__len) {
+    if ( __len >= 258 ) {
+      return 28;
+    }
+    let k = 27;
+    while (k > 0) {
+      if ( this.lenBase[k] <= __len ) {
+        return k;
+      }
+      k = k - 1;
+    };
+    return 0;
+  };
+  distIndex (dist) {
+    let k = 29;
+    while (k > 0) {
+      if ( this.distBase[k] <= dist ) {
+        return k;
+      }
+      k = k - 1;
+    };
+    return 0;
+  };
+}
+class DeflateHuffman  {
+}
+DeflateHuffman.lengths = function(freqs, limit) {
+  const n = freqs.length;
+  let f = [];
+  let used = 0;
+  let i = 0;
+  while (i < n) {
+    const v = freqs[i];
+    f.push(v);
+    if ( v > 0 ) {
+      used = used + 1;
+    }
+    i = i + 1;
+  };
+  let out = [];
+  i = 0;
+  while (i < n) {
+    out.push(0);
+    i = i + 1;
+  };
+  if ( used < 2 ) {
+    let given = 0;
+    i = 0;
+    while (i < n) {
+      if ( f[i] > 0 ) {
+        out[i] = 1;
+        given = given + 1;
+      }
+      i = i + 1;
+    };
+    i = 0;
+    while (i < n && given < 2) {
+      if ( out[i] == 0 ) {
+        out[i] = 1;
+        given = given + 1;
+      }
+      i = i + 1;
+    };
+    return out;
+  }
+  while (true) {
+    const depth = DeflateHuffman.build(f);
+    let maxLen = 0;
+    i = 0;
+    while (i < n) {
+      if ( depth[i] > maxLen ) {
+        maxLen = depth[i];
+      }
+      i = i + 1;
+    };
+    if ( maxLen <= limit ) {
+      return depth;
+    }
+    i = 0;
+    while (i < n) {
+      const v2 = f[i];
+      if ( v2 > 0 ) {
+        f[i] = (((v2 + 1) / 2) | 0);
+      }
+      i = i + 1;
+    };
+  };
+  return out;
+};
+DeflateHuffman.build = function(f) {
+  const n = f.length;
+  let weight = [];
+  let parent = [];
+  let alive = [];
+  let i = 0;
+  while (i < n) {
+    weight.push(f[i]);
+    parent.push(0 - 1);
+    alive.push(f[i] > 0);
+    i = i + 1;
+  };
+  let left = 0;
+  i = 0;
+  while (i < n) {
+    if ( alive[i] ) {
+      left = left + 1;
+    }
+    i = i + 1;
+  };
+  while (left > 1) {
+    let a = 0 - 1;
+    let b = 0 - 1;
+    const total = weight.length;
+    let j = 0;
+    while (j < total) {
+      if ( alive[j] ) {
+        const w = weight[j];
+        if ( a < 0 ) {
+          a = j;
+        } else {
+          if ( w < weight[a] ) {
+            b = a;
+            a = j;
+          } else {
+            if ( b < 0 ) {
+              b = j;
+            } else {
+              if ( w < weight[b] ) {
+                b = j;
+              }
+            }
+          }
+        }
+      }
+      j = j + 1;
+    };
+    const node = weight.length;
+    weight.push(weight[a] + weight[b]);
+    parent.push(0 - 1);
+    alive.push(true);
+    alive[a] = false;
+    alive[b] = false;
+    parent[a] = node;
+    parent[b] = node;
+    left = left - 1;
+  };
+  let depth = [];
+  i = 0;
+  while (i < n) {
+    let d = 0;
+    if ( f[i] > 0 ) {
+      let p = parent[i];
+      while (p >= 0) {
+        d = d + 1;
+        p = parent[p];
+      };
+    }
+    depth.push(d);
+    i = i + 1;
+  };
+  return depth;
+};
+DeflateHuffman.codes = function(lens) {
+  const n = lens.length;
+  let blCount = [];
+  let i = 0;
+  while (i < 16) {
+    blCount.push(0);
+    i = i + 1;
+  };
+  i = 0;
+  while (i < n) {
+    const l = lens[i];
+    if ( l > 0 ) {
+      blCount[l] = blCount[l] + 1;
+    }
+    i = i + 1;
+  };
+  let next = [];
+  next.push(0);
+  let code = 0;
+  let bits = 1;
+  while (bits < 16) {
+    code = ((code + blCount[(bits - 1)]) << 1);
+    next.push(code);
+    bits = bits + 1;
+  };
+  let out = [];
+  i = 0;
+  while (i < n) {
+    const l2 = lens[i];
+    if ( l2 > 0 ) {
+      const c = next[l2];
+      next[l2] = c + 1;
+      out.push(DeflateHuffman.reverse(c, l2));
+    } else {
+      out.push(0);
+    }
+    i = i + 1;
+  };
+  return out;
+};
+DeflateHuffman.reverse = function(code, __len) {
+  let r = 0;
+  let i = 0;
+  let c = code;
+  while (i < __len) {
+    r = ((r << 1) | (c & 1));
+    c = (c >>> 1);
+    i = i + 1;
+  };
+  return r;
+};
+class Deflate  {
+  constructor() {
+    this.data = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
+    this.n = 0;
+    this.tables = new DeflateTables();
+    this.bytes = [];
+    this.bitBuf = 0;
+    this.bitCnt = 0;
+    this.tokLen = [];
+    this.tokVal = [];
+    this.tokPos = [];
+    this.head = [];
+    this.prev = [];
+    this.nextIns = 0;
+    this.foundLen = 0;
+    this.foundDist = 0;
+    this.n = 0;
+  }
+  run (src) {
+    this.data = src;
+    this.n = src.byteLength;
+    this.tokenize();
+    const count = this.tokLen.length;
+    const per = 16384;
+    let start = 0;
+    if ( count == 0 ) {
+      this.putBits(1, 1);
+      this.putBits(1, 2);
+      this.putBits(0, 7);
+    }
+    while (start < count) {
+      let end = start + per;
+      if ( end > count ) {
+        end = count;
+      }
+      this.block(start, end, end == count);
+      start = end;
+    };
+    this.flushBits();
+    let out = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(this.bytes.length));
+    let i = 0;
+    while (i < this.bytes.length) {
+      out._view.setUint8(i, this.bytes[i]);
+      i = i + 1;
+    };
+    return out;
+  };
+  putBits (value, count) {
+    this.bitBuf = (this.bitBuf | (value << this.bitCnt));
+    this.bitCnt = this.bitCnt + count;
+    while (this.bitCnt >= 8) {
+      this.bytes.push((this.bitBuf & 255));
+      this.bitBuf = (this.bitBuf >>> 8);
+      this.bitCnt = this.bitCnt - 8;
+    };
+  };
+  flushBits () {
+    if ( this.bitCnt > 0 ) {
+      this.bytes.push((this.bitBuf & 255));
+    }
+    this.bitBuf = 0;
+    this.bitCnt = 0;
+  };
+  hashAt (i) {
+    const a = this.data._view.getUint8(i);
+    const b = this.data._view.getUint8(i + 1);
+    const c = this.data._view.getUint8(i + 2);
+    return ((((a << 10) ^ (b << 5)) ^ c) & 32767);
+  };
+  tokenize () {
+    let i = 0;
+    while (i < 32768) {
+      this.head.push(0 - 1);
+      this.prev.push(0 - 1);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < this.n) {
+      this.longest(i);
+      let __len = this.foundLen;
+      let dist = this.foundDist;
+      if ( __len >= 3 ) {
+        if ( __len < 32 && i + 1 < this.n ) {
+          this.insert(i);
+          this.longest(i + 1);
+          if ( this.foundLen > __len ) {
+            this.tokLen.push(0);
+            this.tokVal.push(this.data._view.getUint8(i));
+            this.tokPos.push(i);
+            i = i + 1;
+            __len = this.foundLen;
+            dist = this.foundDist;
+          }
+        } else {
+          this.insert(i);
+        }
+        this.tokLen.push(__len);
+        this.tokVal.push(dist);
+        this.tokPos.push(i);
+        let k = 0;
+        while (k < __len) {
+          this.insert(i + k);
+          k = k + 1;
+        };
+        i = i + __len;
+      } else {
+        this.insert(i);
+        this.tokLen.push(0);
+        this.tokVal.push(this.data._view.getUint8(i));
+        this.tokPos.push(i);
+        i = i + 1;
+      }
+    };
+  };
+  insert (i) {
+    if ( i + 2 >= this.n ) {
+      return;
+    }
+    if ( i < this.nextIns ) {
+      return;
+    }
+    this.nextIns = i + 1;
+    const h = this.hashAt(i);
+    const slot = (i & 32767);
+    this.prev[slot] = this.head[h];
+    this.head[h] = i;
+  };
+  longest (i) {
+    this.foundLen = 0;
+    this.foundDist = 0;
+    if ( i + 2 >= this.n ) {
+      return;
+    }
+    let maxLen = this.n - i;
+    if ( maxLen > 258 ) {
+      maxLen = 258;
+    }
+    let cand = this.head[this.hashAt(i)];
+    let chain = 0;
+    let best = 0;
+    let bestDist = 0;
+    while (cand >= 0 && chain < 128) {
+      if ( cand >= i ) {
+        break;
+      }
+      const dist = i - cand;
+      if ( dist > 32768 ) {
+        break;
+      }
+      if ( this.data._view.getUint8(cand + best) == this.data._view.getUint8(i + best) ) {
+        let l = 0;
+        while (l < maxLen && this.data._view.getUint8(cand + l) == this.data._view.getUint8(i + l)) {
+          l = l + 1;
+        };
+        if ( l > best ) {
+          best = l;
+          bestDist = dist;
+          if ( l >= maxLen ) {
+            break;
+          }
+        }
+      }
+      const nextCand = this.prev[(cand & 32767)];
+      if ( nextCand >= cand ) {
+        break;
+      }
+      cand = nextCand;
+      chain = chain + 1;
+    };
+    if ( best >= 3 ) {
+      this.foundLen = best;
+      this.foundDist = bestDist;
+    }
+  };
+  byteSpan (from, to) {
+    let span = [];
+    const a = this.tokPos[from];
+    let b = this.n;
+    if ( to < this.tokPos.length ) {
+      b = this.tokPos[to];
+    }
+    span.push(a);
+    span.push(b);
+    return span;
+  };
+  block (from, to, last) {
+    let litF = [];
+    let distF = [];
+    let i = 0;
+    while (i < 286) {
+      litF.push(0);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < 30) {
+      distF.push(0);
+      i = i + 1;
+    };
+    let extraBits = 0;
+    i = from;
+    while (i < to) {
+      const __len = this.tokLen[i];
+      if ( __len == 0 ) {
+        const lit = this.tokVal[i];
+        litF[lit] = litF[lit] + 1;
+      } else {
+        const li = this.tables.lenIndex(__len);
+        litF[257 + li] = litF[(257 + li)] + 1;
+        const di = this.tables.distIndex(this.tokVal[i]);
+        distF[di] = distF[di] + 1;
+        extraBits = (extraBits + this.tables.lenExtra[li]) + this.tables.distExtra[di];
+      }
+      i = i + 1;
+    };
+    litF[256] = 1;
+    const fixedLit = this.fixedLitLens();
+    let fixedCost = 3 + extraBits;
+    i = 0;
+    while (i < 286) {
+      fixedCost = fixedCost + litF[i] * fixedLit[i];
+      i = i + 1;
+    };
+    i = 0;
+    while (i < 30) {
+      fixedCost = fixedCost + distF[i] * 5;
+      i = i + 1;
+    };
+    const litLens = DeflateHuffman.lengths(litF, 15);
+    const distLens = DeflateHuffman.lengths(distF, 15);
+    let hlit = 286;
+    while (hlit > 257 && litLens[(hlit - 1)] == 0) {
+      hlit = hlit - 1;
+    };
+    let hdist = 30;
+    while (hdist > 1 && distLens[(hdist - 1)] == 0) {
+      hdist = hdist - 1;
+    };
+    let all = [];
+    i = 0;
+    while (i < hlit) {
+      all.push(litLens[i]);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < hdist) {
+      all.push(distLens[i]);
+      i = i + 1;
+    };
+    let rleSym = [];
+    let rleExtra = [];
+    this.rle(all, rleSym, rleExtra);
+    let clF = [];
+    i = 0;
+    while (i < 19) {
+      clF.push(0);
+      i = i + 1;
+    };
+    i = 0;
+    while (i < rleSym.length) {
+      const s = rleSym[i];
+      clF[s] = clF[s] + 1;
+      i = i + 1;
+    };
+    const clLens = DeflateHuffman.lengths(clF, 7);
+    let hclen = 19;
+    while (hclen > 4 && clLens[this.tables.clOrder[(hclen - 1)]] == 0) {
+      hclen = hclen - 1;
+    };
+    let dynCost = ((3 + 14) + 3 * hclen) + extraBits;
+    i = 0;
+    while (i < rleSym.length) {
+      const s2 = rleSym[i];
+      dynCost = dynCost + clLens[s2];
+      if ( s2 == 16 ) {
+        dynCost = dynCost + 2;
+      }
+      if ( s2 == 17 ) {
+        dynCost = dynCost + 3;
+      }
+      if ( s2 == 18 ) {
+        dynCost = dynCost + 7;
+      }
+      i = i + 1;
+    };
+    i = 0;
+    while (i < 286) {
+      dynCost = dynCost + litF[i] * litLens[i];
+      i = i + 1;
+    };
+    i = 0;
+    while (i < 30) {
+      dynCost = dynCost + distF[i] * distLens[i];
+      i = i + 1;
+    };
+    const span = this.byteSpan(from, to);
+    const rawLen = span[1] - span[0];
+    const storedCost = (rawLen * 8 + 40 * (((rawLen / 65535) | 0) + 1)) + 10;
+    if ( storedCost <= fixedCost && storedCost <= dynCost ) {
+      this.stored(span[0], span[1], last);
+      return;
+    }
+    let finalBit = 0;
+    if ( last ) {
+      finalBit = 1;
+    }
+    if ( fixedCost <= dynCost ) {
+      this.putBits(finalBit, 1);
+      this.putBits(1, 2);
+      let fixedDist = [];
+      i = 0;
+      while (i < 30) {
+        fixedDist.push(5);
+        i = i + 1;
+      };
+      this.tokens(from, to, fixedLit, fixedDist);
+      return;
+    }
+    this.putBits(finalBit, 1);
+    this.putBits(2, 2);
+    this.putBits(hlit - 257, 5);
+    this.putBits(hdist - 1, 5);
+    this.putBits(hclen - 4, 4);
+    i = 0;
+    while (i < hclen) {
+      this.putBits(clLens[this.tables.clOrder[i]], 3);
+      i = i + 1;
+    };
+    const clCodes = DeflateHuffman.codes(clLens);
+    i = 0;
+    while (i < rleSym.length) {
+      const s3 = rleSym[i];
+      this.putBits(clCodes[s3], clLens[s3]);
+      if ( s3 == 16 ) {
+        this.putBits(rleExtra[i], 2);
+      }
+      if ( s3 == 17 ) {
+        this.putBits(rleExtra[i], 3);
+      }
+      if ( s3 == 18 ) {
+        this.putBits(rleExtra[i], 7);
+      }
+      i = i + 1;
+    };
+    this.tokens(from, to, litLens, distLens);
+  };
+  fixedLitLens () {
+    let lens = [];
+    let i = 0;
+    while (i < 288) {
+      let l = 8;
+      if ( i >= 144 && i < 256 ) {
+        l = 9;
+      }
+      if ( i >= 256 && i < 280 ) {
+        l = 7;
+      }
+      lens.push(l);
+      i = i + 1;
+    };
+    return lens;
+  };
+  rle (lens, syms, extras) {
+    const total = lens.length;
+    let i = 0;
+    while (i < total) {
+      const l = lens[i];
+      let run = 1;
+      while (i + run < total && lens[(i + run)] == l) {
+        run = run + 1;
+      };
+      if ( l == 0 ) {
+        let left = run;
+        while (left >= 11) {
+          let take = left;
+          if ( take > 138 ) {
+            take = 138;
+          }
+          syms.push(18);
+          extras.push(take - 11);
+          left = left - take;
+        };
+        if ( left >= 3 ) {
+          syms.push(17);
+          extras.push(left - 3);
+          left = 0;
+        }
+        while (left > 0) {
+          syms.push(0);
+          extras.push(0);
+          left = left - 1;
+        };
+      } else {
+        syms.push(l);
+        extras.push(0);
+        let left2 = run - 1;
+        while (left2 >= 3) {
+          let take2 = left2;
+          if ( take2 > 6 ) {
+            take2 = 6;
+          }
+          syms.push(16);
+          extras.push(take2 - 3);
+          left2 = left2 - take2;
+        };
+        while (left2 > 0) {
+          syms.push(l);
+          extras.push(0);
+          left2 = left2 - 1;
+        };
+      }
+      i = i + run;
+    };
+  };
+  tokens (from, to, litLens, distLens) {
+    const litCodes = DeflateHuffman.codes(litLens);
+    const distCodes = DeflateHuffman.codes(distLens);
+    let i = from;
+    while (i < to) {
+      const __len = this.tokLen[i];
+      if ( __len == 0 ) {
+        const lit = this.tokVal[i];
+        this.putBits(litCodes[lit], litLens[lit]);
+      } else {
+        const li = this.tables.lenIndex(__len);
+        const sym = 257 + li;
+        this.putBits(litCodes[sym], litLens[sym]);
+        const le = this.tables.lenExtra[li];
+        if ( le > 0 ) {
+          this.putBits(__len - this.tables.lenBase[li], le);
+        }
+        const dist = this.tokVal[i];
+        const di = this.tables.distIndex(dist);
+        this.putBits(distCodes[di], distLens[di]);
+        const de = this.tables.distExtra[di];
+        if ( de > 0 ) {
+          this.putBits(dist - this.tables.distBase[di], de);
+        }
+      }
+      i = i + 1;
+    };
+    this.putBits(litCodes[256], litLens[256]);
+  };
+  stored (a, b, last) {
+    let at = a;
+    let first = true;
+    while (first || at < b) {
+      first = false;
+      let take = b - at;
+      if ( take > 65535 ) {
+        take = 65535;
+      }
+      let fin = 0;
+      if ( last && at + take >= b ) {
+        fin = 1;
+      }
+      this.putBits(fin, 1);
+      this.putBits(0, 2);
+      this.flushBits();
+      this.bytes.push((take & 255));
+      this.bytes.push((take >>> 8));
+      const nlen = 65535 - take;
+      this.bytes.push((nlen & 255));
+      this.bytes.push((nlen >>> 8));
+      let k = 0;
+      while (k < take) {
+        this.bytes.push(this.data._view.getUint8(at + k));
+        k = k + 1;
+      };
+      at = at + take;
+    };
+  };
+}
+Deflate.compress = function(src) {
+  const d = new Deflate();
+  return d.run(src);
+};
 class GitZlib  {
   constructor() {
     this.ok = true;
@@ -76026,6 +76976,40 @@ class GitZlib  {
     return this.inflateAt(data, 0);
   };
 }
+GitZlib.deflate = function(data) {
+  const raw = Deflate.compress(data);
+  const rn = raw.byteLength;
+  let out = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(rn + 6));
+  out._view.setUint8(0, 120);
+  out._view.setUint8(1, 156);
+  (function(
+    d,
+    dOff,
+    s,
+    sOff,
+    len
+  ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(out,2,raw,0,rn);
+  const a = GitZlib.adler32(data);
+  const hi = (a >>> 16);
+  const lo = (a & 65535);
+  out._view.setUint8(rn + 2, (hi >>> 8));
+  out._view.setUint8(rn + 3, (hi & 255));
+  out._view.setUint8(rn + 4, (lo >>> 8));
+  out._view.setUint8(rn + 5, (lo & 255));
+  return out;
+};
+GitZlib.adler32 = function(data) {
+  let s1 = 1;
+  let s2 = 0;
+  const n = data.byteLength;
+  let i = 0;
+  while (i < n) {
+    s1 = (s1 + data._view.getUint8(i)) % 65521;
+    s2 = (s2 + s1) % 65521;
+    i = i + 1;
+  };
+  return s2 * 65536 + s1;
+};
 class GitObj  {
   constructor() {
     this.kind = 0;
@@ -76183,7 +77167,7 @@ GitPackIO.parse = function(data) {
   pack.count = GitSha1.u32be(data, 8);
   if ( pack.version != 2 ) {
     pack.ok = false;
-    pack.err = "unsupported pack version " + (pack.version.toString());
+    pack.err = "unsupported pack version " + ((pack.version).toString());
     return pack;
   }
   const z = new GitZlib();
@@ -76192,7 +77176,7 @@ GitPackIO.parse = function(data) {
   while (i < pack.count) {
     if ( at >= n - 20 ) {
       pack.ok = false;
-      pack.err = "truncated pack at object " + (i.toString());
+      pack.err = "truncated pack at object " + ((i).toString());
       return pack;
     }
     const obj = new GitObj();
@@ -76234,7 +77218,7 @@ GitPackIO.parse = function(data) {
     const inflated = z.inflateAt(data, at);
     if ( z.ok == false ) {
       pack.ok = false;
-      pack.err = (("inflate object " + (i.toString())) + ": ") + z.err;
+      pack.err = (("inflate object " + ((i).toString())) + ": ") + z.err;
       return pack;
     }
     at = z.nextPos;
@@ -76348,6 +77332,1002 @@ GitPackIO.merge = function(a, b) {
   out.ok = true;
   return out;
 };
+class RgText  {
+}
+RgText.kind = function() {
+  if ( ("é".length) > 1 ) {
+    return 1;
+  }
+  if ( ("😀".length) == 1 ) {
+    return 2;
+  }
+  return 0;
+};
+RgText.unitsAreBytes = function() {
+  return RgText.kind() == 1;
+};
+RgText.unitsArePoints = function() {
+  return RgText.kind() == 2;
+};
+RgText.utf8WidthOf = function(cp) {
+  if ( cp < 128 ) {
+    return 1;
+  }
+  if ( cp < 2048 ) {
+    return 2;
+  }
+  if ( cp < 65536 ) {
+    return 3;
+  }
+  return 4;
+};
+RgText.byteSlice = function(s, i, j) {
+  const n = s.length;
+  let a = i;
+  let b = j;
+  if ( a < 0 ) {
+    a = 0;
+  }
+  if ( b > n ) {
+    b = n;
+  }
+  if ( b <= a ) {
+    return "";
+  }
+  return s.substring(a, b );
+};
+RgText.decodeAt = function(s, i) {
+  let out = [];
+  const n = s.length;
+  if ( i >= n ) {
+    out.push(0 - 1);
+    out.push(0);
+    return out;
+  }
+  const b0 = (s.charCodeAt(i ) & 255);
+  if ( b0 < 128 ) {
+    out.push(b0);
+    out.push(1);
+    return out;
+  }
+  if ( b0 < 224 ) {
+    let c1 = 0;
+    if ( i + 1 < n ) {
+      c1 = (s.charCodeAt(i + 1 ) & 63);
+    }
+    out.push((b0 & 31) * 64 + c1);
+    out.push(2);
+    return out;
+  }
+  if ( b0 < 240 ) {
+    let d1 = 0;
+    let d2 = 0;
+    if ( i + 1 < n ) {
+      d1 = (s.charCodeAt(i + 1 ) & 63);
+    }
+    if ( i + 2 < n ) {
+      d2 = (s.charCodeAt(i + 2 ) & 63);
+    }
+    out.push(((b0 & 15) * 4096 + d1 * 64) + d2);
+    out.push(3);
+    return out;
+  }
+  let e1 = 0;
+  let e2 = 0;
+  let e3 = 0;
+  if ( i + 1 < n ) {
+    e1 = (s.charCodeAt(i + 1 ) & 63);
+  }
+  if ( i + 2 < n ) {
+    e2 = (s.charCodeAt(i + 2 ) & 63);
+  }
+  if ( i + 3 < n ) {
+    e3 = (s.charCodeAt(i + 3 ) & 63);
+  }
+  out.push((((b0 & 7) * 262144 + e1 * 4096) + e2 * 64) + e3);
+  out.push(4);
+  return out;
+};
+RgText.fromCodePoint = function(cp) {
+  if ( RgText.unitsAreBytes() ) {
+    return RgText.encodeUtf8(cp);
+  }
+  if ( RgText.unitsArePoints() ) {
+    const p = String.fromCharCode(cp);
+    return p;
+  }
+  if ( cp < 65536 ) {
+    const q = String.fromCharCode(cp);
+    return q;
+  }
+  const adj = cp - 65536;
+  const hi = String.fromCharCode(55296 + (adj >> 10));
+  const lo = String.fromCharCode(56320 + (adj & 1023));
+  return hi + lo;
+};
+RgText.encodeUtf8 = function(cp) {
+  const p = String.fromCharCode(cp);
+  return p;
+};
+RgText.len = function(s) {
+  const n = s.length;
+  if ( RgText.unitsArePoints() ) {
+    let p = 0;
+    let cnt = 0;
+    while (p < n) {
+      if ( s.charCodeAt(p ) > 65535 ) {
+        cnt = cnt + 2;
+      } else {
+        cnt = cnt + 1;
+      }
+      p = p + 1;
+    };
+    return cnt;
+  }
+  if ( false == RgText.unitsAreBytes() ) {
+    return n;
+  }
+  let i = 0;
+  let units = 0;
+  while (i < n) {
+    const b = (s.charCodeAt(i ) & 255);
+    if ( b < 128 ) {
+      units = units + 1;
+      i = i + 1;
+    } else {
+      if ( b < 224 ) {
+        units = units + 1;
+        i = i + 2;
+      } else {
+        if ( b < 240 ) {
+          units = units + 1;
+          i = i + 3;
+        } else {
+          units = units + 2;
+          i = i + 4;
+        }
+      }
+    }
+  };
+  return units;
+};
+RgText.unitAt = function(s, u) {
+  const n = s.length;
+  if ( u < 0 ) {
+    return 0 - 1;
+  }
+  if ( RgText.unitsArePoints() ) {
+    let p = 0;
+    let units = 0;
+    while (p < n) {
+      const cp = s.charCodeAt(p );
+      if ( cp < 65536 ) {
+        if ( units == u ) {
+          return cp;
+        }
+        units = units + 1;
+      } else {
+        const adj = cp - 65536;
+        if ( units == u ) {
+          return 55296 + (adj >> 10);
+        }
+        if ( units + 1 == u ) {
+          return 56320 + (adj & 1023);
+        }
+        units = units + 2;
+      }
+      p = p + 1;
+    };
+    return 0 - 1;
+  }
+  if ( false == RgText.unitsAreBytes() ) {
+    if ( u >= n ) {
+      return 0 - 1;
+    }
+    return (s.charCodeAt(u ) & 65535);
+  }
+  let i = 0;
+  let units_1 = 0;
+  while (i < n) {
+    const dec = RgText.decodeAt(s, i);
+    const cp_1 = dec[0];
+    const w = dec[1];
+    if ( w == 0 ) {
+      return 0 - 1;
+    }
+    if ( cp_1 < 65536 ) {
+      if ( units_1 == u ) {
+        return cp_1;
+      }
+      units_1 = units_1 + 1;
+    } else {
+      const adj_1 = cp_1 - 65536;
+      if ( units_1 == u ) {
+        return 55296 + (adj_1 >> 10);
+      }
+      if ( units_1 + 1 == u ) {
+        return 56320 + (adj_1 & 1023);
+      }
+      units_1 = units_1 + 2;
+    }
+    i = i + w;
+  };
+  return 0 - 1;
+};
+RgText.substr = function(s, a, b) {
+  let lo = a;
+  let hi = b;
+  if ( lo < 0 ) {
+    lo = 0;
+  }
+  if ( hi < lo ) {
+    hi = lo;
+  }
+  const n = s.length;
+  if ( RgText.unitsArePoints() ) {
+    let out = "";
+    let p = 0;
+    let units = 0;
+    while (p < n) {
+      const cp = s.charCodeAt(p );
+      let w = 1;
+      if ( cp > 65535 ) {
+        w = 2;
+      }
+      if ( units >= lo && units + w <= hi ) {
+        out = out + s[p];
+      }
+      units = units + w;
+      p = p + 1;
+    };
+    return out;
+  }
+  if ( false == RgText.unitsAreBytes() ) {
+    if ( lo >= n ) {
+      return "";
+    }
+    let hi2 = hi;
+    if ( hi2 > n ) {
+      hi2 = n;
+    }
+    return s.substring(lo, hi2 );
+  }
+  let out2 = "";
+  let i = 0;
+  let units2 = 0;
+  while (i < n) {
+    const dec = RgText.decodeAt(s, i);
+    const cp_1 = dec[0];
+    const w_1 = dec[1];
+    if ( w_1 == 0 ) {
+      i = n;
+    } else {
+      if ( cp_1 < 65536 ) {
+        if ( units2 >= lo && units2 < hi ) {
+          out2 = out2 + RgText.byteSlice(s, i, (i + w_1));
+        }
+        units2 = units2 + 1;
+      } else {
+        const adj = cp_1 - 65536;
+        const takeHi = units2 >= lo && units2 < hi;
+        const takeLo = units2 + 1 >= lo && units2 + 1 < hi;
+        if ( takeHi && takeLo ) {
+          out2 = out2 + RgText.byteSlice(s, i, (i + w_1));
+        } else {
+          if ( takeHi ) {
+            out2 = out2 + RgText.encodeUtf8((55296 + (adj >> 10)));
+          }
+          if ( takeLo ) {
+            out2 = out2 + RgText.encodeUtf8((56320 + (adj & 1023)));
+          }
+        }
+        units2 = units2 + 2;
+      }
+      i = i + w_1;
+    }
+  };
+  return out2;
+};
+RgText.utf8ByteOfUnit = function(s, u) {
+  if ( u <= 0 ) {
+    return 0;
+  }
+  const n = RgText.len(s);
+  let bytes = 0;
+  let i = 0;
+  while (i < n) {
+    if ( i >= u ) {
+      return bytes;
+    }
+    const cp = RgText.codePointAt(s, i);
+    if ( cp < 0 ) {
+      return bytes;
+    }
+    let w = 1;
+    if ( cp > 65535 ) {
+      w = 2;
+    }
+    bytes = bytes + RgText.utf8WidthOf(cp);
+    i = i + w;
+  };
+  return bytes;
+};
+RgText.unitOfUtf8Byte = function(s, byteIdx) {
+  if ( byteIdx <= 0 ) {
+    return 0;
+  }
+  const n = RgText.len(s);
+  let bytes = 0;
+  let units = 0;
+  let i = 0;
+  while (i < n) {
+    if ( bytes >= byteIdx ) {
+      return units;
+    }
+    const cp = RgText.codePointAt(s, i);
+    if ( cp < 0 ) {
+      return units;
+    }
+    let w = 1;
+    if ( cp > 65535 ) {
+      w = 2;
+    }
+    bytes = bytes + RgText.utf8WidthOf(cp);
+    units = units + w;
+    i = i + w;
+  };
+  return units;
+};
+RgText.codePointAt = function(s, u) {
+  const first = RgText.unitAt(s, u);
+  if ( first < 0 ) {
+    return 0 - 1;
+  }
+  if ( first < 55296 ) {
+    return first;
+  }
+  if ( first > 56319 ) {
+    return first;
+  }
+  const second = RgText.unitAt(s, (u + 1));
+  if ( second < 56320 ) {
+    return first;
+  }
+  if ( second > 57343 ) {
+    return first;
+  }
+  return ((first - 55296) * 1024 + (second - 56320)) + 65536;
+};
+RgText.toCodePoints = function(s) {
+  let out = [];
+  const n = RgText.len(s);
+  let u = 0;
+  while (u < n) {
+    const cp = RgText.codePointAt(s, u);
+    if ( cp < 0 ) {
+      u = n;
+    } else {
+      out.push(cp);
+      if ( cp > 65535 ) {
+        u = u + 2;
+      } else {
+        u = u + 1;
+      }
+    }
+  };
+  return out;
+};
+RgText.codePointCount = function(s) {
+  const cps = RgText.toCodePoints(s);
+  return cps.length;
+};
+RgText.fromCodePoints = function(cps) {
+  let out = "";
+  let i = 0;
+  while (i < cps.length) {
+    out = out + RgText.fromCodePoint(cps[i]);
+    i = i + 1;
+  };
+  return out;
+};
+RgText.toCodeUnits = function(s) {
+  let out = [];
+  const n = RgText.len(s);
+  let u = 0;
+  while (u < n) {
+    out.push(RgText.unitAt(s, u));
+    u = u + 1;
+  };
+  return out;
+};
+RgText.fromCodeUnits = function(units) {
+  let out = "";
+  let i = 0;
+  const n = units.length;
+  while (i < n) {
+    const hi = units[i];
+    let paired = false;
+    if ( hi >= 55296 && hi <= 56319 ) {
+      if ( i + 1 < n ) {
+        const lo = units[(i + 1)];
+        if ( lo >= 56320 && lo <= 57343 ) {
+          const cp = ((hi - 55296) * 1024 + (lo - 56320)) + 65536;
+          out = out + RgText.fromCodePoint(cp);
+          i = i + 2;
+          paired = true;
+        }
+      }
+    }
+    if ( false == paired ) {
+      out = out + RgText.fromCodePoint(hi);
+      i = i + 1;
+    }
+  };
+  return out;
+};
+RgText.toUtf8Bytes = function(s) {
+  let out = [];
+  if ( RgText.unitsAreBytes() ) {
+    const n = s.length;
+    let i = 0;
+    while (i < n) {
+      out.push((s.charCodeAt(i ) & 255));
+      i = i + 1;
+    };
+    return out;
+  }
+  const cps = RgText.toCodePoints(s);
+  let k = 0;
+  while (k < cps.length) {
+    const cp = cps[k];
+    if ( cp < 128 ) {
+      out.push(cp);
+    } else {
+      if ( cp < 2048 ) {
+        out.push((192 | (cp >> 6)));
+        out.push((128 | (cp & 63)));
+      } else {
+        if ( cp < 65536 ) {
+          out.push((224 | (cp >> 12)));
+          out.push((128 | ((cp >> 6) & 63)));
+          out.push((128 | (cp & 63)));
+        } else {
+          out.push((240 | (cp >> 18)));
+          out.push((128 | ((cp >> 12) & 63)));
+          out.push((128 | ((cp >> 6) & 63)));
+          out.push((128 | (cp & 63)));
+        }
+      }
+    }
+    k = k + 1;
+  };
+  return out;
+};
+RgText.fromUtf8Bytes = function(bytes) {
+  let cps = [];
+  const n = bytes.length;
+  let i = 0;
+  while (i < n) {
+    const b0 = (bytes[i] & 255);
+    if ( b0 < 128 ) {
+      cps.push(b0);
+      i = i + 1;
+    } else {
+      if ( b0 < 224 ) {
+        let c1 = 0;
+        if ( i + 1 < n ) {
+          c1 = (bytes[(i + 1)] & 63);
+        }
+        cps.push((b0 & 31) * 64 + c1);
+        i = i + 2;
+      } else {
+        if ( b0 < 240 ) {
+          let d1 = 0;
+          let d2 = 0;
+          if ( i + 1 < n ) {
+            d1 = (bytes[(i + 1)] & 63);
+          }
+          if ( i + 2 < n ) {
+            d2 = (bytes[(i + 2)] & 63);
+          }
+          cps.push(((b0 & 15) * 4096 + d1 * 64) + d2);
+          i = i + 3;
+        } else {
+          let e1 = 0;
+          let e2 = 0;
+          let e3 = 0;
+          if ( i + 1 < n ) {
+            e1 = (bytes[(i + 1)] & 63);
+          }
+          if ( i + 2 < n ) {
+            e2 = (bytes[(i + 2)] & 63);
+          }
+          if ( i + 3 < n ) {
+            e3 = (bytes[(i + 3)] & 63);
+          }
+          cps.push((((b0 & 7) * 262144 + e1 * 4096) + e2 * 64) + e3);
+          i = i + 4;
+        }
+      }
+    }
+  };
+  return RgText.fromCodePoints(cps);
+};
+class GitTreeItem  {
+  constructor() {
+    this.name = "";
+    this.mode = "100644";
+    this.sha = "";
+  }
+  isTree () {
+    return this.mode == "40000";
+  };
+}
+class GitIdent  {
+  constructor() {
+    this.name = "";
+    this.email = "";
+    this.time = 0;
+    this.tz = "+0000";
+  }
+}
+class GitCommit  {
+  constructor() {
+    this.ok = true;
+    this.err = "";
+    this.tree = "";
+    this.parents = [];
+    this.author = new GitIdent();
+    this.committer = new GitIdent();
+    this.message = "";
+  }
+}
+class GitRaw  {
+  constructor() {
+    this.ok = true;
+    this.err = "";
+    this.kind = "";
+    this.payload = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(0));
+  }
+}
+class GitTreeSet  {
+  constructor() {
+    this.root = "";
+    this.shas = [];
+    this.payloads = [];
+  }
+}
+class GitObjects  {
+}
+GitObjects.utf8 = function(s) {
+  const bytes = RgText.toUtf8Bytes(s);
+  const n = bytes.length;
+  let out = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(n));
+  let i = 0;
+  while (i < n) {
+    out._view.setUint8(i, bytes[i]);
+    i = i + 1;
+  };
+  return out;
+};
+GitObjects.text = function(b) {
+  return GitObjects.textRange(b, 0, b.byteLength);
+};
+GitObjects.textRange = function(b, start, count) {
+  let bytes = [];
+  let i = 0;
+  while (i < count) {
+    bytes.push(b._view.getUint8(start + i));
+    i = i + 1;
+  };
+  return RgText.fromUtf8Bytes(bytes);
+};
+GitObjects.concat = function(parts) {
+  let total = 0;
+  let i = 0;
+  while (i < parts.length) {
+    total = total + parts[i].byteLength;
+    i = i + 1;
+  };
+  let out = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(total));
+  let at = 0;
+  i = 0;
+  while (i < parts.length) {
+    const p = parts[i];
+    const pn = p.byteLength;
+    if ( pn > 0 ) {
+      (function(
+        d,
+        dOff,
+        s,
+        sOff,
+        len
+      ){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(out,at,p,0,pn);
+    }
+    at = at + pn;
+    i = i + 1;
+  };
+  return out;
+};
+GitObjects.decimal = function(s) {
+  const n = s.length;
+  let v = 0;
+  let i = 0;
+  let neg = false;
+  if ( n > 0 && s.charCodeAt(0 ) == 45 ) {
+    neg = true;
+    i = 1;
+  }
+  while (i < n) {
+    const c = s.charCodeAt(i );
+    if ( c < 48 || c > 57 ) {
+      break;
+    }
+    v = v * 10 + (c - 48);
+    i = i + 1;
+  };
+  if ( neg ) {
+    return 0 - v;
+  }
+  return v;
+};
+GitObjects.kindCode = function(kind) {
+  if ( kind == "commit" ) {
+    return 1;
+  }
+  if ( kind == "tree" ) {
+    return 2;
+  }
+  if ( kind == "blob" ) {
+    return 3;
+  }
+  if ( kind == "tag" ) {
+    return 4;
+  }
+  return 0;
+};
+GitObjects.frame = function(kind, payload) {
+  const head = GitObjects.utf8(((kind + " ") + ((payload.byteLength).toString())));
+  let nul = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(1));
+  nul._view.setUint8(0, 0);
+  let parts = [];
+  parts.push(head);
+  parts.push(nul);
+  parts.push(payload);
+  return GitObjects.concat(parts);
+};
+GitObjects.id = function(kind, payload) {
+  return GitSha1.objectId(kind, payload);
+};
+GitObjects.loose = function(kind, payload) {
+  return GitZlib.deflate(GitObjects.frame(kind, payload));
+};
+GitObjects.loosePath = function(sha) {
+  return (("objects/" + sha.substring(0, 2 )) + "/") + sha.substring(2, 40 );
+};
+GitObjects.readLoose = function(bytes) {
+  const z = new GitZlib();
+  const framed = z.inflate(bytes);
+  const raw = new GitRaw();
+  if ( z.ok == false ) {
+    raw.ok = false;
+    raw.err = z.err;
+    return raw;
+  }
+  return GitObjects.unframe(framed);
+};
+GitObjects.unframe = function(framed) {
+  const raw = new GitRaw();
+  const n = framed.byteLength;
+  let sp = 0;
+  while (sp < n && framed._view.getUint8(sp) != 32) {
+    sp = sp + 1;
+  };
+  let nul = sp;
+  while (nul < n && framed._view.getUint8(nul) != 0) {
+    nul = nul + 1;
+  };
+  if ( nul >= n ) {
+    raw.ok = false;
+    raw.err = "object header has no NUL";
+    return raw;
+  }
+  raw.kind = GitSha1.ascii(framed, 0, sp);
+  const size = GitObjects.decimal(GitSha1.ascii(
+    framed,
+    (sp + 1),
+    ((nul - sp) - 1)
+  ));
+  if ( size != (n - nul) - 1 ) {
+    raw.ok = false;
+    raw.err = ((("object size " + ((size).toString())) + " but ") + (((n - nul) - 1).toString())) + " bytes follow";
+    return raw;
+  }
+  raw.payload = GitSha1.copyRange(framed, (nul + 1), size);
+  return raw;
+};
+GitObjects.sortKey = function(e) {
+  if ( e.isTree() ) {
+    return GitObjects.utf8((e.name + "/"));
+  }
+  return GitObjects.utf8(e.name);
+};
+GitObjects.compareBytes = function(a, b) {
+  const na = a.byteLength;
+  const nb = b.byteLength;
+  let i = 0;
+  while (i < na && i < nb) {
+    const x = a._view.getUint8(i);
+    const y = b._view.getUint8(i);
+    if ( x != y ) {
+      return x - y;
+    }
+    i = i + 1;
+  };
+  return na - nb;
+};
+GitObjects.sortItems = function(items) {
+  let keys = [];
+  let i = 0;
+  while (i < items.length) {
+    keys.push(GitObjects.sortKey(items[i]));
+    i = i + 1;
+  };
+  const order = GitObjects.sortOrder(keys);
+  let out = [];
+  i = 0;
+  while (i < order.length) {
+    out.push(items[order[i]]);
+    i = i + 1;
+  };
+  return out;
+};
+GitObjects.sortOrder = function(keys) {
+  const n = keys.length;
+  let order = [];
+  let tmp = [];
+  let i = 0;
+  while (i < n) {
+    order.push(i);
+    tmp.push(0);
+    i = i + 1;
+  };
+  let width = 1;
+  while (width < n) {
+    let lo = 0;
+    while (lo < n) {
+      let mid = lo + width;
+      if ( mid > n ) {
+        mid = n;
+      }
+      let hi = lo + 2 * width;
+      if ( hi > n ) {
+        hi = n;
+      }
+      let a = lo;
+      let b = mid;
+      let k = lo;
+      while (k < hi) {
+        let takeA = false;
+        if ( a < mid ) {
+          if ( b >= hi ) {
+            takeA = true;
+          } else {
+            if ( GitObjects.compareBytes(keys[order[a]], keys[order[b]]) <= 0 ) {
+              takeA = true;
+            }
+          }
+        }
+        if ( takeA ) {
+          tmp[k] = order[a];
+          a = a + 1;
+        } else {
+          tmp[k] = order[b];
+          b = b + 1;
+        }
+        k = k + 1;
+      };
+      lo = hi;
+    };
+    i = 0;
+    while (i < n) {
+      order[i] = tmp[i];
+      i = i + 1;
+    };
+    width = width * 2;
+  };
+  return order;
+};
+GitObjects.treePayload = function(items) {
+  const sorted = GitObjects.sortItems(items);
+  let parts = [];
+  let nul = (function(b){ return Object.assign(b, { _view: new DataView(b) }); })(new ArrayBuffer(1));
+  nul._view.setUint8(0, 0);
+  let i = 0;
+  while (i < sorted.length) {
+    const e = sorted[i];
+    parts.push(GitObjects.utf8((e.mode + " ") + e.name));
+    parts.push(nul);
+    parts.push(GitSha1.fromHex(e.sha));
+    i = i + 1;
+  };
+  return GitObjects.concat(parts);
+};
+GitObjects.parseTree = function(payload) {
+  let out = [];
+  const n = payload.byteLength;
+  let at = 0;
+  while (at < n) {
+    const modeStart = at;
+    while (at < n && payload._view.getUint8(at) != 32) {
+      at = at + 1;
+    };
+    const mode = GitSha1.ascii(payload, modeStart, (at - modeStart));
+    at = at + 1;
+    const nameStart = at;
+    while (at < n && payload._view.getUint8(at) != 0) {
+      at = at + 1;
+    };
+    const name = GitObjects.textRange(payload, nameStart, (at - nameStart));
+    at = at + 1;
+    if ( at + 20 > n ) {
+      break;
+    }
+    const e = new GitTreeItem();
+    e.mode = mode;
+    e.name = name;
+    e.sha = GitSha1.toHex(GitSha1.copyRange(payload, at, 20));
+    at = at + 20;
+    out.push(e);
+  };
+  return out;
+};
+GitObjects.identPart = function(s) {
+  let out = "";
+  const n = s.length;
+  let i = 0;
+  while (i < n) {
+    const c = s.charCodeAt(i );
+    if ( (((c != 60 && c != 62) && c != 10) && c != 13) && c != 0 ) {
+      out = out + s.substring(i, i + 1 );
+    }
+    i = i + 1;
+  };
+  return out.trim();
+};
+GitObjects.identLine = function(who) {
+  return (((((GitObjects.identPart(who.name) + " <") + GitObjects.identPart(who.email)) + "> ") + ((who.time).toString())) + " ") + who.tz;
+};
+GitObjects.commitPayload = function(c) {
+  let text = ("tree " + c.tree) + "\n";
+  let i = 0;
+  while (i < c.parents.length) {
+    text = ((text + "parent ") + c.parents[i]) + "\n";
+    i = i + 1;
+  };
+  text = ((text + "author ") + GitObjects.identLine(c.author)) + "\n";
+  text = ((text + "committer ") + GitObjects.identLine(c.committer)) + "\n";
+  text = (text + "\n") + c.message;
+  const ml = c.message.length;
+  if ( ml == 0 ) {
+    text = text + "\n";
+  } else {
+    if ( c.message.substring(ml - 1, ml ) != "\n" ) {
+      text = text + "\n";
+    }
+  }
+  return GitObjects.utf8(text);
+};
+GitObjects.parseIdent = function(line) {
+  const who = new GitIdent();
+  const lt = line.indexOf("<");
+  const gt = line.lastIndexOf(">");
+  if ( lt < 0 || gt < lt ) {
+    who.name = line;
+    return who;
+  }
+  who.name = line.substring(0, lt ).trim();
+  who.email = line.substring(lt + 1, gt );
+  const rest = line.substring(gt + 1, line.length ).trim();
+  const parts = rest.split(" ");
+  if ( parts.length >= 1 ) {
+    who.time = GitObjects.decimal(parts[0]);
+  }
+  if ( parts.length >= 2 ) {
+    who.tz = parts[1];
+  }
+  return who;
+};
+GitObjects.parseCommit = function(payload) {
+  const c = new GitCommit();
+  const text = GitObjects.text(payload);
+  const blank = text.indexOf("\n\n");
+  let head = text;
+  if ( blank >= 0 ) {
+    head = text.substring(0, blank );
+    c.message = text.substring(blank + 2, text.length );
+  }
+  const lines = head.split("\n");
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const sp = line.indexOf(" ");
+    if ( sp > 0 ) {
+      const key = line.substring(0, sp );
+      const val = line.substring(sp + 1, line.length );
+      if ( key == "tree" ) {
+        c.tree = val;
+      }
+      if ( key == "parent" ) {
+        c.parents.push(val);
+      }
+      if ( key == "author" ) {
+        c.author = GitObjects.parseIdent(val);
+      }
+      if ( key == "committer" ) {
+        c.committer = GitObjects.parseIdent(val);
+      }
+    }
+    i = i + 1;
+  };
+  if ( c.tree.length != 40 ) {
+    c.ok = false;
+    c.err = "commit has no tree";
+  }
+  return c;
+};
+class GitTrees  {
+}
+GitTrees.build = function(files) {
+  const ts = new GitTreeSet();
+  const sorted = GitObjects.sortItems(files);
+  ts.root = GitTrees.dir(sorted, 0, sorted.length, "", ts);
+  return ts;
+};
+GitTrees.dir = function(sorted, from, to, prefix, ts) {
+  let entries = [];
+  const pl = prefix.length;
+  let i = from;
+  while (i < to) {
+    const f = sorted[i];
+    const rest = f.name.substring(pl, f.name.length );
+    const slash = rest.indexOf("/");
+    if ( slash < 0 ) {
+      const e = new GitTreeItem();
+      e.name = rest;
+      e.mode = f.mode;
+      e.sha = f.sha;
+      entries.push(e);
+      i = i + 1;
+    } else {
+      const seg = rest.substring(0, slash );
+      const sub = (prefix + seg) + "/";
+      const sl = sub.length;
+      let j = i + 1;
+      while (j < to) {
+        const g = sorted[j];
+        if ( g.name.length <= sl ) {
+          break;
+        }
+        if ( g.name.substring(0, sl ) != sub ) {
+          break;
+        }
+        j = j + 1;
+      };
+      const t = new GitTreeItem();
+      t.name = seg;
+      t.mode = "40000";
+      t.sha = GitTrees.dir(sorted, i, j, sub, ts);
+      entries.push(t);
+      i = j;
+    }
+  };
+  const payload = GitObjects.treePayload(entries);
+  const sha = GitObjects.id("tree", payload);
+  ts.shas.push(sha);
+  ts.payloads.push(payload);
+  return sha;
+};
 class GitEntry  {
   constructor() {
     this.name = "";
@@ -76389,42 +78369,21 @@ class GitStore  {
   };
   parseTree (payload) {
     const t = new GitTree();
-    const n = payload.byteLength;
-    let at = 0;
-    while (at < n) {
-      const modeStart = at;
-      while (at < n) {
-        if ( payload._view.getUint8(at) == 32 ) {
-          break;
-        }
-        at = at + 1;
-      };
-      const mode = GitSha1.ascii(payload, modeStart, (at - modeStart));
-      at = at + 1;
-      const nameStart = at;
-      while (at < n) {
-        if ( payload._view.getUint8(at) == 0 ) {
-          break;
-        }
-        at = at + 1;
-      };
-      const name = GitSha1.ascii(payload, nameStart, (at - nameStart));
-      at = at + 1;
-      if ( at + 20 > n ) {
-        break;
-      }
-      const sha = GitSha1.toHex(GitSha1.copyRange(payload, at, 20));
-      at = at + 20;
+    const items = GitObjects.parseTree(payload);
+    let i = 0;
+    while (i < items.length) {
+      const it = items[i];
       const e = new GitEntry();
-      e.name = name;
-      e.sha = sha;
-      e.mode = mode;
-      if ( mode.length > 0 ) {
-        if ( mode.substring(0, 1 ) == "4" ) {
+      e.name = it.name;
+      e.sha = it.sha;
+      e.mode = it.mode;
+      if ( it.mode.length > 0 ) {
+        if ( it.mode.substring(0, 1 ) == "4" ) {
           e.isTree = true;
         }
       }
       t.entries.push(e);
+      i = i + 1;
     };
     return t;
   };
@@ -76912,7 +78871,7 @@ PkgJson.strOf = function(obj, key) {
     return v.str;
   }
   if ( v.kind == "int" ) {
-    return (v.num.toString());
+    return ((v.num).toString());
   }
   return "";
 };
@@ -77058,7 +79017,7 @@ PkgManifestIO.escape = function(s) {
   return out;
 };
 PkgManifestIO.dumpLock = function(lock) {
-  let s = ("{\n  \"lockVersion\": " + (lock.lockVersion.toString())) + ",\n  \"packages\": {\n";
+  let s = ("{\n  \"lockVersion\": " + ((lock.lockVersion).toString())) + ",\n  \"packages\": {\n";
   let i = 0;
   const n = lock.packages.length;
   while (i < n) {
@@ -77684,7 +79643,7 @@ class RangerDocGenerator  {
         wr.out("# Classes", true);
       }
       const root = ctx.getRoot();
-      operatorsOf_5.forEach_6(root.tables.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
         if ( false == item.isNormalClass() ) {
           return;
         }
@@ -78455,7 +80414,7 @@ class StaticAnalyzer  {
         const fnDesc = node.fnDesc;
         const childCnt = node.children.length;
         if ( this.debug ) {
-          console.log((("StaticAnalysis: transitive check call to " + fnDesc.name) + " childCnt=") + (childCnt.toString()));
+          console.log((("StaticAnalysis: transitive check call to " + fnDesc.name) + " childCnt=") + ((childCnt).toString()));
         }
         if ( node.hasFnCall ) {
           if ( childCnt >= 2 ) {
@@ -78463,14 +80422,14 @@ class StaticAnalyzer  {
             const argCnt = callParams.children.length;
             const paramCnt = fnDesc.params.length;
             if ( this.debug ) {
-              console.log("StaticAnalysis:   hasFnCall style, argCnt=" + (argCnt.toString()));
+              console.log("StaticAnalysis:   hasFnCall style, argCnt=" + ((argCnt).toString()));
             }
             // Loop start
             for ( let i = 0; i < callParams.children.length; i++) {
               var arg = callParams.children[i];
               const argVref = arg.vref;
               if ( this.debug ) {
-                console.log((((("StaticAnalysis:   arg[" + (i.toString())) + "]=") + argVref) + " hasParamDesc=") + (arg.hasParamDesc.toString()));
+                console.log((((("StaticAnalysis:   arg[" + ((i).toString())) + "]=") + argVref) + " hasParamDesc=") + (arg.hasParamDesc.toString()));
               }
               if ( argVref.length > 0 ) {
                 if ( arg.hasParamDesc ) {
@@ -78826,6 +80785,58 @@ class StaticAnalyzer  {
     }
     if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
       this.analyzeTransitiveMutBorrow(cl.constructor_fn, changedParams);
+    }
+  };
+  unifyOverrideParams (cl, root, changedParams) {
+    // Loop start
+    for ( let ci = 0; ci < cl.extends_classes.length; ci++) {
+      var cname = cl.extends_classes[ci];
+      if ( root.isDefinedClass(cname) == false ) {
+        continue;
+      }
+      const pc = root.findClass(cname);
+      // Loop start
+      for ( const m of cl.methods) {
+        if ( pc.hasMethod(m.name) == false ) {
+          continue;
+        }
+        const pmOpt = pc.findMethod(m.name);
+        if ( typeof(pmOpt) === "undefined" ) {
+          continue;
+        }
+        const pm = pmOpt;
+        const n = m.params.length;
+        if ( pm.params.length != n ) {
+          continue;
+        }
+        // Loop start
+        for ( let pi = 0; pi < m.params.length; pi++) {
+          var a = m.params[pi];
+          const b = pm.params[pi];
+          const isMut = a.rust_borrow_type == 2 || b.rust_borrow_type == 2;
+          const isRef = a.needs_cpp_reference || b.needs_cpp_reference;
+          if ( isMut ) {
+            if ( a.rust_borrow_type != 2 ) {
+              a.rust_borrow_type = 2;
+              changedParams.push(a.name);
+            }
+            if ( b.rust_borrow_type != 2 ) {
+              b.rust_borrow_type = 2;
+              changedParams.push(b.name);
+            }
+          }
+          if ( isRef ) {
+            if ( a.needs_cpp_reference == false ) {
+              a.needs_cpp_reference = true;
+              changedParams.push(a.name);
+            }
+            if ( b.needs_cpp_reference == false ) {
+              b.needs_cpp_reference = true;
+              changedParams.push(b.name);
+            }
+          }
+        }
+      }
     }
   };
   checkDirectSelfMutation (fn) {
@@ -79667,9 +81678,9 @@ class StaticAnalyzer  {
       return false;
     }
     const mroot = this.ctx.getRoot();
-    for( var mci in mroot.tables.definedClasses) {
-      if(mroot.tables.definedClasses.hasOwnProperty(mci)) {
-        var mcl = mroot.tables.definedClasses[mci] 
+    for( var mci in mroot.definedClasses) {
+      if(mroot.definedClasses.hasOwnProperty(mci)) {
+        var mcl = mroot.definedClasses[mci] 
         if ( this.scanFnsForMutation(mcl.methods, typeName) ) {
           return true;
         }
@@ -79813,6 +81824,29 @@ class StaticAnalyzer  {
     }
     return this.sharedClassNameOf(this.escapeValueName(node), fnCtx);
   };
+  loopWritesItem (node, name) {
+    if ( node.expression && node.children.length >= 2 ) {
+      const first = node.getFirst();
+      const lhs = node.getSecond();
+      if ( first.vref == "=" && lhs.ns.length >= 2 ) {
+        if ( lhs.ns[0] == name ) {
+          return true;
+        }
+      }
+      if ( this.isMutatingNode(node) ) {
+        if ( lhs.ns.length >= 2 && lhs.ns[0] == name ) {
+          return true;
+        }
+      }
+    }
+    // Loop start
+    for ( const ch of node.children) {
+      if ( this.loopWritesItem(ch, name) ) {
+        return true;
+      }
+    }
+    return false;
+  };
   collectMutatedNames (node, names) {
     if ( node.hasFnCall ) {
       const fc = node.getFirst();
@@ -79893,9 +81927,9 @@ class StaticAnalyzer  {
       if ( rounds > 30 ) {
         return;
       }
-      for( var ci in root.tables.definedClasses) {
-        if(root.tables.definedClasses.hasOwnProperty(ci)) {
-          var cl = root.tables.definedClasses[ci] 
+      for( var ci in root.definedClasses) {
+        if(root.definedClasses.hasOwnProperty(ci)) {
+          var cl = root.definedClasses[ci] 
           // Loop start
           for ( const m of cl.methods) {
             if ( this.markSharingMutations(m) ) {
@@ -80220,6 +82254,18 @@ class StaticAnalyzer  {
             }
           }
         }
+        if ( first.vref == "for" && node.children.length >= 4 ) {
+          const forItem = node.children[2];
+          let fcn = "";
+          if ( (typeof(forItem.paramDesc) !== "undefined" && forItem.paramDesc != null )  ) {
+            fcn = this.classNameOfDesc(forItem.paramDesc);
+          }
+          if ( fcn.length > 0 ) {
+            if ( this.loopWritesItem(node, forItem.vref) ) {
+              this.markClassShared(fcn, "loop item mutated in " + fnName);
+            }
+          }
+        }
         if ( first.vref == "=" && node.children.length >= 3 ) {
           const lhs = node.getSecond();
           const rhs = node.children[2];
@@ -80325,16 +82371,16 @@ class StaticAnalyzer  {
     this.computeSharingMutations();
     const root = this.ctx.getRoot();
     if ( this.ctx.hasCompilerFlag("rust-module") ) {
-      for( var mci in root.tables.definedClasses) {
-        if(root.tables.definedClasses.hasOwnProperty(mci)) {
-          var mcl = root.tables.definedClasses[mci] 
+      for( var mci in root.definedClasses) {
+        if(root.definedClasses.hasOwnProperty(mci)) {
+          var mcl = root.definedClasses[mci] 
           this.markClassShared(mcl.name, "rust module boundary");
         }
       };
     }
-    for( var ci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.tables.definedClasses[ci] 
+    for( var ci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.definedClasses[ci] 
         if ( cl.is_union && cl.name != "Any" ) {
           // Loop start
           for ( let umi = 0; umi < cl.is_union_of.length; umi++) {
@@ -80376,9 +82422,9 @@ class StaticAnalyzer  {
       return;
     }
     const root = this.ctx.getRoot();
-    for( var ci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.tables.definedClasses[ci] 
+    for( var ci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.definedClasses[ci] 
         // Loop start
         for ( const m of cl.methods) {
           this.foldObjectInitsFn(m);
@@ -80659,9 +82705,9 @@ class StaticAnalyzer  {
       return;
     }
     const root = this.ctx.getRoot();
-    for( var ci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.tables.definedClasses[ci] 
+    for( var ci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.definedClasses[ci] 
         if ( cl.is_system ) {
           continue;
         }
@@ -81255,7 +83301,7 @@ class StaticAnalyzer  {
             if ( ssGuard ) {
               ssTag = "strict-strings note ";
             }
-            const ssMsg = (((((((((ssTag + ssFile) + ":") + (ssLine.toString())) + " ") + ssKind) + "(") + ssShow) + ") in ") + fnName) + " -- ";
+            const ssMsg = (((((((((ssTag + ssFile) + ":") + ((ssLine).toString())) + " ") + ssKind) + "(") + ssShow) + ") in ") + fnName) + " -- ";
             if ( ssGuard ) {
               this.strictStringsGuards = this.strictStringsGuards + 1;
               this.strictStringsNotes.push(ssMsg + ssReason);
@@ -81342,9 +83388,9 @@ class StaticAnalyzer  {
       return;
     }
     const ssRoot = this.ctx.getRoot();
-    for( var ssCi in ssRoot.tables.definedClasses) {
-      if(ssRoot.tables.definedClasses.hasOwnProperty(ssCi)) {
-        var ssCl = ssRoot.tables.definedClasses[ssCi] 
+    for( var ssCi in ssRoot.definedClasses) {
+      if(ssRoot.definedClasses.hasOwnProperty(ssCi)) {
+        var ssCl = ssRoot.definedClasses[ssCi] 
         if ( ((ssCl.is_system || ssCl.is_template) || ssCl.is_operator_class) || ssCl.is_generic_instance ) {
           continue;
         }
@@ -81353,11 +83399,11 @@ class StaticAnalyzer  {
       }
     };
     console.log("");
-    console.log(((((("strict-strings: " + (this.strictStringsRisky.toString())) + " of ") + (this.strictStringsTotal.toString())) + " string index sites read a unit the program can observe, in ") + (this.strictStringsFileOrder.length.toString())) + " files");
+    console.log(((((("strict-strings: " + ((this.strictStringsRisky).toString())) + " of ") + ((this.strictStringsTotal).toString())) + " string index sites read a unit the program can observe, in ") + ((this.strictStringsFileOrder.length).toString())) + " files");
     // Loop start
     for ( const ssF of this.strictStringsFileOrder) {
       const ssCnt = ( Object.prototype.hasOwnProperty.call(this.strictStringsFiles, ssF) ? this.strictStringsFiles[ssF] : undefined );
-      console.log((("  " + (ssCnt.toString())) + "  ") + ssF);
+      console.log((("  " + ((ssCnt).toString())) + "  ") + ssF);
     }
     if ( this.strictStringsNotes.length > 0 ) {
       console.log("");
@@ -81367,11 +83413,11 @@ class StaticAnalyzer  {
       }
     }
     console.log("");
-    console.log(("  " + (this.strictStringsGuards.toString())) + " more are a length against a constant or against another length:");
+    console.log(("  " + ((this.strictStringsGuards).toString())) + " more are a length against a constant or against another length:");
     console.log("  a guard on structure rather than a count of text. Listed as notes");
     console.log("  above, because the number still differs per target.");
     console.log("");
-    console.log(("  " + (this.strictStringsSafe.toString())) + " sites are self-consistent and not listed: an ASCII literal, an");
+    console.log(("  " + ((this.strictStringsSafe).toString())) + " sites are self-consistent and not listed: an ASCII literal, an");
     console.log("  emptiness test, a length that indexes some string, an index that");
     console.log("  bounds a scan, or a site marked @(units) by hand.");
     console.log("");
@@ -81386,9 +83432,9 @@ class StaticAnalyzer  {
       return;
     }
     const trRoot = this.ctx.getRoot();
-    for( var trCi in trRoot.tables.definedClasses) {
-      if(trRoot.tables.definedClasses.hasOwnProperty(trCi)) {
-        var trCl = trRoot.tables.definedClasses[trCi] 
+    for( var trCi in trRoot.definedClasses) {
+      if(trRoot.definedClasses.hasOwnProperty(trCi)) {
+        var trCl = trRoot.definedClasses[trCi] 
         if ( trCl.is_extended_by_children == false ) {
           continue;
         }
@@ -81501,9 +83547,9 @@ class StaticAnalyzer  {
     }
     this.computeTraitReentrancy();
     const root = this.ctx.getRoot();
-    for( var ci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.tables.definedClasses[ci] 
+    for( var ci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.definedClasses[ci] 
         if ( cl.rust_needs_ref_semantics == false ) {
           continue;
         }
@@ -81543,9 +83589,9 @@ class StaticAnalyzer  {
       if ( rounds > 30 ) {
         return;
       }
-      for( var ci_1 in root.tables.definedClasses) {
-        if(root.tables.definedClasses.hasOwnProperty(ci_1)) {
-          var cl_1 = root.tables.definedClasses[ci_1] 
+      for( var ci_1 in root.definedClasses) {
+        if(root.definedClasses.hasOwnProperty(ci_1)) {
+          var cl_1 = root.definedClasses[ci_1] 
           if ( cl_1.rust_needs_ref_semantics == false ) {
             continue;
           }
@@ -81577,9 +83623,9 @@ class StaticAnalyzer  {
       return;
     }
     const root = this.ctx.getRoot();
-    for( var tci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(tci)) {
-        var tcl = root.tables.definedClasses[tci] 
+    for( var tci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(tci)) {
+        var tcl = root.definedClasses[tci] 
         if ( tcl.is_extended_by_children ) {
           this.markClassShared(tcl.name, "extended by children");
         }
@@ -81595,9 +83641,9 @@ class StaticAnalyzer  {
         }
       }
     };
-    for( var ci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.tables.definedClasses[ci] 
+    for( var ci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.definedClasses[ci] 
         // Loop start
         for ( const cv of cl.variables) {
           this.markDescRcWrap(cv);
@@ -81918,10 +83964,11 @@ class StaticAnalyzer  {
       return;
     }
     const root = this.ctx.getRoot();
-    for( var ci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.tables.definedClasses[ci] 
-        let clExcluded = (((((cl.is_system || cl.is_union) || cl.is_system_union) || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_generic_instance;
+    const moduleOut = this.ctx.hasCompilerFlag("rust-module");
+    for( var ci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.definedClasses[ci] 
+        let clExcluded = ((((((cl.is_system || cl.is_union) || cl.is_system_union) || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_generic_instance) || moduleOut;
         if ( clExcluded == false ) {
           if ( cl.is_extended_by_children || cl.extends_classes.length > 0 ) {
             clExcluded = true;
@@ -81946,9 +83993,9 @@ class StaticAnalyzer  {
         }
       }
     };
-    for( var ci_1 in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ci_1)) {
-        var cl_1 = root.tables.definedClasses[ci_1] 
+    for( var ci_1 in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci_1)) {
+        var cl_1 = root.definedClasses[ci_1] 
         // Loop start
         for ( const m of cl_1.methods) {
           this.rssWalkFn(m);
@@ -81999,16 +84046,16 @@ class StaticAnalyzer  {
     }
     const root = this.ctx.getRoot();
     // Loop start
-    for ( let ti = 0; ti < root.tables.templateClassList.length; ti++) {
-      var tpl = root.tables.templateClassList[ti];
+    for ( let ti = 0; ti < root.templateClassList.length; ti++) {
+      var tpl = root.templateClassList[ti];
       if ( root.isNativeGeneric(tpl) == false ) {
         continue;
       }
       let form;
       let members = [];
-      for( var ci in root.tables.definedClasses) {
-        if(root.tables.definedClasses.hasOwnProperty(ci)) {
-          var cl = root.tables.definedClasses[ci] 
+      for( var ci in root.definedClasses) {
+        if(root.definedClasses.hasOwnProperty(ci)) {
+          var cl = root.definedClasses[ci] 
           if ( cl.generic_template != tpl ) {
             continue;
           }
@@ -82116,9 +84163,9 @@ class StaticAnalyzer  {
       return;
     }
     const root = this.ctx.getRoot();
-    for( var ci in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(ci)) {
-        var cl = root.tables.definedClasses[ci] 
+    for( var ci in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(ci)) {
+        var cl = root.definedClasses[ci] 
         // Loop start
         for ( let i = 0; i < cl.methods.length; i++) {
           var m = cl.methods[i];
@@ -82138,9 +84185,9 @@ class StaticAnalyzer  {
     }
     this.initMutatingOps();
     const root = this.ctx.getRoot();
-    for( var i in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(i)) {
-        var cl = root.tables.definedClasses[i] 
+    for( var i in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(i)) {
+        var cl = root.definedClasses[i] 
         this.analyzeOwnershipClass(cl);
       }
     };
@@ -82148,9 +84195,9 @@ class StaticAnalyzer  {
     this.analyzeClassSharing();
     this.foldObjectInitsAll();
     if ( strict ) {
-      for( var i_1 in root.tables.definedClasses) {
-        if(root.tables.definedClasses.hasOwnProperty(i_1)) {
-          var cl_1 = root.tables.definedClasses[i_1] 
+      for( var i_1 in root.definedClasses) {
+        if(root.definedClasses.hasOwnProperty(i_1)) {
+          var cl_1 = root.definedClasses[i_1] 
           this.reportOwnershipClass(cl_1);
         }
       };
@@ -82163,27 +84210,27 @@ class StaticAnalyzer  {
     }
     this.initMutatingOps();
     const root = this.ctx.getRoot();
-    for( var i in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(i)) {
-        var cl = root.tables.definedClasses[i] 
+    for( var i in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(i)) {
+        var cl = root.definedClasses[i] 
         this.analyzeClass(cl);
       }
     };
-    for( var i_1 in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(i_1)) {
-        var cl_1 = root.tables.definedClasses[i_1] 
+    for( var i_1 in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(i_1)) {
+        var cl_1 = root.definedClasses[i_1] 
         this.analyzeClassTransitiveWeak(cl_1);
       }
     };
-    for( var i_2 in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(i_2)) {
-        var cl_2 = root.tables.definedClasses[i_2] 
+    for( var i_2 in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(i_2)) {
+        var cl_2 = root.definedClasses[i_2] 
         this.analyzeClassMutation(cl_2);
       }
     };
-    for( var i_3 in root.tables.definedClasses) {
-      if(root.tables.definedClasses.hasOwnProperty(i_3)) {
-        var cl_3 = root.tables.definedClasses[i_3] 
+    for( var i_3 in root.definedClasses) {
+      if(root.definedClasses.hasOwnProperty(i_3)) {
+        var cl_3 = root.definedClasses[i_3] 
         this.analyzeClassParamMutations(cl_3);
       }
     };
@@ -82193,16 +84240,22 @@ class StaticAnalyzer  {
     while (changed == true && iteration < maxIterations) {
       changed = false;
       let changedParams = [];
-      for( var i_4 in root.tables.definedClasses) {
-        if(root.tables.definedClasses.hasOwnProperty(i_4)) {
-          var cl_4 = root.tables.definedClasses[i_4] 
+      for( var i_4 in root.definedClasses) {
+        if(root.definedClasses.hasOwnProperty(i_4)) {
+          var cl_4 = root.definedClasses[i_4] 
           this.analyzeClassTransitiveMutBorrow(cl_4, changedParams);
+        }
+      };
+      for( var i_5 in root.definedClasses) {
+        if(root.definedClasses.hasOwnProperty(i_5)) {
+          var cl_5 = root.definedClasses[i_5] 
+          this.unifyOverrideParams(cl_5, root, changedParams);
         }
       };
       if ( changedParams.length > 0 ) {
         changed = true;
         if ( this.debug ) {
-          console.log(((("StaticAnalysis: transitive &mut pass " + (iteration.toString())) + " - upgraded ") + (changedParams.length.toString())) + " params");
+          console.log(((("StaticAnalysis: transitive &mut pass " + ((iteration).toString())) + " - upgraded ") + ((changedParams.length).toString())) + " params");
         }
       }
       iteration = iteration + 1;
@@ -82333,7 +84386,7 @@ class RustLexer  {
     this.__len = this.buf.length;
   }
   error (msg) {
-    this.errors.push(((("line " + (this.line.toString())) + ":") + (((this.i - this.line_start) + 1).toString())) + (": " + msg));
+    this.errors.push(((("line " + ((this.line).toString())) + ":") + (((this.i - this.line_start) + 1).toString())) + (": " + msg));
   };
   at (p) {
     if ( p < this.__len ) {
@@ -83083,7 +85136,7 @@ class RustParser  {
     if ( t.kind == "eof" ) {
       got = "end of input";
     }
-    this.errors.push(((((("line " + (t.line.toString())) + ":") + (t.col.toString())) + ": ") + msg) + ((", found '" + got) + "'"));
+    this.errors.push(((((("line " + ((t.line).toString())) + ":") + ((t.col).toString())) + ": ") + msg) + ((", found '" + got) + "'"));
   };
   expectP (s) {
     if ( false == this.eatP(s) ) {
@@ -83759,7 +85812,7 @@ class RustParser  {
       if ( vis != "" ) {
         f.addMod(vis);
       }
-      f.name = (idx.toString());
+      f.name = ((idx).toString());
       f.add(this.parseType());
       // Loop start
       for ( const a of attrs) {
@@ -85636,8 +87689,36 @@ class RustParser  {
     if ( RustParser.isExprMacro(last) ) {
       this.tryParseMacroArgs(m, open + 1, close - 1);
     }
+    if ( last == "matches" ) {
+      this.parseMatchesArgs(m, open + 1, close - 1);
+    }
     this.pos = close;
     return this.done(m);
+  };
+  parseMatchesArgs (m, a, b) {
+    const savePos = this.pos;
+    const saveLimit = this.limit;
+    const saveNo = this.noStruct;
+    this.pos = a;
+    this.limit = b;
+    this.noStruct = false;
+    m.add(this.parseExpr());
+    if ( this.eatP(",") ) {
+      m.add(this.parsePattern());
+      if ( this.isKw("if") ) {
+        this.pos = this.pos + 1;
+        m.add(this.parseExpr());
+      }
+      this.eatP(",");
+    } else {
+      this.error("expected `,` and a pattern in `matches!`");
+    }
+    if ( this.pos != b ) {
+      this.error("unexpected tokens in `matches!`");
+    }
+    this.pos = savePos;
+    this.limit = saveLimit;
+    this.noStruct = saveNo;
   };
   tryParseMacroArgs (m, a, b) {
     const savePos = this.pos;
@@ -85871,6 +87952,7 @@ RsType.of2 = function(k, a, b) {
 class RsField  {
   constructor() {
     this.name = "";
+    this.rname = "";
     this.ty = new RsType("unknown");
     this.node = undefined;
   }
@@ -85927,6 +88009,7 @@ class RsStruct  {
     this.traits = [];
     this.node = undefined;
     this.rgr = false;
+    this.parent = "";
     this.serialize = false;
   }
   derivesTrait (t) {
@@ -86042,6 +88125,9 @@ class RsLocal  {
     this.slotMap = "";
     this.slotKey = "";
     this.slotTy = new RsType("unknown");
+    this.backTo = "";
+    this.backBad = false;
+    this.backCase = "";
   }
 }
 class RsScope  {
@@ -86209,6 +88295,15 @@ RustReserved.build = function() {
   }
   return names;
 };
+RustReserved.memberUnsafeNames = function() {
+  let names = {};
+  const parts = "cast case false if on_keypress return static switch true try while break continue default for map throw".split(" ");
+  // Loop start
+  for ( const p of parts) {
+    names[p] = true;
+  }
+  return names;
+};
 RustReserved.operatorNames = function() {
   let parts = [];
   parts.push("M_PI acos array_extract array_length asin async_read_file at atan2");
@@ -86236,7 +88331,7 @@ RustReserved.operatorNames = function() {
   parts.push("pushString random rawbytechar read_file read_file_sync regex_test");
   parts.push("remove removeLast remove_index replace ret return reverse rs_abs");
   parts.push("rs_byte_len rs_byte_slice rs_ceil rs_char_code rs_char_count");
-  parts.push("rs_char_from rs_dbg rs_div rs_f2i rs_find_bytes rs_floor rs_fmt");
+  parts.push("rs_bytes_extend rs_bytes_grow rs_bytes_push rs_char_from rs_dbg rs_div rs_f2i rs_find_bytes rs_floor rs_fmt");
   parts.push("rs_fmt_dbg_f64 rs_fmt_prec rs_i2f rs_lower rs_map_len rs_map_remove");
   parts.push("rs_max rs_min rs_neg rs_panic rs_pow rs_powi rs_rem rs_sqrt rs_str_cmp");
   parts.push("rs_upper rs_wrap_u16 rs_wrap_u8 run_process_result set set_at");
@@ -86845,6 +88940,8 @@ class RsRgrScan  {
   constructor() {
     this.errors = [];     /* note: unused */
     this.classes = [];
+    this.imports = [];
+    this.curGenerics = [];
   }
   scan (src, file) {
     const lines = src.split("\n");
@@ -86859,10 +88956,45 @@ class RsRgrScan  {
       if ( line.length == 0 ) {
         continue;
       }
+      if ( depth == 0 && this.startsWord(line, "Import") ) {
+        const q1 = line.indexOf("\"");
+        if ( q1 >= 0 ) {
+          const rest = line.substring(q1 + 1, line.length );
+          const q2 = rest.indexOf("\"");
+          if ( q2 > 0 ) {
+            const imp = rest.substring(0, q2 );
+            if ( imp.indexOf("pkg:") != 0 && imp.indexOf(".rgr") > 0 ) {
+              this.imports.push(imp);
+            }
+          }
+        }
+      }
       if ( depth == 0 && this.startsWord(line, "class") ) {
         const s = new RsStruct();
         s.name = this.wordAt(line, 6);
         s.rgr = true;
+        const ex = line.indexOf(" extends ");
+        if ( ex > 0 ) {
+          s.parent = this.wordAt(line, (ex + 9));
+        }
+        let noG = [];
+        this.curGenerics = noG;
+        const gp = line.indexOf("@params(");
+        if ( gp > 0 ) {
+          const gRest = line.substring(gp + 8, line.length );
+          const gEnd = gRest.indexOf(")");
+          if ( gEnd > 0 ) {
+            // Loop start
+            for ( let gwi = 0; gwi < gRest.substring(0, gEnd ).split(" ").length; gwi++) {
+              var gw = gRest.substring(0, gEnd ).split(" ")[gwi];
+              const gn = gw.trim();
+              if ( gn.length > 0 ) {
+                s.generics.push(gn);
+                this.curGenerics.push(gn);
+              }
+            }
+          }
+        }
         this.classes.push(s);
         cur = s;
         classDepth = 1;
@@ -86874,6 +89006,7 @@ class RsRgrScan  {
       depth = depth + this.braceDelta(line);
       if ( depth < classDepth && ((typeof(cur) !== "undefined" && cur != null ) ) ) {
         this.defaultCtor(cur);
+        this.rustNames(cur);
       }
       if ( depth < classDepth ) {
         let none;
@@ -86896,6 +89029,40 @@ class RsRgrScan  {
     k.rgrCtor = true;
     k.ret = RsType.named(c.name);
     c.methods.push(k);
+  };
+  rustNames (c) {
+    const nf = c.fields.length;
+    let fi = 0;
+    while (fi < nf) {
+      const f = c.fields[fi];
+      fi = fi + 1;
+      const sn = RsRgrScan.rustName(f.name);
+      if ( (sn != f.name && (typeof(c.field(sn)) === "undefined")) && (typeof(c.method(sn)) === "undefined") ) {
+        const af = new RsField();
+        af.name = sn;
+        af.rname = f.name;
+        af.ty = f.ty;
+        c.fields.push(af);
+      }
+    };
+    const nm = c.methods.length;
+    let mi = 0;
+    while (mi < nm) {
+      const m = c.methods[mi];
+      mi = mi + 1;
+      const sn2 = RsRgrScan.rustName(m.name);
+      if ( (sn2 != m.name && (typeof(c.method(sn2)) === "undefined")) && (typeof(c.field(sn2)) === "undefined") ) {
+        const am = new RsFn();
+        am.name = sn2;
+        am.rname = m.rname;
+        am.owner = m.owner;
+        am.hasSelf = m.hasSelf;
+        am.rgrCtor = m.rgrCtor;
+        am.ret = m.ret;
+        am.params = m.params;
+        c.methods.push(am);
+      }
+    };
   };
   stripComment (s) {
     let inStr = false;
@@ -87013,6 +89180,14 @@ class RsRgrScan  {
     return s;
   };
   rsType (t) {
+    // Loop start
+    for ( const cg of this.curGenerics) {
+      if ( cg == t ) {
+        const pt = RsType.mk("param");
+        pt.name = t;
+        return pt;
+      }
+    }
     if ( t == "int" || t == "char" ) {
       const it = RsType.mk("int");
       it.name = "i64";
@@ -87031,6 +89206,11 @@ class RsRgrScan  {
     }
     if ( t == "void" ) {
       return RsType.mk("unit");
+    }
+    if ( t == "buffer" ) {
+      const bt = RsType.mk("int");
+      bt.name = "u8";
+      return RsType.of1("vec", bt);
     }
     const n = t.length;
     if ( (n >= 2 && t.charCodeAt(0 ) == 91) && t.charCodeAt(n - 1 ) == 93 ) {
@@ -87133,6 +89313,36 @@ class RsRgrScan  {
     }
   };
 }
+RsRgrScan.rustName = function(n) {
+  const ln = n.length;
+  let out = "";
+  let i = 0;
+  while (i < ln) {
+    const ch = n.substring(i, i + 1 );
+    const lower = ch.toLowerCase();
+    if ( ch != lower ) {
+      if ( i > 0 ) {
+        const prev = n.substring(i - 1, i );
+        const prevIsLower = prev != prev.toUpperCase();
+        let nextIsLower = false;
+        if ( i + 1 < ln ) {
+          const nxt = n.substring(i + 1, i + 2 );
+          if ( nxt != nxt.toUpperCase() ) {
+            nextIsLower = true;
+          }
+        }
+        if ( (prevIsLower || nextIsLower) && prev != "_" ) {
+          out = out + "_";
+        }
+      }
+      out = out + lower;
+    } else {
+      out = out + ch;
+    }
+    i = i + 1;
+  };
+  return out;
+};
 class RustLower  {
   constructor() {
     this.errors = [];
@@ -87165,8 +89375,14 @@ class RustLower  {
     this.target = "";
     this.declLate = false;
     this.pendingFiles = [];
+    this.pendingScan = [];
+    this.rgrScanned = {};
+    this.rgrClassNames = [];
     this.rgrImports = [];
     this.entryName = "";
+    this.beginDir = "";
+    this.crateKeys = [];
+    this.crateFiles = [];
     this.fnAlias = {};
     this.preludeOps = {};
     this.preludeRets = {};
@@ -87184,7 +89400,9 @@ class RustLower  {
     this.aliases = {};
     this.reserved = {};
     this.localReserved = {};
+    this.memberUnsafe = {};
     this.genNames = {};
+    this.cloneClass = "RsClone";
     this.genOut = [];
     this.hoisted = [];     /* note: unused */
     this.out = new RustOut();
@@ -87199,7 +89417,9 @@ class RustLower  {
     this.loopFlagKind = [];
     this.genericEnv = {};
     this.fnLocals = [];
+    this.loopBindStart = -1;
     this.clonerOut = [];
+    this.writtenCases = {};
     this.moduleDoc = new RustDocInfo();
     this.docExamples = {};
     this.fnNameOverride = "";
@@ -87209,9 +89429,14 @@ class RustLower  {
     this.pendingFlags = [];
     this.forPat = undefined;
     this.forBody = undefined;
+    this.matchMut = false;
     this.armBefore = [];
     this.armAcc = [];
     this.armAny = false;
+    this.refMutBind = false;
+    this.backOf = {};
+    this.caseOfVar = {};
+    this.selfIsMut = false;
     this.variantAliases = {};
     this.optInCollectionReported = false;
     this.lastVecName = "";
@@ -87225,6 +89450,7 @@ class RustLower  {
     this.noMoveCheck = false;
     this.iterRoots = [];
     this.reserved = RustReserved.build();
+    this.memberUnsafe = RustReserved.memberUnsafeNames();
     const kw = ["def", "fn", "sfn", "class", "new", "if", "while", "for", "return", "break", "continue", "print", "true", "false", "null", "this", "switch", "case", "default", "try", "throw", "match", "shape", "trait", "does", "Import", "Enum", "record", "union", "operators", "Extends", "Constructor", "static", "write", "exit", "push", "set", "set_at", "remove", "removeLast", "clear", "ret", "defn", "unwrap", "group", "variant", "extension", "systemclass", "doc", "self", "super", "catch", "and", "or", "not", "is", "in", "del", "pass", "lambda", "yield", "None", "True", "False", "nil", "var", "val", "let", "const", "func", "function", "undefined", "arguments", "delete", "typeof", "instanceof", "void", "with", "package", "import", "export", "interface", "implements", "public", "private", "protected", "struct", "enum", "go", "chan", "select", "range", "type", "map", "string", "int", "double", "boolean", "char", "float", "long", "short", "byte", "auto", "register", "extern", "goto", "sizeof", "volatile", "typedef", "unsigned", "signed", "namespace", "template", "typename", "using", "virtual", "friend", "inline", "operator", "delete", "fun", "object", "when", "init", "deinit", "guard", "repeat", "internal", "open", "final", "override", "abstract", "sealed", "data", "companion", "lateinit", "native", "synchronized", "transient", "strictfp", "assert", "global", "nonlocal", "elif", "except", "finally", "raise", "from", "as", "async", "await", "def", "print"];
     // Loop start
     for ( const k of kw) {
@@ -87239,25 +89465,25 @@ class RustLower  {
     }
   }
   err (n, msg) {
-    this.errors.push((((((this.fileName + ":") + (n.line.toString())) + ":") + (n.col.toString())) + ": ") + msg);
+    this.errors.push((((((this.fileName + ":") + ((n.line).toString())) + ":") + ((n.col).toString())) + ": ") + msg);
   };
   unsupported (n, what) {
     this.err(n, what + " is not in the Ranger subset of Rust");
   };
   staticName (n) {
-    if ( ( typeof(this.reserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.reserved, n) ) ) {
+    if ( ( typeof(this.localReserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localReserved, n) ) && ((( typeof(this.memberUnsafe[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.memberUnsafe, n) ) || n == "arguments") || n == "new") ) {
       return n + "_";
     }
     return n;
   };
   methodName (n) {
-    if ( ( typeof(this.localReserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localReserved, n) ) ) {
+    if ( ( typeof(this.localReserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localReserved, n) ) && ( typeof(this.memberUnsafe[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.memberUnsafe, n) ) ) {
       return n + "_";
     }
     return n;
   };
   fieldName (n) {
-    if ( ( typeof(this.localReserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localReserved, n) ) ) {
+    if ( ( typeof(this.localReserved[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localReserved, n) ) && ( typeof(this.memberUnsafe[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.memberUnsafe, n) ) ) {
       return n + "_";
     }
     return n;
@@ -87270,7 +89496,7 @@ class RustLower  {
   };
   tmp (base) {
     this.tmpN = this.tmpN + 1;
-    return ("rs__" + base) + (this.tmpN.toString());
+    return ("rs__" + base) + ((this.tmpN).toString());
   };
   allocLocal (n) {
     let base = n;
@@ -87284,7 +89510,7 @@ class RustLower  {
     let k = 2;
     const searching = true;
     while (searching) {
-      const cand = (base + "_") + (k.toString());
+      const cand = (base + "_") + ((k).toString());
       if ( false == ( typeof(this.used[cand] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.used, cand) ) ) {
         this.used[cand] = true;
         return cand;
@@ -87332,6 +89558,7 @@ class RustLower  {
   begin (src, name) {
     this.fileName = name;
     this.entryName = name;
+    this.beginDir = RustLower.dirOf(name);
     this.modClass = RustLower.moduleClassFor(RustLower.moduleFileName(name));
     const p = new RustParser(src);
     const root = p.parseFile();
@@ -87371,6 +89598,7 @@ class RustLower  {
         this.pendingNames.push(rgrName);
         this.pendingNodes.push(it);
         this.pendingFiles.push(RustLower.joinPath(RustLower.dirOf(file), rgrName + ".rgr"));
+        this.pendingScan.push(false);
         continue;
       }
       if ( it.kind != "mod" ) {
@@ -87385,8 +89613,50 @@ class RustLower  {
         this.pendingNames.push(it.name);
         this.pendingNodes.push(it);
         this.pendingFiles.push("");
+        this.pendingScan.push(false);
       }
     }
+  };
+  addCrate (name, path, src) {
+    if ( ( typeof(this.modFileOf[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.modFileOf, name) ) ) {
+      this.errors.push(((("dependency `" + name) + "` has the name of a module of ") + this.entryName) + "");
+      return;
+    }
+    const p = new RustParser(src);
+    const root = p.parseFile();
+    // Loop start
+    for ( let i = 0; i < p.errors.length; i++) {
+      var e = p.errors[i];
+      this.errors.push((path + ":") + e);
+    }
+    if ( this.errors.length > 0 ) {
+      return;
+    }
+    this.crateKeys.push(name);
+    this.crateFiles.push(path);
+    this.registerModule(root, name, path, RustLower.dirOf(path));
+  };
+  hasCrate (name) {
+    return this.crateKeys.indexOf(name) >= 0;
+  };
+  crateFile (name) {
+    const i = this.crateKeys.indexOf(name);
+    if ( i < 0 ) {
+      return "";
+    }
+    return this.crateFiles[i];
+  };
+  crateError (msg) {
+    this.errors.push(msg);
+  };
+  crateOf (mod) {
+    // Loop start
+    for ( const ck of this.crateKeys) {
+      if ( mod == ck || mod.startsWith(ck + "::") ) {
+        return ck;
+      }
+    }
+    return "";
   };
   setTarget (t) {
     this.target = t;
@@ -87394,6 +89664,9 @@ class RustLower  {
   targetKeeps (it) {
     // Loop start
     for ( const a of it.attrs) {
+      if ( a.name == "cfg" && a.value.split(" ").join("") == "(test)" ) {
+        return false;
+      }
       if ( a.name != "ranger::target" && a.name != "target" ) {
         continue;
       }
@@ -87475,9 +89748,10 @@ class RustLower  {
     const d = this.pendingDirs[this.pendingPos];
     const rf = this.pendingFiles[this.pendingPos];
     const at = this.pendingNodes[this.pendingPos];
+    const scanOnly = this.pendingScan[this.pendingPos];
     this.pendingPos = this.pendingPos + 1;
     if ( rf != "" ) {
-      this.addRgr(path, src, at);
+      this.addRgr(path, src, at, scanOnly);
       return;
     }
     const p = new RustParser(src);
@@ -87493,18 +89767,112 @@ class RustLower  {
     const own = RustLower.joinPath(d, m);
     this.registerModule(root, key, path, own);
   };
-  addRgr (path, src, at) {
+  addRgr (path, src, at, scanOnly) {
+    this.rgrScanned[path] = true;
     const sc = new RsRgrScan();
     sc.scan(src, path);
+    let wantParent = false;
     // Loop start
     for ( const c of sc.classes) {
       if ( ( typeof(this.structs[c.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, c.name) ) || ( typeof(this.enums[c.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, c.name) ) ) {
+        if ( scanOnly ) {
+          continue;
+        }
         this.err(at, ((("`" + c.name) + "` of ") + path) + " is also declared in the Rust code");
         continue;
       }
       this.structs[c.name] = c;
+      this.rgrClassNames.push(c.name);
+      if ( c.parent != "" && false == ( typeof(this.structs[c.parent] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, c.parent) ) ) {
+        wantParent = true;
+      }
     }
-    this.rgrImports.push(path);
+    if ( scanOnly == false ) {
+      this.rgrImports.push(path);
+    }
+    if ( wantParent ) {
+      // Loop start
+      for ( const imp of sc.imports) {
+        const ip = RustLower.joinPath(RustLower.dirOf(path), imp);
+        if ( ( typeof(this.rgrScanned[ip] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rgrScanned, ip) ) ) {
+          continue;
+        }
+        this.rgrScanned[ip] = true;
+        this.pendingKeys.push(this.pendingKeys[(this.pendingPos - 1)]);
+        this.pendingDirs.push(this.pendingDirs[(this.pendingPos - 1)]);
+        this.pendingNames.push(imp);
+        this.pendingNodes.push(at);
+        this.pendingFiles.push(ip);
+        this.pendingScan.push(true);
+      }
+    }
+  };
+  isRgrClass (name) {
+    // Loop start
+    for ( const cn of this.rgrClassNames) {
+      if ( cn == name ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  isRgrCellField (fname) {
+    // Loop start
+    for ( const cn of this.rgrClassNames) {
+      const c = ( Object.prototype.hasOwnProperty.call(this.structs, cn) ? this.structs[cn] : undefined );
+      const f = c.field(fname);
+      if ( (typeof(f) !== "undefined" && f != null )  ) {
+        const ft = f.ty;
+        if ( ((ft.kind == "int" || ft.kind == "double") || ft.kind == "bool") || ft.kind == "string" ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  inheritRgr () {
+    let done = {};
+    // Loop start
+    for ( const sn of this.rgrClassNames) {
+      this.inheritOne(sn, done, 0);
+    }
+  };
+  inheritOne (sn, done, depth) {
+    if ( ( typeof(done[sn] ) != "undefined" && Object.prototype.hasOwnProperty.call(done, sn) ) || depth > 32 ) {
+      return;
+    }
+    done[sn] = true;
+    if ( false == ( typeof(this.structs[sn] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, sn) ) ) {
+      return;
+    }
+    const c = ( Object.prototype.hasOwnProperty.call(this.structs, sn) ? this.structs[sn] : undefined );
+    if ( c.parent == "" || false == ( typeof(this.structs[c.parent] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, c.parent) ) ) {
+      return;
+    }
+    this.inheritOne(c.parent, done, depth + 1);
+    const pc = ( Object.prototype.hasOwnProperty.call(this.structs, c.parent) ? this.structs[c.parent] : undefined );
+    // Loop start
+    for ( const pf of pc.fields) {
+      if ( typeof(c.field(pf.name)) === "undefined" ) {
+        c.fields.push(pf);
+      }
+    }
+    // Loop start
+    for ( const pm of pc.methods) {
+      if ( pm.rgrCtor ) {
+        continue;
+      }
+      let own = false;
+      // Loop start
+      for ( const cm of c.methods) {
+        if ( cm.name == pm.name || cm.rname == pm.rname ) {
+          own = true;
+        }
+      }
+      if ( own == false ) {
+        c.methods.push(pm);
+      }
+    }
   };
   moduleNotFound () {
     if ( false == this.hasPendingModule() ) {
@@ -87516,6 +89884,9 @@ class RustLower  {
     const rf2 = this.pendingFiles[this.pendingPos];
     this.pendingPos = this.pendingPos + 1;
     if ( rf2 != "" ) {
+      if ( this.pendingScan[(this.pendingPos - 1)] ) {
+        return;
+      }
       this.err(at, "file not found for ranger::import_rgr!: " + rf2);
       return;
     }
@@ -87525,6 +89896,7 @@ class RustLower  {
     if ( this.errors.length > 0 ) {
       return "";
     }
+    this.inheritRgr();
     this.collectModules();
     if ( this.errors.length > 0 ) {
       return "";
@@ -87613,11 +89985,39 @@ class RustLower  {
         return k1;
       }
     }
-    const abs = this.modPath(segs, "");
+    const root = this.crateOf(this.curMod);
+    const abs = this.modPath(segs, root);
     if ( abs != "?" ) {
       const k2 = this.fnKey(abs, last);
       if ( this.hasItem(k2, table) ) {
         return k2;
+      }
+    }
+    let ext = "?";
+    if ( root != "" ) {
+      ext = this.modPath(segs, "");
+      if ( ext != "?" ) {
+        const k3 = this.fnKey(ext, last);
+        if ( this.hasItem(k3, table) ) {
+          return k3;
+        }
+      }
+    }
+    let tried = [];
+    tried.push(rel);
+    tried.push(abs);
+    tried.push(ext);
+    // Loop start
+    for ( const tm of tried) {
+      if ( tm == "?" ) {
+        continue;
+      }
+      const ak2 = (tm + "|") + last;
+      if ( ( typeof(this.fnAlias[ak2] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fnAlias, ak2) ) ) {
+        const t2 = ( Object.prototype.hasOwnProperty.call(this.fnAlias, ak2) ? this.fnAlias[ak2] : undefined );
+        if ( this.hasItem(t2, table) ) {
+          return t2;
+        }
       }
     }
     return "";
@@ -87630,7 +90030,7 @@ class RustLower  {
       const sg = segs[i];
       i = i + 1;
       if ( sg == "crate" ) {
-        cur = "";
+        cur = this.crateOf(this.curMod);
         continue;
       }
       if ( sg == "self" ) {
@@ -87706,8 +90106,8 @@ class RustLower  {
       }
       mi2 = mi2 + 1;
     };
-    let mi3 = 0;
-    while (mi3 < this.modRoots.length) {
+    let mi3 = this.modRoots.length - 1;
+    while (mi3 >= 0) {
       this.enterModule(mi3);
       const r3 = this.modRoots[mi3];
       // Loop start
@@ -87719,7 +90119,7 @@ class RustLower  {
           }
         }
       }
-      mi3 = mi3 + 1;
+      mi3 = mi3 - 1;
     };
     this.enterModule(0);
     this.collectRest();
@@ -88446,6 +90846,9 @@ class RustLower  {
     if ( k == "unit" ) {
       return "void";
     }
+    if ( this.isBytes(t) ) {
+      return "buffer";
+    }
     if ( k == "vec" ) {
       const __REGx1 = t.arg(0);
       if ( __REGx1.kind == "opt" ) {
@@ -88490,7 +90893,7 @@ class RustLower  {
       let ps = [];
       let i = 0;
       while (i < n - 1) {
-        ps.push((("p" + (i.toString())) + ":") + this.rtype(t.arg(i)));
+        ps.push((("p" + ((i).toString())) + ":") + this.rtype(t.arg(i)));
         i = i + 1;
       };
       return ((("(fn:" + this.rtype(t.arg((n - 1)))) + " (") + ps.join(" ")) + "))";
@@ -88500,6 +90903,14 @@ class RustLower  {
         return this.dynUnion(t.name);
       }
       if ( t.args.length > 0 ) {
+        if ( this.isRgrClass(t.name) ) {
+          let gas = [];
+          // Loop start
+          for ( const ga of t.args) {
+            gas.push(this.rtype(ga));
+          }
+          return ((this.className(t.name) + "@(") + gas.join(" ")) + ")";
+        }
         return this.instanceClass(t);
       }
       return this.className(t.name);
@@ -88558,15 +90969,15 @@ class RustLower  {
       let cps = [];
       // Loop start
       for ( const a2 of t.args) {
-        lines.push("  def " + this.fieldDecl(("f" + (ci.toString())), a2));
-        cps.push(this.declText("a" + (ci.toString()), a2));
+        lines.push("  def " + this.fieldDecl(("f" + ((ci).toString())), a2));
+        cps.push(this.declText("a" + ((ci).toString()), a2));
         ci = ci + 1;
       }
       lines.push(("  Constructor (" + cps.join(" ")) + ") {");
       let ck = 0;
       // Loop start
       for ( const a4 of t.args) {
-        lines.push((("    this.f" + (ck.toString())) + " = a") + (ck.toString()));
+        lines.push((("    this.f" + ((ck).toString())) + " = a") + ((ck).toString()));
         ck = ck + 1;
       }
       lines.push("  }");
@@ -88575,7 +90986,7 @@ class RustLower  {
       let cj = 0;
       // Loop start
       for ( const a3 of t.args) {
-        cargs.push(this.cloneCode("this.f" + (cj.toString()), a3));
+        cargs.push(this.cloneCode("this.f" + ((cj).toString()), a3));
         cj = cj + 1;
       }
       lines.push(((("    return (new " + name) + "(") + cargs.join(" ")) + "))");
@@ -88585,8 +90996,26 @@ class RustLower  {
     }
     return name;
   };
+  genKey (t) {
+    if ( this.isBytes(t) ) {
+      return "bytes";
+    }
+    if ( t.args.length == 0 ) {
+      return t.key();
+    }
+    let parts = [];
+    // Loop start
+    for ( const a of t.args) {
+      parts.push(this.genKey(a));
+    }
+    let head = t.kind;
+    if ( t.kind == "named" ) {
+      head = t.name;
+    }
+    return (head + "_") + parts.join("_");
+  };
   mangleKey (t) {
-    const k = t.key();
+    const k = this.genKey(t);
     let out_1 = "";
     const cs = Array.from(k, (rg_c) => rg_c.codePointAt(0));
     // Loop start
@@ -88619,6 +91048,9 @@ class RustLower  {
     if ( t.kind == "opt" ) {
       return "";
     }
+    if ( this.isBytes(t) ) {
+      return "(buffer_alloc 0)";
+    }
     const k = t.kind;
     if ( k == "int" ) {
       return "0";
@@ -88636,6 +91068,21 @@ class RustLower  {
       return ("(new " + this.omapClass(t)) + "())";
     }
     return "";
+  };
+  isBytes (t) {
+    if ( t.kind != "vec" ) {
+      return false;
+    }
+    if ( t.args.length == 0 ) {
+      return false;
+    }
+    const e = t.arg(0);
+    return e.kind == "int" && e.name == "u8";
+  };
+  bytesType () {
+    const e = RsType.mk("int");
+    e.name = "u8";
+    return RsType.of1("vec", e);
   };
   zeroCode (t) {
     const dv = this.defaultValue(t);
@@ -88660,6 +91107,13 @@ class RustLower  {
         return "";
       }
       if ( ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+        const zs = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+        if ( zs.rgr ) {
+          if ( t.args.length > 0 ) {
+            return ("(new " + this.rtype(t)) + " ())";
+          }
+          return ("(new " + t.name) + "())";
+        }
         if ( t.args.length > 0 ) {
           return ("(" + this.rtype(t)) + ".zeroOf())";
         }
@@ -88675,12 +91129,12 @@ class RustLower  {
       }
     }
     if ( k == "tuple" ) {
-      let zs = [];
+      let zs_1 = [];
       // Loop start
       for ( const a of t.args) {
-        zs.push(this.zeroCode(a));
+        zs_1.push(this.zeroCode(a));
       }
-      return ((("(new " + this.tupleClass(t)) + "(") + zs.join(" ")) + "))";
+      return ((("(new " + this.tupleClass(t)) + "(") + zs_1.join(" ")) + "))";
     }
     if ( k == "result" ) {
       return ("(" + this.resultClass(t)) + ".zeroOf())";
@@ -88702,6 +91156,9 @@ class RustLower  {
     if ( this.isDataEnum(t) ) {
       return ((("(" + this.implClass(t.name)) + ".cloneOf(") + code) + "))";
     }
+    if ( this.isBytes(t) ) {
+      return ("(RsBytes.copy(" + code) + "))";
+    }
     if ( k == "named" && (( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) || t.args.length > 0) ) {
       return ("(" + code) + ".rs_clone())";
     }
@@ -88718,7 +91175,7 @@ class RustLower  {
   };
   collectionCloner (t) {
     const key = "c_" + this.mangleKey(t);
-    const name = "RsClone." + key;
+    const name = (this.cloneClass + ".") + key;
     if ( ( typeof(this.genNames[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, key) ) ) {
       return name;
     }
@@ -89034,7 +91491,7 @@ class RustLower  {
       let pi = 0;
       // Loop start
       for ( const p of m.params) {
-        const pn = "a" + (pi.toString());
+        const pn = "a" + ((pi).toString());
         ps.push(this.declText(pn, p.ty));
         as.push(pn);
         pi = pi + 1;
@@ -89066,7 +91523,7 @@ class RustLower  {
           const smf = sm;
           mname = smf.rname;
         }
-        const v = "c" + (ci.toString());
+        const v = "c" + ((ci).toString());
         ci = ci + 1;
         lines.push(((("    case x " + v) + ":") + mem) + " {");
         const call = ((((v + ".") + mname) + "(") + as.join(" ")) + ")";
@@ -89142,7 +91599,7 @@ class RustLower  {
         parts.push("Import \"rust/RsJson.rgr\"");
       }
     }
-    const entryDir = RustLower.dirOf(this.entryName);
+    const entryDir = this.beginDir;
     // Loop start
     for ( const rip of this.rgrImports) {
       let rel = rip;
@@ -89151,11 +91608,14 @@ class RustLower  {
       }
       parts.push(("Import \"" + rel) + "\"");
     }
+    let shapeAt = [];
     let ei = 0;
     while (ei < this.enumOrder.length) {
       const en = this.enumOrder[ei];
       ei = ei + 1;
       const eo = ( Object.prototype.hasOwnProperty.call(this.enums, en) ? this.enums[en] : undefined );
+      shapeAt.push(parts.length);
+      parts.push("");
       parts.push(this.emitEnum(eo));
     };
     let si = 0;
@@ -89168,23 +91628,45 @@ class RustLower  {
     parts.push(this.emitModules());
     let qi = 0;
     let di = 0;
-    while (qi < this.structInstQueue.length || di < this.dynQueue.length) {
+    let clonesDone = false;
+    while ((qi < this.structInstQueue.length || di < this.dynQueue.length) || false == clonesDone) {
       if ( qi < this.structInstQueue.length ) {
         const inst = this.structInstQueue[qi];
         qi = qi + 1;
         parts.push(this.emitStructInstance(inst));
         continue;
       }
-      const tn = this.dynQueue[di];
-      di = di + 1;
-      parts.push(this.emitDyn(tn));
+      if ( di < this.dynQueue.length ) {
+        const tn = this.dynQueue[di];
+        di = di + 1;
+        parts.push(this.emitDyn(tn));
+        continue;
+      }
+      clonesDone = true;
+      // Loop start
+      for ( let ek = 0; ek < this.enumOrder.length; ek++) {
+        var en3 = this.enumOrder[ek];
+        const ep = shapeAt[ek];
+        const marker = ("@@rs_clone:" + en3) + "@@";
+        const implText = parts[(ep + 1)];
+        if ( implText.includes(marker) ) {
+          const eo3 = ( Object.prototype.hasOwnProperty.call(this.enums, en3) ? this.enums[en3] : undefined );
+          parts[ep + 1] = implText.split(marker).join(this.emitEnumClone(eo3, this.className(en3)));
+        }
+      }
     };
     // Loop start
     for ( const g of this.genOut) {
       parts.push(g);
     }
     if ( this.clonerOut.length > 0 ) {
-      parts.push(("class RsClone {\n" + this.clonerOut.join("\n")) + "\n}");
+      parts.push(((("class " + this.cloneClass) + " {\n") + this.clonerOut.join("\n")) + "\n}");
+    }
+    // Loop start
+    for ( let ej = 0; ej < this.enumOrder.length; ej++) {
+      var en2 = this.enumOrder[ej];
+      const eo2 = ( Object.prototype.hasOwnProperty.call(this.enums, en2) ? this.enums[en2] : undefined );
+      parts[shapeAt[ej]] = this.emitEnumShape(eo2);
     }
     return parts.join("\n\n") + "\n";
   };
@@ -89207,6 +91689,44 @@ class RustLower  {
       return "";
     }
     const cname = this.className(e.name);
+    let impl = [];
+    impl.push(("class " + this.implClass(e.name)) + " {");
+    let mi = 0;
+    while (mi < e.methods.length) {
+      const m = e.methods[mi];
+      mi = mi + 1;
+      impl.push(this.emitFn(m, e.name));
+    };
+    if ( false == e.plain ) {
+      impl.push(this.emitEnumZero(e, cname));
+    }
+    if ( false == this.hasFmt(RsType.named(e.name), "Debug") ) {
+      impl.push(this.emitEnumDebug(e, cname));
+      if ( false == e.plain ) {
+        impl.push(this.emitEnumEq(e, cname));
+      }
+    }
+    if ( false == e.plain ) {
+      impl.push(("@@rs_clone:" + e.name) + "@@");
+    }
+    const implDoc = new RustDocInfo();
+    // Loop start
+    for ( const pm of e.methods) {
+      if ( (typeof(pm.node) !== "undefined" && pm.node != null )  ) {
+        const pmNode = pm.node;
+        if ( pmNode.hasMod("pub") ) {
+          implDoc.isPublic = true;
+        }
+      }
+    }
+    impl.push("}" + RustDocReader.tail(implDoc, ""));
+    return impl.join("\n");
+  };
+  emitEnumShape (e) {
+    if ( e.generics.length > 0 ) {
+      return "";
+    }
+    const cname = this.className(e.name);
     let lines = [];
     if ( e.plain ) {
       let names = [];
@@ -89222,11 +91742,16 @@ class RustLower  {
     } else {
       lines.push(("shape " + cname) + " {");
       // Loop start
-      for ( const v2 of e.variants) {
+      for ( let j = 0; j < e.variants.length; j++) {
+        var v2 = e.variants[j];
         if ( v2.fields.length == 0 ) {
           lines.push("  case " + v2.name);
         } else {
-          lines.push(("  case " + v2.name) + " {");
+          let sem = "";
+          if ( ( typeof(this.writtenCases[((e.name + ".") + v2.name)] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.writtenCases, (e.name + ".") + v2.name) ) ) {
+            sem = "@(reference)";
+          }
+          lines.push((("  case " + v2.name) + sem) + " {");
           // Loop start
           for ( const f of v2.fields) {
             lines.push("    def " + this.fieldDecl(this.fieldName(f.name), f.ty));
@@ -89236,36 +91761,6 @@ class RustLower  {
       }
       lines.push("}");
     }
-    let impl = [];
-    impl.push(("class " + this.implClass(e.name)) + " {");
-    let mi = 0;
-    while (mi < e.methods.length) {
-      const m = e.methods[mi];
-      mi = mi + 1;
-      impl.push(this.emitFn(m, e.name));
-    };
-    if ( false == e.plain ) {
-      impl.push(this.emitEnumZero(e, cname));
-    }
-    if ( false == this.hasFmt(RsType.named(e.name), "Debug") ) {
-      impl.push(this.emitEnumDebug(e, cname));
-      if ( false == e.plain ) {
-        impl.push(this.emitEnumClone(e, cname));
-        impl.push(this.emitEnumEq(e, cname));
-      }
-    }
-    const implDoc = new RustDocInfo();
-    // Loop start
-    for ( const pm of e.methods) {
-      if ( (typeof(pm.node) !== "undefined" && pm.node != null )  ) {
-        const pmNode = pm.node;
-        if ( pmNode.hasMod("pub") ) {
-          implDoc.isPublic = true;
-        }
-      }
-    }
-    impl.push("}" + RustDocReader.tail(implDoc, ""));
-    lines.push(impl.join("\n"));
     return lines.join("\n");
   };
   caseType (en, v) {
@@ -89368,9 +91863,35 @@ class RustLower  {
     }
     return ((((("  sfn zeroOf:" + cname) + " () {\n    return (new ") + this.caseType(e.name, pick)) + "(") + args.join(" ")) + "))\n  }";
   };
+  enumIsValue (e) {
+    // Loop start
+    for ( let i = 0; i < e.variants.length; i++) {
+      var vr = e.variants[i];
+      if ( ( typeof(this.writtenCases[((e.name + ".") + vr.name)] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.writtenCases, (e.name + ".") + vr.name) ) ) {
+        return false;
+      }
+      // Loop start
+      for ( const f of vr.fields) {
+        const k = f.ty.kind;
+        if ( f.ty.shared ) {
+          continue;
+        }
+        if ( (((k == "int" || k == "double") || k == "bool") || k == "char") || k == "string" ) {
+          continue;
+        }
+        return false;
+      }
+    }
+    return true;
+  };
   emitEnumClone (e, cname) {
     let lines = [];
     lines.push(((("  sfn cloneOf:" + cname) + " (v:") + cname) + ") {");
+    if ( this.enumIsValue(e) ) {
+      lines.push("    return v");
+      lines.push("  }");
+      return lines.join("\n");
+    }
     // Loop start
     for ( let i = 0; i < e.variants.length; i++) {
       var vr = e.variants[i];
@@ -89559,6 +92080,9 @@ class RustLower  {
     return lines.join("\n");
   };
   emptyValueCode (t) {
+    if ( this.isBytes(t) ) {
+      return "(buffer_alloc 0)";
+    }
     if ( t.kind == "vec" ) {
       return ("([] _:" + this.rtype(t.arg(0))) + " ())";
     }
@@ -89589,6 +92113,9 @@ class RustLower  {
     return acc;
   };
   eqCode (a, b, t) {
+    if ( this.isBytes(t) ) {
+      return ((("(RsBytes.eq(" + a) + " ") + b) + "))";
+    }
     if ( this.isDataEnum(t) ) {
       return ((((("(" + this.implClass(t.name)) + ".eqOf(") + a) + " ") + b) + "))";
     }
@@ -89673,6 +92200,9 @@ class RustLower  {
     if ( k == "named" && ( typeof(this.enums[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, t.name) ) ) {
       return ((("(" + this.implClass(t.name)) + ".dbgOf(") + code) + "))";
     }
+    if ( this.isBytes(t) ) {
+      return ("(RsBytes.dbg(" + code) + "))";
+    }
     if ( k == "vec" ) {
       return (("(" + this.vecDebugger(t)) + "(") + (code + "))");
     }
@@ -89694,7 +92224,7 @@ class RustLower  {
       let i = 0;
       // Loop start
       for ( const a of t.args) {
-        parts.push(this.dbgCode((code + ".f") + (i.toString()), a));
+        parts.push(this.dbgCode((code + ".f") + ((i).toString()), a));
         i = i + 1;
       }
       return this.concat("(", parts, ", ", ")");
@@ -89703,7 +92233,7 @@ class RustLower  {
   };
   vecDebugger (t) {
     const key = "dbg_" + this.mangleKey(t);
-    const name = "RsClone." + key;
+    const name = (this.cloneClass + ".") + key;
     if ( ( typeof(this.genNames[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, key) ) ) {
       return name;
     }
@@ -89825,7 +92355,7 @@ class RustLower  {
     return lines.join("\n");
   };
   docKey (n) {
-    return ((n.line.toString()) + ":") + (n.col.toString());
+    return (((n.line).toString()) + ":") + ((n.col).toString());
   };
   helperDoc (text) {
     const info = new RustDocInfo();
@@ -90076,7 +92606,10 @@ class RustLower  {
     if ( isFmt ) {
       this.out.line("def rs__out:string \"\"");
     }
+    const saveSelfMut = this.selfIsMut;
+    this.selfIsMut = f.hasSelf && f.selfMut;
     this.lowerBody(body, fret);
+    this.selfIsMut = saveSelfMut;
     if ( isFmt ) {
       this.out.line("return rs__out");
       this.displayFormatter = "";
@@ -90275,7 +92808,7 @@ class RustLower  {
       t3 = v3.ty;
     }
     const subj = this.bindTemp(v3, t3, "v");
-    this.bindPattern(pat, subj, t3);
+    this.bindPatternRef(pat, subj, t3, this.matchesMut(init, v3.ty));
   };
   lowerLetElse (pat, init, elseB, declared) {
     const v = this.lowerExpr(init, declared);
@@ -90287,7 +92820,7 @@ class RustLower  {
     this.lowerBlockStmts(elseB);
     this.out.dedent();
     this.out.line("}");
-    this.bindPattern(pat, subj, t);
+    this.bindPatternRef(pat, subj, t, this.matchesMut(init, t));
   };
   lowerStmtExpr (e) {
     const k = e.kind;
@@ -90572,13 +93105,23 @@ class RustLower  {
         const v = this.lowerExpr(p.kid(1), RsType.mk("unknown"));
         const subj = this.bindTemp(v, v.ty, "m");
         if ( this.needsOpen(p.kid(0), v.ty) ) {
-          opened = opened + this.patOpen(p.kid(0), subj, v.ty);
+          opened = opened + this.patOpenRef(
+            p.kid(0),
+            subj,
+            v.ty,
+            this.matchesMut(p.kid(1), v.ty)
+          );
         } else {
           const cond = this.patCond(p.kid(0), subj, v.ty);
           this.out.line(("if " + this.condText(cond)) + " {");
           this.out.indent();
           opened = opened + 1;
-          this.bindPattern(p.kid(0), subj, v.ty);
+          this.bindPatternRef(
+            p.kid(0),
+            subj,
+            v.ty,
+            this.matchesMut(p.kid(1), v.ty)
+          );
         }
       } else {
         const c = this.lowerCond(p);
@@ -90754,7 +93297,12 @@ class RustLower  {
         this.out.line(("if (! " + pc) + ") {");
         this.out.line("  break");
         this.out.line("}");
-        this.bindPattern(p.kid(0), subj, v.ty);
+        this.bindPatternRef(
+          p.kid(0),
+          subj,
+          v.ty,
+          this.matchesMut(p.kid(1), v.ty)
+        );
       } else {
         const c = this.lowerCond(p);
         this.out.line(("if (! " + c.code) + ") {");
@@ -90765,7 +93313,11 @@ class RustLower  {
   };
   lowerLoopBody (body) {
     const before = this.movedSnapshot();
-    const firstInside = this.fnLocals.length;
+    let firstInside = this.fnLocals.length;
+    if ( this.loopBindStart >= 0 && this.loopBindStart < firstInside ) {
+      firstInside = this.loopBindStart;
+    }
+    this.loopBindStart = -1;
     this.pushScope();
     this.lowerBlockStmts(body);
     this.popScope();
@@ -90913,6 +93465,7 @@ class RustLower  {
     return false;
   };
   lowerFor (e) {
+    this.loopBindStart = this.fnLocals.length;
     const pat = e.kid(0);
     const iter = e.kid(1);
     const body = e.kid(2);
@@ -91093,10 +93646,19 @@ class RustLower  {
       elemT = RsType.mk("int");
       elemCode = ((("(charAt " + seq) + " ") + idx) + ")";
     }
+    const isBuf = mode == "vec" && this.isBytes(st);
+    if ( isBuf && mutElems ) {
+      this.err(iter0, "`iter_mut()` over a `Vec<u8>` (a Ranger buffer): index it");
+      return;
+    }
     if ( mode == "vec" ) {
       seq = this.bindTemp(sv, st, "seq");
       elemT = st.arg(0);
-      elemCode = ((("(itemAt " + seq) + " ") + idx) + ")";
+      if ( isBuf ) {
+        elemCode = ((("(buffer_get " + seq) + " ") + idx) + ")";
+      } else {
+        elemCode = ((("(itemAt " + seq) + " ") + idx) + ")";
+      }
     }
     let mapT = st;
     if ( ((mode == "map" || mode == "keys") || mode == "values") || mode == "values_mut" ) {
@@ -91129,9 +93691,13 @@ class RustLower  {
       mapName = seq.substring(bar + 1, seq.length );
     }
     if ( mode == "bytes" ) {
-      this.out.line(((("def " + n) + ":int (length ") + seqName) + ")");
+      this.out.line(((("def " + n) + ":int (rs_byte_len ") + sv.code) + ")");
     } else {
-      this.out.line(((("def " + n) + ":int (array_length ") + seqName) + ")");
+      if ( isBuf ) {
+        this.out.line(((("def " + n) + ":int (buffer_length ") + seqName) + ")");
+      } else {
+        this.out.line(((("def " + n) + ":int (array_length ") + seqName) + ")");
+      }
     }
     if ( rev ) {
       this.out.line(((("def " + idx) + ":int (") + n) + " - 1)");
@@ -91268,11 +93834,14 @@ class RustLower  {
     let none = [];
     this.armAcc = none;
     this.armAny = false;
+    const saveMut = this.matchMut;
+    this.matchMut = this.matchesMut(e.kid(0), v.ty);
     if ( narrow ) {
       this.lowerArmsOpen(arms, subj, v.ty, mode, _var);
     } else {
       this.lowerArms(arms, 0, subj, v.ty, mode, _var, e);
     }
+    this.matchMut = saveMut;
     if ( this.armAny ) {
       this.movedRestore(this.armAcc);
     } else {
@@ -91309,7 +93878,7 @@ class RustLower  {
       if ( pat.kind == "pat_or" ) {
         opened = this.patOpenOr(pat, subj, t);
       } else {
-        opened = this.patOpen(pat, subj, t);
+        opened = this.patOpenRef(pat, subj, t, this.matchMut);
       }
       const guard = arm.kid(1);
       if ( false == guard.isNone() ) {
@@ -91367,7 +93936,7 @@ class RustLower  {
     const always = cond == "true";
     if ( always ) {
       this.pushScope();
-      this.bindPattern(pat, subj, t);
+      this.bindPatternRef(pat, subj, t, this.matchMut);
       this.movedRestore(this.armBefore);
       this.lowerValueTo(body, mode, _var);
       this.armEnd(body);
@@ -91377,7 +93946,7 @@ class RustLower  {
     this.out.line(("if " + this.condText(cond)) + " {");
     this.out.indent();
     this.pushScope();
-    this.bindPattern(pat, subj, t);
+    this.bindPatternRef(pat, subj, t, this.matchMut);
     this.movedRestore(this.armBefore);
     this.lowerValueTo(body, mode, _var);
     this.armEnd(body);
@@ -91402,6 +93971,11 @@ class RustLower  {
       }
       if ( this.isUnitVariantName(pat.name, t) ) {
         return this.variantTest(pat.name, subj, t, pat);
+      }
+      if ( this.isConstPattern(pat) ) {
+        const cseg = [pat.name];
+        const cv = this.constValue(this.resolveItem(cseg, "const"));
+        return ((("(" + subj) + " == ") + cv.code) + ")";
       }
       return "true";
     }
@@ -91490,7 +94064,7 @@ class RustLower  {
         }
         const c = this.patCond(
           sp,
-          ((subj + ".f") + (ti.toString())),
+          ((subj + ".f") + ((ti).toString())),
           t.arg(ti)
         );
         if ( c != "true" ) {
@@ -91610,7 +94184,7 @@ class RustLower  {
     return "true";
   };
   patBinds (pat) {
-    if ( pat.kind == "pat_ident" && false == this.isUnitVariantName(pat.name, RsType.mk("unknown")) ) {
+    if ( (pat.kind == "pat_ident" && false == this.isUnitVariantName(pat.name, RsType.mk("unknown"))) && false == this.isConstPattern(pat) ) {
       return true;
     }
     // Loop start
@@ -91621,8 +94195,113 @@ class RustLower  {
     }
     return false;
   };
+  isConstPattern (pat) {
+    if ( pat.kids.length > 0 ) {
+      return false;
+    }
+    if ( pat.hasMod("mut") || pat.hasMod("ref") ) {
+      return false;
+    }
+    const segs = [pat.name];
+    return this.resolveItem(segs, "const") != "";
+  };
   bindPattern (pat, subj, t) {
     this.walkBindings(pat, subj, t, false);
+  };
+  matchesMut (e, t) {
+    if ( t.isMutRef ) {
+      return true;
+    }
+    let n = e;
+    while (n.kind == "paren") {
+      n = n.kid(0);
+    };
+    if ( n.kind == "unary" && n.name == "&mut" ) {
+      return true;
+    }
+    if ( n.kind == "path_expr" && this.selfIsMut ) {
+      const segs = this.pathSegs(n.kid(0));
+      return segs.length == 1 && segs[0] == "self";
+    }
+    return false;
+  };
+  bindPatternRef (pat, subj, t, refMut) {
+    const save = this.refMutBind;
+    this.refMutBind = refMut;
+    this.walkBindings(pat, subj, t, false);
+    this.refMutBind = save;
+  };
+  patOpenRef (pat, subj, t, refMut) {
+    const save = this.refMutBind;
+    this.refMutBind = refMut;
+    const n = this.patOpen(pat, subj, t);
+    this.refMutBind = save;
+    return n;
+  };
+  bindsRefMut (pat) {
+    if ( pat.hasMod("ref") ) {
+      return pat.hasMod("mut");
+    }
+    if ( pat.hasMod("mut") ) {
+      return false;
+    }
+    return this.refMutBind;
+  };
+  backPlace (subj) {
+    if ( ( typeof(this.backOf[subj] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.backOf, subj) ) ) {
+      return ( Object.prototype.hasOwnProperty.call(this.backOf, subj) ? this.backOf[subj] : undefined );
+    }
+    if ( subj.startsWith("(unwrap ") && subj.endsWith(")") ) {
+      return this.backPlace(subj.substring(8, subj.length - 1 ));
+    }
+    if ( subj.indexOf("(") >= 0 || subj.indexOf(".") < 0 ) {
+      return "";
+    }
+    return subj;
+  };
+  declareBinding (pat, subj, t) {
+    const l = this.declare(pat.name, t);
+    let code = subj;
+    if ( this.bindsRefMut(pat) ) {
+      const place = this.backPlace(subj);
+      if ( place == "" ) {
+        l.backBad = true;
+      } else {
+        l.backTo = place;
+        let root = place;
+        const dot = place.indexOf(".");
+        if ( dot > 0 ) {
+          root = place.substring(0, dot );
+        }
+        if ( ( typeof(this.caseOfVar[root] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.caseOfVar, root) ) ) {
+          l.backCase = ( Object.prototype.hasOwnProperty.call(this.caseOfVar, root) ? this.caseOfVar[root] : undefined );
+        }
+      }
+    } else {
+      code = this.copyCode(subj, t);
+    }
+    this.out.line((("def " + this.declText(l.rname, t)) + " ") + code);
+  };
+  copyCode (code, t) {
+    if ( this.isCopyStruct(t) ) {
+      return ("(" + code) + ".rs_clone())";
+    }
+    if ( this.isCopyEnum(t) ) {
+      return this.cloneCode(code, t);
+    }
+    return code;
+  };
+  noteWrittenCase (l) {
+    if ( l.backCase != "" ) {
+      this.writtenCases[l.backCase] = true;
+    }
+  };
+  isCopyEnum (t) {
+    if ( this.isDataEnum(t) ) {
+      const e = ( Object.prototype.hasOwnProperty.call(this.enums, t.name) ? this.enums[t.name] : undefined );
+      return e.derives.indexOf("Copy") >= 0;
+    }
+    return false;
   };
   aliasPattern (pat, subj, t) {
     this.walkBindings(pat, subj, t, true);
@@ -91633,15 +94312,13 @@ class RustLower  {
       if ( this.isUnitVariantName(pat.name, t) ) {
         return;
       }
+      if ( this.isConstPattern(pat) ) {
+        return;
+      }
       if ( aliasOnly ) {
         this.alias(pat.name, subj, t);
       } else {
-        const l = this.declare(pat.name, t);
-        let code = subj;
-        if ( this.isCopyStruct(t) ) {
-          code = ("(" + subj) + ".rs_clone())";
-        }
-        this.out.line((("def " + this.declText(l.rname, t)) + " ") + code);
+        this.declareBinding(pat, subj, t);
       }
       if ( pat.kids.length > 0 ) {
         this.walkBindings(pat.kid(0), subj, t, aliasOnly);
@@ -91710,7 +94387,7 @@ class RustLower  {
       for ( const sp of pat.kids) {
         this.walkBindings(
           sp,
-          (subj + ".f") + (ti.toString()),
+          (subj + ".f") + ((ti).toString()),
           t.arg(ti),
           aliasOnly
         );
@@ -91777,6 +94454,9 @@ class RustLower  {
         "c"
       )) + ".rs_clone())"), v.ty);
       return r;
+    }
+    if ( this.isCopyEnum(v.ty) && this.isPlace(n) ) {
+      return RsExpr.of(this.cloneCode(this.bindTemp(v, v.ty, "c"), v.ty), v.ty);
     }
     return v;
   };
@@ -92029,21 +94709,38 @@ class RustLower  {
       if ( cs.length > 0 ) {
         code = cs[0];
       }
-      const rb = RsExpr.of((code.toString()), RsType.mk("int"));
+      const byT = RsType.mk("int");
+      byT.name = "u8";
+      const rb = RsExpr.of(((code).toString()), byT);
       rb.simple = true;
       return rb;
+    }
+    if ( n.hasMod("bytestr") ) {
+      const bcs = Array.from(n.value, (rg_c) => rg_c.codePointAt(0));
+      let bparts = [];
+      // Loop start
+      for ( const bc of bcs) {
+        bparts.push(((bc).toString()));
+      }
+      const bt = this.bytesType();
+      bt.isRef = true;
+      return RsExpr.of((("(RsBytes.ofInts(([] _:int (" + bparts.join(" ")) + "))))"), bt);
     }
     if ( ((n.hasMod("float") || n.hasMod("f64")) || n.hasMod("f32")) || expect.kind == "double" ) {
       let txt = n.value;
       if ( n.hasMod("int") ) {
-        txt = (this.intValue(n).toString());
+        txt = ((this.intValue(n)).toString());
       }
       const rf = RsExpr.of(this.floatText(txt), RsType.mk("double"));
       rf.simple = true;
       return rf;
     }
     if ( n.hasMod("int") ) {
-      const ri = RsExpr.of((this.intValue(n).toString()), RsType.mk("int"));
+      const intT = RsType.mk("int");
+      if ( n.hasMod("u8") ) {
+        intT.name = "u8";
+      }
+      const ri = RsExpr.of(((this.intValue(n)).toString()), intT);
       ri.simple = true;
       return ri;
     }
@@ -92158,6 +94855,9 @@ class RustLower  {
       gsegs.push("*");
       let m = this.modPath(gsegs, this.curMod);
       if ( m == "?" ) {
+        m = this.modPath(gsegs, this.crateOf(this.curMod));
+      }
+      if ( m == "?" ) {
         m = this.modPath(gsegs, "");
       }
       if ( m == "?" || m == this.curMod ) {
@@ -92193,7 +94893,7 @@ class RustLower  {
       if ( (typeof(l) !== "undefined" && l != null )  ) {
         const lv = l;
         if ( lv.moved && false == this.noMoveCheck ) {
-          this.err(n, ((("use of moved value: `" + name) + "` (moved at line ") + (lv.movedLine.toString())) + ")");
+          this.err(n, ((("use of moved value: `" + name) + "` (moved at line ") + ((lv.movedLine).toString())) + ")");
           lv.moved = false;
         }
         const r = RsExpr.of(lv.rname, lv.ty);
@@ -92328,7 +95028,48 @@ class RustLower  {
   };
   constValue (key) {
     const c = ( Object.prototype.hasOwnProperty.call(this.consts, key) ? this.consts[key] : undefined );
+    const lit = this.constLiteral(c);
+    if ( lit != "" ) {
+      const le = RsExpr.of(lit, c.ty);
+      le.simple = true;
+      return le;
+    }
     return RsExpr.of((((("(" + c.modCls) + ".") + this.staticName(c.name)) + "())"), c.ty);
+  };
+  constLiteral (c) {
+    if ( typeof(c.node) === "undefined" ) {
+      return "";
+    }
+    const node = c.node;
+    if ( node.kids.length < 2 ) {
+      return "";
+    }
+    let v = node.kid(1);
+    const k = c.ty.kind;
+    if ( false == ((k == "int" || k == "double") || k == "bool") ) {
+      return "";
+    }
+    let neg = false;
+    if ( (v.kind == "unary" && v.name == "-") && v.kids.length > 0 ) {
+      neg = true;
+      v = v.kid(0);
+    }
+    if ( v.kind != "lit" ) {
+      return "";
+    }
+    const e = this.lowerExpr(v, c.ty);
+    if ( false == e.simple ) {
+      if ( e.code.length == 0 ) {
+        return "";
+      }
+    }
+    if ( neg ) {
+      if ( k == "bool" ) {
+        return "";
+      }
+      return ("(-1 * " + e.code) + ")";
+    }
+    return e.code;
   };
   fnValue (name, at) {
     const f = ( Object.prototype.hasOwnProperty.call(this.fns, name) ? this.fns[name] : undefined );
@@ -92338,7 +95079,7 @@ class RustLower  {
     const ft = RsType.mk("fn");
     // Loop start
     for ( const p of f.params) {
-      const pn = "p" + (i.toString());
+      const pn = "p" + ((i).toString());
       ps.push(this.declText(pn, p.ty));
       as.push(pn);
       ft.args.push(p.ty);
@@ -92481,6 +95222,13 @@ class RustLower  {
       }
       return ("(!null? " + other) + ")";
     }
+    if ( this.isBytes(t) && (op == "==" || op == "!=") ) {
+      const beq = this.eqCode(l.code, r.code, t);
+      if ( op == "==" ) {
+        return beq;
+      }
+      return ("(! " + beq) + ")";
+    }
     if ( this.isDataEnum(t) ) {
       if ( op == "==" || op == "!=" ) {
         const eqc = this.eqCode(l.code, r.code, t);
@@ -92568,6 +95316,9 @@ class RustLower  {
     if ( op == "-" ) {
       if ( c.kind == "lit" ) {
         const lv = this.lowerExpr(c, expect);
+        if ( lv.ty.kind == "double" && ((lv.code == "0.0" || lv.code == "0.") || lv.code == "0") ) {
+          return RsExpr.of((("(-1.0 * " + lv.code) + ")"), lv.ty);
+        }
         const neg = RsExpr.of(("-" + lv.code), lv.ty);
         neg.simple = true;
         return neg;
@@ -92577,7 +95328,7 @@ class RustLower  {
         return RsExpr.of((("(0 - " + v2.code) + ")"), v2.ty);
       }
       if ( v2.ty.kind == "double" ) {
-        return RsExpr.of((("(0.0 - " + v2.code) + ")"), v2.ty);
+        return RsExpr.of((("(-1.0 * " + v2.code) + ")"), v2.ty);
       }
       if ( v2.ty.kind == "named" && ( typeof(this.structs[v2.ty.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, v2.ty.name) ) ) {
         const s = ( Object.prototype.hasOwnProperty.call(this.structs, v2.ty.name) ? this.structs[v2.ty.name] : undefined );
@@ -92594,7 +95345,7 @@ class RustLower  {
       if ( v3.ty.kind == "int" ) {
         return RsExpr.of((("(bit_not " + v3.code) + ")"), v3.ty);
       }
-      return RsExpr.of((("(! " + v3.code) + ")"), RsType.mk("bool"));
+      return RsExpr.of((("(false == " + v3.code) + ")"), RsType.mk("bool"));
     }
     this.unsupported(n, ("the unary operator `" + op) + "`");
     return this.unit();
@@ -92651,7 +95402,7 @@ class RustLower  {
     let i = e.variants.length - 1;
     while (i >= 0) {
       const v = e.variants[i];
-      acc = ((((((("(? (" + code) + " == ") + this.className(en)) + ".") + v.name) + ") ") + (v.disc.toString())) + ((" " + acc) + ")");
+      acc = ((((((("(? (" + code) + " == ") + this.className(en)) + ".") + v.name) + ") ") + ((v.disc).toString())) + ((" " + acc) + ")");
       i = i - 1;
     };
     return acc;
@@ -92827,7 +95578,7 @@ class RustLower  {
     if ( ( typeof(this.structs[head] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, head) ) ) {
       const s = ( Object.prototype.hasOwnProperty.call(this.structs, head) ? this.structs[head] : undefined );
       const m = s.method(name);
-      if ( ((typeof(m) !== "undefined" && m != null ) ) && s.generics.length > 0 ) {
+      if ( (((typeof(m) !== "undefined" && m != null ) ) && s.generics.length > 0) && false == s.rgr ) {
         return this.genericAssocCall(s, m, args, expect, at);
       }
       if ( (typeof(m) !== "undefined" && m != null )  ) {
@@ -92852,16 +95603,23 @@ class RustLower  {
               at
             );
           }
-          const codes0 = this.lowerArgs(rest, this.paramTypes(mf));
-          return RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + codes0.join(" ")) + "))"), mf.ret);
+          const menv = this.methodEnv(rv.ty);
+          let ptypes0 = [];
+          // Loop start
+          for ( let pti0 = 0; pti0 < this.paramTypes(mf).length; pti0++) {
+            var pt0 = this.paramTypes(mf)[pti0];
+            ptypes0.push(this.subst(pt0, menv));
+          }
+          const codes0 = this.lowerArgs(rest, ptypes0);
+          return RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + codes0.join(" ")) + "))"), this.subst(mf.ret, menv));
         }
         if ( (this.hasBoxed(mf) && false == mf.rgrCtor) && false == s.rgr ) {
-          let bname = this.staticName(name);
+          let bsn = this.staticName(name);
           if ( mf.statName != "" ) {
-            bname = mf.statName;
+            bsn = mf.statName;
           }
           return this.boxedCall(
-            (((this.className(head) + ".") + bname) + "("),
+            (((this.className(head) + ".") + bsn) + "("),
             mf,
             args,
             RsType.named(head),
@@ -92871,6 +95629,13 @@ class RustLower  {
         }
         const codes = this.lowerArgs(args, this.paramTypes(mf));
         if ( mf.rgrCtor ) {
+          if ( s.generics.length > 0 ) {
+            const eT = expect;
+            if ( (eT.kind == "named" && eT.name == head) && eT.args.length == s.generics.length ) {
+              return RsExpr.of((((("(new " + this.rtype(eT)) + " (") + codes.join(" ")) + "))"), eT);
+            }
+            this.err(at, ("the type arguments of the .rgr class `" + head) + "` are not known here: give the binding its type");
+          }
           return RsExpr.of((((("(new " + head) + "(") + codes.join(" ")) + "))"), RsType.named(head));
         }
         if ( s.rgr ) {
@@ -92922,6 +95687,20 @@ class RustLower  {
       const v_1 = this.lowerExpr(args[0], RsType.mk("string"));
       return RsExpr.of(v_1.code, this.ownedString());
     }
+    if ( (head == "String" || head == "str") && (name == "from_utf8" || name == "from_utf8_lossy") ) {
+      const ub = this.lowerExpr(args[0], this.bytesType());
+      const utext = ("(RsBytes.toUtf8(" + ub.code) + "))";
+      if ( name == "from_utf8_lossy" ) {
+        return RsExpr.of(utext, this.ownedString());
+      }
+      const urt = RsType.of2("result", this.ownedString(), this.ownedString());
+      const ucls = this.resultClass(urt);
+      const un = this.tmp("res");
+      this.out.line(((("def " + un) + ":") + ucls) + ((" (new " + ucls) + ")"));
+      this.out.line(un + ".ok = true");
+      this.out.line((un + ".v = ") + utext);
+      return this.simpleExpr(un, urt);
+    }
     if ( full == "String::new" ) {
       const e_1 = RsExpr.of("\"\"", this.ownedString());
       e_1.simple = true;
@@ -92933,6 +95712,11 @@ class RustLower  {
     if ( (((((full == "Box::new" || full == "Rc::new") || full == "Arc::new") || full == "RefCell::new") || full == "Cell::new") || full == "Rc::clone") || full == "Arc::clone" ) {
       const iv = this.lowerExpr(args[0], expect);
       return iv;
+    }
+    if ( ((full == "Rc::ptr_eq" || full == "Arc::ptr_eq") || full == "std::ptr::eq") || full == "ptr::eq" ) {
+      const pa = this.lowerExpr(args[0], RsType.mk("unknown"));
+      const pb = this.lowerExpr(args[1], RsType.mk("unknown"));
+      return RsExpr.of((((("(identical " + pa.code) + " ") + pb.code) + ")"), RsType.mk("bool"));
     }
     if ( full == "Rc::downgrade" || full == "Arc::downgrade" ) {
       const dv = this.lowerExpr(args[0], RsType.mk("unknown"));
@@ -92979,7 +95763,20 @@ class RustLower  {
     if ( ((full == "std::mem::take" || full == "mem::take") || full == "std::mem::replace") || full == "mem::replace" ) {
       return this.lowerTake(full, args, at);
     }
-    if ( full == "char::from_u32" || full == "char::from_digit" ) {
+    if ( full == "char::from_u32" || full == "std::char::from_u32" ) {
+      const cv_1 = this.arg0(args, RsType.mk("int"));
+      const cn = this.bindTemp(cv_1, RsType.mk("int"), "cp");
+      const ot = RsType.of1("opt", RsType.mk("char"));
+      const rn = this.tmp("ch");
+      this.out.line("def " + this.declText(rn, ot));
+      this.out.line(((((((("if ((" + cn) + " >= 0) && (") + cn) + " <= 1114111) && ((") + cn) + " < 55296) || (") + cn) + " > 57343))) {");
+      this.out.line(((("  " + rn) + " = (rs_char_from ") + cn) + ")");
+      this.out.line("}");
+      const cr = RsExpr.of(rn, ot);
+      cr.simple = true;
+      return cr;
+    }
+    if ( full == "char::from_digit" ) {
       this.unsupported(at, ("`" + full) + "` (stage R2)");
       return this.unit();
     }
@@ -93068,6 +95865,22 @@ class RustLower  {
       this.unsupported(n, ("the Formatter method `" + name) + "`");
       return this.unit();
     }
+    if ( recvN.kind == "field" && this.isRgrCellField(recvN.name) ) {
+      const nArgs = args.length;
+      if ( ((name == "get" || name == "borrow") || name == "take") && nArgs == 0 ) {
+        return this.lowerExpr(recvN, expect);
+      }
+      if ( (name == "set" || name == "replace") && nArgs == 1 ) {
+        const asg = new RustNode("assign");
+        asg.name = "=";
+        asg.line = n.line;
+        asg.col = n.col;
+        asg.add(recvN);
+        asg.add(args[0]);
+        this.lowerAssign(asg);
+        return this.unit();
+      }
+    }
     const rv = this.lowerExpr(recvN, RsType.mk("unknown"));
     const t = rv.ty;
     if ( t.kind == "named" && ( typeof(this.traits[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.traits, t.name) ) ) {
@@ -93094,6 +95907,9 @@ class RustLower  {
         const m = s3.method(name);
         if ( (typeof(m) !== "undefined" && m != null )  ) {
           return this.userMethodCall(rv, m, args, n);
+        }
+        if ( (name == "clone" && (s3.rgr || t.shared)) && args.length == 0 ) {
+          return rv;
         }
         if ( name == "clone" && (s3.derivesTrait("Clone") || s3.derivesTrait("Copy")) ) {
           const rc = this.bindTemp(rv, t, "r");
@@ -93137,6 +95953,9 @@ class RustLower  {
         return ur;
       }
       if ( (((name == "borrow" || name == "borrow_mut") || name == "as_ref") || name == "as_mut") && args.length == 0 ) {
+        return rv;
+      }
+      if ( name == "unwrap" && args.length == 0 ) {
         return rv;
       }
       this.err(n, ((("no method `" + name) + "` on `") + t.rust()) + "`");
@@ -93229,7 +96048,7 @@ class RustLower  {
       const rc = this.bindTemp(rv, t, "r");
       return RsExpr.of(this.cloneCode(rc, t), t);
     }
-    if ( ((((name == "as_str" || name == "as_ref") || name == "borrow") || name == "borrow_mut") || name == "as_mut") || name == "into" ) {
+    if ( (((((name == "as_str" || name == "as_ref") || name == "borrow") || name == "borrow_mut") || name == "as_mut") || name == "into") || name == "into_owned" && k == "string" ) {
       return rv;
     }
     if ( name == "to_string" && k != "vec" ) {
@@ -93312,12 +96131,123 @@ class RustLower  {
               slot.rname
             ));
           }
+          if ( slot.backTo != "" ) {
+            this.out.line((slot.backTo + " = ") + slot.rname);
+            this.noteWrittenCase(slot);
+          }
         }
       }
     }
   };
+  bytesMethod (rv, name, args, at, expect) {
+    const t = rv.ty;
+    const v = this.bindTemp(rv, t, "buf");
+    this.lastVecName = v;
+    const it = RsType.mk("int");
+    const bt = RsType.mk("bool");
+    const recvN = at.kid(0);
+    if ( name == "len" ) {
+      return RsExpr.of((("(buffer_length " + v) + ")"), it);
+    }
+    if ( name == "is_empty" ) {
+      return RsExpr.of((("((buffer_length " + v) + ") == 0)"), bt);
+    }
+    if ( ((name == "to_vec" || name == "to_owned") || name == "into_boxed_slice") || name == "into_vec" ) {
+      return RsExpr.of((("(RsBytes.copy(" + v) + "))"), this.bytesType());
+    }
+    if ( name == "as_slice" || name == "as_mut_slice" ) {
+      return rv;
+    }
+    if ( name == "fill" ) {
+      const fv = this.lowerExpr(args[0], it);
+      this.out.line(((("RsBytes.fillAll(" + v) + " ") + fv.code) + ")");
+      return this.unit();
+    }
+    if ( name == "contains" ) {
+      const cv = this.lowerExpr(args[0], it);
+      return RsExpr.of((((("((RsBytes.indexOf(" + v) + " ") + cv.code) + ")) >= 0)"), bt);
+    }
+    if ( (name == "first" || name == "last") || name == "get" ) {
+      const ot = RsType.of1("opt", t.arg(0));
+      const nm = this.tmp("g");
+      this.out.line("def " + this.declText(nm, ot));
+      let ix = "0";
+      if ( name == "get" ) {
+        const gv = this.lowerExpr(args[0], it);
+        ix = this.bindTemp(gv, it, "i");
+      }
+      if ( name == "last" ) {
+        ix = ("((buffer_length " + v) + ") - 1)";
+      }
+      this.out.line(((((("if ((" + ix) + " >= 0) && (") + ix) + " < (buffer_length ") + v) + "))) {");
+      this.out.line(((((("  " + nm) + " = (buffer_get ") + v) + " ") + ix) + ")");
+      this.out.line("}");
+      return this.simpleExpr(nm, ot);
+    }
+    if ( name == "copy_from_slice" ) {
+      const src = this.lowerExpr(args[0], t);
+      const sb = this.bindTemp(src, t, "src");
+      let target_1 = v;
+      let from = "0";
+      const __REGx1 = recvN.kid(1);
+      if ( recvN.kind == "index" && __REGx1.kind == "range" ) {
+        const base = this.lowerExpr(recvN.kid(0), RsType.mk("unknown"));
+        target_1 = this.bindTemp(base, base.ty, "buf");
+        const rng = recvN.kid(1);
+        if ( false == rng.kid(0).isNone() ) {
+          const lo = this.lowerExpr(rng.kid(0), it);
+          from = lo.code;
+        }
+      }
+      this.out.line(((((((("RsBytes.copyInto(" + target_1) + " ") + from) + " ") + sb) + " (buffer_length ") + sb) + "))");
+      return this.unit();
+    }
+    let grown = "";
+    if ( name == "push" ) {
+      const pv = this.lowerExpr(args[0], it);
+      const pc = this.bindTemp(pv, it, "b");
+      grown = ((("(rs_bytes_push " + v) + " ") + pc) + ")";
+    }
+    if ( (name == "extend_from_slice" || name == "extend") || name == "append" ) {
+      const ev = this.lowerExpr(args[0], t);
+      const ec = this.bindTemp(ev, t, "m");
+      grown = ((("(rs_bytes_extend " + v) + " ") + ec) + ")";
+      if ( name == "append" ) {
+        this.assignTo(args[0], this.simpleExpr("(buffer_alloc 0)", t));
+      }
+    }
+    if ( name == "clear" ) {
+      grown = "(buffer_alloc 0)";
+    }
+    if ( name == "truncate" ) {
+      const tv = this.lowerExpr(args[0], it);
+      const tn = this.bindTemp(tv, it, "n");
+      grown = ((((("(RsBytes.resized(" + v) + " (? (") + tn) + ((" < (buffer_length " + v) + ")) ")) + ((tn + " (buffer_length ") + v)) + ")) 0))";
+    }
+    if ( name == "resize" ) {
+      const rn = this.lowerExpr(args[0], it);
+      const rx = this.lowerExpr(args[1], it);
+      grown = ((((("(RsBytes.resized(" + v) + " ") + rn.code) + " ") + rx.code) + "))";
+    }
+    if ( grown != "" ) {
+      if ( t.isMutRef && recvN.kind == "path_expr" ) {
+        this.err(at, ("`." + name) + "()` on a `&mut Vec<u8>` parameter: a buffer cannot grow in place, so return the new `Vec<u8>`");
+        return this.unit();
+      }
+      const nb = this.tmp("buf");
+      this.out.line((("def " + nb) + ":buffer ") + grown);
+      this.assignTo(recvN, this.simpleExpr(nb, t));
+      this.lastVecName = nb;
+      return this.unit();
+    }
+    this.err(at, ("`." + name) + "()` on a `Vec<u8>` (a Ranger buffer): index it in a loop");
+    return this.unit();
+  };
   vecMethodInner (rv, name, args, at, expect) {
     const t = rv.ty;
+    if ( this.isBytes(t) ) {
+      return this.bytesMethod(rv, name, args, at, expect);
+    }
     const et = t.arg(0);
     const v = this.bindTemp(rv, t, "vec");
     this.lastVecName = v;
@@ -93392,7 +96322,7 @@ class RustLower  {
     if ( name == "insert" ) {
       const iv3 = this.lowerExpr(args[0], it);
       const xv = this.lowerExprCopy(args[1], et);
-      this.out.line((((((this.vecInserter(t) + "(") + v) + " ") + iv3.code) + " ") + (xv.code + ")"));
+      this.out.line((((((((v + " = ") + this.vecInserter(t)) + "(") + v) + " ") + iv3.code) + " ") + (xv.code + ")"));
       return this.unit();
     }
     if ( name == "join" ) {
@@ -93481,7 +96411,7 @@ class RustLower  {
   };
   vecInserter (t) {
     const key = "ins_" + this.mangleKey(t);
-    const name = "RsClone." + key;
+    const name = (this.cloneClass + ".") + key;
     if ( ( typeof(this.genNames[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, key) ) ) {
       return name;
     }
@@ -93489,7 +96419,7 @@ class RustLower  {
     const rt = this.rtype(t);
     const et = this.rtype(t.arg(0));
     let lines = [];
-    lines.push((((("  sfn " + key) + ":void (v:") + rt) + " at:int x:") + (et + ") {"));
+    lines.push((((((("  sfn " + key) + ":") + rt) + " (v:") + rt) + " at:int x:") + (et + ") {"));
     lines.push("    push v x");
     lines.push("    def i:int ((array_length v) - 1)");
     lines.push("    while (i > at) {");
@@ -93497,6 +96427,7 @@ class RustLower  {
     lines.push("      i = i - 1");
     lines.push("    }");
     lines.push("    set_at v at x");
+    lines.push("    return v");
     lines.push("  }");
     this.clonerOut.push(lines.join("\n"));
     return name;
@@ -93515,6 +96446,11 @@ class RustLower  {
     }
     if ( name == "is_empty" ) {
       return RsExpr.of((("((strlen " + c) + ") == 0)"), bt);
+    }
+    if ( name == "as_bytes" || name == "into_bytes" ) {
+      const sbt = this.bytesType();
+      sbt.isRef = name == "as_bytes";
+      return RsExpr.of((("(RsBytes.ofUtf8(" + c) + "))"), sbt);
     }
     if ( name == "parse" ) {
       let target_1 = RsType.mk("unknown");
@@ -93561,7 +96497,7 @@ class RustLower  {
     }
     if ( name == "push_str" || name == "push" ) {
       const x = this.arg0(args, st);
-      this.assignTo(at.kid(0), RsExpr.of((((("(" + c) + " + ") + x.code) + ")"), st));
+      this.assignTo(at.kid(0), RsExpr.of((((("(rs_str_append " + c) + " ") + x.code) + ")"), st));
       return this.unit();
     }
     if ( name == "to_uppercase" ) {
@@ -93758,6 +96694,14 @@ class RustLower  {
     }
     if ( ((((name == "round" || name == "trunc") || name == "ln") || name == "exp") || name == "log10") || name == "signum" ) {
       return RsExpr.of((((("(rs_" + name) + " ") + c) + ")"), t);
+    }
+    if ( (((((((((((name == "asin" || name == "acos") || name == "atan") || name == "sinh") || name == "cosh") || name == "tanh") || name == "asinh") || name == "acosh") || name == "atanh") || name == "cbrt") || name == "exp_m1") || name == "ln_1p") || name == "log2" ) {
+      return RsExpr.of((((("(rs_" + name) + " ") + c) + ")"), t);
+    }
+    if ( name == "atan2" ) {
+      const ya = this.bindTemp(rv, t, "y");
+      const xa = this.arg0(args, t);
+      return RsExpr.of((((("(rs_atan2 " + ya) + " ") + xa.code) + ")"), t);
     }
     if ( name == "then" || name == "then_with" ) {
       const first = this.bindTemp(rv, t, "ord");
@@ -94185,6 +97129,9 @@ class RustLower  {
         const ff = f;
         fty = this.fieldTypeOf(s, ff, t);
         fname = this.fieldName(key);
+        if ( ff.rname != "" ) {
+          fname = ff.rname;
+        }
       } else {
         this.err(n, ((("no field `" + n.name) + "` on a value of type `") + t.rust()) + "`");
         return this.unit();
@@ -94226,6 +97173,27 @@ class RustLower  {
         }
       }
       return RsExpr.of((((((("(rs_byte_slice " + s) + " ") + lo) + " ") + hi) + ")"), t);
+    }
+    if ( this.isBytes(t) ) {
+      const bv_1 = this.bindTemp(rv, t, "buf");
+      if ( ixN.kind == "range" ) {
+        let blo = "0";
+        let bhi = ("(buffer_length " + bv_1) + ")";
+        if ( false == ixN.kid(0).isNone() ) {
+          const blv = this.lowerExpr(ixN.kid(0), RsType.mk("int"));
+          blo = blv.code;
+        }
+        if ( false == ixN.kid(1).isNone() ) {
+          const bhv = this.lowerExpr(ixN.kid(1), RsType.mk("int"));
+          bhi = bhv.code;
+          if ( ixN.name == "..=" ) {
+            bhi = ("(" + bhi) + " + 1)";
+          }
+        }
+        return RsExpr.of((((((("(buffer_slice " + bv_1) + " ") + blo) + " ") + bhi) + ")"), this.bytesType());
+      }
+      const biv = this.lowerExpr(ixN, RsType.mk("int"));
+      return RsExpr.of((((("(buffer_get " + bv_1) + " ") + biv.code) + ")"), t.arg(0));
     }
     if ( t.kind == "vec" ) {
       if ( ixN.kind == "range" ) {
@@ -94321,7 +97289,14 @@ class RustLower  {
           if ( lv.iterVec != "" ) {
             this.out.line((((("set_at " + lv.iterVec) + " ") + lv.iterIdx) + " ") + v.code);
           }
+          if ( lv.backBad ) {
+            this.unsupported(lhs, ("assigning to `" + lv.name) + "`, a `ref mut` binding of a whole `&mut` match subject");
+          }
           this.out.line((lv.rname + " = ") + v.code);
+          if ( lv.backTo != "" ) {
+            this.out.line((lv.backTo + " = ") + lv.rname);
+            this.noteWrittenCase(lv);
+          }
           lv.moved = false;
           return;
         }
@@ -94341,7 +97316,14 @@ class RustLower  {
         if ( s.isTuple ) {
           fname = "f" + fname;
         }
+        const af = s.field(fname);
         fname = this.fieldName(fname);
+        if ( (typeof(af) !== "undefined" && af != null )  ) {
+          const aff = af;
+          if ( aff.rname != "" ) {
+            fname = aff.rname;
+          }
+        }
       }
       this.out.line((((recv + ".") + fname) + " = ") + v.code);
       return;
@@ -94356,7 +97338,15 @@ class RustLower  {
       }
       const vec = this.bindTemp(cv, cv.ty, "vec");
       const iv = this.lowerExpr(lhs.kid(1), RsType.mk("int"));
-      this.out.line((((("set_at " + vec) + " ") + iv.code) + " ") + v.code);
+      if ( this.isBytes(cv.ty) ) {
+        this.out.line((((("buffer_set " + vec) + " ") + iv.code) + " ") + v.code);
+      } else {
+        this.out.line((((("set_at " + vec) + " ") + iv.code) + " ") + v.code);
+      }
+      const inner = lhs.kid(0);
+      if ( inner.kind == "index" && vec != cv.code ) {
+        this.assignTo(inner, this.simpleExpr(vec, cv.ty));
+      }
       return;
     }
     this.unsupported(lhs, "this assignment target");
@@ -94400,6 +97390,9 @@ class RustLower  {
       }
       const cnt = this.lowerExpr(n.kid(1), RsType.mk("int"));
       const vt = RsType.of1("vec", t);
+      if ( this.isBytes(vt) ) {
+        return RsExpr.of((((("(RsBytes.filled(" + v.code) + " ") + cnt.code) + "))"), vt);
+      }
       const name = this.tmp("arr");
       this.out.line((("def " + name) + ":") + this.rtype(vt));
       const k = this.tmp("k");
@@ -94423,6 +97416,9 @@ class RustLower  {
       codes.push(v2.code);
     }
     const vt2 = RsType.of1("vec", t2);
+    if ( this.isBytes(vt2) ) {
+      return RsExpr.of((("(RsBytes.ofInts(([] _:int (" + codes.join(" ")) + "))))"), vt2);
+    }
     const rt = this.rtype(t2);
     if ( rt == "" ) {
       if ( codes.length == 0 ) {
@@ -95039,7 +98035,7 @@ class RustLower  {
     }
     this.loopInd = this.out.ind;
     if ( mode == "bytes" ) {
-      this.out.line(((("def " + n) + ":int (length ") + seq) + ")");
+      this.out.line(((("def " + n) + ":int (rs_byte_len ") + bv.code) + ")");
     } else {
       this.out.line(((("def " + n) + ":int (array_length ") + seq) + ")");
     }
@@ -95426,6 +98422,15 @@ class RustLower  {
       }
     }
     if ( false == found ) {
+      // Loop start
+      for ( const arm2 of arms.kids) {
+        if ( RustLower.targetAlias(arm2.name) == "rust" ) {
+          const rex = arm2.kid(0);
+          if ( false == (rex.kind == "lit" && rex.hasMod("str")) ) {
+            return this.lowerExpr(rex, expect);
+          }
+        }
+      }
       this.err(m, ((("native! has no arm for the target `" + want) + "` (it has ") + listed.join(", ")) + ")");
       return this.unit();
     }
@@ -95476,7 +98481,7 @@ class RustLower  {
       argTypes.push(lv.ty);
     }
     this.nativeN = this.nativeN + 1;
-    const op = "rs_native_" + (this.nativeN.toString());
+    const op = "rs_native_" + ((this.nativeN).toString());
     let rt = expect;
     if ( rt.isUnknown() ) {
       rt = RsType.mk("unit");
@@ -95489,7 +98494,7 @@ class RustLower  {
     let k = 0;
     // Loop start
     for ( const at of argTypes) {
-      params.push(this.declText("a" + (k.toString()), at));
+      params.push(this.declText("a" + ((k).toString()), at));
       k = k + 1;
     }
     let tpl = [];
@@ -95544,7 +98549,7 @@ class RustLower  {
   };
   jsonTmp (base) {
     this.jsonN = this.jsonN + 1;
-    return ("rs__j" + base) + (this.jsonN.toString());
+    return ("rs__j" + base) + ((this.jsonN).toString());
   };
   emitJson (s, cname) {
     const st = RsType.named(s.name);
@@ -95842,6 +98847,37 @@ class RustLower  {
     }
     return false;
   };
+  lowerMatches (m) {
+    const bt = RsType.mk("bool");
+    if ( m.kids.length < 2 ) {
+      this.err(m, "`matches!` needs an expression and a pattern");
+      return this.unit();
+    }
+    const v = this.lowerExpr(m.kid(0), RsType.mk("unknown"));
+    const subj = this.bindTemp(v, v.ty, "m");
+    const pc = this.patCond(m.kid(1), subj, v.ty);
+    if ( m.kids.length < 3 ) {
+      const r0 = this.tmp("mt");
+      this.out.line((("def " + r0) + ":boolean ") + pc);
+      const e0 = RsExpr.of(r0, bt);
+      e0.simple = true;
+      return e0;
+    }
+    const r = this.tmp("mt");
+    this.out.line(("def " + r) + ":boolean false");
+    this.out.line(("if " + pc) + " {");
+    this.out.indent();
+    this.pushScope();
+    this.bindPattern(m.kid(1), subj, v.ty);
+    const g = this.lowerExpr(m.kid(2), bt);
+    this.out.line((r + " = ") + g.code);
+    this.popScope();
+    this.out.dedent();
+    this.out.line("}");
+    const e = RsExpr.of(r, bt);
+    e.simple = true;
+    return e;
+  };
   lowerMacroExpr (m, expect) {
     const name = m.name;
     if ( name == "native" || name == "ranger::native" ) {
@@ -95875,6 +98911,9 @@ class RustLower  {
         return this.emptyCollection(expect, m);
       }
       return this.lowerArray(arr, expect);
+    }
+    if ( name == "matches" ) {
+      return this.lowerMatches(m);
     }
     if ( this.lowerMacroStmt(m) ) {
       return RsExpr.of("", RsType.mk("never"));
@@ -96043,7 +99082,7 @@ class RustLower  {
       code = this.dbgCode(tv, v.ty);
     } else {
       if ( prec >= 0 && v.ty.kind == "double" ) {
-        code = ((("(rs_fmt_prec " + v.code) + " ") + (prec.toString())) + ")";
+        code = ((("(rs_fmt_prec " + v.code) + " ") + ((prec).toString())) + ")";
       } else {
         code = this.fmtDisplay(v, "");
       }
@@ -96058,9 +99097,9 @@ class RustLower  {
         }
       }
       if ( zero ) {
-        return ((("(RsFmt.padZero(" + code) + " ") + (width.toString())) + "))";
+        return ((("(RsFmt.padZero(" + code) + " ") + ((width).toString())) + "))";
       }
-      return ((((((("(RsFmt.pad(" + code) + " ") + (width.toString())) + " ") + this.strLit(align)) + " ") + this.strLit(fill)) + "))";
+      return ((((((("(RsFmt.pad(" + code) + " ") + ((width).toString())) + " ") + this.strLit(align)) + " ") + this.strLit(fill)) + "))";
     }
     return code;
   };
@@ -96144,7 +99183,7 @@ class RustLower  {
     let i = 0;
     // Loop start
     for ( const f of v.fields) {
-      const pn = "p" + (i.toString());
+      const pn = "p" + ((i).toString());
       ps.push(this.declText(pn, f.ty));
       as.push(pn);
       ft.args.push(f.ty);
@@ -96239,12 +99278,7 @@ class RustLower  {
       if ( pat.kids.length > 0 ) {
         n0 = this.patOpen(pat.kid(0), subj, t);
       }
-      const l = this.declare(pat.name, t);
-      let code = subj;
-      if ( this.isCopyStruct(t) ) {
-        code = ("(" + subj) + ".rs_clone())";
-      }
-      this.out.line((("def " + this.declText(l.rname, t)) + " ") + code);
+      this.declareBinding(pat, subj, t);
       return n0;
     }
     if ( k == "pat_tuple" ) {
@@ -96258,7 +99292,7 @@ class RustLower  {
       for ( const sp of pat.kids) {
         opened = opened + this.patOpen(
           sp,
-          ((subj + ".f") + (ti.toString())),
+          ((subj + ".f") + ((ti).toString())),
           t.arg(ti)
         );
         ti = ti + 1;
@@ -96272,6 +99306,7 @@ class RustLower  {
         this.out.indent();
         const u = this.tmp("u");
         this.out.line(((("def " + this.declText(u, t.arg(0))) + " (unwrap ") + subj) + ")");
+        this.backOf[u] = this.backPlace(subj);
         return 1 + this.patOpen(pat.kid(1), u, t.arg(0));
       }
       if ( (pn == "Ok" || pn == "Err") && t.kind == "result" ) {
@@ -96304,6 +99339,7 @@ class RustLower  {
           this.out.line((((("def " + cs) + ":") + this.className(t.name)) + " ") + subj);
         }
         const x = this.tmp("x");
+        this.caseOfVar[x] = (t.name + ".") + pn;
         this.out.line(((("case " + cs) + " ") + x) + ((":" + this.caseType(t.name, pn)) + " {"));
         this.out.indent();
         let opened2 = 1;
@@ -96554,7 +99590,7 @@ class RustLower  {
       const l = this.fnLocals[k];
       k = k + 1;
       if ( (l.moved && l.order < firstInside) && before.indexOf(l) < 0 ) {
-        this.err(body, ((("value `" + l.name) + "` moved in a previous iteration of the loop (moved at line ") + (l.movedLine.toString())) + ")");
+        this.err(body, ((("value `" + l.name) + "` moved in a previous iteration of the loop (moved at line ") + ((l.movedLine).toString())) + ")");
         l.moved = false;
       }
     };
@@ -96627,7 +99663,7 @@ class RustLower  {
     return ("(keys " + m) + ")";
   };
   initSuffix (t) {
-    if ( t.kind == "map" && t.name == "ordered" ) {
+    if ( this.isBytes(t) || t.kind == "map" && t.name == "ordered" ) {
       return " " + this.defaultValue(t);
     }
     return "";
@@ -96783,6 +99819,24 @@ class RustLower  {
     }
     return false;
   };
+  useSharedClasses (done) {
+    const ks = Object.keys(done);
+    // Loop start
+    for ( const k of ks) {
+      this.genNames[k] = true;
+    }
+  };
+  sharedClasses () {
+    let res = [];
+    const ks = Object.keys(this.genNames);
+    // Loop start
+    for ( const k of ks) {
+      if ( k.startsWith("Rs") ) {
+        res.push(k);
+      }
+    }
+    return res;
+  };
   boxClass (t) {
     const plain = t.copy();
     plain.isRef = false;
@@ -96791,7 +99845,8 @@ class RustLower  {
     if ( false == ( typeof(this.genNames[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, name) ) ) {
       this.genNames[name] = true;
       const decl = this.fieldDecl("v", plain);
-      this.genOut.push(((("class " + name) + " {\n  def ") + decl) + "\n}");
+      const dt = this.helperDoc("A `&mut` place passed to a function.");
+      this.genOut.push((((("class " + name) + " {\n  def ") + decl) + "\n}") + dt);
     }
     return name;
   };
@@ -96939,6 +99994,479 @@ RustLower.targetAlias = function(t) {
     return "typescript";
   }
   return t;
+};
+class RsCargoDep  {
+  constructor() {
+    this.name = "";
+    this.pkg = "";
+    this.path = "";
+    this.git = "";
+    this.version = "";
+    this.optional = false;
+  }
+}
+class RsCargoManifest  {
+  constructor() {
+    this.found = false;
+    this.hasPackage = false;
+    this.packageName = "";
+    this.libName = "";
+    this.libPath = "";
+    this.deps = [];
+  }
+  dep (key) {
+    const name = RsCargoToml.unquote(key).split("-").join("_");
+    // Loop start
+    for ( const d of this.deps) {
+      if ( d.name == name ) {
+        return d;
+      }
+    }
+    const nd = new RsCargoDep();
+    nd.name = name;
+    this.deps.push(nd);
+    return nd;
+  };
+  crateName () {
+    if ( this.libName != "" ) {
+      return this.libName;
+    }
+    return this.packageName.split("-").join("_");
+  };
+}
+class RsCargoToml  {
+}
+RsCargoToml.parse = function(src) {
+  const m = new RsCargoManifest();
+  m.found = true;
+  let section = "";
+  const lines = src.split("\n");
+  let li = 0;
+  const nl = lines.length;
+  while (li < nl) {
+    const line = RsCargoToml.stripComment(lines[li]).trim();
+    li = li + 1;
+    if ( line == "" ) {
+      continue;
+    }
+    if ( line.startsWith("[") ) {
+      const close = line.lastIndexOf("]");
+      if ( close < 0 ) {
+        continue;
+      }
+      section = line.substring(1, close ).trim();
+      if ( section.startsWith("[") ) {
+        section = "[array]";
+      }
+      if ( section == "package" ) {
+        m.hasPackage = true;
+      }
+      continue;
+    }
+    const eq = RsCargoToml.findTop(line, 61);
+    if ( eq < 0 ) {
+      continue;
+    }
+    const key = line.substring(0, eq ).trim();
+    let val = line.substring(eq + 1, line.length ).trim();
+    while (RsCargoToml.depth(val) > 0 && li < nl) {
+      val = (val + " ") + RsCargoToml.stripComment(lines[li]).trim();
+      li = li + 1;
+    };
+    if ( section == "package" ) {
+      if ( key == "name" ) {
+        m.packageName = RsCargoToml.unquote(val);
+      }
+      continue;
+    }
+    if ( section == "lib" ) {
+      if ( key == "name" ) {
+        m.libName = RsCargoToml.unquote(val);
+      }
+      if ( key == "path" ) {
+        m.libPath = RsCargoToml.unquote(val);
+      }
+      continue;
+    }
+    if ( section == "dependencies" ) {
+      const dot = RsCargoToml.findTop(key, 46);
+      if ( dot > 0 ) {
+        const d0 = m.dep(key.substring(0, dot ).trim());
+        RsCargoToml.setField(
+          d0,
+          key.substring(dot + 1, key.length ).trim(),
+          val
+        );
+        continue;
+      }
+      const d = m.dep(key);
+      if ( val.startsWith("{") ) {
+        RsCargoToml.readTable(d, val);
+      } else {
+        d.version = RsCargoToml.unquote(val);
+      }
+      continue;
+    }
+    if ( section.startsWith("dependencies.") ) {
+      const d2 = m.dep(section.substring(13, section.length ).trim());
+      RsCargoToml.setField(d2, key, val);
+    }
+  };
+  return m;
+};
+RsCargoToml.setField = function(d, key, val) {
+  const k = RsCargoToml.unquote(key);
+  if ( k == "path" ) {
+    d.path = RsCargoToml.unquote(val);
+  }
+  if ( k == "git" ) {
+    d.git = RsCargoToml.unquote(val);
+  }
+  if ( k == "package" ) {
+    d.pkg = RsCargoToml.unquote(val);
+  }
+  if ( k == "version" ) {
+    d.version = RsCargoToml.unquote(val);
+  }
+  if ( k == "optional" ) {
+    d.optional = val.trim() == "true";
+  }
+};
+RsCargoToml.readTable = function(d, val) {
+  let inner = val.trim();
+  const n = inner.length;
+  if ( n >= 2 && inner.charCodeAt(n - 1 ) == 125 ) {
+    inner = inner.substring(1, n - 1 );
+  } else {
+    inner = inner.substring(1, n );
+  }
+  let start = 0;
+  let i = 0;
+  const m = inner.length;
+  let q = 0;
+  let lvl = 0;
+  while (i <= m) {
+    let c = 44;
+    if ( i < m ) {
+      c = inner.charCodeAt(i );
+    }
+    if ( q != 0 ) {
+      if ( c == q ) {
+        q = 0;
+      }
+      i = i + 1;
+      continue;
+    }
+    if ( c == 34 || c == 39 ) {
+      q = c;
+    }
+    if ( c == 91 || c == 123 ) {
+      lvl = lvl + 1;
+    }
+    if ( c == 93 || c == 125 ) {
+      lvl = lvl - 1;
+    }
+    if ( c == 44 && lvl <= 0 ) {
+      const part = inner.substring(start, RsCargoToml.minInt(i, m) );
+      const eq = RsCargoToml.findTop(part, 61);
+      if ( eq > 0 ) {
+        RsCargoToml.setField(
+          d,
+          part.substring(0, eq ).trim(),
+          part.substring(eq + 1, part.length ).trim()
+        );
+      }
+      start = i + 1;
+    }
+    i = i + 1;
+  };
+};
+RsCargoToml.minInt = function(a, b) {
+  if ( a < b ) {
+    return a;
+  }
+  return b;
+};
+RsCargoToml.findTop = function(s, code) {
+  let q = 0;
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    const c = s.charCodeAt(i );
+    if ( q != 0 ) {
+      if ( c == q ) {
+        q = 0;
+      }
+    } else {
+      if ( c == 34 || c == 39 ) {
+        q = c;
+      } else {
+        if ( c == code ) {
+          return i;
+        }
+      }
+    }
+    i = i + 1;
+  };
+  return -1;
+};
+RsCargoToml.depth = function(s) {
+  let q = 0;
+  let lvl = 0;
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    const c = s.charCodeAt(i );
+    if ( q != 0 ) {
+      if ( c == q ) {
+        q = 0;
+      }
+    } else {
+      if ( c == 34 || c == 39 ) {
+        q = c;
+      }
+      if ( c == 91 || c == 123 ) {
+        lvl = lvl + 1;
+      }
+      if ( c == 93 || c == 125 ) {
+        lvl = lvl - 1;
+      }
+    }
+    i = i + 1;
+  };
+  return lvl;
+};
+RsCargoToml.stripComment = function(line) {
+  const at = RsCargoToml.findTop(line, 35);
+  if ( at < 0 ) {
+    return line;
+  }
+  return line.substring(0, at );
+};
+RsCargoToml.unquote = function(v) {
+  const s = v.trim();
+  const n = s.length;
+  if ( n >= 2 ) {
+    const c0 = s.charCodeAt(0 );
+    if ( (c0 == 34 || c0 == 39) && s.charCodeAt(n - 1 ) == c0 ) {
+      let inner = s.substring(1, n - 1 );
+      if ( c0 == 34 ) {
+        inner = inner.split("\\\\").join("\\");
+        inner = inner.split("\\\"").join("\"");
+      }
+      return inner;
+    }
+  }
+  return s;
+};
+class RustCrateLoader  {
+}
+RustCrateLoader.load = function(rl, env, base, entry) {
+  RustCrateLoader.readModules(rl, env, base);
+  if ( rl.errors.length > 0 ) {
+    return;
+  }
+  const first = RustCrateLoader.findManifest(env, base, RustLower.dirOf(entry));
+  if ( first == "?" ) {
+    return;
+  }
+  let queue = [];
+  queue.push(first);
+  let qi = 0;
+  while (qi < queue.length) {
+    const dir = queue[qi];
+    qi = qi + 1;
+    const man = RustCrateLoader.readManifest(env, base, dir);
+    // Loop start
+    for ( const d of man.deps) {
+      if ( d.name == "ranger" ) {
+        continue;
+      }
+      const depDir = RustCrateLoader.depDir(env, base, dir, d);
+      if ( depDir.startsWith("?") ) {
+        const why = depDir.substring(1, depDir.length );
+        rl.crateError((((("dependency `" + d.name) + "` of ") + RustCrateLoader.join(dir, "Cargo.toml")) + " is not a path dependency, and ranger.json does not give it: ") + why);
+        continue;
+      }
+      const dm = RustCrateLoader.readManifest(env, base, depDir);
+      let libPath = "src/lib.rs";
+      if ( dm.libPath != "" ) {
+        libPath = dm.libPath;
+      }
+      const libFile = RustCrateLoader.norm(RustCrateLoader.join(depDir, libPath));
+      let crateName = d.name;
+      if ( d.pkg == "" && dm.libName != "" ) {
+        crateName = dm.libName;
+      }
+      if ( rl.hasCrate(crateName) ) {
+        if ( rl.crateFile(crateName) != libFile ) {
+          rl.crateError((((("two crates are named `" + crateName) + "`: ") + rl.crateFile(crateName)) + " and ") + libFile);
+        }
+        continue;
+      }
+      if ( false == RustCrateLoader.exists(env, base, libFile) ) {
+        rl.crateError(((("dependency `" + crateName) + "`: no library root ") + libFile) + " (set [lib] path in its Cargo.toml)");
+        continue;
+      }
+      const src = RustCrateLoader.read(env, base, libFile);
+      rl.addCrate(crateName, libFile, src);
+      RustCrateLoader.readModules(rl, env, base);
+      if ( rl.errors.length > 0 ) {
+        return;
+      }
+      queue.push(depDir);
+    }
+  };
+};
+RustCrateLoader.readModules = function(rl, env, base) {
+  while (rl.hasPendingModule()) {
+    const modFiles = rl.nextModuleFiles();
+    let modFound = false;
+    // Loop start
+    for ( const modFile of modFiles) {
+      if ( modFound == false && RustCrateLoader.exists(env, base, modFile) ) {
+        rl.addModule(modFile, RustCrateLoader.read(env, base, modFile));
+        modFound = true;
+      }
+    }
+    if ( modFound == false ) {
+      rl.moduleNotFound();
+    }
+  };
+};
+RustCrateLoader.pkgName = function(d) {
+  if ( d.pkg != "" ) {
+    return d.pkg;
+  }
+  return d.name;
+};
+RustCrateLoader.readManifest = function(env, base, dir) {
+  const f = RustCrateLoader.join(dir, "Cargo.toml");
+  if ( false == RustCrateLoader.exists(env, base, f) ) {
+    return new RsCargoManifest();
+  }
+  const t = RustCrateLoader.read(env, base, f);
+  return RsCargoToml.parse(t);
+};
+RustCrateLoader.depDir = function(env, base, dir, d) {
+  if ( d.path != "" ) {
+    return RustCrateLoader.norm(RustCrateLoader.join(dir, d.path));
+  }
+  const full = RustCrateLoader.join(base, dir);
+  const hit = PkgImport.resolve(
+    env,
+    full,
+    ((("pkg:" + RustCrateLoader.pkgName(d)) + "/") + "Cargo.toml"),
+    []
+  );
+  if ( false == hit.ok ) {
+    return "?" + hit.err;
+  }
+  return RustCrateLoader.relTo(base, hit.dir);
+};
+RustCrateLoader.findManifest = function(env, base, start) {
+  let d = RustCrateLoader.norm(start);
+  let guard = 0;
+  while (guard < 16) {
+    guard = guard + 1;
+    const f = RustCrateLoader.join(d, "Cargo.toml");
+    if ( RustCrateLoader.exists(env, base, f) ) {
+      const m = RustCrateLoader.readManifest(env, base, d);
+      if ( m.hasPackage ) {
+        return d;
+      }
+    }
+    if ( RustCrateLoader.exists(env, base, RustCrateLoader.join(d, ".git")) ) {
+      return "?";
+    }
+    d = RustCrateLoader.parent(d);
+  };
+  return "?";
+};
+RustCrateLoader.exists = function(env, base, p) {
+  if ( p.startsWith("/") ) {
+    return operatorsOf_17.filec95exists_18(
+      env,
+      RustLower.dirOf(p),
+      RustLower.baseName(p)
+    );
+  }
+  return operatorsOf_17.filec95exists_18(env, base, p);
+};
+RustCrateLoader.read = function(env, base, p) {
+  let t;
+  if ( p.startsWith("/") ) {
+    t = operatorsOf_17.readc95file_18(
+      env,
+      RustLower.dirOf(p),
+      RustLower.baseName(p)
+    );
+  } else {
+    t = operatorsOf_17.readc95file_18(env, base, p);
+  }
+  if ( typeof(t) === "undefined" ) {
+    return "";
+  }
+  return t;
+};
+RustCrateLoader.parent = function(d) {
+  if ( d == "" || d == "." ) {
+    return "..";
+  }
+  if ( d == ".." || d.endsWith("/..") ) {
+    return d + "/..";
+  }
+  return RustLower.dirOf(d);
+};
+RustCrateLoader.join = function(dir, name) {
+  if ( dir == "" || dir == "." ) {
+    return name;
+  }
+  if ( name.startsWith("/") ) {
+    return name;
+  }
+  return (dir + "/") + name;
+};
+RustCrateLoader.norm = function(p) {
+  const abs = p.startsWith("/");
+  let out = [];
+  const parts = p.split("/");
+  // Loop start
+  for ( const pt of parts) {
+    if ( pt == "" || pt == "." ) {
+      continue;
+    }
+    if ( pt == ".." ) {
+      const nOut = out.length;
+      if ( nOut > 0 && out[(nOut - 1)] != ".." ) {
+        out.pop();
+        continue;
+      }
+      if ( abs ) {
+        continue;
+      }
+    }
+    out.push(pt);
+  }
+  const s = out.join("/");
+  if ( abs ) {
+    return "/" + s;
+  }
+  return s;
+};
+RustCrateLoader.relTo = function(base, dir) {
+  const b = RustCrateLoader.norm(base);
+  const d = RustCrateLoader.norm(dir);
+  if ( b == "" || false == d.startsWith("/") ) {
+    return d;
+  }
+  if ( d == b ) {
+    return "";
+  }
+  if ( d.startsWith(b + "/") ) {
+    return d.substring(b.length + 1, d.length );
+  }
+  return d;
 };
 class CompilerResults  {
   constructor() {
@@ -97187,25 +100715,7 @@ class VirtualCompiler  {
         }
       }
       rl.begin(mainSource, the_file);
-      while (rl.hasPendingModule()) {
-        const modFiles = rl.nextModuleFiles();
-        let modFound = false;
-        // Loop start
-        for ( const modFile of modFiles) {
-          if ( modFound == false && operatorsOf_17.filec95exists_18(env, theFilePath, modFile) ) {
-            const modSrc = operatorsOf_17.readc95file_18(
-              env,
-              theFilePath,
-              modFile
-            );
-            rl.addModule(modFile, modSrc);
-            modFound = true;
-          }
-        }
-        if ( modFound == false ) {
-          rl.moduleNotFound();
-        }
-      };
+      RustCrateLoader.load(rl, env, theFilePath, the_file);
       mainSource = rl.finish();
       if ( rl.errors.length > 0 ) {
         cli.printHeader();
@@ -97334,23 +100844,23 @@ class VirtualCompiler  {
         }
       }
     }
-    const appCtx = RangerAppWriterContext.createRoot();
+    const appCtx = new RangerAppWriterContext();
     ModuleFunctions.hoist(root, the_file, appCtx);
     appCtx.env = env;
-    appCtx.tables.libraryPaths = langFileDirs;
+    appCtx.libraryPaths = langFileDirs;
     appCtx.compilerSettings["package"] = package_name;
     if ( appCtx.hasCompilerFlag("verbose") ) {
       // Loop start
-      for ( const include_path of appCtx.tables.libraryPaths) {
+      for ( const include_path of appCtx.libraryPaths) {
         console.log("include-path : " + include_path);
       }
     }
     operatorsOf_5.forEach_51(params.flags, ((item, index) => { 
       const n = index;
-      appCtx.tables.compilerFlags[n] = true;
+      appCtx.compilerFlags[n] = true;
     }));
     if ( autoDetectedTypeScript ) {
-      appCtx.tables.compilerFlags["typescript"] = true;
+      appCtx.compilerFlags["typescript"] = true;
     }
     operatorsOf_5.forEach_37(params.params, ((item, index) => { 
       const v = item;
@@ -97651,13 +101161,13 @@ class VirtualCompiler  {
       }
       let handledClasses = {};
       // Loop start
-      for ( let i_4 = 0; i_4 < appCtx.tables.definedClassList.length; i_4++) {
-        var cName = appCtx.tables.definedClassList[i_4];
+      for ( let i_4 = 0; i_4 < appCtx.definedClassList.length; i_4++) {
+        var cName = appCtx.definedClassList[i_4];
         if ( cName == "RangerStaticMethods" ) {
-          staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName) ? appCtx.tables.definedClasses[cName] : undefined );
+          staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
           continue;
         }
-        const cl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName) ? appCtx.tables.definedClasses[cName] : undefined );
+        const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
         if ( cl.is_operator_class ) {
           continue;
         }
@@ -97689,7 +101199,7 @@ class VirtualCompiler  {
             if ( ( typeof(handledClasses[eClassName] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, eClassName) ) ) {
               continue;
             }
-            const parentCl = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, eClassName) ? appCtx.tables.definedClasses[eClassName] : undefined );
+            const parentCl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, eClassName) ? appCtx.definedClasses[eClassName] : undefined );
             lcc.WalkNode(parentCl.classNode, appCtx, wr);
             handledClasses[eClassName] = true;
           }
@@ -97705,16 +101215,16 @@ class VirtualCompiler  {
         lcc.langWriter.writeInterface(ifDesc, appCtx, wr);
       }
       // Loop start
-      for ( let i_7 = 0; i_7 < appCtx.tables.definedClassList.length; i_7++) {
-        var cName_1 = appCtx.tables.definedClassList[i_7];
+      for ( let i_7 = 0; i_7 < appCtx.definedClassList.length; i_7++) {
+        var cName_1 = appCtx.definedClassList[i_7];
         if ( ( typeof(handledClasses[cName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, cName_1) ) ) {
           continue;
         }
         if ( cName_1 == "RangerStaticMethods" ) {
-          staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName_1) ? appCtx.tables.definedClasses[cName_1] : undefined );
+          staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_1) ? appCtx.definedClasses[cName_1] : undefined );
           continue;
         }
-        const cl_1 = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName_1) ? appCtx.tables.definedClasses[cName_1] : undefined );
+        const cl_1 = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_1) ? appCtx.definedClasses[cName_1] : undefined );
         if ( cl_1.is_operator_class ) {
           continue;
         }
@@ -97745,9 +101255,9 @@ class VirtualCompiler  {
         lcc.WalkNode(cl_1.classNode, appCtx, wr);
       }
       // Loop start
-      for ( let i_8 = 0; i_8 < appCtx.tables.definedClassList.length; i_8++) {
-        var cName_2 = appCtx.tables.definedClassList[i_8];
-        const cl_2 = ( Object.prototype.hasOwnProperty.call(appCtx.tables.definedClasses, cName_2) ? appCtx.tables.definedClasses[cName_2] : undefined );
+      for ( let i_8 = 0; i_8 < appCtx.definedClassList.length; i_8++) {
+        var cName_2 = appCtx.definedClassList[i_8];
+        const cl_2 = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_2) ? appCtx.definedClasses[cName_2] : undefined );
         if ( cl_2.is_operator_class ) {
           lcc.WalkNode(cl_2.classNode, appCtx, wr);
         }

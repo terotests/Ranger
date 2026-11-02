@@ -187,18 +187,18 @@ class RangerCppClassWriter {
   fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     switch node.value_type {
       case RangerNodeType.Double {
-        ; `30.0 * 86400000.0` written as `30 * 86400000` is int arithmetic
-        ; in C++ and overflows: a double literal keeps its `.0`
-        def dd_str:string ("" + node.double_value)
-        if (this.doubleNeedsPointZero(dd_str)) {
-          wr.out((dd_str + ".0") false)
-        } {
-          wr.out(dd_str false)
-        }
+        wr.out(("" + node.double_value) , false)
       }
       case RangerNodeType.String {
         def s:string (this.escapeCppTrigraphs((this.EncodeString(node ctx wr))))
-        wr.out( "std::string(" + (("\"" + s) + "\"") + ")" , false)
+        ; a NUL inside ends a C string: give the length (UTF-8 bytes)
+        if ((indexOf node.string_value (strfromcode 0)) >= 0) {
+          def nbuf:charbuffer (to_charbuffer node.string_value)
+          def nbytes:int (length nbuf)
+          wr.out( "std::string(" + (("\"" + s) + "\"") + ", " + (to_string nbytes) + ")" , false)
+        } {
+          wr.out( "std::string(" + (("\"" + s) + "\"") + ")" , false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out(("" + node.int_value) , false)
@@ -395,7 +395,7 @@ class RangerCppClassWriter {
     }
     def inFamily:boolean false
     def rootCtx:RangerAppWriterContext (ctx.getRoot())
-    for rootCtx.tables.definedClasses ucl:RangerAppClassDesc uci {
+    for rootCtx.definedClasses ucl:RangerAppClassDesc uci {
       if (this.unionIsSealable(ucl ctx)) {
         if ((indexOf ucl.is_union_of cl.name) >= 0) {
           inFamily = true
@@ -404,6 +404,15 @@ class RangerCppClassWriter {
     }
     if (inFamily == false) {
       return false
+    }
+    ; a case declared @(reference) is shared: `case v x:V.N` then `x.f0 = …`
+    ; must change the value the union holds
+    def clNN@(optional):CodeNode cl.nameNode
+    if (!null? clNN) {
+      def clNameNode:CodeNode (unwrap clNN)
+      if (clNameNode.hasFlag("reference")) {
+        return false
+      }
     }
     def allScalar:boolean true
     for cl.variables cv:RangerAppParamDesc cvi {
@@ -1007,22 +1016,6 @@ class RangerCppClassWriter {
     wr.out((this.adjustType((itemAt node.ns index))) false)
   }
 
-  ; C++ keeps a class's fields and static functions in one scope, so a
-  ; static `text` next to a field `text` (or an inherited one) does not
-  ; compile. Such a static gets a suffix before any call to it is written.
-  fn cppRenameStaticsShadowingFields:void (ctx:RangerAppWriterContext) {
-    def root:RangerAppWriterContext (ctx.getRoot())
-    for (root.getClasses()) cl:RangerAppClassDesc i {
-      for cl.static_methods sm:RangerAppFunctionDesc si {
-        if (!null? (cl.findVariable(sm.name))) {
-          if (sm.compiledName == sm.name) {
-            sm.compiledName = (sm.name + "_static")
-          }
-        }
-      }
-    }
-  }
-
   fn cppWriteVRefPath:void (node:CodeNode fromIndex:int toIndex:int ctx:RangerAppWriterContext wr:CodeWriter) {
     def had_static:boolean false
     for node.nsp p:RangerAppParamDesc i {
@@ -1134,36 +1127,6 @@ class RangerCppClassWriter {
     return (pu.getVRefAt(0) == "=")
   }
 
-  ; The variable itself on the left of `=`, as in `cell = none` inside an
-  ; `if (!null? cell)`: the optional is assigned, not the value it holds.
-  fn cppVRefIsAssignedOptional:boolean (node:CodeNode) {
-    if ((array_length node.nsp) > 1) {
-      return false
-    }
-    if ((this.cppVRefIsAssignmentTarget(node)) == false) {
-      return false
-    }
-    def pu:CodeNode (unwrap node.parent)
-    if ((array_length pu.children) < 3) {
-      return false
-    }
-    def lhs:CodeNode (itemAt pu.children 1)
-    return (((lhs.vref == node.vref) && (lhs.sp == node.sp)) && (lhs.ep == node.ep))
-  }
-
-  fn cppThisIsCallReceiver:boolean (node:CodeNode) {
-    def parent@(optional):CodeNode node.parent
-    if (null? parent) {
-      return false
-    }
-    def pu:CodeNode (unwrap parent)
-    if ((pu.has_call == false) || ((array_length pu.children) < 2)) {
-      return false
-    }
-    def recv:CodeNode (itemAt pu.children 1)
-    return (((recv.vref == "this") && (recv.sp == node.sp)) && (recv.ep == node.ep))
-  }
-
   fn cppVRefIsCallTarget:boolean (node:CodeNode) {
     def parent@(optional):CodeNode node.parent
     if (null? parent) {
@@ -1265,13 +1228,6 @@ class RangerCppClassWriter {
 
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.vref == "this") {
-      ; `this.clear()`: the receiver of a call is the object itself. Through
-      ; shared_from_this() it threw bad_weak_ptr in a constructor, where no
-      ; shared_ptr holds the object yet, and cost a refcount pair elsewhere.
-      if (this.cppThisIsCallReceiver(node)) {
-        wr.out("this" false)
-        return
-      }
       ; std::dynamic_pointer_cast<RangerAppClassDesc>
 
       def currC (ctx.getCurrentClass())
@@ -1335,7 +1291,7 @@ class RangerCppClassWriter {
           }
         }
         if (i == 0) {
-          if ((this.cppShouldAutoUnwrap(p ctx)) && ((this.cppVRefIsAssignedOptional(node)) == false)) {
+          if (this.cppShouldAutoUnwrap(p ctx)) {
             def uv:string ((("(" + this.adjustType(p.compiledName)) + ".value())"))
             wr.out(uv false)
             continue
@@ -1361,7 +1317,7 @@ class RangerCppClassWriter {
       }
       def pu:RangerAppParamDesc (unwrap p)
       wr.out(pu.compiledName false)
-      if ((this.cppShouldAutoUnwrap(pu ctx)) && ((this.cppVRefIsAssignedOptional(node)) == false)) {
+      if (this.cppShouldAutoUnwrap(pu ctx)) {
         wr.out(".value()" false)
       }
       return
@@ -2200,7 +2156,7 @@ class RangerCppClassWriter {
 
   fn cppProgramUsesHash:boolean (ctx:RangerAppWriterContext) {
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.tables.definedClasses cl:RangerAppClassDesc i {
+    for root.definedClasses cl:RangerAppClassDesc i {
       ; a class the file never writes cannot reach the preamble, and the
       ; operator and template classes of Lang.rgr declare maps all over —
       ; counting them means every program "needs" it, which is how it came to
@@ -2285,7 +2241,7 @@ class RangerCppClassWriter {
 
   fn cppProgramUsesType:boolean (tn:string ctx:RangerAppWriterContext) {
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.tables.definedClasses cl:RangerAppClassDesc i {
+    for root.definedClasses cl:RangerAppClassDesc i {
       ; the same exclusions cppProgramUsesHash makes: a class the file never
       ; writes cannot reach the preamble, and the operator and template classes
       ; of Lang.rgr name everything
@@ -2350,7 +2306,7 @@ class RangerCppClassWriter {
 
   fn cppProgramUsesOptionalUnion:boolean (ctx:RangerAppWriterContext) {
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.tables.definedClasses cl:RangerAppClassDesc i {
+    for root.definedClasses cl:RangerAppClassDesc i {
       if (((cl.is_system || cl.is_template) || cl.is_operator_class) || cl.is_union) {
         continue
       }
@@ -2383,7 +2339,7 @@ class RangerCppClassWriter {
   fn cppProgramHasWeakField:boolean (ctx:RangerAppWriterContext) {
     def found false
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.tables.definedClasses cl:RangerAppClassDesc i {
+    for root.definedClasses cl:RangerAppClassDesc i {
       for cl.variables pvar:RangerAppParamDesc j {
         if (!null? pvar.nameNode) {
           if (this.cppIsWeakField((unwrap pvar.nameNode) ctx)) {
@@ -2951,7 +2907,10 @@ class RangerCppClassWriter {
             this.writeTypeDef((unwrap arg.nameNode) ctx wr)
             wr.out("(" false)
           }
+          ; an argument is an expression (see the Go writer's writeNewCall)
+          ctx.setInExpr()
           this.WalkNode(n ctx wr)
+          ctx.unsetInExpr()
           if tempCopy {
             wr.out(")" false)
           }
@@ -3196,7 +3155,7 @@ class RangerCppClassWriter {
     ; the two reachability questions, asked once rather than per union
     def needsOptionalUnion:boolean (this.cppProgramUsesOptionalUnion(ctx))
     def anyIsUsed:boolean (this.cppProgramUsesType("Any" ctx))
-    root.tables.definedClasses.forEach({
+    root.definedClasses.forEach({
       ; index == name
       ; item == class description
       if(item.is_union) {
@@ -3656,7 +3615,6 @@ class RangerCppClassWriter {
 
       this.CreateUnions( (unwrap this.compiler.parser) ctx (wr.getTag("c++unions")))
       this.writeCppTraitInterfaces(ctx (wr.getTag("c++TraitDefs")))
-      this.cppRenameStaticsShadowingFields(ctx)
 
       header_created = true
     }
@@ -3695,11 +3653,9 @@ class RangerCppClassWriter {
       ; wr.out(" public std::enable_shared_from_this<" + cl.name +  "> " , false)
       for cl.extends_classes pName:string i {
         def pcc (ctx.findClass(pName))
-        ; A subclass without its own constructor leaves the base to its
-        ; default constructor, which C++ calls implicitly.
-        if (pcc.has_constructor && (!null? cl.constructor_fn)) {
+        if pcc.has_constructor {
           wr.out(" : " + pcc.name +"(" , false)
-          def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+          def constr:RangerAppFunctionDesc cl.constructor_fn
           for constr.params arg:RangerAppParamDesc i {
             if (i > 0) {
               wr.out("," false)

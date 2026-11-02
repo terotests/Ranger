@@ -74,7 +74,7 @@ class RangerDocGenerator {
             }
 
             def root (ctx.getRoot())
-            root.tables.definedClasses.forEach({
+            root.definedClasses.forEach({
                 if( false == (item.isNormalClass())) {
                     return
                 }

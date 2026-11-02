@@ -6,6 +6,14 @@ class RangerRangerClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
 
+  ; Ranger source has no operator precedence: every infix operation keeps
+  ; its own pair of parentheses, however tightly it would bind elsewhere.
+  ; Dropping one turned `(! ((a == b) && (c < d)))` in a macro expansion into
+  ; `(false == (a == b && c < d))`, which does not parse.
+  fn formatterEnabled:boolean (ctx:RangerAppWriterContext) {
+    return false
+  }
+
   fn adjustType:string (tn:string) {
     if (tn == "this") {
       return "this"

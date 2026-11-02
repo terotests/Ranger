@@ -1712,7 +1712,12 @@ class RangerGolangClassWriter {
           }
         }
         if (false == wroteUnion) {
+          ; an argument is an expression: a call in it must not end as a
+          ; statement (`CreateNew_B(A_static_make();` in a field's first
+          ; value, where nothing else has opened an expression yet)
+          ctx.setInExpr()
           this.WalkNode(n ctx wr)
+          ctx.unsetInExpr()
         }
       }
       wr.out(")" false)
@@ -1896,30 +1901,13 @@ class RangerGolangClassWriter {
     def idx:CodeNode (itemAt node.children 3)
     def body:CodeNode (itemAt node.children 4)
 
-    ; A collection named by an expression (a call, a chain) is evaluated
-    ; ONCE, into `<index>_of`: written into the condition and the binding it
-    ; ran twice a turn, so `for (Layout.slides(d md)) ...` laid out every
-    ; slide again for each slide. A name keeps being re-read every turn, so a
-    ; body that appends to it still sees the growth.
-    def once:boolean ((((strlen coll.vref) == 0) && ((array_length coll.ns) == 0)) && ((strlen idx.vref) > 0))
-    def collName:string ""
-    if once {
-      collName = (idx.vref + "_of")
-      wr.out((collName + " := ") false)
-      this.goWriteOperand(coll ctx wr)
-      wr.newline()
-    }
     wr.out("var " false)
     this.goWriteOperand(idx ctx wr)
     wr.out(" int64 = 0;  " true)
     wr.out("for ; " false)
     this.goWriteOperand(idx ctx wr)
     wr.out(" < int64(len(" false)
-    if once {
-      wr.out(collName false)
-    } {
-      this.goWriteOperand(coll ctx wr)
-    }
+    this.goWriteOperand(coll ctx wr)
     wr.out(")) ; " false)
     this.goWriteOperand(idx ctx wr)
     wr.out("++ {" true)
@@ -1931,11 +1919,7 @@ class RangerGolangClassWriter {
       if (goLoops.treeMentions(body itemName)) {
         this.goWriteOperand(item ctx wr)
         wr.out(" := " false)
-        if once {
-          wr.out(collName false)
-        } {
-          this.goWriteOperand(coll ctx wr)
-        }
+        this.goWriteOperand(coll ctx wr)
         wr.out("[" false)
         this.goWriteOperand(idx ctx wr)
         wr.out("]" true)
@@ -1952,6 +1936,42 @@ class RangerGolangClassWriter {
 
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
+
+    ; `arr[i] = v`: a union-typed element takes its value wrapped, as push does
+    if (cmd == "set_at") {
+      def arr:CodeNode (node.getSecond())
+      def idx:CodeNode (node.getThird())
+      def val:CodeNode (itemAt node.children 3)
+      def elemType:string ""
+      if arr.hasParamDesc {
+        def arrDesc:RangerAppParamDesc (unwrap arr.paramDesc)
+        def arrNN@(optional):CodeNode arrDesc.nameNode
+        if (!null? arrNN) {
+          def arrNode:CodeNode (unwrap arrNN)
+          elemType = arrNode.array_type
+        }
+      }
+      if ((strlen elemType) == 0) {
+        elemType = arr.eval_array_type
+      }
+      ctx.setInExpr()
+      this.WalkNode(arr ctx wr)
+      wr.out("[" false)
+      this.WalkNode(idx ctx wr)
+      wr.out("] = " false)
+      def wrote:boolean false
+      if ((strlen elemType) > 0) {
+        wrote = (this.goWriteUnionValue(elemType val ctx wr))
+      }
+      if (wrote == false) {
+        this.WalkNode(val ctx wr)
+      }
+      ctx.unsetInExpr()
+      if ((ctx.expressionLevel()) == 0) {
+        wr.newline()
+      }
+      return
+    }
 
     ; an index loop, or `for _, v := range xs` when that is safe
     if (cmd == "for") {
@@ -2455,7 +2475,7 @@ class RangerGolangClassWriter {
 
   fn goProgramUsesOptional:boolean (ctx:RangerAppWriterContext) {
     def root:RangerAppWriterContext (ctx.getRoot())
-    for root.tables.definedClasses cl:RangerAppClassDesc i {
+    for root.definedClasses cl:RangerAppClassDesc i {
       if ((((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union) {
         continue
       }
@@ -2547,7 +2567,7 @@ class RangerGolangClassWriter {
     go_slice_ptr_ready = true
     def root:RangerAppWriterContext (ctx.getRoot())
     def keys:[string:boolean] goSliceKeys
-    for root.tables.definedClasses cl:RangerAppClassDesc ci {
+    for root.definedClasses cl:RangerAppClassDesc ci {
       this.goSlicePtrScan(cl cl.methods "m" keys false)
       this.goSlicePtrScan(cl cl.static_methods "s" keys false)
       if (!null? cl.constructor_fn) {
@@ -2556,7 +2576,7 @@ class RangerGolangClassWriter {
         this.goSlicePtrScan(cl cfs "c" keys false)
       }
     }
-    for root.tables.definedClasses cl:RangerAppClassDesc ci {
+    for root.definedClasses cl:RangerAppClassDesc ci {
       this.goSlicePtrScan(cl cl.methods "m" keys true)
       this.goSlicePtrScan(cl cl.static_methods "s" keys true)
       if (!null? cl.constructor_fn) {
@@ -2703,56 +2723,6 @@ class RangerGolangClassWriter {
           wr.out("" true)
         }
       }     
-      ; what the class inherits is in its interface too: a value of a
-      ; subclass's interface type is a value of its parent's (the struct
-      ; already has the inherited fields and methods)
-      def ifVariable:[string:boolean]
-      for cl.variables ownVar:RangerAppParamDesc ovi {
-        set ifVariable ownVar.name true
-      }
-      for (this.goAncestors((unwrap cl) ctx)) ifParent:string ipi {
-        def ipC:RangerAppClassDesc (ctx.findClass(ifParent))
-        for ipC.variables ip:RangerAppParamDesc ipv {
-          if(has ifVariable ip.name) {
-            continue
-          }
-          set ifVariable ip.name true
-          wr.out("Get_" false)
-          wr.out((ip.compiledName + "() ") false)
-          if (ip.nameNode.hasFlag("optional")) {
-            wr.out("*GoNullable" false)
-          } {
-            this.writeTypeDef(( unwrap ip.nameNode )ctx wr)
-          }
-          wr.out("" true)
-          wr.out("Set_" false)
-          wr.out(ip.compiledName + "(value " , false )
-          if (ip.nameNode.hasFlag("optional")) {
-            wr.out("*GoNullable" false)
-          } {
-            this.writeTypeDef(( unwrap ip.nameNode )ctx wr)
-          }
-          wr.out(") " true)
-        }
-        for ipC.defined_variants ipFn:string ipf {
-          def ipVs:RangerAppMethodVariants (get ipC.method_variants ipFn)
-          for ipVs.variants ipVariant:RangerAppFunctionDesc ipk {
-            if(has declaredIfFunction ipVariant.name) {
-              continue
-            }
-            set declaredIfFunction ipVariant.name true
-            wr.out( ipVariant.compiledName + "(" , false)
-            this.writeArgsDef(ipVariant ctx wr)
-            wr.out(") " false)
-            if (ipVariant.nameNode.hasFlag("optional")) {
-              wr.out("*GoNullable" false)
-            } {
-              this.writeTypeDef(( unwrap ipVariant.nameNode ) ctx wr)
-            }
-            wr.out("" true)
-          }
-        }
-      }
       wr.indent(-1)
       wr.out("}" true)    
       

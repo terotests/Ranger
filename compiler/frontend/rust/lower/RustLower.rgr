@@ -67,9 +67,20 @@ class RustLower {
   def declLate:boolean false
   ; the file itself for an `import_rgr!`, "" for a `mod x;`
   def pendingFiles:[string]
+  ; a pending .rgr read only for the classes a parent is looked up in: not
+  ; imported, and not an error when it is missing or repeats a class
+  def pendingScan:[boolean]
+  def rgrScanned:[string:boolean]
+  def rgrClassNames:[string]
   ; `.rgr` files included with `ranger::import_rgr!`, for the Import lines
   def rgrImports:[string]
   def entryName:string ""
+  ; the folder of the file begin() read: module and `.rgr` paths start there
+  def beginDir:string ""
+  ; dependency crates (§9.6): `evg` is the module key of the crate whose
+  ; root is crateFiles[i]; its modules are `evg::…`
+  def crateKeys:[string]
+  def crateFiles:[string]
   ; `use geometry::area;` inside module m: "m|area" -> "geometry::area"
   def fnAlias:[string:string]
   def preludeOps:[string:int]
@@ -89,9 +100,13 @@ class RustLower {
   def aliases:[string:RustNode]
   def reserved:[string:boolean]
   def localReserved:[string:boolean]
+  def memberUnsafe:[string:boolean]
 
   ; generated concrete classes: tuples, monomorphized generics
   def genNames:[string:boolean]
+  ; the class holding this lowering's collection clone/debug helpers: another
+  ; `.rs` crate lowered into the same program has its own (FlowImport)
+  def cloneClass:string "RsClone"
   def genOut:[string]
   ; nested fns hoisted to the module class
   def hoisted:[string]
@@ -115,6 +130,7 @@ class RustLower {
 
   Constructor () {
     reserved = (RustReserved.build())
+    memberUnsafe = (RustReserved.memberUnsafeNames())
     def kw:[string] ([] _:string ("def" "fn" "sfn" "class" "new" "if" "while" "for" "return" "break" "continue" "print" "true" "false" "null" "this" "switch" "case" "default" "try" "throw" "match" "shape" "trait" "does" "Import" "Enum" "record" "union" "operators" "Extends" "Constructor" "static" "write" "exit" "push" "set" "set_at" "remove" "removeLast" "clear" "ret" "defn" "unwrap" "group" "variant" "extension" "systemclass" "doc" "self" "super" "catch" "and" "or" "not" "is" "in" "del" "pass" "lambda" "yield" "None" "True" "False" "nil" "var" "val" "let" "const" "func" "function" "undefined" "arguments" "delete" "typeof" "instanceof" "void" "with" "package" "import" "export" "interface" "implements" "public" "private" "protected" "struct" "enum" "go" "chan" "select" "range" "type" "map" "string" "int" "double" "boolean" "char" "float" "long" "short" "byte" "auto" "register" "extern" "goto" "sizeof" "volatile" "typedef" "unsigned" "signed" "namespace" "template" "typename" "using" "virtual" "friend" "inline" "operator" "delete" "fun" "object" "when" "init" "deinit" "guard" "repeat" "internal" "open" "final" "override" "abstract" "sealed" "data" "companion" "lateinit" "native" "synchronized" "transient" "strictfp" "assert" "global" "nonlocal" "elif" "except" "finally" "raise" "from" "as" "async" "await" "def" "print"))
     for kw k:string i {
       set localReserved k true
@@ -139,22 +155,28 @@ class RustLower {
 
   ; ----------------------------------------------------------------- names
 
+  ; A static fn keeps its name on the same terms as a method; ES6 also
+  ; refuses a static named `arguments` (a function object property), and
+  ; `new` stays `new_`, the name .rgr code calls a .rs constructor by.
   fn staticName:string (n:string) {
-    if (has reserved n) {
+    if ((has localReserved n) && ((has memberUnsafe n) || (n == "arguments") || (n == "new"))) {
       return (n + "_")
     }
     return n
   }
 
+  ; A member keeps its name unless it is one that no member can have
+  ; (RustReserved.memberUnsafeNames): .rgr code calls a .rs method `remove`
+  ; or reads a field `type` by the name the Rust code gives it.
   fn methodName:string (n:string) {
-    if (has localReserved n) {
+    if ((has localReserved n) && (has memberUnsafe n)) {
       return (n + "_")
     }
     return n
   }
 
   fn fieldName:string (n:string) {
-    if (has localReserved n) {
+    if ((has localReserved n) && (has memberUnsafe n)) {
       return (n + "_")
     }
     return n
@@ -209,6 +231,8 @@ class RustLower {
 
   ; every local of the function being lowered, in declaration order
   def fnLocals:[RsLocal]
+  ; where the locals of the `for` being lowered start (its pattern), -1
+  def loopBindStart:int -1
 
   ; Binds a Rust name to an existing Ranger expression (match bindings used in
   ; a guard, `self`).
@@ -307,6 +331,7 @@ class RustLower {
   fn begin:void (src:string name:string) {
     fileName = name
     entryName = name
+    beginDir = (RustLower.dirOf(name))
     modClass = (RustLower.moduleClassFor((RustLower.moduleFileName(name))))
     def p:RustParser (new RustParser(src))
     def root:RustNode (p.parseFile())
@@ -387,6 +412,7 @@ class RustLower {
         push pendingNames rgrName
         push pendingNodes it
         push pendingFiles (RustLower.joinPath((RustLower.dirOf(file)) (rgrName + ".rgr")))
+        push pendingScan false
         continue
       }
       if (it.kind != "mod") {
@@ -401,8 +427,55 @@ class RustLower {
         push pendingNames it.name
         push pendingNodes it
         push pendingFiles ""
+        push pendingScan false
       }
     }
+  }
+
+  ; A crate of the Cargo.toml dependencies (§9.6): its root file is a module
+  ; `name` of this program, and `crate::` inside it starts there.
+  fn addCrate:void (name:string path:string src:string) {
+    if (has modFileOf name) {
+      push errors (((("dependency `" + name) + "` has the name of a module of ") + entryName) + "")
+      return
+    }
+    def p:RustParser (new RustParser(src))
+    def root:RustNode (p.parseFile())
+    for p.errors e:string i {
+      push errors ((path + ":") + e)
+    }
+    if ((array_length errors) > 0) {
+      return
+    }
+    push crateKeys name
+    push crateFiles path
+    this.registerModule(root name path (RustLower.dirOf(path)))
+  }
+
+  fn hasCrate:boolean (name:string) {
+    return ((indexOf crateKeys name) >= 0)
+  }
+
+  fn crateFile:string (name:string) {
+    def i:int (indexOf crateKeys name)
+    if (i < 0) {
+      return ""
+    }
+    return (itemAt crateFiles i)
+  }
+
+  fn crateError:void (msg:string) {
+    push errors msg
+  }
+
+  ; The crate root a module belongs to: "" for the program's own crate.
+  fn crateOf:string (mod:string) {
+    for crateKeys ck:string i {
+      if ((mod == ck) || (startsWith mod (ck + "::"))) {
+        return ck
+      }
+    }
+    return ""
   }
 
   fn setTarget:void (t:string) {
@@ -415,6 +488,10 @@ class RustLower {
   ; `rust` is listed.
   fn targetKeeps:boolean (it:RustNode) {
     for it.attrs a:RustNode ai {
+      ; `#[cfg(test)]`: only in `cargo test` builds
+      if ((a.name == "cfg") && ((join (strsplit a.value " ") "") == "(test)")) {
+        return false
+      }
       if ((a.name != "ranger::target") && (a.name != "target")) {
         continue
       }
@@ -522,9 +599,10 @@ class RustLower {
     def d:string (itemAt pendingDirs pendingPos)
     def rf:string (itemAt pendingFiles pendingPos)
     def at:RustNode (itemAt pendingNodes pendingPos)
+    def scanOnly:boolean (itemAt pendingScan pendingPos)
     pendingPos = pendingPos + 1
     if (rf != "") {
-      this.addRgr(path src at)
+      this.addRgr(path src at scanOnly)
       return
     }
     def p:RustParser (new RustParser(src))
@@ -542,17 +620,113 @@ class RustLower {
 
   ; The classes of an included `.rgr` file: known by name to the `.rs`
   ; code, written by an ordinary Import of the file.
-  fn addRgr:void (path:string src:string at:RustNode) {
+  fn addRgr:void (path:string src:string at:RustNode scanOnly:boolean) {
+    set rgrScanned path true
     def sc:RsRgrScan (new RsRgrScan())
     sc.scan(src path)
+    def wantParent:boolean false
     for sc.classes c:RsStruct ci {
       if ((has structs c.name) || (has enums c.name)) {
+        if scanOnly {
+          continue
+        }
         this.err(at (((("`" + c.name) + "` of ") + path) + " is also declared in the Rust code"))
         continue
       }
       set structs c.name c
+      push rgrClassNames c.name
+      if ((c.parent != "") && (false == (has structs c.parent))) {
+        wantParent = true
+      }
     }
-    push rgrImports path
+    if (scanOnly == false) {
+      push rgrImports path
+    }
+    ; a parent class from another file: the files this one imports are read
+    ; for their classes (once each), not imported
+    if wantParent {
+      for sc.imports imp:string ii {
+        def ip:string (RustLower.joinPath((RustLower.dirOf(path)) imp))
+        if (has rgrScanned ip) {
+          continue
+        }
+        set rgrScanned ip true
+        push pendingKeys (itemAt pendingKeys (pendingPos - 1))
+        push pendingDirs (itemAt pendingDirs (pendingPos - 1))
+        push pendingNames imp
+        push pendingNodes at
+        push pendingFiles ip
+        push pendingScan true
+      }
+    }
+  }
+
+  ; `class X extends P` of a .rgr file: X answers for P's fields and methods
+  ; as the .rgr class does (its own spelling of a name wins), parents first
+  fn isRgrClass:boolean (name:string) {
+    for rgrClassNames cn:string ci {
+      if (cn == name) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; a scalar or string field of some .rgr class has this name
+  fn isRgrCellField:boolean (fname:string) {
+    for rgrClassNames cn:string ci {
+      def c:RsStruct (unwrap (get structs cn))
+      def f@(optional):RsField (c.field(fname))
+      if (!null? f) {
+        def ft:RsType (unwrap f).ty
+        if ((ft.kind == "int") || (ft.kind == "double") || (ft.kind == "bool") || (ft.kind == "string")) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn inheritRgr:void () {
+    def done:[string:boolean]
+    for rgrClassNames sn:string si {
+      this.inheritOne(sn done 0)
+    }
+  }
+
+  fn inheritOne:void (sn:string done:[string:boolean] depth:int) {
+    if ((has done sn) || (depth > 32)) {
+      return
+    }
+    set done sn true
+    if (false == (has structs sn)) {
+      return
+    }
+    def c:RsStruct (unwrap (get structs sn))
+    if ((c.parent == "") || (false == (has structs c.parent))) {
+      return
+    }
+    this.inheritOne(c.parent done (depth + 1))
+    def pc:RsStruct (unwrap (get structs c.parent))
+    for pc.fields pf:RsField pfi {
+      if (null? (c.field(pf.name))) {
+        push c.fields pf
+      }
+    }
+    for pc.methods pm:RsFn pmi {
+      if pm.rgrCtor {
+        continue
+      }
+      def own:boolean false
+      for c.methods cm:RsFn cmi {
+        if ((cm.name == pm.name) || (cm.rname == pm.rname)) {
+          own = true
+        }
+      }
+      if (own == false) {
+        push c.methods pm
+      }
+    }
   }
 
   fn moduleNotFound:void () {
@@ -565,6 +739,9 @@ class RustLower {
     def rf2:string (itemAt pendingFiles pendingPos)
     pendingPos = pendingPos + 1
     if (rf2 != "") {
+      if (itemAt pendingScan (pendingPos - 1)) {
+        return
+      }
       this.err(at (("file not found for ranger::import_rgr!: " + rf2)))
       return
     }
@@ -576,6 +753,7 @@ class RustLower {
     if ((array_length errors) > 0) {
       return ""
     }
+    this.inheritRgr()
     this.collectModules()
     if ((array_length errors) > 0) {
       return ""
@@ -672,11 +850,41 @@ class RustLower {
         return k1
       }
     }
-    def abs:string (this.modPath(segs ""))
+    def root:string (this.crateOf(curMod))
+    def abs:string (this.modPath(segs root))
     if (abs != "?") {
       def k2:string (this.fnKey(abs last))
       if (this.hasItem(k2 table)) {
         return k2
+      }
+    }
+    ; another crate: `evg::layout::f` from inside a dependency (§9.6)
+    def ext:string "?"
+    if (root != "") {
+      ext = (this.modPath(segs ""))
+      if (ext != "?") {
+        def k3:string (this.fnKey(ext last))
+        if (this.hasItem(k3 table)) {
+          return k3
+        }
+      }
+    }
+    ; `pub use` in the module the path names: `shapes::scale` re-exported
+    ; from `units`
+    def tried:[string]
+    push tried rel
+    push tried abs
+    push tried ext
+    for tried tm:string ti {
+      if (tm == "?") {
+        continue
+      }
+      def ak2:string ((tm + "|") + last)
+      if (has fnAlias ak2) {
+        def t2:string (unwrap (get fnAlias ak2))
+        if (this.hasItem(t2 table)) {
+          return t2
+        }
       }
     }
     return ""
@@ -692,7 +900,7 @@ class RustLower {
       def sg:string (itemAt segs i)
       i = i + 1
       if (sg == "crate") {
-        cur = ""
+        cur = (this.crateOf(curMod))
         continue
       }
       if (sg == "self") {
@@ -773,9 +981,11 @@ class RustLower {
       mi2 = mi2 + 1
     }
     ; `use Expr::*;` / `use Shape::{Circle, Rect}`: variants named bare;
-    ; `use geometry::area;`: a function of another module
-    def mi3:int 0
-    while (mi3 < (array_length modRoots)) {
+    ; `use geometry::area;`: a function of another module. Last module
+    ; first, so a `pub use` of a dependency or a submodule is known when a
+    ; module that uses the re-export is read.
+    def mi3:int ((array_length modRoots) - 1)
+    while (mi3 >= 0) {
       this.enterModule(mi3)
       def r3:RustNode (itemAt modRoots mi3)
       for r3.kids ut:RustNode uj {
@@ -785,7 +995,7 @@ class RustLower {
           }
         }
       }
-      mi3 = mi3 + 1
+      mi3 = mi3 - 1
     }
     this.enterModule(0)
     this.collectRest()
@@ -1524,6 +1734,9 @@ class RustLower {
     if (k == "unit") {
       return "void"
     }
+    if (this.isBytes(t)) {
+      return "buffer"
+    }
     if (k == "vec") {
       if ((t.arg(0)).kind == "opt") {
         ; a Ranger array has no empty element
@@ -1578,6 +1791,15 @@ class RustLower {
         return (this.dynUnion(t.name))
       }
       if ((array_length t.args) > 0) {
+        ; a generic class of an included .rgr file is not instantiated
+        ; here: Ranger's own `@(…)` spelling names it
+        if (this.isRgrClass(t.name)) {
+          def gas:[string]
+          for t.args ga:RsType gai {
+            push gas (this.rtype(ga))
+          }
+          return (((this.className(t.name)) + "@(") + (join gas " ")) + ")"
+        }
         return (this.instanceClass(t))
       }
       return (this.className(t.name))
@@ -1668,8 +1890,28 @@ class RustLower {
     return name
   }
 
+  ; RsType.key with `Vec<u8>` (a buffer) as `bytes`: `Vec<i64>` and `Vec<u8>`
+  ; are different Ranger types, so their generated helpers must not share a name
+  fn genKey:string (t:RsType) {
+    if (this.isBytes(t)) {
+      return "bytes"
+    }
+    if ((array_length t.args) == 0) {
+      return (t.key())
+    }
+    def parts:[string]
+    for t.args a:RsType i {
+      push parts (this.genKey(a))
+    }
+    def head:string t.kind
+    if (t.kind == "named") {
+      head = t.name
+    }
+    return ((head + "_") + (join parts "_"))
+  }
+
   fn mangleKey:string (t:RsType) {
-    def k:string (t.key())
+    def k:string (this.genKey(t))
     def out:string ""
     def cs:[int] (to_chars k)
     for cs c:int i {
@@ -1708,6 +1950,9 @@ class RustLower {
     if (t.kind == "opt") {
       return ""
     }
+    if (this.isBytes(t)) {
+      return "(buffer_alloc 0)"
+    }
     def k:string t.kind
     if (k == "int") {
       return "0"
@@ -1725,6 +1970,24 @@ class RustLower {
       return (("(new " + (this.omapClass(t))) + "())")
     }
     return ""
+  }
+
+  ; `Vec<u8>`, `&[u8]`, `[u8; N]`: a Ranger buffer (RsBytes in RsPrelude)
+  fn isBytes:boolean (t:RsType) {
+    if (t.kind != "vec") {
+      return false
+    }
+    if ((array_length t.args) == 0) {
+      return false
+    }
+    def e:RsType (t.arg(0))
+    return ((e.kind == "int") && (e.name == "u8"))
+  }
+
+  fn bytesType:RsType () {
+    def e:RsType (RsType.mk("int"))
+    e.name = "u8"
+    return (RsType.of1("vec" e))
   }
 
   ; A value of type `t` to start a temporary with: temporaries are never
@@ -1753,6 +2016,15 @@ class RustLower {
         return ""
       }
       if (has structs t.name) {
+        def zs:RsStruct (unwrap (get structs t.name))
+        if zs.rgr {
+          ; a class of an imported .rgr file has no zeroOf: its constructor,
+          ; `new H@(T) ()` for a generic one
+          if ((array_length t.args) > 0) {
+            return (("(new " + (this.rtype(t))) + " ())")
+          }
+          return (("(new " + t.name) + "())")
+        }
         if ((array_length t.args) > 0) {
           return (("(" + (this.rtype(t))) + ".zeroOf())")
         }
@@ -1800,6 +2072,9 @@ class RustLower {
     if (this.isDataEnum(t)) {
       return (((("(" + (this.implClass(t.name))) + ".cloneOf(") + code) + "))")
     }
+    if (this.isBytes(t)) {
+      return (("(RsBytes.copy(" + code) + "))")
+    }
     if ((k == "named") && ((has structs t.name) || ((array_length t.args) > 0))) {
       return (("(" + code) + ".rs_clone())")
     }
@@ -1818,7 +2093,7 @@ class RustLower {
   ; A static helper that copies a collection element by element.
   fn collectionCloner:string (t:RsType) {
     def key:string ("c_" + (this.mangleKey(t)))
-    def name:string ("RsClone." + key)
+    def name:string ((cloneClass + ".") + key)
     if (has genNames key) {
       return name
     }
@@ -2256,8 +2531,10 @@ class RustLower {
         push parts "Import \"rust/RsJson.rgr\""
       }
     }
-    ; the `.rgr` modules the crate includes, relative to the entry file
-    def entryDir:string (RustLower.dirOf(entryName))
+    ; the `.rgr` modules the crate includes, relative to the entry file;
+    ; their paths start at the folder of the name begin() read (FlowImport
+    ; gives the bare file name, then the importer's path as entryName)
+    def entryDir:string beginDir
     for rgrImports rip:string rii {
       def rel:string rip
       if ((entryDir != "") && ((strlen rip) > (strlen entryDir)) && ((substring rip 0 ((strlen entryDir) + 1)) == (entryDir + "/"))) {
@@ -2265,11 +2542,16 @@ class RustLower {
       }
       push parts (("Import \"" + rel) + "\"")
     }
+    ; an enum's shape is written last: lowering the functions finds the
+    ; variants a `ref mut` binding writes into (writtenCases)
+    def shapeAt:[int]
     def ei:int 0
     while (ei < (array_length enumOrder)) {
       def en:string (itemAt enumOrder ei)
       ei = ei + 1
       def eo:RsEnum (unwrap (get enums en))
+      push shapeAt (array_length parts)
+      push parts ""
       push parts (this.emitEnum(eo))
     }
     def si:int 0
@@ -2283,22 +2565,40 @@ class RustLower {
     ; instances and trait unions found while writing, until none are new
     def qi:int 0
     def di:int 0
-    while ((qi < (array_length structInstQueue)) || (di < (array_length dynQueue))) {
+    def clonesDone:boolean false
+    while ((qi < (array_length structInstQueue)) || (di < (array_length dynQueue)) || (false == clonesDone)) {
       if (qi < (array_length structInstQueue)) {
         def inst:RsInst (itemAt structInstQueue qi)
         qi = qi + 1
         push parts (this.emitStructInstance(inst))
         continue
       }
-      def tn:string (itemAt dynQueue di)
-      di = di + 1
-      push parts (this.emitDyn(tn))
+      if (di < (array_length dynQueue)) {
+        def tn:string (itemAt dynQueue di)
+        di = di + 1
+        push parts (this.emitDyn(tn))
+        continue
+      }
+      clonesDone = true
+      for enumOrder en3:string ek {
+        def ep:int (itemAt shapeAt ek)
+        def marker:string (("@@rs_clone:" + en3) + "@@")
+        def implText:string (itemAt parts (ep + 1))
+        if (contains implText marker) {
+          def eo3:RsEnum (unwrap (get enums en3))
+          set_at parts (ep + 1) (replace implText marker (this.emitEnumClone(eo3 (this.className(en3)))))
+        }
+      }
     }
     for genOut g:string k {
       push parts g
     }
     if ((array_length clonerOut) > 0) {
-      push parts (("class RsClone {\n" + (join clonerOut "\n")) + "\n}")
+      push parts (((("class " + cloneClass) + " {\n") + (join clonerOut "\n")) + "\n}")
+    }
+    for enumOrder en2:string ej {
+      def eo2:RsEnum (unwrap (get enums en2))
+      set_at parts (itemAt shapeAt ej) (this.emitEnumShape(eo2))
     }
     return ((join parts "\n\n") + "\n")
   }
@@ -2325,6 +2625,52 @@ class RustLower {
       return ""
     }
     def cname:string (this.className(e.name))
+    ; methods, Debug, Clone, PartialEq live in a class of static functions
+    def impl:[string]
+    push impl (("class " + (this.implClass(e.name))) + " {")
+    def mi:int 0
+    while (mi < (array_length e.methods)) {
+      def m:RsFn (itemAt e.methods mi)
+      mi = mi + 1
+      push impl (this.emitFn(m e.name))
+    }
+    if (false == e.plain) {
+      push impl (this.emitEnumZero(e cname))
+    }
+    if (false == (this.hasFmt((RsType.named(e.name)) "Debug"))) {
+      push impl (this.emitEnumDebug(e cname))
+      if (false == e.plain) {
+        push impl (this.emitEnumEq(e cname))
+      }
+    }
+    if (false == e.plain) {
+      ; copies of a Copy enum call it too (copyCode). Written after the
+      ; functions, which find the variants a `ref mut` binding writes into
+      ; (writtenCases): such an enum is not a value.
+      push impl (("@@rs_clone:" + e.name) + "@@")
+    }
+    ; public with the enum's public methods, as a struct's class is
+    def implDoc:RustDocInfo (new RustDocInfo())
+    for e.methods pm:RsFn pmi {
+      if (!null? pm.node) {
+        def pmNode:RustNode (unwrap pm.node)
+        if (pmNode.hasMod("pub")) {
+          implDoc.isPublic = true
+        }
+      }
+    }
+    push impl ("}" + (RustDocReader.tail(implDoc "")))
+    return (join impl "\n")
+  }
+
+  ; `Enum.Variant` of each enum variant a `ref mut` binding writes a field of
+  def writtenCases:[string:boolean]
+
+  fn emitEnumShape:string (e:RsEnum) {
+    if ((array_length e.generics) > 0) {
+      return ""
+    }
+    def cname:string (this.className(e.name))
     def lines:[string]
     if (e.plain) {
       def names:[string]
@@ -2342,7 +2688,12 @@ class RustLower {
         if ((array_length v2.fields) == 0) {
           push lines ("  case " + v2.name)
         } {
-          push lines ((("  case " + v2.name) + " {"))
+          ; a value case cannot change: one written through a binding shares
+          def sem:string ""
+          if (has writtenCases ((e.name + ".") + v2.name)) {
+            sem = "@(reference)"
+          }
+          push lines (((("  case " + v2.name) + sem) + " {"))
           for v2.fields f:RsField k {
             push lines ("    def " + (this.fieldDecl((this.fieldName(f.name)) f.ty)))
           }
@@ -2351,37 +2702,6 @@ class RustLower {
       }
       push lines "}"
     }
-    ; methods, Debug, Clone, PartialEq live in a class of static functions
-    def impl:[string]
-    push impl (("class " + (this.implClass(e.name))) + " {")
-    def mi:int 0
-    while (mi < (array_length e.methods)) {
-      def m:RsFn (itemAt e.methods mi)
-      mi = mi + 1
-      push impl (this.emitFn(m e.name))
-    }
-    if (false == e.plain) {
-      push impl (this.emitEnumZero(e cname))
-    }
-    if (false == (this.hasFmt((RsType.named(e.name)) "Debug"))) {
-      push impl (this.emitEnumDebug(e cname))
-      if (false == e.plain) {
-        push impl (this.emitEnumClone(e cname))
-        push impl (this.emitEnumEq(e cname))
-      }
-    }
-    ; public with the enum's public methods, as a struct's class is
-    def implDoc:RustDocInfo (new RustDocInfo())
-    for e.methods pm:RsFn pmi {
-      if (!null? pm.node) {
-        def pmNode:RustNode (unwrap pm.node)
-        if (pmNode.hasMod("pub")) {
-          implDoc.isPublic = true
-        }
-      }
-    }
-    push impl ("}" + (RustDocReader.tail(implDoc "")))
-    push lines (join impl "\n")
     return (join lines "\n")
   }
 
@@ -2478,9 +2798,38 @@ class RustLower {
     return (((((("  sfn zeroOf:" + cname) + " () {\n    return (new ") + (this.caseType(e.name pick))) + "(") + (join args " ")) + "))\n  }")
   }
 
+  ; An enum whose payloads are all numbers, booleans, chars, strings or `Rc`
+  ; is a value: no variant object is changed after it is made (a match
+  ; binds copies of the fields), so a clone may be the object itself. For a
+  ; small enum read on every step (an interpreter's value type) the copy
+  ; was most of the time spent on the reference targets.
+  fn enumIsValue:boolean (e:RsEnum) {
+    for e.variants vr:RsVariant i {
+      if (has writtenCases ((e.name + ".") + vr.name)) {
+        return false
+      }
+      for vr.fields f:RsField j {
+        def k:string f.ty.kind
+        if (f.ty.shared) {
+          continue
+        }
+        if ((k == "int") || (k == "double") || (k == "bool") || (k == "char") || (k == "string")) {
+          continue
+        }
+        return false
+      }
+    }
+    return true
+  }
+
   fn emitEnumClone:string (e:RsEnum cname:string) {
     def lines:[string]
     push lines (((("  sfn cloneOf:" + cname) + " (v:") + cname) + ") {")
+    if (this.enumIsValue(e)) {
+      push lines "    return v"
+      push lines "  }"
+      return (join lines "\n")
+    }
     for e.variants vr:RsVariant i {
       def ct:string (this.caseType(e.name vr.name))
       if ((array_length vr.fields) == 0) {
@@ -2657,6 +3006,9 @@ class RustLower {
 
   ; A value for a constructor argument that has no zero (a collection).
   fn emptyValueCode:string (t:RsType) {
+    if (this.isBytes(t)) {
+      return "(buffer_alloc 0)"
+    }
     if (t.kind == "vec") {
       return (("([] _:" + (this.rtype((t.arg(0))))) + " ())")
     }
@@ -2690,6 +3042,9 @@ class RustLower {
   }
 
   fn eqCode:string (a:string b:string t:RsType) {
+    if (this.isBytes(t)) {
+      return (((("(RsBytes.eq(" + a) + " ") + b) + "))")
+    }
     if (this.isDataEnum(t)) {
       return (((((("(" + (this.implClass(t.name))) + ".eqOf(") + a) + " ") + b) + "))")
     }
@@ -2771,6 +3126,9 @@ class RustLower {
     if ((k == "named") && (has enums t.name)) {
       return (((("(" + (this.implClass(t.name))) + ".dbgOf(") + code) + "))")
     }
+    if (this.isBytes(t)) {
+      return (("(RsBytes.dbg(" + code) + "))")
+    }
     if (k == "vec") {
       return ((("(" + (this.vecDebugger(t))) + "(") + (code + "))"))
     }
@@ -2800,7 +3158,7 @@ class RustLower {
 
   fn vecDebugger:string (t:RsType) {
     def key:string ("dbg_" + (this.mangleKey(t)))
-    def name:string ("RsClone." + key)
+    def name:string ((cloneClass + ".") + key)
     if (has genNames key) {
       return name
     }
@@ -3193,7 +3551,10 @@ class RustLower {
     if (isFmt) {
       out.line("def rs__out:string \"\"")
     }
+    def saveSelfMut:boolean selfIsMut
+    selfIsMut = (f.hasSelf && f.selfMut)
     this.lowerBody(body fret)
+    selfIsMut = saveSelfMut
     if (isFmt) {
       out.line("return rs__out")
       displayFormatter = ""
@@ -3407,7 +3768,7 @@ class RustLower {
       t3 = v3.ty
     }
     def subj:string (this.bindTemp(v3 t3 "v"))
-    this.bindPattern(pat subj t3)
+    this.bindPatternRef(pat subj t3 (this.matchesMut(init v3.ty)))
   }
 
   ; `let PAT = e else { … };`
@@ -3421,7 +3782,7 @@ class RustLower {
     this.lowerBlockStmts(elseB)
     out.dedent()
     out.line("}")
-    this.bindPattern(pat subj t)
+    this.bindPatternRef(pat subj t (this.matchesMut(init t)))
   }
 
   ; Lowers an expression used as a statement.
@@ -3741,13 +4102,13 @@ class RustLower {
         def v:RsExpr (this.lowerExpr((p.kid(1)) (RsType.mk("unknown"))))
         def subj:string (this.bindTemp(v v.ty "m"))
         if (this.needsOpen((p.kid(0)) v.ty)) {
-          opened = opened + (this.patOpen((p.kid(0)) subj v.ty))
+          opened = opened + (this.patOpenRef((p.kid(0)) subj v.ty (this.matchesMut((p.kid(1)) v.ty))))
         } {
           def cond:string (this.patCond((p.kid(0)) subj v.ty))
           out.line((("if " + (this.condText(cond))) + " {"))
           out.indent()
           opened = opened + 1
-          this.bindPattern((p.kid(0)) subj v.ty)
+          this.bindPatternRef((p.kid(0)) subj v.ty (this.matchesMut((p.kid(1)) v.ty)))
         }
       } {
         def c:RsExpr (this.lowerCond(p))
@@ -3937,7 +4298,7 @@ class RustLower {
         out.line((("if (! " + pc) + ") {"))
         out.line("  break")
         out.line("}")
-        this.bindPattern((p.kid(0)) subj v.ty)
+        this.bindPatternRef((p.kid(0)) subj v.ty (this.matchesMut((p.kid(1)) v.ty)))
       } {
         def c:RsExpr (this.lowerCond(p))
         out.line((("if (! " + c.code) + ") {"))
@@ -3950,6 +4311,11 @@ class RustLower {
   fn lowerLoopBody:void (body:RustNode) {
     def before:[RsLocal] (this.movedSnapshot())
     def firstInside:int (array_length fnLocals)
+    ; a `for` pattern is bound afresh by every iteration: it counts as inside
+    if ((loopBindStart >= 0) && (loopBindStart < firstInside)) {
+      firstInside = loopBindStart
+    }
+    loopBindStart = -1
     this.pushScope()
     this.lowerBlockStmts(body)
     this.popScope()
@@ -4130,6 +4496,7 @@ class RustLower {
   def forBody@(optional):RustNode
 
   fn lowerFor:void (e:RustNode) {
+    loopBindStart = (array_length fnLocals)
     def pat:RustNode (e.kid(0))
     def iter:RustNode (e.kid(1))
     def body:RustNode (e.kid(2))
@@ -4319,10 +4686,19 @@ class RustLower {
       elemT = (RsType.mk("int"))
       elemCode = (((("(charAt " + seq) + " ") + idx) + ")")
     }
+    def isBuf:boolean ((mode == "vec") && (this.isBytes(st)))
+    if (isBuf && mutElems) {
+      this.err(iter0 "`iter_mut()` over a `Vec<u8>` (a Ranger buffer): index it")
+      return
+    }
     if (mode == "vec") {
       seq = (this.bindTemp(sv st "seq"))
       elemT = (st.arg(0))
-      elemCode = (((("(itemAt " + seq) + " ") + idx) + ")")
+      if (isBuf) {
+        elemCode = (((("(buffer_get " + seq) + " ") + idx) + ")")
+      } {
+        elemCode = (((("(itemAt " + seq) + " ") + idx) + ")")
+      }
     }
     def mapT:RsType st
     if ((mode == "map") || (mode == "keys") || (mode == "values") || (mode == "values_mut")) {
@@ -4356,9 +4732,15 @@ class RustLower {
       mapName = (substring seq (bar + 1) (strlen seq))
     }
     if (mode == "bytes") {
-      out.line((((("def " + n) + ":int (length ") + seqName) + ")"))
+      ; the string's byte count, not the charbuffer's: a C++ charbuffer is a
+      ; bare `const char*`, whose length stops at the first NUL
+      out.line((((("def " + n) + ":int (rs_byte_len ") + sv.code) + ")"))
     } {
-      out.line((((("def " + n) + ":int (array_length ") + seqName) + ")"))
+      if (isBuf) {
+        out.line((((("def " + n) + ":int (buffer_length ") + seqName) + ")"))
+      } {
+        out.line((((("def " + n) + ":int (array_length ") + seqName) + ")"))
+      }
     }
     if (rev) {
       out.line((((("def " + idx) + ":int (") + n) + " - 1)"))
@@ -4503,11 +4885,14 @@ class RustLower {
     def none:[RsLocal]
     armAcc = none
     armAny = false
+    def saveMut:boolean matchMut
+    matchMut = (this.matchesMut((e.kid(0)) v.ty))
     if (narrow) {
       this.lowerArmsOpen(arms subj v.ty mode var)
     } {
       this.lowerArms(arms 0 subj v.ty mode var e)
     }
+    matchMut = saveMut
     if (armAny) {
       this.movedRestore(armAcc)
     } {
@@ -4515,6 +4900,8 @@ class RustLower {
     }
   }
 
+  ; the match being lowered is on a `&mut` (matchesMut)
+  def matchMut:boolean false
   ; move state across the arms of the match being lowered
   def armBefore:[RsLocal]
   def armAcc:[RsLocal]
@@ -4555,7 +4942,7 @@ class RustLower {
         ; alternatives without bindings: one test
         opened = (this.patOpenOr(pat subj t))
       } {
-        opened = (this.patOpen(pat subj t))
+        opened = (this.patOpenRef(pat subj t matchMut))
       }
       def guard:RustNode (arm.kid(1))
       if (false == (guard.isNone())) {
@@ -4617,7 +5004,7 @@ class RustLower {
     def always:boolean (cond == "true")
     if (always) {
       this.pushScope()
-      this.bindPattern(pat subj t)
+      this.bindPatternRef(pat subj t matchMut)
       this.movedRestore(armBefore)
       this.lowerValueTo(body mode var)
       this.armEnd(body)
@@ -4627,7 +5014,7 @@ class RustLower {
     out.line((("if " + (this.condText(cond))) + " {"))
     out.indent()
     this.pushScope()
-    this.bindPattern(pat subj t)
+    this.bindPatternRef(pat subj t matchMut)
     this.movedRestore(armBefore)
     this.lowerValueTo(body mode var)
     this.armEnd(body)
@@ -4657,6 +5044,11 @@ class RustLower {
       ; a bare identifier naming a unit variant or constant compares
       if (this.isUnitVariantName(pat.name t)) {
         return (this.variantTest(pat.name subj t pat))
+      }
+      if (this.isConstPattern(pat)) {
+        def cseg:[string] ([] _:string (pat.name))
+        def cv:RsExpr (this.constValue((this.resolveItem(cseg "const"))))
+        return (((("(" + subj) + " == ") + cv.code) + ")")
       }
       return "true"
     }
@@ -4860,7 +5252,7 @@ class RustLower {
   }
 
   fn patBinds:boolean (pat:RustNode) {
-    if ((pat.kind == "pat_ident") && (false == (this.isUnitVariantName(pat.name (RsType.mk("unknown")))))) {
+    if ((pat.kind == "pat_ident") && (false == (this.isUnitVariantName(pat.name (RsType.mk("unknown"))))) && (false == (this.isConstPattern(pat)))) {
       return true
     }
     for pat.kids k:RustNode i {
@@ -4871,9 +5263,152 @@ class RustLower {
     return false
   }
 
+  ; `OP_ADD =>` in a match: an identifier pattern naming a constant in scope
+  ; compares with it, as in Rust; it binds only when no constant has the
+  ; name (or with `name @ …`).
+  fn isConstPattern:boolean (pat:RustNode) {
+    if ((array_length pat.kids) > 0) {
+      return false
+    }
+    if (pat.hasMod("mut") || pat.hasMod("ref")) {
+      return false
+    }
+    def segs:[string] ([] _:string (pat.name))
+    return ((this.resolveItem(segs "const")) != "")
+  }
+
   ; Declares the variables a pattern binds, from `subj`.
   fn bindPattern:void (pat:RustNode subj:string t:RsType) {
     this.walkBindings(pat subj t false)
+  }
+
+  ; While the bindings of a pattern matched through a `&mut` are declared:
+  ; Rust binds them `ref mut` (`match v { V::N(n) => *n += 1.0 }`).
+  def refMutBind:boolean false
+  ; a temporary holding the value of an optional place -> that place
+  def backOf:[string:string]
+  ; the variable of a `case` narrowing -> `Enum.Variant`
+  def caseOfVar:[string:string]
+
+  ; the function being lowered takes `&mut self`
+  def selfIsMut:boolean false
+
+  ; True when the matched expression `e` is a `&mut`: `&mut x`, a value of
+  ; type `&mut T`, or `self` in a `&mut self` method.
+  fn matchesMut:boolean (e:RustNode t:RsType) {
+    if (t.isMutRef) {
+      return true
+    }
+    def n:RustNode e
+    while (n.kind == "paren") {
+      n = (n.kid(0))
+    }
+    if ((n.kind == "unary") && (n.name == "&mut")) {
+      return true
+    }
+    if ((n.kind == "path_expr") && selfIsMut) {
+      def segs:[string] (this.pathSegs((n.kid(0))))
+      return (((array_length segs) == 1) && ((itemAt segs 0) == "self"))
+    }
+    return false
+  }
+
+  ; bindPattern / patOpen for a match, `if let`, `while let` or `let`: a
+  ; `&mut` subject (matchesMut) binds its parts `ref mut`.
+  fn bindPatternRef:void (pat:RustNode subj:string t:RsType refMut:boolean) {
+    def save:boolean refMutBind
+    refMutBind = refMut
+    this.walkBindings(pat subj t false)
+    refMutBind = save
+  }
+
+  fn patOpenRef:int (pat:RustNode subj:string t:RsType refMut:boolean) {
+    def save:boolean refMutBind
+    refMutBind = refMut
+    def n:int (this.patOpen(pat subj t))
+    refMutBind = save
+    return n
+  }
+
+  ; True when the binding `pat` refers into the matched value: `ref mut x`,
+  ; or a plain `x` under a `&mut` subject (`mut x` there is a copy).
+  fn bindsRefMut:boolean (pat:RustNode) {
+    if (pat.hasMod("ref")) {
+      return (pat.hasMod("mut"))
+    }
+    if (pat.hasMod("mut")) {
+      return false
+    }
+    return refMutBind
+  }
+
+  ; The Ranger place `subj` reads, to store a changed binding back into; ""
+  ; when it is not one (the whole subject: a parameter, a temporary).
+  fn backPlace:string (subj:string) {
+    if (has backOf subj) {
+      return (unwrap (get backOf subj))
+    }
+    if ((startsWith subj "(unwrap ") && (endsWith subj ")")) {
+      return (this.backPlace((substring subj 8 ((strlen subj) - 1))))
+    }
+    if (((indexOf subj "(") >= 0) || ((indexOf subj ".") < 0)) {
+      return ""
+    }
+    return subj
+  }
+
+  ; Declares one binding of a pattern, read from `subj`. A `ref mut`
+  ; binding is a copy too (numbers and strings are values on the targets),
+  ; so each change to it is written back to `subj` (assignTo); a Copy
+  ; struct or enum bound by value is copied.
+  fn declareBinding:void (pat:RustNode subj:string t:RsType) {
+    def l:RsLocal (this.declare(pat.name t))
+    def code:string subj
+    if (this.bindsRefMut(pat)) {
+      def place:string (this.backPlace(subj))
+      if (place == "") {
+        l.backBad = true
+      } {
+        l.backTo = place
+        def root:string place
+        def dot:int (indexOf place ".")
+        if (dot > 0) {
+          root = (substring place 0 dot)
+        }
+        if (has caseOfVar root) {
+          l.backCase = (unwrap (get caseOfVar root))
+        }
+      }
+    } {
+      code = (this.copyCode(subj t))
+    }
+    out.line(((("def " + (this.declText(l.rname t))) + " ") + code))
+  }
+
+  ; `code` copied when `t` is a Copy struct or a Copy enum with data (they
+  ; are objects on the targets, which a copy would share).
+  fn copyCode:string (code:string t:RsType) {
+    if (this.isCopyStruct(t)) {
+      return (("(" + code) + ".rs_clone())")
+    }
+    if (this.isCopyEnum(t)) {
+      return (this.cloneCode(code t))
+    }
+    return code
+  }
+
+  fn noteWrittenCase:void (l:RsLocal) {
+    if (l.backCase != "") {
+      set writtenCases l.backCase true
+    }
+  }
+
+  fn isCopyEnum:boolean (t:RsType) {
+    if (this.isDataEnum(t)) {
+      def e:RsEnum (unwrap (get enums t.name))
+      return ((indexOf e.derives "Copy") >= 0)
+    }
+    return false
   }
 
   ; Makes a pattern's names refer to the subject expressions, for a guard.
@@ -4887,15 +5422,13 @@ class RustLower {
       if (this.isUnitVariantName(pat.name t)) {
         return
       }
+      if (this.isConstPattern(pat)) {
+        return
+      }
       if (aliasOnly) {
         this.alias(pat.name subj t)
       } {
-        def l:RsLocal (this.declare(pat.name t))
-        def code:string subj
-        if (this.isCopyStruct(t)) {
-          code = (("(" + subj) + ".rs_clone())")
-        }
-        out.line(((("def " + (this.declText(l.rname t))) + " ") + code))
+        this.declareBinding(pat subj t)
       }
       if ((array_length pat.kids) > 0) {
         this.walkBindings((pat.kid(0)) subj t aliasOnly)
@@ -5024,6 +5557,9 @@ class RustLower {
     if ((this.isCopyStruct(v.ty)) && (this.isPlace(n))) {
       def r:RsExpr (RsExpr.of((("(" + (this.bindTemp(v v.ty "c"))) + ".rs_clone())") v.ty))
       return r
+    }
+    if ((this.isCopyEnum(v.ty)) && (this.isPlace(n))) {
+      return (RsExpr.of((this.cloneCode((this.bindTemp(v v.ty "c")) v.ty)) v.ty))
     }
     return v
   }
@@ -5290,9 +5826,22 @@ class RustLower {
       if ((array_length cs) > 0) {
         code = (itemAt cs 0)
       }
-      def rb:RsExpr (RsExpr.of((to_string code) (RsType.mk("int"))))
+      def byT:RsType (RsType.mk("int"))
+      byT.name = "u8"
+      def rb:RsExpr (RsExpr.of((to_string code) byT))
       rb.simple = true
       return rb
+    }
+    if (n.hasMod("bytestr")) {
+      ; b"…": a buffer of its bytes
+      def bcs:[int] (to_chars n.value)
+      def bparts:[string]
+      for bcs bc:int bi {
+        push bparts (to_string bc)
+      }
+      def bt:RsType (this.bytesType())
+      bt.isRef = true
+      return (RsExpr.of((("(RsBytes.ofInts(([] _:int (" + (join bparts " ")) + "))))") bt))
     }
     if (n.hasMod("float") || (n.hasMod("f64")) || (n.hasMod("f32")) || (expect.kind == "double")) {
       def txt:string n.value
@@ -5304,7 +5853,11 @@ class RustLower {
       return rf
     }
     if (n.hasMod("int")) {
-      def ri:RsExpr (RsExpr.of((to_string (this.intValue(n))) (RsType.mk("int"))))
+      def intT:RsType (RsType.mk("int"))
+      if (n.hasMod("u8")) {
+        intT.name = "u8"
+      }
+      def ri:RsExpr (RsExpr.of((to_string (this.intValue(n))) intT))
       ri.simple = true
       return ri
     }
@@ -5425,6 +5978,9 @@ class RustLower {
       def gsegs:[string] (strsplit (this.fnKey(prefix u.name)) "::")
       push gsegs "*"
       def m:string (this.modPath(gsegs curMod))
+      if (m == "?") {
+        m = (this.modPath(gsegs (this.crateOf(curMod))))
+      }
       if (m == "?") {
         m = (this.modPath(gsegs ""))
       }
@@ -5599,7 +6155,55 @@ class RustLower {
 
   fn constValue:RsExpr (key:string) {
     def c:RsConst (unwrap (get consts key))
+    ; a number, boolean or string literal is written where it is used, as
+    ; rustc inlines a const: a `match` over many constants (an
+    ; interpreter's opcodes) otherwise calls a function per arm
+    def lit:string (this.constLiteral(c))
+    if (lit != "") {
+      def le:RsExpr (RsExpr.of(lit c.ty))
+      le.simple = true
+      return le
+    }
     return (RsExpr.of((((("(" + c.modCls) + ".") + (this.staticName(c.name))) + "())") c.ty))
+  }
+
+  ; The Ranger literal of a const whose value is a plain literal (or a
+  ; negated number), else "".
+  fn constLiteral:string (c:RsConst) {
+    if (null? c.node) {
+      return ""
+    }
+    def node:RustNode (unwrap c.node)
+    if ((array_length node.kids) < 2) {
+      return ""
+    }
+    def v:RustNode (node.kid(1))
+    def k:string c.ty.kind
+    if (false == ((k == "int") || (k == "double") || (k == "bool"))) {
+      return ""
+    }
+    def neg:boolean false
+    if ((v.kind == "unary") && (v.name == "-") && ((array_length v.kids) > 0)) {
+      neg = true
+      v = (v.kid(0))
+    }
+    if (v.kind != "lit") {
+      return ""
+    }
+    def e:RsExpr (this.lowerExpr(v c.ty))
+    if (false == e.simple) {
+      if ((strlen e.code) == 0) {
+        return ""
+      }
+    }
+    if neg {
+      if (k == "bool") {
+        return ""
+      }
+      ; a negative zero keeps its sign through the multiplication
+      return (("(-1 * " + e.code) + ")")
+    }
+    return e.code
   }
 
   ; A free function used as a value: a lambda that calls it.
@@ -5763,6 +6367,13 @@ class RustLower {
       }
       return (("(!null? " + other) + ")")
     }
+    if ((this.isBytes(t)) && ((op == "==") || (op == "!="))) {
+      def beq:string (this.eqCode(l.code r.code t))
+      if (op == "==") {
+        return beq
+      }
+      return (("(! " + beq) + ")")
+    }
     if (this.isDataEnum(t)) {
       if ((op == "==") || (op == "!=")) {
         def eqc:string (this.eqCode(l.code r.code t))
@@ -5855,6 +6466,10 @@ class RustLower {
     if (op == "-") {
       if (c.kind == "lit") {
         def lv:RsExpr (this.lowerExpr(c expect))
+        ; `-0.0` keeps its sign: a zero literal's minus would be dropped
+        if ((lv.ty.kind == "double") && ((lv.code == "0.0") || (lv.code == "0.") || (lv.code == "0"))) {
+          return (RsExpr.of((("(-1.0 * " + lv.code) + ")") lv.ty))
+        }
         def neg:RsExpr (RsExpr.of(("-" + lv.code) lv.ty))
         neg.simple = true
         return neg
@@ -5864,7 +6479,8 @@ class RustLower {
         return (RsExpr.of((("(0 - " + v2.code) + ")") v2.ty))
       }
       if (v2.ty.kind == "double") {
-        return (RsExpr.of((("(0.0 - " + v2.code) + ")") v2.ty))
+        ; not `0.0 - x`: that is +0 for x = 0, where Rust answers -0
+        return (RsExpr.of((("(-1.0 * " + v2.code) + ")") v2.ty))
       }
       if ((v2.ty.kind == "named") && (has structs v2.ty.name)) {
         def s:RsStruct (unwrap (get structs v2.ty.name))
@@ -5881,7 +6497,7 @@ class RustLower {
       if (v3.ty.kind == "int") {
         return (RsExpr.of((("(bit_not " + v3.code) + ")") v3.ty))
       }
-      return (RsExpr.of((("(! " + v3.code) + ")") (RsType.mk("bool"))))
+      return (RsExpr.of((("(false == " + v3.code) + ")") (RsType.mk("bool"))))
     }
     this.unsupported(n (("the unary operator `" + op) + "`"))
     return (this.unit())
@@ -6122,7 +6738,7 @@ class RustLower {
     if (has structs head) {
       def s:RsStruct (unwrap (get structs head))
       def m@(optional):RsFn (s.method(name))
-      if ((!null? m) && ((array_length s.generics) > 0)) {
+      if ((!null? m) && ((array_length s.generics) > 0) && (false == s.rgr)) {
         return (this.genericAssocCall(s (unwrap m) args expect at))
       }
       if (!null? m) {
@@ -6141,20 +6757,34 @@ class RustLower {
           if (this.hasBoxed(mf)) {
             return (this.boxedCall((((recv + ".") + mf.rname) + "(") mf rest rv.ty "" at))
           }
-          def codes0:[string] (this.lowerArgs(rest (this.paramTypes(mf))))
-          return (RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + (join codes0 " ")) + "))") mf.ret))
+          ; seen through the receiver's instance, as a `recv.method()` is
+          def menv:[string:RsType] (this.methodEnv(rv.ty))
+          def ptypes0:[RsType]
+          for (this.paramTypes(mf)) pt0:RsType pti0 {
+            push ptypes0 (this.subst(pt0 menv))
+          }
+          def codes0:[string] (this.lowerArgs(rest ptypes0))
+          return (RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + (join codes0 " ")) + "))") (this.subst(mf.ret menv))))
         }
         if ((this.hasBoxed(mf)) && (false == mf.rgrCtor) && (false == s.rgr)) {
-          ; `Type::f(&mut v, …)`: the `&mut` places boxed, as for a module function
-          def bname:string (this.staticName(name))
+          ; `Type::f(&mut v, …)`: the `&mut` places boxed, as for a module fn
+          def bsn:string (this.staticName(name))
           if (mf.statName != "") {
-            bname = mf.statName
+            bsn = mf.statName
           }
-          return (this.boxedCall(((((this.className(head)) + ".") + bname) + "(") mf args (RsType.named(head)) "" at))
+          return (this.boxedCall(((((this.className(head)) + ".") + bsn) + "(") mf args (RsType.named(head)) "" at))
         }
         def codes:[string] (this.lowerArgs(args (this.paramTypes(mf))))
         if mf.rgrCtor {
-          ; the constructor of a `.rgr` class
+          ; the constructor of a `.rgr` class; a generic one takes its
+          ; arguments from the type the value goes to: `new H@(T) ()`
+          if ((array_length s.generics) > 0) {
+            def eT:RsType expect
+            if ((eT.kind == "named") && (eT.name == head) && ((array_length eT.args) == (array_length s.generics))) {
+              return (RsExpr.of((((("(new " + (this.rtype(eT))) + " (") + (join codes " ")) + "))") eT))
+            }
+            this.err(at (("the type arguments of the .rgr class `" + head) + "` are not known here: give the binding its type"))
+          }
           return (RsExpr.of((((("(new " + head) + "(") + (join codes " ")) + "))") (RsType.named(head))))
         }
         if s.rgr {
@@ -6207,6 +6837,22 @@ class RustLower {
       def v:RsExpr (this.lowerExpr((itemAt args 0) (RsType.mk("string"))))
       return (RsExpr.of(v.code (this.ownedString())))
     }
+    ; bytes to text: the buffer decoded as UTF-8 (RsBytes.toUtf8)
+    if (((head == "String") || (head == "str")) && ((name == "from_utf8") || (name == "from_utf8_lossy"))) {
+      def ub:RsExpr (this.lowerExpr((itemAt args 0) (this.bytesType())))
+      def utext:string (("(RsBytes.toUtf8(" + ub.code) + "))")
+      if (name == "from_utf8_lossy") {
+        return (RsExpr.of(utext (this.ownedString())))
+      }
+      ; never an Err: invalid UTF-8 decodes to U+FFFD, as from_utf8_lossy
+      def urt:RsType (RsType.of2("result" (this.ownedString()) (this.ownedString())))
+      def ucls:string (this.resultClass(urt))
+      def un:string (this.tmp("res"))
+      out.line((((("def " + un) + ":") + ucls) + ((" (new " + ucls) + ")")))
+      out.line((un + ".ok = true"))
+      out.line((((un + ".v = ") + utext)))
+      return (this.simpleExpr(un urt))
+    }
     if (full == "String::new") {
       def e:RsExpr (RsExpr.of("\"\"" (this.ownedString())))
       e.simple = true
@@ -6218,6 +6864,12 @@ class RustLower {
     if ((full == "Box::new") || (full == "Rc::new") || (full == "Arc::new") || (full == "RefCell::new") || (full == "Cell::new") || (full == "Rc::clone") || (full == "Arc::clone")) {
       def iv:RsExpr (this.lowerExpr((itemAt args 0) expect))
       return iv
+    }
+    ; `Rc::ptr_eq(&a, &b)`: the same object, as `==` of two objects is in .rgr
+    if ((full == "Rc::ptr_eq") || (full == "Arc::ptr_eq") || (full == "std::ptr::eq") || (full == "ptr::eq")) {
+      def pa:RsExpr (this.lowerExpr((itemAt args 0) (RsType.mk("unknown"))))
+      def pb:RsExpr (this.lowerExpr((itemAt args 1) (RsType.mk("unknown"))))
+      return (RsExpr.of((((("(identical " + pa.code) + " ") + pb.code) + ")") (RsType.mk("bool"))))
     }
     ; `Rc::downgrade(&x)`: the object, held weakly where it is stored (R7)
     if ((full == "Rc::downgrade") || (full == "Arc::downgrade")) {
@@ -6265,7 +6917,21 @@ class RustLower {
     if ((full == "std::mem::take") || (full == "mem::take") || (full == "std::mem::replace") || (full == "mem::replace")) {
       return (this.lowerTake(full args at))
     }
-    if ((full == "char::from_u32") || (full == "char::from_digit")) {
+    if ((full == "char::from_u32") || (full == "std::char::from_u32")) {
+      ; Some(char) for a scalar value, None for a surrogate or past U+10FFFF
+      def cv:RsExpr (this.arg0(args (RsType.mk("int"))))
+      def cn:string (this.bindTemp(cv (RsType.mk("int")) "cp"))
+      def ot:RsType (RsType.of1("opt" (RsType.mk("char"))))
+      def rn:string (this.tmp("ch"))
+      out.line(("def " + (this.declText(rn ot))))
+      out.line((((((((("if ((" + cn) + " >= 0) && (") + cn) + " <= 1114111) && ((") + cn) + " < 55296) || (") + cn) + " > 57343))) {"))
+      out.line((((("  " + rn) + " = (rs_char_from ") + cn) + ")"))
+      out.line("}")
+      def cr:RsExpr (RsExpr.of(rn ot))
+      cr.simple = true
+      return cr
+    }
+    if (full == "char::from_digit") {
       this.unsupported(at (("`" + full) + "` (stage R2)"))
       return (this.unit())
     }
@@ -6361,6 +7027,26 @@ class RustLower {
       this.unsupported(n (("the Formatter method `" + name) + "`"))
       return (this.unit())
     }
+    ; A scalar or string field of a .rgr class may be a Cell or RefCell in
+    ; the Rust that Ranger writes for the class (a field the class's `&self`
+    ; methods change): rustc then needs `x.f.get()`, `x.f.set(v)`,
+    ; `x.f.replace(v)` or `x.f.borrow()`, and each is the field itself here
+    if ((recvN.kind == "field") && (this.isRgrCellField(recvN.name))) {
+      def nArgs:int (array_length args)
+      if (((name == "get") || (name == "borrow") || (name == "take")) && (nArgs == 0)) {
+        return (this.lowerExpr(recvN expect))
+      }
+      if (((name == "set") || (name == "replace")) && (nArgs == 1)) {
+        def asg:RustNode (new RustNode("assign"))
+        asg.name = "="
+        asg.line = n.line
+        asg.col = n.col
+        asg.add(recvN)
+        asg.add((itemAt args 0))
+        this.lowerAssign(asg)
+        return (this.unit())
+      }
+    }
     def rv:RsExpr (this.lowerExpr(recvN (RsType.mk("unknown"))))
     def t:RsType rv.ty
     if ((t.kind == "named") && (has traits t.name)) {
@@ -6386,6 +7072,12 @@ class RustLower {
         def m@(optional):RsFn (s3.method(name))
         if (!null? m) {
           return (this.userMethodCall(rv (unwrap m) args n))
+        }
+        ; `e.borrow().width.clone()` on a .rgr class value, or `.clone()` of an
+        ; `Rc<RefCell<T>>` of any struct: rustc copies the Rc handle (or the
+        ; Option of one), which is the same object here. T needs no Clone.
+        if ((name == "clone") && (s3.rgr || t.shared) && ((array_length args) == 0)) {
+          return rv
         }
         if ((name == "clone") && ((s3.derivesTrait("Clone")) || (s3.derivesTrait("Copy")))) {
           def rc:string (this.bindTemp(rv t "r"))
@@ -6432,6 +7124,11 @@ class RustLower {
       ; `c.borrow().count`, `c.borrow_mut().label = …` on an Rc<RefCell<T>>:
       ; the object itself
       if (((name == "borrow") || (name == "borrow_mut") || (name == "as_ref") || (name == "as_mut")) && ((array_length args) == 0)) {
+        return rv
+      }
+      ; `e.borrow().r#box.as_ref().unwrap()`: a .rgr class field is an
+      ; Option to rustc (the Rust writer's form), the object itself here
+      if ((name == "unwrap") && ((array_length args) == 0)) {
         return rv
       }
       this.err(n (((("no method `" + name) + "` on `") + (t.rust())) + "`"))
@@ -6516,7 +7213,7 @@ class RustLower {
       def rc:string (this.bindTemp(rv t "r"))
       return (RsExpr.of((this.cloneCode(rc t)) t))
     }
-    if ((name == "as_str") || (name == "as_ref") || (name == "borrow") || (name == "borrow_mut") || (name == "as_mut") || (name == "into")) {
+    if ((name == "as_str") || (name == "as_ref") || (name == "borrow") || (name == "borrow_mut") || (name == "as_mut") || (name == "into") || ((name == "into_owned") && (k == "string"))) {
       return rv
     }
     if ((name == "to_string") && (k != "vec")) {
@@ -6594,6 +7291,10 @@ class RustLower {
           if (slot.slotMap != "") {
             out.line((this.mapSetLine(slot.slotMap slot.slotTy slot.slotKey slot.rname)))
           }
+          if (slot.backTo != "") {
+            out.line(((slot.backTo + " = ") + slot.rname))
+            this.noteWrittenCase(slot)
+          }
         }
       }
     }
@@ -6601,8 +7302,121 @@ class RustLower {
 
   def lastVecName:string ""
 
+  ; A method of a `Vec<u8>` / `&[u8]`: a Ranger buffer, which has a fixed
+  ; size, so what grows it makes a new buffer and stores it back.
+  fn bytesMethod:RsExpr (rv:RsExpr name:string args:[RustNode] at:RustNode expect:RsType) {
+    def t:RsType rv.ty
+    def v:string (this.bindTemp(rv t "buf"))
+    lastVecName = v
+    def it:RsType (RsType.mk("int"))
+    def bt:RsType (RsType.mk("bool"))
+    def recvN:RustNode (at.kid(0))
+    if (name == "len") {
+      return (RsExpr.of((("(buffer_length " + v) + ")") it))
+    }
+    if (name == "is_empty") {
+      return (RsExpr.of((("((buffer_length " + v) + ") == 0)") bt))
+    }
+    if ((name == "to_vec") || (name == "to_owned") || (name == "into_boxed_slice") || (name == "into_vec")) {
+      return (RsExpr.of((("(RsBytes.copy(" + v) + "))") (this.bytesType())))
+    }
+    if ((name == "as_slice") || (name == "as_mut_slice")) {
+      return rv
+    }
+    if (name == "fill") {
+      def fv:RsExpr (this.lowerExpr((itemAt args 0) it))
+      out.line((((("RsBytes.fillAll(" + v) + " ") + fv.code) + ")"))
+      return (this.unit())
+    }
+    if (name == "contains") {
+      def cv:RsExpr (this.lowerExpr((itemAt args 0) it))
+      return (RsExpr.of((((("((RsBytes.indexOf(" + v) + " ") + cv.code) + ")) >= 0)") bt))
+    }
+    if ((name == "first") || (name == "last") || (name == "get")) {
+      def ot:RsType (RsType.of1("opt" (t.arg(0))))
+      def nm:string (this.tmp("g"))
+      out.line(("def " + (this.declText(nm ot))))
+      def ix:string "0"
+      if (name == "get") {
+        def gv:RsExpr (this.lowerExpr((itemAt args 0) it))
+        ix = (this.bindTemp(gv it "i"))
+      }
+      if (name == "last") {
+        ix = (("((buffer_length " + v) + ") - 1)")
+      }
+      out.line((((((("if ((" + ix) + " >= 0) && (") + ix) + " < (buffer_length ") + v) + "))) {"))
+      out.line((((((("  " + nm) + " = (buffer_get ") + v) + " ") + ix) + ")"))
+      out.line("}")
+      return (this.simpleExpr(nm ot))
+    }
+    if (name == "copy_from_slice") {
+      def src:RsExpr (this.lowerExpr((itemAt args 0) t))
+      def sb:string (this.bindTemp(src t "src"))
+      ; `dst[a..b].copy_from_slice(src)`: into dst from a
+      def target:string v
+      def from:string "0"
+      if ((recvN.kind == "index") && ((recvN.kid(1)).kind == "range")) {
+        def base:RsExpr (this.lowerExpr((recvN.kid(0)) (RsType.mk("unknown"))))
+        target = (this.bindTemp(base base.ty "buf"))
+        def rng:RustNode (recvN.kid(1))
+        if (false == ((rng.kid(0)).isNone())) {
+          def lo:RsExpr (this.lowerExpr((rng.kid(0)) it))
+          from = lo.code
+        }
+      }
+      out.line((((((((("RsBytes.copyInto(" + target) + " ") + from) + " ") + sb) + " (buffer_length ") + sb) + "))"))
+      return (this.unit())
+    }
+    ; what changes the size: a new buffer, stored back where it came from
+    def grown:string ""
+    if (name == "push") {
+      def pv:RsExpr (this.lowerExpr((itemAt args 0) it))
+      ; the operators' fallback is a macro, which reads its arguments back as
+      ; text: a name keeps their types
+      def pc:string (this.bindTemp(pv it "b"))
+      grown = (((("(rs_bytes_push " + v) + " ") + pc) + ")")
+    }
+    if ((name == "extend_from_slice") || (name == "extend") || (name == "append")) {
+      def ev:RsExpr (this.lowerExpr((itemAt args 0) t))
+      def ec:string (this.bindTemp(ev t "m"))
+      grown = (((("(rs_bytes_extend " + v) + " ") + ec) + ")")
+      if (name == "append") {
+        this.assignTo((itemAt args 0) (this.simpleExpr("(buffer_alloc 0)" t)))
+      }
+    }
+    if (name == "clear") {
+      grown = "(buffer_alloc 0)"
+    }
+    if (name == "truncate") {
+      def tv:RsExpr (this.lowerExpr((itemAt args 0) it))
+      def tn:string (this.bindTemp(tv it "n"))
+      grown = (((("(RsBytes.resized(" + v) + " (? (") + tn) + ((" < (buffer_length " + v) + ")) ")) + ((tn + " (buffer_length ") + v) + ")) 0))"
+    }
+    if (name == "resize") {
+      def rn:RsExpr (this.lowerExpr((itemAt args 0) it))
+      def rx:RsExpr (this.lowerExpr((itemAt args 1) it))
+      grown = (((((("(RsBytes.resized(" + v) + " ") + rn.code) + " ") + rx.code) + "))")
+    }
+    if (grown != "") {
+      if (t.isMutRef && (recvN.kind == "path_expr")) {
+        this.err(at (("`." + name) + "()` on a `&mut Vec<u8>` parameter: a buffer cannot grow in place, so return the new `Vec<u8>`"))
+        return (this.unit())
+      }
+      def nb:string (this.tmp("buf"))
+      out.line((((("def " + nb) + ":buffer ") + grown)))
+      this.assignTo(recvN (this.simpleExpr(nb t)))
+      lastVecName = nb
+      return (this.unit())
+    }
+    this.err(at (("`." + name) + "()` on a `Vec<u8>` (a Ranger buffer): index it in a loop"))
+    return (this.unit())
+  }
+
   fn vecMethodInner:RsExpr (rv:RsExpr name:string args:[RustNode] at:RustNode expect:RsType) {
     def t:RsType rv.ty
+    if (this.isBytes(t)) {
+      return (this.bytesMethod(rv name args at expect))
+    }
     def et:RsType (t.arg(0))
     def v:string (this.bindTemp(rv t "vec"))
     lastVecName = v
@@ -6677,7 +7491,9 @@ class RustLower {
     if (name == "insert") {
       def iv3:RsExpr (this.lowerExpr((itemAt args 0) it))
       def xv:RsExpr (this.lowerExprCopy((itemAt args 1) et))
-      out.line(((((((this.vecInserter(t)) + "(") + v) + " ") + iv3.code) + " ") + (xv.code + ")"))
+      ; the helper answers the array: on Go a push inside it makes a new
+      ; slice the caller would not see
+      out.line((((((((v + " = ") + (this.vecInserter(t))) + "(") + v) + " ") + iv3.code) + " ") + (xv.code + ")"))
       return (this.unit())
     }
     if (name == "join") {
@@ -6767,7 +7583,7 @@ class RustLower {
 
   fn vecInserter:string (t:RsType) {
     def key:string ("ins_" + (this.mangleKey(t)))
-    def name:string ("RsClone." + key)
+    def name:string ((cloneClass + ".") + key)
     if (has genNames key) {
       return name
     }
@@ -6775,7 +7591,7 @@ class RustLower {
     def rt:string (this.rtype(t))
     def et:string (this.rtype((t.arg(0))))
     def lines:[string]
-    push lines ((((("  sfn " + key) + ":void (v:") + rt) + " at:int x:") + (et + ") {"))
+    push lines ((((((("  sfn " + key) + ":") + rt) + " (v:") + rt) + " at:int x:") + (et + ") {"))
     push lines "    push v x"
     push lines "    def i:int ((array_length v) - 1)"
     push lines "    while (i > at) {"
@@ -6783,6 +7599,7 @@ class RustLower {
     push lines "      i = i - 1"
     push lines "    }"
     push lines "    set_at v at x"
+    push lines "    return v"
     push lines "  }"
     push clonerOut (join lines "\n")
     return name
@@ -6802,6 +7619,12 @@ class RustLower {
     }
     if (name == "is_empty") {
       return (RsExpr.of((("((strlen " + c) + ") == 0)") bt))
+    }
+    if ((name == "as_bytes") || (name == "into_bytes")) {
+      ; the UTF-8 bytes, as a buffer
+      def sbt:RsType (this.bytesType())
+      sbt.isRef = (name == "as_bytes")
+      return (RsExpr.of((("(RsBytes.ofUtf8(" + c) + "))") sbt))
     }
     if (name == "parse") {
       ; a Result, checked as strictly as Rust checks it: JavaScript's
@@ -6850,7 +7673,9 @@ class RustLower {
     }
     if ((name == "push_str") || (name == "push")) {
       def x:RsExpr (this.arg0(args st))
-      this.assignTo((at.kid(0)) (RsExpr.of((((("(" + c) + " + ") + x.code) + ")") st)))
+      ; rs_str_append is `c + x`; on Go it grows the string in place when
+      ; it can (RsPrelude), so a loop of appends is linear there too
+      this.assignTo((at.kid(0)) (RsExpr.of((((("(rs_str_append " + c) + " ") + x.code) + ")") st)))
       return (this.unit())
     }
     if (name == "to_uppercase") {
@@ -7051,6 +7876,14 @@ class RustLower {
     }
     if ((name == "round") || (name == "trunc") || (name == "ln") || (name == "exp") || (name == "log10") || (name == "signum")) {
       return (RsExpr.of((((("(rs_" + name) + " ") + c) + ")") t))
+    }
+    if ((name == "asin") || (name == "acos") || (name == "atan") || (name == "sinh") || (name == "cosh") || (name == "tanh") || (name == "asinh") || (name == "acosh") || (name == "atanh") || (name == "cbrt") || (name == "exp_m1") || (name == "ln_1p") || (name == "log2")) {
+      return (RsExpr.of((((("(rs_" + name) + " ") + c) + ")") t))
+    }
+    if (name == "atan2") {
+      def ya:string (this.bindTemp(rv t "y"))
+      def xa:RsExpr (this.arg0(args t))
+      return (RsExpr.of((((("(rs_atan2 " + ya) + " ") + xa.code) + ")") t))
     }
     ; Ordering is an int: -1, 0, 1
     if ((name == "then") || (name == "then_with")) {
@@ -7493,6 +8326,9 @@ class RustLower {
         def ff:RsField (unwrap f)
         fty = (this.fieldTypeOf(s ff t))
         fname = (this.fieldName(key))
+        if (ff.rname != "") {
+          fname = ff.rname
+        }
       } {
         this.err(n (((("no field `" + n.name) + "` on a value of type `") + (t.rust())) + "`"))
         return (this.unit())
@@ -7535,6 +8371,28 @@ class RustLower {
         }
       }
       return (RsExpr.of((((((("(rs_byte_slice " + s) + " ") + lo) + " ") + hi) + ")") t))
+    }
+    if (this.isBytes(t)) {
+      def bv:string (this.bindTemp(rv t "buf"))
+      if (ixN.kind == "range") {
+        ; `&b[a..b]`: a copy of the bytes (a buffer has no view)
+        def blo:string "0"
+        def bhi:string (("(buffer_length " + bv) + ")")
+        if (false == ((ixN.kid(0)).isNone())) {
+          def blv:RsExpr (this.lowerExpr((ixN.kid(0)) (RsType.mk("int"))))
+          blo = blv.code
+        }
+        if (false == ((ixN.kid(1)).isNone())) {
+          def bhv:RsExpr (this.lowerExpr((ixN.kid(1)) (RsType.mk("int"))))
+          bhi = bhv.code
+          if (ixN.name == "..=") {
+            bhi = (("(" + bhi) + " + 1)")
+          }
+        }
+        return (RsExpr.of((((((("(buffer_slice " + bv) + " ") + blo) + " ") + bhi) + ")") (this.bytesType())))
+      }
+      def biv:RsExpr (this.lowerExpr(ixN (RsType.mk("int"))))
+      return (RsExpr.of((((("(buffer_get " + bv) + " ") + biv.code) + ")") (t.arg(0))))
     }
     if (t.kind == "vec") {
       if (ixN.kind == "range") {
@@ -7638,7 +8496,14 @@ class RustLower {
           if (lv.iterVec != "") {
             out.line(((((("set_at " + lv.iterVec) + " ") + lv.iterIdx) + " ") + v.code))
           }
+          if (lv.backBad) {
+            this.unsupported(lhs (("assigning to `" + lv.name) + "`, a `ref mut` binding of a whole `&mut` match subject"))
+          }
           out.line(((lv.rname + " = ") + v.code))
+          if (lv.backTo != "") {
+            out.line(((lv.backTo + " = ") + lv.rname))
+            this.noteWrittenCase(lv)
+          }
           lv.moved = false
           return
         }
@@ -7658,7 +8523,14 @@ class RustLower {
         if (s.isTuple) {
           fname = ("f" + fname)
         }
+        def af@(optional):RsField (s.field(fname))
         fname = (this.fieldName(fname))
+        if (!null? af) {
+          def aff:RsField (unwrap af)
+          if (aff.rname != "") {
+            fname = aff.rname
+          }
+        }
       }
       out.line(((((recv + ".") + fname) + " = ") + v.code))
       return
@@ -7673,7 +8545,17 @@ class RustLower {
       }
       def vec:string (this.bindTemp(cv cv.ty "vec"))
       def iv:RsExpr (this.lowerExpr((lhs.kid(1)) (RsType.mk("int"))))
-      out.line(((((("set_at " + vec) + " ") + iv.code) + " ") + v.code))
+      if (this.isBytes(cv.ty)) {
+        out.line(((((("buffer_set " + vec) + " ") + iv.code) + " ") + v.code))
+      } {
+        out.line(((((("set_at " + vec) + " ") + iv.code) + " ") + v.code))
+      }
+      ; rows[i][j] = x: the inner vector came out as a temporary, which is a
+      ; copy where arrays are values (Swift), so it is stored back
+      def inner:RustNode (lhs.kid(0))
+      if ((inner.kind == "index") && (vec != cv.code)) {
+        this.assignTo(inner (this.simpleExpr(vec cv.ty)))
+      }
       return
     }
     this.unsupported(lhs "this assignment target")
@@ -7720,6 +8602,9 @@ class RustLower {
       }
       def cnt:RsExpr (this.lowerExpr((n.kid(1)) (RsType.mk("int"))))
       def vt:RsType (RsType.of1("vec" t))
+      if (this.isBytes(vt)) {
+        return (RsExpr.of((((("(RsBytes.filled(" + v.code) + " ") + cnt.code) + "))") vt))
+      }
       def name:string (this.tmp("arr"))
       out.line(((("def " + name) + ":") + (this.rtype(vt))))
       def k:string (this.tmp("k"))
@@ -7742,6 +8627,9 @@ class RustLower {
       push codes v2.code
     }
     def vt2:RsType (RsType.of1("vec" t2))
+    if (this.isBytes(vt2)) {
+      return (RsExpr.of((("(RsBytes.ofInts(([] _:int (" + (join codes " ")) + "))))") vt2))
+    }
     def rt:string (this.rtype(t2))
     if (rt == "") {
       if ((array_length codes) == 0) {
@@ -8393,7 +9281,7 @@ class RustLower {
     }
     loopInd = out.ind
     if (mode == "bytes") {
-      out.line((((("def " + n) + ":int (length ") + seq) + ")"))
+      out.line((((("def " + n) + ":int (rs_byte_len ") + bv.code) + ")"))
     } {
       out.line((((("def " + n) + ":int (array_length ") + seq) + ")"))
     }
@@ -8801,6 +9689,16 @@ class RustLower {
       }
     }
     if (false == found) {
+      ; the `rust` arm is Rust code: a target without an arm of its own
+      ; gets it lowered like the rest of the module
+      for arms.kids arm2:RustNode aj {
+        if ((RustLower.targetAlias(arm2.name)) == "rust") {
+          def rex:RustNode (arm2.kid(0))
+          if (false == ((rex.kind == "lit") && (rex.hasMod("str")))) {
+            return (this.lowerExpr(rex expect))
+          }
+        }
+      }
       this.err(m (((("native! has no arm for the target `" + want) + "` (it has ") + (join listed ", ")) + ")"))
       return (this.unit())
     }
@@ -9231,6 +10129,40 @@ class RustLower {
     return false
   }
 
+  ; `matches!(e, P)` → the pattern test on e; with a guard the pattern's
+  ; bindings are made for it.
+  fn lowerMatches:RsExpr (m:RustNode) {
+    def bt:RsType (RsType.mk("bool"))
+    if ((array_length m.kids) < 2) {
+      this.err(m "`matches!` needs an expression and a pattern")
+      return (this.unit())
+    }
+    def v:RsExpr (this.lowerExpr((m.kid(0)) (RsType.mk("unknown"))))
+    def subj:string (this.bindTemp(v v.ty "m"))
+    def pc:string (this.patCond((m.kid(1)) subj v.ty))
+    if ((array_length m.kids) < 3) {
+      def r0:string (this.tmp("mt"))
+      out.line(((("def " + r0) + ":boolean ") + pc))
+      def e0:RsExpr (RsExpr.of(r0 bt))
+      e0.simple = true
+      return e0
+    }
+    def r:string (this.tmp("mt"))
+    out.line((("def " + r) + ":boolean false"))
+    out.line((("if " + pc) + " {"))
+    out.indent()
+    this.pushScope()
+    this.bindPattern((m.kid(1)) subj v.ty)
+    def g:RsExpr (this.lowerExpr((m.kid(2)) bt))
+    out.line(((r + " = ") + g.code))
+    this.popScope()
+    out.dedent()
+    out.line("}")
+    def e:RsExpr (RsExpr.of(r bt))
+    e.simple = true
+    return e
+  }
+
   fn lowerMacroExpr:RsExpr (m:RustNode expect:RsType) {
     def name:string m.name
     if ((name == "native") || (name == "ranger::native")) {
@@ -9263,6 +10195,9 @@ class RustLower {
         return (this.emptyCollection(expect m))
       }
       return (this.lowerArray(arr expect))
+    }
+    if (name == "matches") {
+      return (this.lowerMatches(m))
     }
     if (this.lowerMacroStmt(m)) {
       return (RsExpr.of("" (RsType.mk("never"))))
@@ -9645,12 +10580,7 @@ class RustLower {
       if ((array_length pat.kids) > 0) {
         n0 = (this.patOpen((pat.kid(0)) subj t))
       }
-      def l:RsLocal (this.declare(pat.name t))
-      def code:string subj
-      if (this.isCopyStruct(t)) {
-        code = (("(" + subj) + ".rs_clone())")
-      }
-      out.line(((("def " + (this.declText(l.rname t))) + " ") + code))
+      this.declareBinding(pat subj t)
       return n0
     }
     if (k == "pat_tuple") {
@@ -9673,6 +10603,7 @@ class RustLower {
         out.indent()
         def u:string (this.tmp("u"))
         out.line(((("def " + (this.declText(u (t.arg(0))))) + " (unwrap ") + subj) + ")")
+        set backOf u (this.backPlace(subj))
         return (1 + (this.patOpen((pat.kid(1)) u (t.arg(0)))))
       }
       if (((pn == "Ok") || (pn == "Err")) && (t.kind == "result")) {
@@ -9704,6 +10635,7 @@ class RustLower {
           out.line(((((("def " + cs) + ":") + (this.className(t.name))) + " ") + subj))
         }
         def x:string (this.tmp("x"))
+        set caseOfVar x ((t.name + ".") + pn)
         out.line((((("case " + cs) + " ") + x) + (((":" + (this.caseType(t.name pn))) + " {"))))
         out.indent()
         def opened2:int 1
@@ -10051,7 +10983,7 @@ class RustLower {
 
   ; ` (new RsOMap_…())` after a declaration that needs a constructed value.
   fn initSuffix:string (t:RsType) {
-    if ((t.kind == "map") && (t.name == "ordered")) {
+    if ((this.isBytes(t)) || ((t.kind == "map") && (t.name == "ordered"))) {
       return (" " + (this.defaultValue(t)))
     }
     return ""
@@ -10230,6 +11162,28 @@ class RustLower {
     return false
   }
 
+  ; Generated classes (RsTup_, RsRes_, RsOMap_, RsBox_) another lowering of
+  ; the same program already wrote: marked done here so they are not defined
+  ; twice. The clone helpers are per lowering (cloneClass), so they stay.
+  fn useSharedClasses:void (done:[string:boolean]) {
+    def ks:[string] (keys done)
+    for ks k:string i {
+      set genNames k true
+    }
+  }
+
+  ; The generated class names of this lowering, for the next one.
+  fn sharedClasses:[string] () {
+    def res:[string]
+    def ks:[string] (keys genNames)
+    for ks k:string i {
+      if (startsWith k "Rs") {
+        push res k
+      }
+    }
+    return res
+  }
+
   fn boxClass:string (t:RsType) {
     def plain:RsType (t.copy())
     plain.isRef = false
@@ -10238,7 +11192,9 @@ class RustLower {
     if (false == (has genNames name)) {
       set genNames name true
       def decl:string (this.fieldDecl("v" plain))
-      push genOut (((("class " + name) + " {\n  def ") + decl) + "\n}")
+      ; public: a public function with a `&mut` parameter takes the box
+      def dt:string (this.helperDoc("A `&mut` place passed to a function."))
+      push genOut ((((("class " + name) + " {\n  def ") + decl) + "\n}") + dt)
     }
     return name
   }

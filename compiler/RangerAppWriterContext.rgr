@@ -132,51 +132,17 @@ class RangerRegisteredPlugin {
   def features:[string]
 }
 
-; The part of a compilation's state that only the root context holds.
-class RangerRootTables {
-  def op_list:[string:RangerOperatorList]
-  ; Guards macro expansion against runaway recursion (see
-  ; RangerAppWriterContext.macro_expansion_depth). Keys are operator name +
-  ; source position, NOT the name alone: `if ... else` is itself a macro that
-  ; expands to the three-argument `if`, so nested if/else is a legitimate
-  ; re-entry of the same operator and a name-only key would reject nearly
-  ; every real program.
-  def active_macros:[string:boolean]
-  def already_imported:[string:boolean]
-  def typeClasses:[string:RangerTypeClass]
-  def definedClasses:[string:RangerAppClassDesc]
-  def definedClassList:[string]
-  def templateClassNodes@(weak):[string:CodeNode]
-  def templateClassList:[string]
-  def nativeGenerics:[string:boolean]
-  def genericFormUses:[string:[string]]
-  def classStaticWriters@(weak):[string:CodeWriter]
-  def compilerFlags:[string:boolean]
-  def compilerMessages:[RangerCompilerMessage]
-  def todoList:[RangerAppTodo]
-  ; operators reserved only for the plugin
-  def pluginSpecificOperators:[string:boolean]
-  def appPages@(weak):[string:CodeNode]
-  def appServices@(weak):[string:CodeNode]
-  def libraryPaths:[string]
-  ; top-level functions (ISSUES.md #104):
-  ; function name -> the module classes that declare it, "|"-separated
-  def moduleFunctions:[string:string]
-  ; source file -> its module class
-  def fileModules:[string:string]
-  def typedNodes:[string:RangerNodeList]
-  def registered_plugins:[RangerRegisteredPlugin]
-}
-
 class RangerAppWriterContext {
   def langOperators:CodeNode
   def stdCommands:CodeNode 
   def operators:RangerActiveOperators
+  def op_list:[string:RangerOperatorList]
   def automatically_unwrapped:[string:boolean]
   def known_present:[string:boolean]
   def flow_narrowed:[string:int]
   def auto_unwrap_suppression:int 0
   def reservedWords:CodeNode 
+  def intRootCounter:int 1
   def targetLangName:string ""
   def parent:RangerAppWriterContext
   ; The root, cached by fork. Flags, classes, enums and errors live on the
@@ -184,64 +150,104 @@ class RangerAppWriterContext {
   ; at a time -- a chain that is as deep as the expression is nested. Nine
   ; million hasCompilerFlag calls on one compile.
   def cachedRoot@(optional weak):RangerAppWriterContext
-  ; Tables only the root holds: classes, flags, operators, imports. A fork
-  ; shares the root's (see fork); each fork used to carry its own empty copy
-  ; of every one, and a large program forks hundreds of thousands of
-  ; contexts -- about 2 KB of empty maps each, kept alive by the nodes that
-  ; point at their context. The root gets them from createRoot.
-  def tables:RangerRootTables
+  def defined_imports:[string]
   ; Guards macro expansion against runaway recursion. Macro expansion is the
   ; one path that re-walks its own output, so an expansion that reaches the
   ; same call site again never terminates; unguarded the compiler hangs with
   ; no diagnostic at all. Both live on the root context so nested forks share
   ; one view.
-  ; Backstop only. tables.active_macros cannot see a cycle whose expansion keeps
+  ;
+  ; active_macros keys on operator name + source position, NOT on the name
+  ; alone: `if ... else` is itself a macro that expands to the three-argument
+  ; `if`, so nested if/else is a legitimate re-entry of the same operator and
+  ; a name-only key would reject nearly every real program.
+  def active_macros:[string:boolean]
+  ; Backstop only. active_macros cannot see a cycle whose expansion keeps
   ; growing new source positions, so a depth ceiling stops the hang even then.
   def macro_expansion_depth:int 0
+  def already_imported:[string:boolean]
   def fileSystem:CodeFileSystem
   def is_function:boolean false
   def class_level_context:boolean false
   def function_level_context:boolean false
   def in_main:boolean false
+  def is_block:boolean false
   def is_lambda:boolean false
   def is_capturing:boolean false
   def is_catch_block:boolean false
   def is_try_block:boolean false
   def captured_variables:[string]
+  def has_block_exited:boolean false
+  def in_expression:boolean false
   def expr_stack:[boolean]
   def expr_restart:boolean false
   def expr_restart_block:boolean false
   def in_lhs_of_assignment:boolean false  ; True when processing LHS of = assignment (for Rust as_mut vs as_ref)
   def in_method:boolean false
   def method_stack:[boolean]
+  def typeNames:[string]
+  def typeClasses:[string:RangerTypeClass]
+  def currentClassName:string
   def in_class:boolean false
   def in_static_method:boolean false
   def currentClass@(weak):RangerAppClassDesc
   def currentMethod@(weak):RangerAppFunctionDesc
   def thisName:string "this"
   def definedEnums:[string:RangerAppEnum]
+  def definedInterfaces:[string:RangerAppClassDesc]
+  def definedInterfaceList:[string]
+  def definedClasses:[string:RangerAppClassDesc]
+  def definedClassList:[string]
+  ; NEW: list of tasks defined 
+  def definedTasks:[string:RangerAppFunctionDesc]
+  def templateClassNodes@(weak):[string:CodeNode]
+  def templateClassList:[string]
   def classSignatures:[string:string]
   def classToSignature:[string:string]
+  def templateClasses:[string:RangerAppClassDesc]
+  def nativeGenerics:[string:boolean]
+  def genericFormUses:[string:[string]]
+  def classStaticWriters@(weak):[string:CodeWriter]
   def localVariables:[string:RangerAppParamDesc]
   def localVarNames:[string]
   
   def contextFlags:[string:boolean]
   def settings:[string:string]
+  def compilerFlags:[string:boolean]
   def compilerSettings:[string:string]
   def parserErrors:[RangerCompilerMessage]
   def compilerErrors:[RangerCompilerMessage]
+  def compilerMessages:[RangerCompilerMessage]
+  def compilerLog:[string:RangerCompilerMessage]
+  def todoList:[RangerAppTodo]
+  def definedMacro:[string:boolean]
   def defCounts:[string:int]
   def refTransform:[string:string]
   def staticClassBodies:[CodeNode]
 
+  ; operators reserved only for the plugin
+  def pluginSpecificOperators:[string:boolean]
+
   def viewClassBody@(weak):[string:CodeNode]
+  def appPages@(weak):[string:CodeNode]
+  def appServices@(weak):[string:CodeNode]
   
   def opNs:[string]
 
+  def langFilePath:string ""
+  def libraryPaths:[string]
+  ; top-level functions (ISSUES.md #104), kept on the root context:
+  ; function name -> the module classes that declare it, "|"-separated
+  def moduleFunctions:[string:string]
+  ; source file -> its module class
+  def fileModules:[string:string]
+  def outputPath ""
 
   def counters:TypeCounts (new TypeCounts)
   def parser:RangerFlowParser
   def compiler:LiveCompiler
+  def typedNodes:[string:RangerNodeList]
+  def registered_plugins:[RangerRegisteredPlugin]
 
   def operatorFunction:(_:CodeNode (name:string) )
   def lastBlockOp@(weak):CodeNode
@@ -427,8 +433,11 @@ class RangerAppWriterContext {
 
   ; Generate a unique temp variable name
   fn rustGetTempVar:string () {
-    rust_temp_counter = rust_temp_counter + 1
-    return ("_tmp_" + rust_temp_counter)
+    ; one counter for the whole program: a forked context counting from 0
+    ; again named a second `_tmp_1` in the same block
+    def root (this.getRoot())
+    root.rust_temp_counter = root.rust_temp_counter + 1
+    return ("_tmp_" + root.rust_temp_counter)
   }
 
   fn getEnv@(optional weak):InputEnv () {
@@ -512,7 +521,7 @@ class RangerAppWriterContext {
 
   fn removePluginOp( name:string ) {
     def root (this.getRoot())
-    set root.tables.pluginSpecificOperators name false
+    set root.pluginSpecificOperators name false
   }
   
   fn isPluginOp:boolean ( node:CodeNode ) {
@@ -521,8 +530,8 @@ class RangerAppWriterContext {
         if( has fc.ns ) {
           def firstNS (itemAt fc.ns 0)
           def root (this.getRoot())
-          if(has root.tables.pluginSpecificOperators firstNS) {
-            return (unwrap (get root.tables.pluginSpecificOperators firstNS))
+          if(has root.pluginSpecificOperators firstNS) {
+            return (unwrap (get root.pluginSpecificOperators firstNS))
           }
         }
     }
@@ -530,12 +539,12 @@ class RangerAppWriterContext {
   }
   fn addPlugin ( p@(temp):RangerRegisteredPlugin) {
     def root (this.getRoot())
-    push root.tables.registered_plugins p
+    push root.registered_plugins p
   }
 
   fn findPluginsFor:[string] ( featureName:string ) {
     def res:[string]
-    for tables.registered_plugins p@(lives):RangerRegisteredPlugin i {
+    for registered_plugins p@(lives):RangerRegisteredPlugin i {
       if( (indexOf p.features featureName) >= 0) {
         push res p.name
       }
@@ -545,17 +554,17 @@ class RangerAppWriterContext {
 
   fn addTypeClass@(weak):RangerTypeClass (name:string) {
     def root (this.getRoot())
-    if( false == (has root.tables.typeClasses name)) {
+    if( false == (has root.typeClasses name)) {
       def newClass ( new RangerTypeClass )
-      set root.tables.typeClasses name newClass
+      set root.typeClasses name newClass
       return newClass
     }
-    return (unwrap (get root.tables.typeClasses name))
+    return (unwrap (get root.typeClasses name))
   }
 
   fn getTypeClass@(optional):RangerTypeClass (name:string) {
     def root (this.getRoot())
-    return (get root.tables.typeClasses name)
+    return (get root.typeClasses name)
   }
 
   fn getParser@(weak optional):RangerFlowParser () {
@@ -575,11 +584,11 @@ class RangerAppWriterContext {
     }
     return compiler
   }
-  ; tables.typedNodes
+  ; typedNodes
   fn getTypedNodes:[CodeNode] (name:string) {
     def root (this.getRoot())
     def res:[CodeNode]
-    def list (get root.tables.typedNodes name)
+    def list (get root.typedNodes name)
     if(!null? list) {
       list.items.forEach({
         def tmp@(lives) item
@@ -590,13 +599,13 @@ class RangerAppWriterContext {
   }
   fn addTypedNode ( name:string op@(temp):CodeNode ) {
     def root (this.getRoot())
-    if( has root.tables.typedNodes name ) {
-      def orig_list (unwrap (get root.tables.typedNodes name))
+    if( has root.typedNodes name ) {
+      def orig_list (unwrap (get root.typedNodes name))
       push orig_list.items op
     } {
       def new_list (new RangerNodeList)
       push new_list.items op
-      set root.tables.typedNodes name new_list
+      set root.typedNodes name new_list
     }
   }
 
@@ -605,13 +614,13 @@ class RangerAppWriterContext {
   fn addOperator ( op@(temp strong):RangerAppOperatorDesc ) {
     def root (this.getRoot())
     if( (strlen op.name) > 0 ) {
-      if( has root.tables.op_list op.name ) {
-        def orig_list (unwrap (get root.tables.op_list op.name))
+      if( has root.op_list op.name ) {
+        def orig_list (unwrap (get root.op_list op.name))
         push orig_list.items op
       } {
         def new_list (new RangerOperatorList)
         push new_list.items op
-        set root.tables.op_list op.name new_list
+        set root.op_list op.name new_list
       }
     }
   }
@@ -619,7 +628,7 @@ class RangerAppWriterContext {
   fn getAllOperators:[RangerAppOperatorDesc] () {
     def root (this.getRoot())
     def res:[RangerAppOperatorDesc]
-    root.tables.op_list.forEach({
+    root.op_list.forEach({
       item.items.forEach({
         def tmp@(lives) item
         push res tmp
@@ -632,7 +641,7 @@ class RangerAppWriterContext {
     ; support for context specific operators ? 
     def root (this.getRoot())
     def res:[RangerAppOperatorDesc]
-    def list (get root.tables.op_list name)
+    def list (get root.op_list name)
     if(!null? list) {
       return (clone list.items)
     }
@@ -787,11 +796,11 @@ class RangerAppWriterContext {
   }
   fn addPage ( name:string classDef:CodeNode ) {
     def root (this.getRoot())
-    set root.tables.appPages name classDef
+    set root.appPages name classDef
   }
   fn addService ( name:string classDef:CodeNode ) {
     def root (this.getRoot())
-    set root.tables.appServices name classDef
+    set root.appServices name classDef
   }
   fn getViewClass@(optional):CodeNode (s_name:string) {
     def res@(optional temp):CodeNode
@@ -1755,12 +1764,12 @@ class RangerAppWriterContext {
   ; RangerFlowParser.checkNativeGenerics decides; the writers only ask.
   fn setNativeGeneric:void (templateName:string isNative:boolean) {
     def root:RangerAppWriterContext (this.getRoot())
-    set root.tables.nativeGenerics templateName isNative
+    set root.nativeGenerics templateName isNative
   }
   fn isNativeGeneric:boolean (templateName:string) {
     def root:RangerAppWriterContext (this.getRoot())
-    if (has root.tables.nativeGenerics templateName) {
-      def v:boolean (unwrap (get root.tables.nativeGenerics templateName))
+    if (has root.nativeGenerics templateName) {
+      def v:boolean (unwrap (get root.nativeGenerics templateName))
       return v
     }
     return false
@@ -1837,7 +1846,7 @@ class RangerAppWriterContext {
     e.description = descr
     e.todonode = node
     def root:RangerAppWriterContext (this.getRoot())
-    push root.tables.todoList e
+    push root.todoList e
   }
   fn setThisName:void (the_name:string) {
     def root:RangerAppWriterContext (this.getRoot())
@@ -1858,7 +1867,7 @@ class RangerAppWriterContext {
     e.description = descr
     e.node = node
     def root:RangerAppWriterContext (this.getRoot())
-    push root.tables.compilerMessages e
+    push root.compilerMessages e
   }
   fn errCnt:int() {
     def root:RangerAppWriterContext (this.getRoot())
@@ -1892,24 +1901,24 @@ class RangerAppWriterContext {
   }
   fn addTemplateClass:void (name:string node@(lives):CodeNode) {
     def root:RangerAppWriterContext (this.getRoot())
-    push root.tables.templateClassList name
-    set root.tables.templateClassNodes name node
+    push root.templateClassList name
+    set root.templateClassNodes name node
   }
   fn hasTemplateNode:boolean (name:string) {
     def root:RangerAppWriterContext (this.getRoot())
-    return (has root.tables.templateClassNodes name)
+    return (has root.templateClassNodes name)
   }
   fn findTemplateNode:CodeNode (name:string) {
     def root:RangerAppWriterContext (this.getRoot())
-    return (unwrap (get root.tables.templateClassNodes name))
+    return (unwrap (get root.templateClassNodes name))
   }
   fn setStaticWriter:void (className:string writer@(lives):CodeWriter) {
     def root:RangerAppWriterContext (this.getRoot())
-    set root.tables.classStaticWriters className writer
+    set root.classStaticWriters className writer
   }
   fn getStaticWriter:CodeWriter (className:string) {
     def root:RangerAppWriterContext (this.getRoot())
-    return (unwrap (get root.tables.classStaticWriters className))
+    return (unwrap (get root.classStaticWriters className))
   }
   fn isEnumDefined:boolean (n:string) {
     if (has definedEnums n) {
@@ -1979,13 +1988,13 @@ class RangerAppWriterContext {
 
   fn setCompilerFlag:void (name:string value:boolean) {
     def root (this.getRoot())
-    set root.tables.compilerFlags name value
+    set root.compilerFlags name value
   }
   fn hasCompilerFlag:boolean (s_name:string) {
     ; setCompilerFlag writes to the root only, so the root has the answer.
     def root (this.getRoot())
-    if (has root.tables.compilerFlags s_name) {
-      return ( unwrap (get root.tables.compilerFlags s_name) )
+    if (has root.compilerFlags s_name) {
+      return ( unwrap (get root.compilerFlags s_name) )
     }
     return false
   }
@@ -2222,7 +2231,7 @@ class RangerAppWriterContext {
   fn isDefinedClass:boolean (name:string) {
     ; addClass writes to the root only, so the root has the answer.
     def root (this.getRoot())
-    return (has root.tables.definedClasses name)
+    return (has root.definedClasses name)
   }
   fn getRoot:RangerAppWriterContext () {
     if (null? parent) {
@@ -2235,27 +2244,27 @@ class RangerAppWriterContext {
   }
   fn getClasses:[RangerAppClassDesc] () {
     def list:[RangerAppClassDesc]
-    for tables.definedClassList n:string i  {
-      push list (unwrap (get tables.definedClasses n))
+    for definedClassList n:string i  {
+      push list (unwrap (get definedClasses n))
     }
     return list
   }
   fn addClass:void (name:string desc@(strong):RangerAppClassDesc) {
     def root:RangerAppWriterContext (this.getRoot())
-    if (has root.tables.definedClasses name) {
+    if (has root.definedClasses name) {
       ; skip definition...
     } {
-      set root.tables.definedClasses name desc
-      push root.tables.definedClassList name
+      set root.definedClasses name desc
+      push root.definedClassList name
     }
   }
   fn findClass:RangerAppClassDesc (name:string) {
     def root:RangerAppWriterContext (this.getRoot())
-    return (unwrap (get root.tables.definedClasses name))
+    return (unwrap (get root.definedClasses name))
   }
   fn hasClass:boolean (name:string) {
     def root:RangerAppWriterContext (this.getRoot())
-    return (has root.tables.definedClasses name)
+    return (has root.definedClasses name)
   }
   fn getCurrentMethod@(weak):RangerAppFunctionDesc () {
     if (!null? currentMethod) {
@@ -2409,14 +2418,7 @@ class RangerAppWriterContext {
     def new_ctx:RangerAppWriterContext (new RangerAppWriterContext ())
     new_ctx.parent = this
     new_ctx.cachedRoot = (this.getRoot())
-    new_ctx.tables = this.tables
     return new_ctx
-  }
-  ; The context a compilation starts from: the one that owns the tables.
-  sfn createRoot:RangerAppWriterContext () {
-    def ctx:RangerAppWriterContext (new RangerAppWriterContext ())
-    ctx.tables = (new RangerRootTables ())
-    return ctx
   }
 
 
