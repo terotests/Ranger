@@ -105,3 +105,20 @@ describe("an import_rgr! path out of the crate, lib.rs imported from a subfolder
     expect(build(RGR_SUBDIR, "cpp", "rgrsubdir")).toBe("2\n");
   });
 });
+
+// Two crates of one program (app, and counter that app has as a Cargo path
+// dependency) both import_rgr! the same shared/Bag.rgr, by paths spelled
+// differently; the class is lowered once, not refused as declared twice.
+const RGR_SHARED = "tests/fixtures/rust_rgr_shared/Main.rgr";
+
+describe("one .rgr file import_rgr!'d by two crates of the program", () => {
+  it("es6", () => {
+    expect(build(RGR_SHARED, "es6", "rgrshared")).toBe("2\n3\n");
+  });
+  it.skipIf(!HAS_GO)("go", () => {
+    expect(build(RGR_SHARED, "go", "rgrshared")).toBe("2\n3\n");
+  });
+  it.skipIf(!HAS_CPP)("cpp", () => {
+    expect(build(RGR_SHARED, "cpp", "rgrshared")).toBe("2\n3\n");
+  });
+});

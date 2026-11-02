@@ -89377,6 +89377,7 @@ class RustLower  {
     this.pendingFiles = [];
     this.pendingScan = [];
     this.rgrScanned = {};
+    this.rgrAdded = {};
     this.rgrClassNames = [];
     this.rgrImports = [];
     this.entryName = "";
@@ -89768,7 +89769,15 @@ class RustLower  {
     this.registerModule(root, key, path, own);
   };
   addRgr (path, src, at, scanOnly) {
+    const np = RustLower.normPath(path);
+    if ( ( typeof(this.rgrAdded[np] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rgrAdded, np) ) ) {
+      return;
+    }
     this.rgrScanned[path] = true;
+    this.rgrScanned[np] = true;
+    if ( scanOnly == false ) {
+      this.rgrAdded[np] = true;
+    }
     const sc = new RsRgrScan();
     sc.scan(src, path);
     let wantParent = false;
@@ -89794,7 +89803,7 @@ class RustLower  {
       // Loop start
       for ( const imp of sc.imports) {
         const ip = RustLower.joinPath(RustLower.dirOf(path), imp);
-        if ( ( typeof(this.rgrScanned[ip] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rgrScanned, ip) ) ) {
+        if ( ( typeof(this.rgrScanned[ip] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rgrScanned, ip) ) || ( typeof(this.rgrScanned[RustLower.normPath(ip)] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rgrScanned, RustLower.normPath(ip)) ) ) {
           continue;
         }
         this.rgrScanned[ip] = true;
@@ -99979,6 +99988,26 @@ RustLower.joinPath = function(dir, name) {
     return name;
   }
   return (dir + "/") + name;
+};
+RustLower.normPath = function(path) {
+  const parts = path.split("/");
+  let out = [];
+  // Loop start
+  for ( const p of parts) {
+    if ( p == "." ) {
+      continue;
+    }
+    const n = out.length;
+    if ( p == ".." && n > 0 ) {
+      const last = out[(n - 1)];
+      if ( last != ".." && last != "" ) {
+        out.splice(n - 1, 1).pop();
+        continue;
+      }
+    }
+    out.push(p);
+  }
+  return out.join("/");
 };
 RustLower.targetAlias = function(t) {
   if ( t == "js" || t == "javascript" ) {
