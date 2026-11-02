@@ -1,0 +1,7 @@
+Import "util.rgr"
+
+class Uses {
+  sfn both:string () {
+    return ((TopUtil.name()) + "+" + (SubUtil.name()))
+  }
+}

@@ -1,0 +1,5 @@
+class SubUtil {
+  sfn name:string () {
+    return "sub"
+  }
+}

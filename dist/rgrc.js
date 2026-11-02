@@ -6676,6 +6676,7 @@ class RangerAppWriterContext  {
     this.opNs = [];
     this.langFilePath = "";     /* note: unused */
     this.libraryPaths = [];
+    this.libraryPathsBase = 0;
     this.moduleFunctions = {};
     this.fileModules = {};
     this.outputPath = "";     /* note: unused */
@@ -23285,6 +23286,10 @@ class RangerFlowParser  {
           searchPaths.push(hit.dir);
         }
       }
+      const nlp = rootCtx.libraryPaths.length;
+      if ( nlp > rootCtx.libraryPathsBase ) {
+        searchPaths.push(rootCtx.libraryPaths[(nlp - 1)]);
+      }
       let wi = 0;
       while (wi < rootCtx.libraryPaths.length) {
         searchPaths.push(rootCtx.libraryPaths[wi]);
@@ -24759,8 +24764,12 @@ class RangerFlowParser  {
             searchPaths.push(hit.dir);
           }
         }
+        const nlp = rootCtx.libraryPaths.length;
+        if ( nlp > rootCtx.libraryPathsBase ) {
+          searchPaths.push(rootCtx.libraryPaths[(nlp - 1)]);
+        }
         let pi = 0;
-        while (pi < rootCtx.libraryPaths.length) {
+        while (pi < nlp) {
           searchPaths.push(rootCtx.libraryPaths[pi]);
           pi = pi + 1;
         };
@@ -100856,6 +100865,7 @@ class VirtualCompiler  {
     ModuleFunctions.hoist(root, the_file, appCtx);
     appCtx.env = env;
     appCtx.libraryPaths = langFileDirs;
+    appCtx.libraryPathsBase = langFileDirs.length;
     appCtx.compilerSettings["package"] = package_name;
     if ( appCtx.hasCompilerFlag("verbose") ) {
       // Loop start

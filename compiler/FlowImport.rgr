@@ -272,8 +272,15 @@ extension RangerFlowParser {
             push searchPaths hit.dir
           }
         }
+        ; An imported file's own directory (the last library path) is
+        ; searched first: `Import "lib.rs"` in gallery/math/src means that
+        ; folder's lib.rs, even when the entry file's folder has a lib.rs too.
+        def nlp:int (array_length rootCtx.libraryPaths)
+        if (nlp > rootCtx.libraryPathsBase) {
+          push searchPaths (itemAt rootCtx.libraryPaths (nlp - 1))
+        }
         def pi:int 0
-        while (pi < (array_length rootCtx.libraryPaths)) {
+        while (pi < nlp) {
           push searchPaths (itemAt rootCtx.libraryPaths pi)
           pi = (pi + 1)
         }

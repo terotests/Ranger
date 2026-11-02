@@ -1,0 +1,5 @@
+class TopUtil {
+  sfn name:string () {
+    return "top"
+  }
+}
