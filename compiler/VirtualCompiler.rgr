@@ -949,6 +949,7 @@ class tester {
     ModuleFunctions.hoist(root the_file appCtx)
     appCtx.env = env
     appCtx.libraryPaths = langFileDirs
+    appCtx.libraryPathsBase = (array_length langFileDirs)
     set appCtx.compilerSettings "package" package_name
     if(appCtx.hasCompilerFlag('verbose')) {
       for appCtx.libraryPaths include_path:string i {

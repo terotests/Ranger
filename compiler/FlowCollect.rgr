@@ -1182,6 +1182,11 @@ extension RangerFlowParser {
           push searchPaths hit.dir
         }
       }
+      ; as in mergeImports: the importing file's own directory first
+      def nlp:int (array_length rootCtx.libraryPaths)
+      if (nlp > rootCtx.libraryPathsBase) {
+        push searchPaths (itemAt rootCtx.libraryPaths (nlp - 1))
+      }
       def wi:int 0
       while (wi < (array_length rootCtx.libraryPaths)) {
         push searchPaths (itemAt rootCtx.libraryPaths wi)

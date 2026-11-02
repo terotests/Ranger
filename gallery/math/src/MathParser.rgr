@@ -1,0 +1,3 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; MathParser is Rust syntax now (math_parser.rs): this file keeps the old import path.
+Import "lib.rs"

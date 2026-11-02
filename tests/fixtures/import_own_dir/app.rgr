@@ -1,0 +1,10 @@
+; The entry folder has its own util.rgr; sub/Uses.rgr's `Import "util.rgr"`
+; must still read sub/util.rgr.
+Import "util.rgr"
+Import "sub/Uses.rgr"
+
+class Main {
+  sfn m@(main):void () {
+    print (Uses.both())
+  }
+}

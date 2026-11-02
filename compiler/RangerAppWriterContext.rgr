@@ -236,6 +236,9 @@ class RangerAppWriterContext {
 
   def langFilePath:string ""
   def libraryPaths:[string]
+  ; how many of libraryPaths were given at the start; the ones after it are
+  ; the folders of the files being imported, innermost last
+  def libraryPathsBase:int 0
   ; top-level functions (ISSUES.md #104), kept on the root context:
   ; function name -> the module classes that declare it, "|"-separated
   def moduleFunctions:[string:string]

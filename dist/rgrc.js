@@ -6676,6 +6676,7 @@ class RangerAppWriterContext  {
     this.opNs = [];
     this.langFilePath = "";     /* note: unused */
     this.libraryPaths = [];
+    this.libraryPathsBase = 0;
     this.moduleFunctions = {};
     this.fileModules = {};
     this.outputPath = "";     /* note: unused */
@@ -23285,6 +23286,10 @@ class RangerFlowParser  {
           searchPaths.push(hit.dir);
         }
       }
+      const nlp = rootCtx.libraryPaths.length;
+      if ( nlp > rootCtx.libraryPathsBase ) {
+        searchPaths.push(rootCtx.libraryPaths[(nlp - 1)]);
+      }
       let wi = 0;
       while (wi < rootCtx.libraryPaths.length) {
         searchPaths.push(rootCtx.libraryPaths[wi]);
@@ -24759,8 +24764,12 @@ class RangerFlowParser  {
             searchPaths.push(hit.dir);
           }
         }
+        const nlp = rootCtx.libraryPaths.length;
+        if ( nlp > rootCtx.libraryPathsBase ) {
+          searchPaths.push(rootCtx.libraryPaths[(nlp - 1)]);
+        }
         let pi = 0;
-        while (pi < rootCtx.libraryPaths.length) {
+        while (pi < nlp) {
           searchPaths.push(rootCtx.libraryPaths[pi]);
           pi = pi + 1;
         };
@@ -41278,7 +41287,15 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         const oo = this.rustStripToString(o_1);
         ctx.setInExpr();
         wr.suppress_expr_parens = true;
-        wr.in_format_args = true;
+        const ooR = this.rustUnwrapParens(oo);
+        let ooSfc = false;
+        if ( ooR.children.length == 2 ) {
+          const __REGx1 = ooR.getFirst();
+          if ( __REGx1.vref == "strfromcode" ) {
+            ooSfc = true;
+          }
+        }
+        wr.in_format_args = ooSfc;
         this.WalkNode(oo, ctx, wr);
         wr.in_format_args = false;
         wr.suppress_expr_parens = false;
@@ -100848,6 +100865,7 @@ class VirtualCompiler  {
     ModuleFunctions.hoist(root, the_file, appCtx);
     appCtx.env = env;
     appCtx.libraryPaths = langFileDirs;
+    appCtx.libraryPathsBase = langFileDirs.length;
     appCtx.compilerSettings["package"] = package_name;
     if ( appCtx.hasCompilerFlag("verbose") ) {
       // Loop start

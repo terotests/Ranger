@@ -270,7 +270,17 @@ extension RangerRustClassWriter {
         def oo:CodeNode (this.rustStripToString(o))
         ctx.setInExpr()
         wr.suppress_expr_parens = true
-        wr.in_format_args = true
+        ; only the operand itself is a format! argument: a strfromcode
+        ; deeper down, as a call's argument (`esc((strfromcode cp))`), still
+        ; has to be a String (E0308, &char where &str was wanted)
+        def ooR:CodeNode (this.rustUnwrapParens(oo))
+        def ooSfc:boolean false
+        if ((array_length ooR.children) == 2) {
+          if ((ooR.getFirst()).vref == "strfromcode") {
+            ooSfc = true
+          }
+        }
+        wr.in_format_args = ooSfc
         this.WalkNode(oo ctx wr)
         wr.in_format_args = false
         wr.suppress_expr_parens = false
