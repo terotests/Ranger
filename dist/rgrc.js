@@ -89795,6 +89795,12 @@ class RustLower  {
         if ( scanOnly ) {
           continue;
         }
+        if ( ( typeof(this.structs[c.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, c.name) ) ) {
+          const known = ( Object.prototype.hasOwnProperty.call(this.structs, c.name) ? this.structs[c.name] : undefined );
+          if ( known.rgr ) {
+            continue;
+          }
+        }
         this.err(at, ((("`" + c.name) + "` of ") + path) + " is also declared in the Rust code");
         continue;
       }

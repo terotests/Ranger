@@ -1,0 +1,9 @@
+; a .rgr class both crates include with ranger::import_rgr!
+class Label {
+  def text:string ""
+  sfn of:Label (t:string) {
+    def l:Label (new Label())
+    l.text = t
+    return l
+  }
+}
