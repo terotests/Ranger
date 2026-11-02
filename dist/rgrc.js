@@ -32276,9 +32276,13 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       const obj = node.getSecond();
       const method = node.getThird();
       const args = node.children[3];
-      this.writeCallReceiver(obj, ctx, wr);
-      if ( this.cppCallReceiverNeedsValue(obj, ctx) ) {
-        wr.out(".value()", false);
+      if ( obj.vref == "this" && obj.ns.length <= 1 ) {
+        wr.out("this", false);
+      } else {
+        this.writeCallReceiver(obj, ctx, wr);
+        if ( this.cppCallReceiverNeedsValue(obj, ctx) ) {
+          wr.out(".value()", false);
+        }
       }
       wr.out("->", false);
       wr.out(method.vref, false);

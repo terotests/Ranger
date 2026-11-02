@@ -1,0 +1,37 @@
+; A method named like an operator (indexOf, find, has, ...) called as
+; this.x(...) from the constructor: C++ must call it through `this`, not
+; shared_from_this(), which throws bad_weak_ptr before the object is held by
+; a shared_ptr (RangerMarkdown's MdCssSupport).
+class Names {
+    def xs:[string]
+    Constructor () {
+        this.add("a")
+        this.add("b")
+        this.add("a")
+    }
+    fn indexOf:int (n:string) {
+        def i:int 0
+        while (i < (array_length xs)) {
+            if ((itemAt xs i) == n) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+    fn find:int (n:string) {
+        return (this.indexOf(n))
+    }
+    fn add:void (n:string) {
+        if ((this.indexOf(n)) < 0) {
+            push xs n
+        }
+    }
+}
+class Main {
+    sfn m@(main):void () {
+        def names (new Names())
+        print ("count=" + (array_length names.xs))
+        print ("find=" + (names.find("b")))
+    }
+}
