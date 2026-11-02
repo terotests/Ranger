@@ -96,6 +96,23 @@ class RustReserved {
     return names
   }
 
+  ; The reserved names that cannot be a field or a method either. A member
+  ; is always written `obj.name` / `this.name`, so a keyword or an operator
+  ; name is harmless there: Ranger's own classes declare fields `type`,
+  ; `data`, `remove`, ... (probed: each of the other locally reserved names
+  ; as a field and as a method of a .rgr class compiles and runs on es6, go
+  ; and cpp). These are the ones that failed: es6 for `cast` ... `while`,
+  ; go and cpp for `break` ... `throw`. A member named like them keeps the
+  ; `_` suffix, so .rgr code calls it by that name.
+  sfn memberUnsafeNames:[string:boolean] () {
+    def names:[string:boolean]
+    def parts:[string] (strsplit "cast case false if on_keypress return static switch true try while break continue default for map throw" " ")
+    for parts p:string i {
+      set names p true
+    }
+    return names
+  }
+
   ; Operator names, from the operator declarations of Lang.rgr, stdops.rgr
   ; and RsPrelude.rgr. A LOCAL named like an operator hides it: once a
   ; local named `keys` exists, a later `(keys m)` reads the local.
@@ -126,7 +143,7 @@ class RustReserved {
     push parts "pushString random rawbytechar read_file read_file_sync regex_test"
     push parts "remove removeLast remove_index replace ret return reverse rs_abs"
     push parts "rs_byte_len rs_byte_slice rs_ceil rs_char_code rs_char_count"
-    push parts "rs_char_from rs_dbg rs_div rs_f2i rs_find_bytes rs_floor rs_fmt"
+    push parts "rs_bytes_extend rs_bytes_grow rs_bytes_push rs_char_from rs_dbg rs_div rs_f2i rs_find_bytes rs_floor rs_fmt"
     push parts "rs_fmt_dbg_f64 rs_fmt_prec rs_i2f rs_lower rs_map_len rs_map_remove"
     push parts "rs_max rs_min rs_neg rs_panic rs_pow rs_powi rs_rem rs_sqrt rs_str_cmp"
     push parts "rs_upper rs_wrap_u16 rs_wrap_u8 run_process_result set set_at"

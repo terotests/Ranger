@@ -924,7 +924,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           if ((array_length node.children) >= idx) {
             def arg:CodeNode (itemAt node.children idx)
             def root (ctx.getRoot())
-            def sNode (get root.tables.appServices arg.vref)
+            def sNode (get root.appServices arg.vref)
             if(!null? sNode) {
               wr.out( sNode.appGUID false)
             } {
@@ -960,6 +960,24 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               arg = (arg.getFirst())
             }
             wr.outMapped((langWriter.EncodeString(arg ctx wr)) arg false "")
+          }
+        }
+        ; `(eown N)` is `(e N)` for an operand whose value the expression
+        ; must own: the target adds what that takes (a Rust field read gets
+        ; `.clone()` -- `if f { op.newText } else { op.oldText }` is E0507)
+        case "eown" {
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            if ((strlen arg.rust_use_tmpvar) > 0) {
+              wr.out(arg.rust_use_tmpvar false)
+              arg.rust_use_tmpvar = ""
+              return
+            }
+            ctx.setInExpr()
+            this.WalkNode(arg ctx wr)
+            ctx.unsetInExpr()
+            wr.out((langWriter.ownedValueSuffix(arg ctx)) false)
           }
         }
         case "block" {
@@ -1449,32 +1467,15 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           }
         }
         case "ptr" {
-          ; "*" before the element type of the array `arg` when its items
-          ; are held by pointer (Go: an object, not a value, an interface of
-          ; a class with subclasses, a union or a collection) -- the rules
-          ; the array's own type is written by, so a helper's []T matches
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
-            def tn:CodeNode arg
             if arg.hasParamDesc {
-              tn = (unwrap arg.paramDesc.nameNode)
-            }
-            def elem:string tn.array_type
-            if ((tn.eval_type != RangerNodeType.NoType) && ((strlen tn.eval_array_type) > 0)) {
-              elem = tn.eval_array_type
-            }
-            if ((strlen elem) > 0) {
-              if ((ctx.isPrimitiveType(elem)) == false) {
-                if (ctx.isDefinedClass(elem)) {
-                  def ec:RangerAppClassDesc (ctx.findClass(elem))
-                  if ((ec.is_union == false) && ((ec.doesInherit()) == false)) {
-                    wr.out("*" false)
-                  }
-                }
+              if ((arg.paramDesc.nameNode.isAPrimitiveType()) == false) {
+                wr.out("*" false)
               }
             } {
-              if ((tn.isAPrimitiveType()) == false) {
+              if ((arg.isAPrimitiveType()) == false) {
                 wr.out("*" false)
               }
             }

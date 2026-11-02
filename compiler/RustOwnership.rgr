@@ -7,6 +7,69 @@
 
 extension RangerRustClassWriter {
 
+  ; Whether reading `read` runs again on every pass of a loop that the
+  ; variable was declared OUTSIDE of. `ref_cnt` counts the places a name is
+  ; written, so one read inside a `while` counts once, and a `def owner last`
+  ; in the loop body was written as a move: the second pass reads a moved
+  ; value (E0382). A loop around both the read and the declaration starts
+  ; the variable over on each pass and needs nothing.
+  ;
+  ; Blocks do not carry a parent link, so the loops around the read are
+  ; found walking down from the method body.
+  fn rustReadRepeatsInLoop:boolean (read:CodeNode vp:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    def defNN@(optional):CodeNode vp.nameNode
+    if (null? defNN) {
+      return false
+    }
+    def defN:CodeNode (unwrap defNN)
+    def fnD:RangerAppFunctionDesc (ctx.getCurrentMethod())
+    def bodyN@(optional):CodeNode fnD.fnBody
+    if (null? bodyN) {
+      return false
+    }
+    def loops:[CodeNode]
+    if ((this.rustLoopsAround((unwrap bodyN) read loops)) == false) {
+      return false
+    }
+    def i:int 0
+    while (i < (array_length loops)) {
+      def loopN:CodeNode (itemAt loops i)
+      def none:[CodeNode]
+      if ((this.rustLoopsAround(loopN defN none)) == false) {
+        return true
+      }
+      i = (i + 1)
+    }
+    return false
+  }
+
+  ; Whether `target` is inside `node`; the `while` and `for` nodes on the
+  ; way down are pushed to `loops`.
+  fn rustLoopsAround:boolean (node:CodeNode target:CodeNode loops:[CodeNode]) {
+    if (node == target) {
+      return true
+    }
+    def isLoop:boolean false
+    if (node.expression && ((array_length node.children) > 0)) {
+      def head:CodeNode (node.getFirst())
+      if ((head.vref == "while") || (head.vref == "for")) {
+        isLoop = true
+      }
+    }
+    def i:int 0
+    while (i < (array_length node.children)) {
+      def ch:CodeNode (itemAt node.children i)
+      if (this.rustLoopsAround(ch target loops)) {
+        if isLoop {
+          push loops node
+        }
+        return true
+      }
+      i = (i + 1)
+    }
+    return false
+  }
+
   fn rustReceiverPathClass@(optional):RangerAppClassDesc (fc:CodeNode ctx:RangerAppWriterContext) {
     def rpRes@(optional):RangerAppClassDesc
     def rpLen:int (array_length fc.ns)
@@ -453,7 +516,7 @@ extension RangerRustClassWriter {
       }
     }
     ; …and a field desc reached through ANOTHER object is not this object's
-    ; struct: `root.tables.definedClasses` carries the desc of a class variable, but
+    ; struct: `root.definedClasses` carries the desc of a class variable, but
     ; the variable being read belongs to `root`. Only a bare name — an
     ; implicit `this.x` — counts.
     if node.hasParamDesc {
@@ -971,6 +1034,15 @@ extension RangerRustClassWriter {
         if (opRoot == "this") {
           opIsOwn = true
         }
+        ; `clear view.items`: a collection inside a field held INLINE is
+        ; written through self as well (a shared field has its own cell)
+        if ((array_length opTarget.ns) > 1) {
+          if (ctx.isMemberVariable(opRoot)) {
+            if ((this.rustCallThroughSharedField(opTarget ctx)) == false) {
+              opIsOwn = true
+            }
+          }
+        }
         if ((array_length opTarget.ns) <= 1) {
           if opTarget.hasParamDesc {
             def opTP:RangerAppParamDesc opTarget.paramDesc
@@ -1247,8 +1319,8 @@ extension RangerRustClassWriter {
       return
     }
     pathRoot.rust_path_names_ready = true
-    for pathRoot.tables.definedClassList pathCn:string pathCi {
-      def pathC:RangerAppClassDesc (unwrap (get pathRoot.tables.definedClasses pathCn))
+    for pathRoot.definedClassList pathCn:string pathCi {
+      def pathC:RangerAppClassDesc (unwrap (get pathRoot.definedClasses pathCn))
       def pathCtorO@(optional):RangerAppFunctionDesc pathC.constructor_fn
       if (!null? pathCtorO) {
         def pathCtor:RangerAppFunctionDesc (unwrap pathCtorO)

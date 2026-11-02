@@ -15,6 +15,11 @@ Import "RustTypes.rgr"
 class RsRgrScan {
   def errors:[string]
   def classes:[RsStruct]
+  ; the file's own `Import "x.rgr"` lines (not pkg:), where a parent class
+  ; declared elsewhere is looked for
+  def imports:[string]
+  ; the type parameters of the class being read: `class H @params(Op)`
+  def curGenerics:[string]
 
   fn scan:void (src:string file:string) {
     def lines:[string] (strsplit src "\n")
@@ -28,10 +33,43 @@ class RsRgrScan {
       if ((strlen line) == 0) {
         continue
       }
+      if ((depth == 0) && (this.startsWord(line "Import"))) {
+        def q1:int (indexOf line "\"")
+        if (q1 >= 0) {
+          def rest:string (substring line (q1 + 1) (strlen line))
+          def q2:int (indexOf rest "\"")
+          if (q2 > 0) {
+            def imp:string (substring rest 0 q2)
+            if (((indexOf imp "pkg:") != 0) && ((indexOf imp ".rgr") > 0)) {
+              push imports imp
+            }
+          }
+        }
+      }
       if ((depth == 0) && (this.startsWord(line "class"))) {
         def s:RsStruct (new RsStruct())
         s.name = (this.wordAt(line 6))
         s.rgr = true
+        def ex:int (indexOf line " extends ")
+        if (ex > 0) {
+          s.parent = (this.wordAt(line (ex + 9)))
+        }
+        def noG:[string]
+        curGenerics = noG
+        def gp:int (indexOf line "@params(")
+        if (gp > 0) {
+          def gRest:string (substring line (gp + 8) (strlen line))
+          def gEnd:int (indexOf gRest ")")
+          if (gEnd > 0) {
+            for (strsplit (substring gRest 0 gEnd) " ") gw:string gwi {
+              def gn:string (trim gw)
+              if ((strlen gn) > 0) {
+                push s.generics gn
+                push curGenerics gn
+              }
+            }
+          }
+        }
         push classes s
         cur = s
         classDepth = 1
@@ -43,6 +81,7 @@ class RsRgrScan {
       depth = depth + (this.braceDelta(line))
       if ((depth < classDepth) && (!null? cur)) {
         this.defaultCtor((unwrap cur))
+        this.rustNames((unwrap cur))
       }
       if (depth < classDepth) {
         def none@(optional):RsStruct
@@ -66,6 +105,79 @@ class RsRgrScan {
     k.rgrCtor = true
     k.ret = (RsType.named(c.name))
     push c.methods k
+  }
+
+  ; Each member also by the snake_case name Ranger's Rust writer gives it
+  ; (`addChild` -> add_child), so that a `.rs` module that rustc builds with
+  ; the written module beside it can call it by that name. A name already
+  ; used in the class keeps only its own spelling.
+  fn rustNames:void (c:RsStruct) {
+    def nf:int (array_length c.fields)
+    def fi:int 0
+    while (fi < nf) {
+      def f:RsField (itemAt c.fields fi)
+      fi = fi + 1
+      def sn:string (RsRgrScan.rustName(f.name))
+      if ((sn != f.name) && (null? (c.field(sn))) && (null? (c.method(sn)))) {
+        def af:RsField (new RsField())
+        af.name = sn
+        af.rname = f.name
+        af.ty = f.ty
+        push c.fields af
+      }
+    }
+    def nm:int (array_length c.methods)
+    def mi:int 0
+    while (mi < nm) {
+      def m:RsFn (itemAt c.methods mi)
+      mi = mi + 1
+      def sn2:string (RsRgrScan.rustName(m.name))
+      if ((sn2 != m.name) && (null? (c.method(sn2))) && (null? (c.field(sn2)))) {
+        def am:RsFn (new RsFn())
+        am.name = sn2
+        am.rname = m.rname
+        am.owner = m.owner
+        am.hasSelf = m.hasSelf
+        am.rgrCtor = m.rgrCtor
+        am.ret = m.ret
+        am.params = m.params
+        push c.methods am
+      }
+    }
+  }
+
+  ; RangerRustClassWriter.rustSnakeCase: an underscore before a capital that
+  ; follows a lower-case letter or starts a word (`parseInt` -> parse_int,
+  ; `HTTPServer` -> http_server)
+  sfn rustName:string (n:string) {
+    def ln:int (strlen n)
+    def out:string ""
+    def i:int 0
+    while (i < ln) {
+      def ch:string (substring n i (i + 1))
+      def lower:string (to_lowercase ch)
+      if (ch != lower) {
+        if (i > 0) {
+          def prev:string (substring n (i - 1) i)
+          def prevIsLower:boolean (prev != (to_uppercase prev))
+          def nextIsLower:boolean false
+          if ((i + 1) < ln) {
+            def nxt:string (substring n (i + 1) (i + 2))
+            if (nxt != (to_uppercase nxt)) {
+              nextIsLower = true
+            }
+          }
+          if ((prevIsLower || nextIsLower) && (prev != "_")) {
+            out = (out + "_")
+          }
+        }
+        out = (out + lower)
+      } {
+        out = (out + ch)
+      }
+      i = (i + 1)
+    }
+    return out
   }
 
   ; Drops a `;` comment, which is not inside a string.
@@ -196,6 +308,13 @@ class RsRgrScan {
   ; A Ranger type as the lowering's type: int, double, string, boolean,
   ; [T], [K:V], a class (a shared handle on the Rust side).
   fn rsType:RsType (t:string) {
+    for curGenerics cg:string cgi {
+      if (cg == t) {
+        def pt:RsType (RsType.mk("param"))
+        pt.name = t
+        return pt
+      }
+    }
     if ((t == "int") || (t == "char")) {
       def it:RsType (RsType.mk("int"))
       it.name = "i64"
@@ -214,6 +333,13 @@ class RsRgrScan {
     }
     if (t == "void") {
       return (RsType.mk("unit"))
+    }
+    if (t == "buffer") {
+      ; a buffer field or parameter of a .rgr class is a `Vec<u8>` to the
+      ; Rust code, which the lowering writes as the same buffer
+      def bt:RsType (RsType.mk("int"))
+      bt.name = "u8"
+      return (RsType.of1("vec" bt))
     }
     def n:int (strlen t)
     if ((n >= 2) && ((charAt t 0) == 91) && ((charAt t (n - 1)) == 93)) {

@@ -164,6 +164,7 @@ def rs_irem(a, b):
       dart ( "pow(" (e 1) ", " (e 2) ").toDouble()" (imp "dart:math") )
       scala ( "math.pow(" (e 1) ", (" (e 2) ").toDouble)" )
       php ( "((float)pow(" (e 1) ", " (e 2) "))" )
+      swift6 ( "pow(" (e 1) ", Double(" (e 2) "))" (imp "Foundation") )
       * ( "Math.pow(" (e 1) ", " (e 2) ")" )
     }
   }
@@ -200,8 +201,8 @@ static int rs_ipow(int a, int n) {
 "))
       kotlin ( "rs_ipow(" (e 1) ", " (e 2) ")"
 (create_polyfill "
-fun rs_ipow(a: Int, n: Int): Int {
-    var r = 1
+fun rs_ipow(a: Long, n: Long): Long {
+    var r = 1L
     for (i in 0 until n) { r *= a }
     return r
 }
@@ -239,6 +240,15 @@ function rs_ipow($a, $n) {
   return $r;
 }
 "))
+      swift6 ( "rs_ipow(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+func rs_ipow(_ a: Int, _ n: Int) -> Int {
+    var r = 1
+    var i = 0
+    while i < n { r *= a; i += 1 }
+    return r
+}
+"))
       * ( "Math.pow(" (e 1) ", " (e 2) ")" )
     }
   }
@@ -259,11 +269,14 @@ func rs_f2i(x float64) int64 {
 "))
       cpp ( "(long long)(" (e 1) ")" )
       java7 ( "((int)(double)(" (e 1) "))" )
-      kotlin ( "(" (e 1) ").toInt()" )
+      kotlin ( "(" (e 1) ").toLong()" )
       csharp ( "((int)(" (e 1) "))" )
       dart ( "(" (e 1) ").toInt()" )
       scala ( "(" (e 1) ").toInt" )
       php ( "((int)(" (e 1) "))" )
+      swift3 ( "Int(" (e 1) ")" )
+      swift6 ( "Int(" (e 1) ")" )
+      rust ( "((" (e 1) ") as i64)" )
       * ( "Math.trunc(" (e 1) ")" )
     }
   }
@@ -296,7 +309,7 @@ func rs_f2i(x float64) int64 {
       python ( "chr(" (e 1) ")" )
       go ( "string(rune(" (e 1) "))" )
       java7 ( "(new String(Character.toChars(" (e 1) ")))" )
-      kotlin ( "String(Character.toChars(" (e 1) "))" )
+      kotlin ( "String(Character.toChars((" (e 1) ").toInt()))" )
       csharp ( "char.ConvertFromUtf32(" (e 1) ")" )
       dart ( "String.fromCharCode(" (e 1) ")" )
       scala ( "new String(Character.toChars(" (e 1) "))" )
@@ -312,6 +325,44 @@ func rs_f2i(x float64) int64 {
   rs_fmt _:string (a:double) {
     templates {
       ranger ( "(rs_fmt" " " (e 1) ")" )
+      swift6 ( "rs_f64(" (e 1) ")"
+(create_polyfill "
+// Rust's Display of a float: Swift's description is already the shortest
+// round-trip digits; this writes them out without an exponent.
+func rs_f64(_ x: Double) -> String {
+    if x.isNaN { return \"NaN\" }
+    if x.isInfinite { return x > 0 ? \"inf\" : \"-inf\" }
+    if x == 0 { return x.sign == .minus ? \"-0\" : \"0\" }
+    var s = x.description
+    var neg = false
+    if s.hasPrefix(\"-\") { neg = true; s.removeFirst() }
+    var exp = 0
+    if let e = s.firstIndex(of: \"e\") {
+        exp = Int(s[s.index(after: e)...].replacingOccurrences(of: \"+\", with: \"\")) ?? 0
+        s = String(s[..<e])
+    }
+    var digits = s
+    var intLen = s.count
+    if let d = s.firstIndex(of: \".\") {
+        intLen = s.distance(from: s.startIndex, to: d)
+        digits.remove(at: digits.index(digits.startIndex, offsetBy: intLen))
+    }
+    intLen += exp
+    var out: String
+    if intLen <= 0 {
+        out = \"0.\" + String(repeating: \"0\", count: -intLen) + digits
+    } else if intLen >= digits.count {
+        out = digits + String(repeating: \"0\", count: intLen - digits.count)
+    } else {
+        out = String(digits.prefix(intLen)) + \".\" + String(digits.dropFirst(intLen))
+    }
+    if out.contains(\".\") {
+        while out.hasSuffix(\"0\") { out.removeLast() }
+        if out.hasSuffix(\".\") { out.removeLast() }
+    }
+    return (neg ? \"-\" : \"\") + out
+}
+"))
       es6 ( "rs_f64(" (e 1) ")"
 (create_polyfill "
 function rs_expand_exp(s) {
@@ -561,6 +612,33 @@ function rs_f64($x) {
   return $neg ? '-' . $s : $s;
 }
 "))
+      swift6 ( "rs_f64(" (e 1) ")" (imp "Foundation")
+(create_polyfill "
+// Swift's description is the shortest round-trip form, with an exponent
+// (1e-05, 1.5e+20) where Rust writes the digits out.
+func rs_f64(_ x: Double) -> String {
+    if x.isNaN { return \"NaN\" }
+    if x.isInfinite { return x > 0 ? \"inf\" : \"-inf\" }
+    if x == 0.0 { return x.sign == .minus ? \"-0\" : \"0\" }
+    var s = \"\\(x)\"
+    if let e = s.firstIndex(where: { $0 == \"e\" || $0 == \"E\" }) {
+        var mant = String(s[s.startIndex..<e])
+        let exp = Int(String(s[s.index(after: e)...]).replacingOccurrences(of: \"+\", with: \"\")) ?? 0
+        let neg = mant.hasPrefix(\"-\")
+        if neg { mant.removeFirst() }
+        let dot = mant.firstIndex(of: \".\").map { mant.distance(from: mant.startIndex, to: $0) } ?? mant.count
+        let digits = Array(mant.replacingOccurrences(of: \".\", with: \"\"))
+        let intLen = dot + exp
+        var out = \"\"
+        if intLen <= 0 { out = \"0.\" + String(repeating: \"0\", count: -intLen) + String(digits) }
+        else if intLen >= digits.count { out = String(digits) + String(repeating: \"0\", count: intLen - digits.count) }
+        else { out = String(digits[0..<intLen]) + \".\" + String(digits[intLen...]) }
+        s = (neg ? \"-\" : \"\") + out
+    }
+    if s.hasSuffix(\".0\") { s.removeLast(2) }
+    return s
+}
+"))
       * ( "rs_f64(" (e 1) ")" )
     }
   }
@@ -642,10 +720,10 @@ static String rs_f64_prec(double x, int p) {
 "))
       kotlin ( "rs_f64_prec(" (e 1) ", " (e 2) ")"
 (create_polyfill "
-fun rs_f64_prec(x: Double, p: Int): String {
+fun rs_f64_prec(x: Double, p: Long): String {
     if (x.isNaN()) { return \"NaN\" }
     if (x.isInfinite()) { return if (x > 0) \"inf\" else \"-inf\" }
-    val r = java.math.BigDecimal(x).setScale(p, java.math.RoundingMode.HALF_EVEN)
+    val r = java.math.BigDecimal(x).setScale(p.toInt(), java.math.RoundingMode.HALF_EVEN)
     var s = r.toPlainString()
     if ((x < 0 || (x == 0.0 && 1.0 / x < 0)) && r.signum() == 0) { s = \"-\" + s }
     return s
@@ -880,6 +958,7 @@ function rs_f64_prec($x, $p) {
       dart ( "stderr.writeln(" (e 1) "); exit(101);" (imp "dart:io") )
       scala ( "System.err.println(" (e 1) "); sys.exit(101)" )
       php ( "fwrite(STDERR, " (e 1) " . \"\\n\"); exit(101);" )
+      swift6 ( "FileHandle.standardError.write((" (e 1) " + \"\\n\").data(using: .utf8)!); exit(101)" (imp "Foundation") )
       * ( "process.stderr.write(" (e 1) " + \"\\n\"); process.exit(101);" )
     }
   }
@@ -894,7 +973,7 @@ function rs_f64_prec($x, $p) {
       cpp ( "(long long)((" (e 1) ").compare(" (e 2) ") < 0 ? -1 : ((" (e 1) ").compare(" (e 2) ") > 0 ? 1 : 0))" )
       rust ( "(match " (e 1) ".cmp(&" (e 2) ") { std::cmp::Ordering::Less => -1, std::cmp::Ordering::Equal => 0, _ => 1 })" )
       java7 ( "Integer.signum(" (e 1) ".compareTo(" (e 2) "))" )
-      kotlin ( "Integer.signum(" (e 1) ".compareTo(" (e 2) "))" )
+      kotlin ( "Integer.signum(" (e 1) ".compareTo(" (e 2) ")).toLong()" )
       csharp ( "System.Math.Sign(string.CompareOrdinal(" (e 1) ", " (e 2) "))" )
       dart ( "(" (e 1) ").compareTo(" (e 2) ").sign" )
       scala ( "Integer.signum(" (e 1) ".compareTo(" (e 2) "))" )
@@ -912,7 +991,7 @@ function rs_f64_prec($x, $p) {
       cpp ( "(long long)(" (e 1) ").size()" )
       rust ( "(" (e 1) ".len() as i64)" )
       java7 ( (e 1) ".size()" )
-      kotlin ( (e 1) ".size" )
+      kotlin ( (e 1) ".size.toLong()" )
       csharp ( (e 1) ".Count" )
       dart ( (e 1) ".length" )
       php ( "count(" (e 1) ")" )
@@ -958,6 +1037,49 @@ inline void rs_map_erase(M& m, const K& k) {
 
   ; Rust's `find` answers a BYTE offset; `indexOf` answers the target's own
   ; unit, so the prefix before the hit is measured in UTF-8.
+  ; `v.push(x)` / `v.extend_from_slice(m)` on a Vec<u8>: the buffer with the
+  ; bytes added. The caller stores it back over the old one (a Rust Vec has
+  ; one owner), so it may be the same buffer grown in place. On es6 that is a
+  ; resizable ArrayBuffer whose capacity doubles, and on Go append: a loop of
+  ; pushes stays linear. Elsewhere a new buffer each time (RsBytes.push).
+  rs_bytes_push _:buffer (b:buffer v:int) {
+    templates {
+      es6 ( "rs_bytes_grow(" (e 1) ", 1, " (e 2) ", null)"
+(create_polyfill '
+// Vec<u8> push/extend: grows a resizable ArrayBuffer in place, its maximum
+// doubling, so a loop of pushes is linear. The DataView of a resizable
+// buffer tracks its length.
+function rs_bytes_grow(b, k, v, more) {
+  var n = b.byteLength;
+  if (more !== null) { k = more.byteLength; }
+  var out = b;
+  if (!(b.resizable && n + k <= b.maxByteLength)) {
+    var cap = Math.max(16, 2 * (n + k));
+    out = new ArrayBuffer(n, { maxByteLength: cap });
+    new Uint8Array(out).set(new Uint8Array(b, 0, n));
+    out._view = new DataView(out);
+  }
+  out.resize(n + k);
+  if (more === null) {
+    out._view.setUint8(n, v);
+  } else {
+    new Uint8Array(out, n, k).set(new Uint8Array(more, 0, k));
+  }
+  return out;
+}
+')
+      )
+      go ( "append(" (e 1) ", byte(" (e 2) "))" )
+      * @macro(true) ( "(RsBytes.push(" (e 1) " " (e 2) "))" )
+    }
+  }
+  rs_bytes_extend _:buffer (b:buffer more:buffer) {
+    templates {
+      es6 ( "rs_bytes_grow(" (e 1) ", -1, 0, " (e 2) ")" )
+      go ( "append(" (e 1) ", " (e 2) "...)" )
+      * @macro(true) ( "(RsBytes.extend(" (e 1) " " (e 2) "))" )
+    }
+  }
   rs_find_bytes _:int (s:string p:string) {
     templates {
       * @macro(true) ( "(RsStr.findBytes(" "(" (e 1) ")" " " "(" (e 2) ")" "))" )
@@ -970,7 +1092,56 @@ inline void rs_map_erase(M& m, const K& k) {
   }
   rs_byte_len _:int (s:string) {
     templates {
+      ranger ( "(rs_byte_len " (e 1) ")" )
+      ; std::string::size counts a NUL; the charbuffer's strlen does not
+      cpp ( "((int)(" (e 1) ").size())" )
       * @macro(true) ( "(length (to_charbuffer " "(" (e 1) ")" "))" )
+    }
+  }
+  ; `s.push_str(x)` and `s.push(c)`: s + x. A Go string is immutable, so
+  ; `s + x` copies s, and a loop of appends is quadratic. rs_str_append keeps
+  ; a few growable byte buffers: when s is the newest string written over one
+  ; of them, x is appended after its bytes (bytes no string covers yet) and
+  ; the longer string shares the buffer. Strings already made never see a
+  ; byte change, so this is invisible to the program.
+  rs_str_append _:string (s:string x:string) {
+    templates {
+      ranger ( "(rs_str_append " (e 1) " " (e 2) ")" )
+      go ( "rs_str_append(" (e 1) ", " (e 2) ")" (imp "unsafe") (imp "sync")
+(create_polyfill "
+var rsStrBufs [8][]byte
+var rsStrNext int
+var rsStrMu sync.Mutex
+
+func rs_str_append(s string, x string) string {
+    if len(x) == 0 {
+        return s
+    }
+    if len(s) < 64 {
+        return s + x
+    }
+    p := unsafe.StringData(s)
+    rsStrMu.Lock()
+    defer rsStrMu.Unlock()
+    for i := range rsStrBufs {
+        b := rsStrBufs[i]
+        if len(b) == len(s) && unsafe.SliceData(b) == p {
+            b = append(b, x...)
+            rsStrBufs[i] = b
+            return unsafe.String(unsafe.SliceData(b), len(b))
+        }
+    }
+    n := len(s) + len(x)
+    b := make([]byte, n, 2*n)
+    copy(b, s)
+    copy(b[len(s):], x)
+    rsStrBufs[rsStrNext] = b
+    rsStrNext = (rsStrNext + 1) % len(rsStrBufs)
+    return unsafe.String(unsafe.SliceData(b), n)
+}
+")
+      )
+      * @macro(true) ( "(" "(" (e 1) ")" " + " "(" (e 2) ")" ")" )
     }
   }
   ; Unicode case mapping. The C++ target's to_uppercase maps ASCII only; the
@@ -1115,6 +1286,8 @@ def rs_round(x: Double): Double = {
 }
 "))
       php ( "round(" (e 1) ")" )
+      swift6 ( "(" (e 1) ").rounded()" )
+      rust ( "(" (e 1) ").round()" )
       * ( "Math.round(" (e 1) ")" )
     }
   }
@@ -1142,7 +1315,288 @@ function rs_trunc($x) {
   return $x < 0 ? ceil($x) : floor($x);
 }
 "))
+      swift6 ( "(" (e 1) ").rounded(.towardZero)" )
+      rust ( "(" (e 1) ").trunc()" )
       * ( "Math.floor(" (e 1) ")" )
+    }
+  }
+  ; the rest of f64's functions
+  rs_asin _:double (a:double) {
+    templates {
+      ranger ( "(rs_asin " (e 1) ")" )
+      es6 ( "Math.asin(" (e 1) ")" )
+      rust ( "(" (e 1) ").asin()" )
+      python ( "math.asin(" (e 1) ")" (imp "math") )
+      go ( "math.Asin(" (e 1) ")" (imp "math") )
+      cpp ( "std::asin(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Asin(" (e 1) ")" )
+      dart ( "asin(" (e 1) ")" (imp "dart:math") )
+      scala ( "math.asin(" (e 1) ")" )
+      php ( "asin(" (e 1) ")" )
+      swift6 ( "asin(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.asin(" (e 1) ")" )
+    }
+  }
+  rs_acos _:double (a:double) {
+    templates {
+      ranger ( "(rs_acos " (e 1) ")" )
+      es6 ( "Math.acos(" (e 1) ")" )
+      rust ( "(" (e 1) ").acos()" )
+      python ( "math.acos(" (e 1) ")" (imp "math") )
+      go ( "math.Acos(" (e 1) ")" (imp "math") )
+      cpp ( "std::acos(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Acos(" (e 1) ")" )
+      dart ( "acos(" (e 1) ")" (imp "dart:math") )
+      scala ( "math.acos(" (e 1) ")" )
+      php ( "acos(" (e 1) ")" )
+      swift6 ( "acos(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.acos(" (e 1) ")" )
+    }
+  }
+  rs_atan _:double (a:double) {
+    templates {
+      ranger ( "(rs_atan " (e 1) ")" )
+      es6 ( "Math.atan(" (e 1) ")" )
+      rust ( "(" (e 1) ").atan()" )
+      python ( "math.atan(" (e 1) ")" (imp "math") )
+      go ( "math.Atan(" (e 1) ")" (imp "math") )
+      cpp ( "std::atan(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Atan(" (e 1) ")" )
+      dart ( "atan(" (e 1) ")" (imp "dart:math") )
+      scala ( "math.atan(" (e 1) ")" )
+      php ( "atan(" (e 1) ")" )
+      swift6 ( "atan(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.atan(" (e 1) ")" )
+    }
+  }
+  rs_sinh _:double (a:double) {
+    templates {
+      ranger ( "(rs_sinh " (e 1) ")" )
+      es6 ( "Math.sinh(" (e 1) ")" )
+      rust ( "(" (e 1) ").sinh()" )
+      python ( "math.sinh(" (e 1) ")" (imp "math") )
+      go ( "math.Sinh(" (e 1) ")" (imp "math") )
+      cpp ( "std::sinh(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Sinh(" (e 1) ")" )
+      dart ( "rs_sinh(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_sinh(double x) { return (exp(x) - exp(-x)) / 2; }
+"))
+      scala ( "math.sinh(" (e 1) ")" )
+      php ( "sinh(" (e 1) ")" )
+      swift6 ( "sinh(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.sinh(" (e 1) ")" )
+    }
+  }
+  rs_cosh _:double (a:double) {
+    templates {
+      ranger ( "(rs_cosh " (e 1) ")" )
+      es6 ( "Math.cosh(" (e 1) ")" )
+      rust ( "(" (e 1) ").cosh()" )
+      python ( "math.cosh(" (e 1) ")" (imp "math") )
+      go ( "math.Cosh(" (e 1) ")" (imp "math") )
+      cpp ( "std::cosh(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Cosh(" (e 1) ")" )
+      dart ( "rs_cosh(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_cosh(double x) { return (exp(x) + exp(-x)) / 2; }
+"))
+      scala ( "math.cosh(" (e 1) ")" )
+      php ( "cosh(" (e 1) ")" )
+      swift6 ( "cosh(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.cosh(" (e 1) ")" )
+    }
+  }
+  rs_tanh _:double (a:double) {
+    templates {
+      ranger ( "(rs_tanh " (e 1) ")" )
+      es6 ( "Math.tanh(" (e 1) ")" )
+      rust ( "(" (e 1) ").tanh()" )
+      python ( "math.tanh(" (e 1) ")" (imp "math") )
+      go ( "math.Tanh(" (e 1) ")" (imp "math") )
+      cpp ( "std::tanh(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Tanh(" (e 1) ")" )
+      dart ( "rs_tanh(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_tanh(double x) { return x > 20 ? 1.0 : (x < -20 ? -1.0 : (exp(2 * x) - 1) / (exp(2 * x) + 1)); }
+"))
+      scala ( "math.tanh(" (e 1) ")" )
+      php ( "tanh(" (e 1) ")" )
+      swift6 ( "tanh(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.tanh(" (e 1) ")" )
+    }
+  }
+  rs_asinh _:double (a:double) {
+    templates {
+      ranger ( "(rs_asinh " (e 1) ")" )
+      es6 ( "Math.asinh(" (e 1) ")" )
+      rust ( "(" (e 1) ").asinh()" )
+      python ( "math.asinh(" (e 1) ")" (imp "math") )
+      go ( "math.Asinh(" (e 1) ")" (imp "math") )
+      cpp ( "std::asinh(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Asinh(" (e 1) ")" )
+      dart ( "rs_asinh(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_asinh(double x) { return log(x + sqrt(x * x + 1)); }
+"))
+      scala ( "((x: Double) => math.log(x + math.sqrt(x * x + 1)))(" (e 1) ")" )
+      php ( "asinh(" (e 1) ")" )
+      swift6 ( "asinh(" (e 1) ")" (imp "Foundation") )
+      kotlin ( "((fun(x: Double): Double = Math.log(x + Math.sqrt(x * x + 1))))(" (e 1) ")" )
+      java7 ( "rs_asinh(" (e 1) ")"
+(create_polyfill "
+static double rs_asinh(double x) { return Math.log(x + Math.sqrt(x * x + 1)); }
+"))
+      * ( "rs_asinh(" (e 1) ")" )
+    }
+  }
+  rs_acosh _:double (a:double) {
+    templates {
+      ranger ( "(rs_acosh " (e 1) ")" )
+      es6 ( "Math.acosh(" (e 1) ")" )
+      rust ( "(" (e 1) ").acosh()" )
+      python ( "math.acosh(" (e 1) ")" (imp "math") )
+      go ( "math.Acosh(" (e 1) ")" (imp "math") )
+      cpp ( "std::acosh(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Acosh(" (e 1) ")" )
+      dart ( "rs_acosh(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_acosh(double x) { return log(x + sqrt(x * x - 1)); }
+"))
+      scala ( "((x: Double) => math.log(x + math.sqrt(x * x - 1)))(" (e 1) ")" )
+      php ( "acosh(" (e 1) ")" )
+      swift6 ( "acosh(" (e 1) ")" (imp "Foundation") )
+      kotlin ( "((fun(x: Double): Double = Math.log(x + Math.sqrt(x * x - 1))))(" (e 1) ")" )
+      java7 ( "rs_acosh(" (e 1) ")"
+(create_polyfill "
+static double rs_acosh(double x) { return Math.log(x + Math.sqrt(x * x - 1)); }
+"))
+      * ( "rs_acosh(" (e 1) ")" )
+    }
+  }
+  rs_atanh _:double (a:double) {
+    templates {
+      ranger ( "(rs_atanh " (e 1) ")" )
+      es6 ( "Math.atanh(" (e 1) ")" )
+      rust ( "(" (e 1) ").atanh()" )
+      python ( "math.atanh(" (e 1) ")" (imp "math") )
+      go ( "math.Atanh(" (e 1) ")" (imp "math") )
+      cpp ( "std::atanh(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Atanh(" (e 1) ")" )
+      dart ( "rs_atanh(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_atanh(double x) { return 0.5 * log((1 + x) / (1 - x)); }
+"))
+      scala ( "((x: Double) => 0.5 * math.log((1 + x) / (1 - x)))(" (e 1) ")" )
+      php ( "atanh(" (e 1) ")" )
+      swift6 ( "atanh(" (e 1) ")" (imp "Foundation") )
+      kotlin ( "((fun(x: Double): Double = 0.5 * Math.log((1 + x) / (1 - x))))(" (e 1) ")" )
+      java7 ( "rs_atanh(" (e 1) ")"
+(create_polyfill "
+static double rs_atanh(double x) { return 0.5 * Math.log((1 + x) / (1 - x)); }
+"))
+      * ( "rs_atanh(" (e 1) ")" )
+    }
+  }
+  rs_cbrt _:double (a:double) {
+    templates {
+      ranger ( "(rs_cbrt " (e 1) ")" )
+      es6 ( "Math.cbrt(" (e 1) ")" )
+      rust ( "(" (e 1) ").cbrt()" )
+      python ( "rs_cbrt(" (e 1) ")" (imp "math")
+(create_polyfill "
+def rs_cbrt(x):
+    return math.copysign(abs(x) ** (1.0 / 3.0), x)
+"))
+      go ( "math.Cbrt(" (e 1) ")" (imp "math") )
+      cpp ( "std::cbrt(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Cbrt(" (e 1) ")" )
+      dart ( "rs_cbrt(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_cbrt(double x) { return x < 0 ? -pow(-x, 1 / 3) : pow(x, 1 / 3); }
+"))
+      scala ( "math.cbrt(" (e 1) ")" )
+      php ( "(function($x) { return ($x < 0 ? -pow(-$x, 1 / 3) : pow($x, 1 / 3)); })(" (e 1) ")" )
+      swift6 ( "cbrt(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.cbrt(" (e 1) ")" )
+    }
+  }
+  rs_exp_m1 _:double (a:double) {
+    templates {
+      ranger ( "(rs_exp_m1 " (e 1) ")" )
+      es6 ( "Math.expm1(" (e 1) ")" )
+      rust ( "(" (e 1) ").exp_m1()" )
+      python ( "math.expm1(" (e 1) ")" (imp "math") )
+      go ( "math.Expm1(" (e 1) ")" (imp "math") )
+      cpp ( "std::expm1(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "((System.Func<double, double>)(x => (System.Math.Exp(x) - 1.0)))(" (e 1) ")" )
+      dart ( "rs_exp_m1(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_exp_m1(double x) { return exp(x) - 1; }
+"))
+      scala ( "math.expm1(" (e 1) ")" )
+      php ( "expm1(" (e 1) ")" )
+      swift6 ( "expm1(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.expm1(" (e 1) ")" )
+    }
+  }
+  rs_ln_1p _:double (a:double) {
+    templates {
+      ranger ( "(rs_ln_1p " (e 1) ")" )
+      es6 ( "Math.log1p(" (e 1) ")" )
+      rust ( "(" (e 1) ").ln_1p()" )
+      python ( "math.log1p(" (e 1) ")" (imp "math") )
+      go ( "math.Log1p(" (e 1) ")" (imp "math") )
+      cpp ( "std::log1p(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "((System.Func<double, double>)(x => System.Math.Log(1.0 + x)))(" (e 1) ")" )
+      dart ( "rs_ln_1p(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_ln_1p(double x) { return log(1 + x); }
+"))
+      scala ( "math.log1p(" (e 1) ")" )
+      php ( "log1p(" (e 1) ")" )
+      swift6 ( "log1p(" (e 1) ")" (imp "Foundation") )
+      * ( "Math.log1p(" (e 1) ")" )
+    }
+  }
+  rs_log2 _:double (a:double) {
+    templates {
+      ranger ( "(rs_log2 " (e 1) ")" )
+      es6 ( "Math.log2(" (e 1) ")" )
+      rust ( "(" (e 1) ").log2()" )
+      python ( "math.log2(" (e 1) ")" (imp "math") )
+      go ( "math.Log2(" (e 1) ")" (imp "math") )
+      cpp ( "std::log2(" (e 1) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Log2(" (e 1) ")" )
+      dart ( "rs_log2(" (e 1) ")" (imp "dart:math")
+(create_polyfill "
+double rs_log2(double x) { return log(x) / ln2; }
+"))
+      scala ( "((x: Double) => math.log(x) / math.log(2.0))(" (e 1) ")" )
+      php ( "(function($x) { return log($x, 2); })(" (e 1) ")" )
+      swift6 ( "log2(" (e 1) ")" (imp "Foundation") )
+      kotlin ( "((fun(x: Double): Double = Math.log(x) / Math.log(2.0)))(" (e 1) ")" )
+      java7 ( "rs_log2(" (e 1) ")"
+(create_polyfill "
+static double rs_log2(double x) { return Math.log(x) / Math.log(2.0); }
+"))
+      * ( "rs_log2(" (e 1) ")" )
+    }
+  }
+  rs_atan2 _:double (y:double x:double) {
+    templates {
+      ranger ( "(rs_atan2 " (e 1) " " (e 2) ")" )
+      es6 ( "Math.atan2(" (e 1) ", " (e 2) ")" )
+      rust ( "(" (e 1) ").atan2(" (e 2) ")" )
+      python ( "math.atan2(" (e 1) ", " (e 2) ")" (imp "math") )
+      go ( "math.Atan2(" (e 1) ", " (e 2) ")" (imp "math") )
+      cpp ( "std::atan2(" (e 1) ", " (e 2) ")" (imp "<cmath>") )
+      csharp ( "System.Math.Atan2(" (e 1) ", " (e 2) ")" )
+      dart ( "atan2(" (e 1) ", " (e 2) ")" (imp "dart:math") )
+      scala ( "math.atan2(" (e 1) ", " (e 2) ")" )
+      php ( "atan2(" (e 1) ", " (e 2) ")" )
+      swift6 ( "atan2(" (e 1) ", " (e 2) ")" (imp "Foundation") )
+      * ( "Math.atan2(" (e 1) ", " (e 2) ")" )
     }
   }
   rs_ln _:double (a:double) {
@@ -1156,6 +1610,8 @@ function rs_trunc($x) {
       dart ( "log(" (e 1) ")" (imp "dart:math") )
       scala ( "math.log(" (e 1) ")" )
       php ( "log(" (e 1) ")" )
+      swift6 ( "log(" (e 1) ")" (imp "Foundation") )
+      rust ( "(" (e 1) ").ln()" )
       * ( "Math.log(" (e 1) ")" )
     }
   }
@@ -1170,6 +1626,8 @@ function rs_trunc($x) {
       dart ( "exp(" (e 1) ")" (imp "dart:math") )
       scala ( "math.exp(" (e 1) ")" )
       php ( "exp(" (e 1) ")" )
+      swift6 ( "exp(" (e 1) ")" (imp "Foundation") )
+      rust ( "(" (e 1) ").exp()" )
       * ( "Math.exp(" (e 1) ")" )
     }
   }
@@ -1193,6 +1651,8 @@ double rs_log10(double x) {
 "))
       scala ( "math.log10(" (e 1) ")" )
       php ( "log10(" (e 1) ")" )
+      swift6 ( "log10(" (e 1) ")" (imp "Foundation") )
+      rust ( "(" (e 1) ").log10()" )
       * ( "Math.log10(" (e 1) ")" )
     }
   }
@@ -1207,6 +1667,7 @@ double rs_log10(double x) {
       dart ( "pow(" (e 1) ", " (e 2) ").toDouble()" (imp "dart:math") )
       scala ( "math.pow(" (e 1) ", " (e 2) ")" )
       php ( "((float)pow(" (e 1) ", " (e 2) "))" )
+      swift6 ( "pow(" (e 1) ", " (e 2) ")" (imp "Foundation") )
       * ( "Math.pow(" (e 1) ", " (e 2) ")" )
     }
   }
@@ -1243,6 +1704,14 @@ func rs_signum(x float64) float64 {
 function rs_signum($x) {
   if (is_nan($x)) { return $x; }
   return ($x < 0 || ($x == 0 && fdiv(1, $x) < 0)) ? -1.0 : 1.0;
+}
+"))
+      swift6 ( "rs_signum(" (e 1) ")"
+(create_polyfill "
+// Rust: 1.0 for +0.0, -1.0 for -0.0, NaN for NaN
+func rs_signum(_ x: Double) -> Double {
+    if x.isNaN { return Double.nan }
+    return x.sign == .minus ? -1.0 : 1.0
 }
 "))
       * ( "Math.signum(" (e 1) ")" )
@@ -1659,5 +2128,195 @@ class RsChar {
       return true
     }
     return ((rs_upper c) != c)
+  }
+}
+
+; `Vec<u8>` and `&[u8]` are Ranger buffers (a fixed-size byte array on every
+; target). What a buffer has no operator for: a buffer that grows makes a new
+; one, so `push` in a loop copies (keep the size known and index instead).
+class RsBytes {
+  ; the first n bytes of src into dst at `at` (a loop: not every target has
+  ; buffer_copy)
+  sfn copyInto:void (dst:buffer at:int src:buffer n:int) {
+    def i:int 0
+    while (i < n) {
+      buffer_set dst (at + i) (buffer_get src i)
+      i = i + 1
+    }
+  }
+
+  sfn copy:buffer (b:buffer) {
+    return (buffer_slice b 0 (buffer_length b))
+  }
+
+  sfn push:buffer (b:buffer v:int) {
+    def n:int (buffer_length b)
+    def out:buffer (buffer_alloc (n + 1))
+    RsBytes.copyInto(out 0 b n)
+    buffer_set out n v
+    return out
+  }
+
+  sfn extend:buffer (b:buffer more:buffer) {
+    def n:int (buffer_length b)
+    def m:int (buffer_length more)
+    def out:buffer (buffer_alloc (n + m))
+    RsBytes.copyInto(out 0 b n)
+    RsBytes.copyInto(out n more m)
+    return out
+  }
+
+  ; `b.fill(v)`
+  sfn fillAll:void (b:buffer v:int) {
+    def n:int (buffer_length b)
+    def i:int 0
+    while (i < n) {
+      buffer_set b i v
+      i = i + 1
+    }
+  }
+
+  ; `vec![v; n]`
+  sfn filled:buffer (v:int n:int) {
+    def out:buffer (buffer_alloc n)
+    if (v != 0) {
+      def i:int 0
+      while (i < n) {
+        buffer_set out i v
+        i = i + 1
+      }
+    }
+    return out
+  }
+
+  ; `vec![1, 2, 3]`, `b"…"`
+  sfn ofInts:buffer (xs:[int]) {
+    def n:int (array_length xs)
+    def out:buffer (buffer_alloc n)
+    def i:int 0
+    while (i < n) {
+      buffer_set out i (itemAt xs i)
+      i = i + 1
+    }
+    return out
+  }
+
+  ; `v.truncate(n)`, `v.resize(n, x)`
+  sfn resized:buffer (b:buffer n:int v:int) {
+    def have:int (buffer_length b)
+    if (n <= have) {
+      return (buffer_slice b 0 n)
+    }
+    def out:buffer (RsBytes.filled(v n))
+    RsBytes.copyInto(out 0 b have)
+    return out
+  }
+
+  sfn eq:boolean (a:buffer b:buffer) {
+    def n:int (buffer_length a)
+    if (n != (buffer_length b)) {
+      return false
+    }
+    def i:int 0
+    while (i < n) {
+      if ((buffer_get a i) != (buffer_get b i)) {
+        return false
+      }
+      i = i + 1
+    }
+    return true
+  }
+
+  sfn indexOf:int (b:buffer v:int) {
+    def n:int (buffer_length b)
+    def i:int 0
+    while (i < n) {
+      if ((buffer_get b i) == v) {
+        return i
+      }
+      i = i + 1
+    }
+    return -1
+  }
+
+  ; `s.as_bytes()`: the UTF-8 bytes on every target (buffer_from_string is
+  ; Latin-1 in JavaScript)
+  sfn ofUtf8:buffer (s:string) {
+    def n:int (rs_byte_len s)
+    def cb:charbuffer (to_charbuffer s)
+    def out:buffer (buffer_alloc n)
+    def i:int 0
+    while (i < n) {
+      def ch:int (charAt cb i)
+      buffer_set out i ch
+      i = i + 1
+    }
+    return out
+  }
+
+  ; `String::from_utf8_lossy(&b)`: invalid sequences become U+FFFD
+  sfn toUtf8:string (b:buffer) {
+    def parts:[string]
+    def n:int (buffer_length b)
+    def i:int 0
+    while (i < n) {
+      def c:int (buffer_get b i)
+      def need:int 0
+      def cp:int c
+      if (c >= 240) {
+        need = 3
+        cp = (c - 240)
+      } {
+        if (c >= 224) {
+          need = 2
+          cp = (c - 224)
+        } {
+          if (c >= 192) {
+            need = 1
+            cp = (c - 192)
+          } {
+            if (c >= 128) {
+              need = -1
+            }
+          }
+        }
+      }
+      if ((need < 0) || (((i + need) >= n) && (need > 0))) {
+        push parts (rs_char_from 65533)
+        i = i + 1
+        continue
+      }
+      def j:int 1
+      def ok:boolean true
+      while (j <= need) {
+        def d:int (buffer_get b (i + j))
+        if ((d < 128) || (d >= 192)) {
+          ok = false
+          break
+        }
+        cp = ((cp * 64) + (d - 128))
+        j = j + 1
+      }
+      if (ok) {
+        push parts (rs_char_from cp)
+        i = ((i + need) + 1)
+      } {
+        push parts (rs_char_from 65533)
+        i = i + 1
+      }
+    }
+    return (join parts "")
+  }
+
+  ; `{:?}`: [1, 2, 3]
+  sfn dbg:string (b:buffer) {
+    def parts:[string]
+    def n:int (buffer_length b)
+    def i:int 0
+    while (i < n) {
+      push parts (to_string (buffer_get b i))
+      i = i + 1
+    }
+    return (("[" + (join parts ", ")) + "]")
   }
 }
