@@ -75,6 +75,8 @@ class RustLower {
   ; `.rgr` files included with `ranger::import_rgr!`, for the Import lines
   def rgrImports:[string]
   def entryName:string ""
+  ; the folder of the file begin() read: module and `.rgr` paths start there
+  def beginDir:string ""
   ; dependency crates (§9.6): `evg` is the module key of the crate whose
   ; root is crateFiles[i]; its modules are `evg::…`
   def crateKeys:[string]
@@ -329,6 +331,7 @@ class RustLower {
   fn begin:void (src:string name:string) {
     fileName = name
     entryName = name
+    beginDir = (RustLower.dirOf(name))
     modClass = (RustLower.moduleClassFor((RustLower.moduleFileName(name))))
     def p:RustParser (new RustParser(src))
     def root:RustNode (p.parseFile())
@@ -2528,8 +2531,10 @@ class RustLower {
         push parts "Import \"rust/RsJson.rgr\""
       }
     }
-    ; the `.rgr` modules the crate includes, relative to the entry file
-    def entryDir:string (RustLower.dirOf(entryName))
+    ; the `.rgr` modules the crate includes, relative to the entry file;
+    ; their paths start at the folder of the name begin() read (FlowImport
+    ; gives the bare file name, then the importer's path as entryName)
+    def entryDir:string beginDir
     for rgrImports rip:string rii {
       def rel:string rip
       if ((entryDir != "") && ((strlen rip) > (strlen entryDir)) && ((substring rip 0 ((strlen entryDir) + 1)) == (entryDir + "/"))) {

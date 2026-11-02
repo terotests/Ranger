@@ -89380,6 +89380,7 @@ class RustLower  {
     this.rgrClassNames = [];
     this.rgrImports = [];
     this.entryName = "";
+    this.beginDir = "";
     this.crateKeys = [];
     this.crateFiles = [];
     this.fnAlias = {};
@@ -89557,6 +89558,7 @@ class RustLower  {
   begin (src, name) {
     this.fileName = name;
     this.entryName = name;
+    this.beginDir = RustLower.dirOf(name);
     this.modClass = RustLower.moduleClassFor(RustLower.moduleFileName(name));
     const p = new RustParser(src);
     const root = p.parseFile();
@@ -91597,7 +91599,7 @@ class RustLower  {
         parts.push("Import \"rust/RsJson.rgr\"");
       }
     }
-    const entryDir = RustLower.dirOf(this.entryName);
+    const entryDir = this.beginDir;
     // Loop start
     for ( const rip of this.rgrImports) {
       let rel = rip;

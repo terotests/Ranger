@@ -1,0 +1,9 @@
+class Bag {
+    def items:[string]
+    fn add:void (s:string) {
+        push items s
+    }
+    fn count:int () {
+        return (array_length items)
+    }
+}
