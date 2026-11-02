@@ -1,0 +1,13 @@
+# RangerMath as a crate: Ranger reads it (Import "src/lib.rs"), and a crate
+# that uses its types names it as a path dependency.
+[package]
+name = "rangermath"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+ranger = { path = "../../runtime/rust/ranger" }

@@ -1,0 +1,12 @@
+; geo is imported before the crate that depends on it
+Import "geo/src/lib.rs"
+Import "shapes/src/lib.rs"
+
+class Main {
+  sfn m@(main):void () {
+    def s:Seg (Seg.new_((Pt.new_(0.0 0.0)) (Pt.new_(3.0 4.0))))
+    print ("len " + (s.len()))
+    print (((s.name()).text) + " " + ((s.a.name()).text))
+    print ("dist " + ((Pt.new_(1.0 1.0)).dist((Pt.new_(1.0 2.0)))))
+  }
+}
