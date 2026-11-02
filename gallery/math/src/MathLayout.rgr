@@ -1,0 +1,3 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; MathLayout is Rust syntax now (math_layout.rs): this file keeps the old import path.
+Import "lib.rs"

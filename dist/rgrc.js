@@ -41278,7 +41278,15 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         const oo = this.rustStripToString(o_1);
         ctx.setInExpr();
         wr.suppress_expr_parens = true;
-        wr.in_format_args = true;
+        const ooR = this.rustUnwrapParens(oo);
+        let ooSfc = false;
+        if ( ooR.children.length == 2 ) {
+          const __REGx1 = ooR.getFirst();
+          if ( __REGx1.vref == "strfromcode" ) {
+            ooSfc = true;
+          }
+        }
+        wr.in_format_args = ooSfc;
         this.WalkNode(oo, ctx, wr);
         wr.in_format_args = false;
         wr.suppress_expr_parens = false;

@@ -1,0 +1,3 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; MathRender is Rust syntax now (math_render.rs): this file keeps the old import path.
+Import "lib.rs"

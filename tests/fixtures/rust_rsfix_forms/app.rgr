@@ -87,6 +87,9 @@ class Menu {
   fn open:void (m:string x:double y:double arg:int) {
     last = (m + " " + x + " " + y + " " + arg)
   }
+  sfn esc:string (s:string) {
+    return ("[" + s + "]")
+  }
   sfn restInt:int (id:string) {
     return (strlen id)
   }
@@ -241,6 +244,7 @@ class Main {
     def mn:Menu (new Menu)
     mn.click("abcd")
     print mn.last
+    print ("x" + (Menu.esc((strfromcode 65))))
     def te:TextEngine (new TextEngine)
     def ho:Holder (new Holder)
     push ho.engines te

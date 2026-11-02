@@ -11,6 +11,8 @@
 //     had no `.borrow()` when the method takes the shared handle (E0609);
 //   - `st.bold.set(true)` on a local value struct left the local without
 //     `mut` (E0596);
+//   - `"x" + (esc((strfromcode 65)))` handed esc a char: a strfromcode is
+//     left a char only when it is itself the format! argument;
 //   - a hoisted argument took the name `__arg_0` of a local the source
 //     declared itself, so the call read the temporary in its place.
 // ============================================================================
@@ -29,6 +31,7 @@ const EXPECTED = [
   "pg",
   "env:g1 11",
   "histver 1.5 2.5 4",
+  "x[A]",
   "half fits",
   "3 7",
   "run bold",
