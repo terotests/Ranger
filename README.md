@@ -432,7 +432,15 @@ one (the self-hosted compiler failed g++); Kotlin and Swift `strsplit` were not
 parenthesised, so `.size` / `[i]` after it bound to the else branch only (the
 Kotlin self-host failed kotlinc); and the Go self-hosted compiler read
 `lib/JSON.rgr` twice after the importing file's folder was searched first
-(`compiler/ast/CodeNode.rgr` imported `../lib/stdlib.rgr` by a relative path).
+(`compiler/ast/CodeNode.rgr` imported `../lib/stdlib.rgr` by a relative path);
+and on Kotlin a long int literal (the 24 000 numbers of
+`gallery/componentengine/UnicodeProps.rgr`) was more bytecode than one JVM
+method may hold, so the TS engine did not build — a literal of over 1 000 int
+constants is now written as text and parsed once.
+
+`npm run test:tsengine` on 2026-11-03: the engine builds and answers like
+JavaScript on Go, Kotlin, Swift 6 and Python; Dart and C# were skipped (no
+`dart` / `mcs` in the container).
 
 ### Syntax app (every target, measured)
 

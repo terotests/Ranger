@@ -46630,6 +46630,37 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     if ( elemType.length == 0 ) {
       elemType = node.array_type;
     }
+    if ( elemType == "int" && node.children.length > 1000 ) {
+      let allLit = true;
+      // Loop start
+      for ( const ch of node.children) {
+        if ( ch.value_type != 3 ) {
+          allLit = false;
+        }
+      }
+      if ( allLit ) {
+        wr.out("listOf(\"", false);
+        let chunk = 0;
+        // Loop start
+        for ( let li = 0; li < node.children.length; li++) {
+          var lit = node.children[li];
+          const t = ((lit.int_value).toString());
+          if ( li > 0 ) {
+            if ( chunk + t.length > 60000 ) {
+              wr.out("\", \"", false);
+              chunk = 0;
+            } else {
+              wr.out(",", false);
+              chunk = chunk + 1;
+            }
+          }
+          wr.out(t, false);
+          chunk = chunk + t.length;
+        }
+        wr.out("\").joinToString(\",\").split(',').map { it.toLong() }.toMutableList()", false);
+        return;
+      }
+    }
     wr.out("arrayListOf<", false);
     if ( elemType.length > 0 ) {
       wr.out(this.getObjectTypeString(elemType, ctx), false);

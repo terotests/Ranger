@@ -25,6 +25,23 @@ describe("Kotlin Code Generation", () => {
     });
   });
 
+  describe("Large literals", () => {
+    it("writes a long int literal as text, not one JVM method of boxing", () => {
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/kotlin_big_int_literal.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code.replace(/\s+/g, "")).toContain(
+        ".joinToString(\",\").split(',').map{it.toLong()}.toMutableList()"
+      );
+      expect(result.code).not.toMatch(/arrayListOf<Long>\(0L, 37L/);
+      // every string constant stays under the class-file limit
+      for (const m of result.code!.matchAll(/"([0-9,]+)"/g)) {
+        expect(m[1].length).toBeLessThan(65535);
+      }
+    });
+  });
+
   describe("Nested Collections", () => {
     it("should render nested list/map element types", () => {
       const result = getGeneratedKotlinCode(
