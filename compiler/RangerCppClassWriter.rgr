@@ -1475,9 +1475,16 @@ class RangerCppClassWriter {
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
 
-      this.writeCallReceiver(obj ctx wr)
-      if (this.cppCallReceiverNeedsValue(obj ctx)) {
-        wr.out(".value()" false)
+      ; a bare `this` receiver is the raw pointer: WriteVRef would write
+      ; shared_from_this(), which throws bad_weak_ptr inside a constructor
+      ; (MdCssSupport() calling this.indexOf(...), `indexOf` being an operator)
+      if ((obj.vref == "this") && ((array_length obj.ns) <= 1)) {
+        wr.out("this" false)
+      } {
+        this.writeCallReceiver(obj ctx wr)
+        if (this.cppCallReceiverNeedsValue(obj ctx)) {
+          wr.out(".value()" false)
+        }
       }
       wr.out("->" false)
       wr.out(method.vref false)
