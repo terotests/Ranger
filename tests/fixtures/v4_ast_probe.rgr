@@ -1,0 +1,30 @@
+; Re-export path for the test harness (same program as compiler/v4/Probe.rgr).
+Import "../../compiler/v4/AstNode.rgr"
+
+class Main {
+    sfn main:void () {
+        def defKids:[AstNode]
+        push defKids (AstNode.vrefNode(0 3 "def"))
+        push defKids (AstNode.typedVref(4 9 "x" "int"))
+        push defKids (AstNode.intNode(10 11 1))
+        def defExpr:AstNode (AstNode.exprNode(0 12 defKids false))
+        print (AstNode.asString(defExpr))
+
+        def addKids:[AstNode]
+        push addKids (AstNode.vrefNode(0 1 "+"))
+        push addKids (AstNode.intNode(2 3 2))
+        push addKids (AstNode.doubleNode(4 7 3.5))
+        def addExpr:AstNode (AstNode.exprNode(0 8 addKids false))
+        print (AstNode.asString(addExpr))
+
+        print ("children:" + (to_string (AstNode.childCount(addExpr))))
+        print ("isExpr:" + (to_string (AstNode.isExpression(addExpr))))
+        print ("isExpr:" + (to_string (AstNode.isExpression((AstNode.intNode(0 1 9))))))
+
+        def blockKids:[AstNode]
+        def block:AstNode (AstNode.exprNode(0 0 blockKids true))
+        def ignored:boolean (AstNode.pushChild(block (AstNode.vrefNode(0 5 "print"))))
+        def ignored2:boolean (AstNode.pushChild(block (AstNode.stringNode(6 10 "hi"))))
+        print (AstNode.asString(block))
+    }
+}

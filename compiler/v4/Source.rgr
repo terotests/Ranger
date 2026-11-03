@@ -1,0 +1,11 @@
+; Source buffer for compiler v4 (PLAN_COMPILER_V4.md, stage C1).
+
+class SourceFile {
+    def code:string ""
+    def filename:string ""
+
+    Constructor (code_str:string path:string) {
+        code = code_str
+        filename = path
+    }
+}

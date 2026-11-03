@@ -1,0 +1,196 @@
+; =============================================================================
+; AstNode — syntax-only AST for compiler v4 (PLAN_COMPILER_V4.md, stage C0)
+; =============================================================================
+; Replaces the overloaded CodeNode (parse tree + typing + codegen scratch) with
+; a closed variant family. Each case carries only the fields that kind needs.
+; Analysis state and target hints stay OUT of this shape (C2+).
+;
+; Shared source span lives on group Located. Scalar-only cases default to
+; @(value) (immutable, compare by content); VRef / Expression hold arrays so
+; they are @(reference) and stay mutable for the parser.
+
+Import "stdlib.rgr"
+
+; How a VRef was written: bare name, name:T, name:[T], or name:[K:V].
+; Plain ints (not an Enum) so shape methods can compare without enum typing issues.
+; 0 = Name, 1 = Typed, 2 = Array, 3 = Hash
+
+shape AstNode {
+    group Located {
+        def sp:int 0
+        def ep:int 0
+        def row:int 0
+        def col:int 0
+    }
+
+    ; annotation goes on the case name: `case Name@(value) does Group`
+    case Integer@(value) does Located {
+        def value:int 0
+    }
+    case Double@(value) does Located {
+        def value:double 0.0
+    }
+    case String@(value) does Located {
+        def value:string ""
+    }
+    case Boolean@(value) does Located {
+        def value:boolean false
+    }
+    case Comment@(value) does Located {
+        def text:string ""
+    }
+    case VRef does Located {
+        def name:string ""
+        def ns:[string]
+        def typeName:string ""
+        def keyType:string ""
+        def arrayType:string ""
+        def kind:int 0
+    }
+    case Expression does Located {
+        def children:[AstNode]
+        def isBlock:boolean false
+    }
+
+    ; Pretty-print for tests and parser round-trips. Exhaustive match — adding
+    ; a case without updating this method is a compile error.
+    fn asString:string () {
+        match self {
+            Integer n {
+                return ("" + n.value)
+            }
+            Double n {
+                return (double2str n.value)
+            }
+            String s {
+                return ((strfromcode 34) + s.value + (strfromcode 34))
+            }
+            Boolean b {
+                if b.value {
+                    return "true"
+                }
+                return "false"
+            }
+            Comment c {
+                return (";" + c.text)
+            }
+            VRef v {
+                def out:string v.name
+                if (v.kind == 1) {
+                    out = (out + ":" + v.typeName)
+                }
+                if (v.kind == 2) {
+                    out = (out + ":[" + v.arrayType + "]")
+                }
+                if (v.kind == 3) {
+                    out = (out + ":[" + v.keyType + ":" + v.arrayType + "]")
+                }
+                return out
+            }
+            Expression e {
+                def out:string "("
+                if e.isBlock {
+                    out = "{"
+                }
+                for e.children ch:AstNode i {
+                    if (i > 0) {
+                        out = (out + " ")
+                    }
+                    out = (out + (AstNode.asString(ch)))
+                }
+                if e.isBlock {
+                    return (out + "}")
+                }
+                return (out + ")")
+            }
+        }
+        return "?"
+    }
+
+    ; True when the node is a list/block (not an atom).
+    fn isExpression:boolean () {
+        case self e:AstNode.Expression {
+            return true
+        }
+        return false
+    }
+
+    sfn emptyNs:[string] () {
+        def ns:[string]
+        return ns
+    }
+
+    sfn intNode:AstNode (sp:int ep:int value:int) {
+        return (new AstNode.Integer(sp ep 0 0 value))
+    }
+
+    sfn doubleNode:AstNode (sp:int ep:int value:double) {
+        return (new AstNode.Double(sp ep 0 0 value))
+    }
+
+    sfn stringNode:AstNode (sp:int ep:int value:string) {
+        return (new AstNode.String(sp ep 0 0 value))
+    }
+
+    sfn boolNode:AstNode (sp:int ep:int value:boolean) {
+        return (new AstNode.Boolean(sp ep 0 0 value))
+    }
+
+    sfn vrefNode:AstNode (sp:int ep:int name:string) {
+        return (new AstNode.VRef(sp ep 0 0 name (AstNode.emptyNs()) "" "" "" 0))
+    }
+
+    sfn typedVref:AstNode (sp:int ep:int name:string typeName:string) {
+        return (new AstNode.VRef(sp ep 0 0 name (AstNode.emptyNs()) typeName "" "" 1))
+    }
+
+    sfn exprNode:AstNode (sp:int ep:int children:[AstNode] isBlock:boolean) {
+        return (new AstNode.Expression(sp ep 0 0 children isBlock))
+    }
+
+    ; Push a child onto an Expression node. No-op (returns false) for atoms —
+    ; the type system already forbids children on Integer etc., but the parser
+    ; holds AstNode (the union) and must narrow before mutating.
+    sfn pushChild:boolean (node:AstNode child:AstNode) {
+        case node e:AstNode.Expression {
+            push e.children child
+            return true
+        }
+        return false
+    }
+
+    sfn childCount:int (node:AstNode) {
+        case node e:AstNode.Expression {
+            return (array_length e.children)
+        }
+        return 0
+    }
+
+    sfn isBlock:boolean (node:AstNode) {
+        case node e:AstNode.Expression {
+            return e.isBlock
+        }
+        return false
+    }
+
+    ; Update the end span on a reference Expression (value cases are immutable).
+    sfn setEnd:boolean (node:AstNode ep:int) {
+        case node e:AstNode.Expression {
+            e.ep = ep
+            return true
+        }
+        return false
+    }
+
+    sfn commentNode:AstNode (sp:int ep:int text:string) {
+        return (new AstNode.Comment(sp ep 0 0 text))
+    }
+
+    sfn arrayVref:AstNode (sp:int ep:int name:string arrayType:string) {
+        return (new AstNode.VRef(sp ep 0 0 name (AstNode.emptyNs()) "" "" arrayType 2))
+    }
+
+    sfn hashVref:AstNode (sp:int ep:int name:string keyType:string arrayType:string) {
+        return (new AstNode.VRef(sp ep 0 0 name (AstNode.emptyNs()) "" keyType arrayType 3))
+    }
+}

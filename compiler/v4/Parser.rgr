@@ -1,0 +1,333 @@
+; =============================================================================
+; Shape-based Lisp parser for compiler v4 (PLAN_COMPILER_V4.md, stage C1)
+; =============================================================================
+; Emits AstNode shapes instead of the fat CodeNode. Subset of ng_RangerLispParser:
+; atoms (int/double/string/bool), vrefs with :T / :[T] / :[K:V], lists, blocks,
+; line comments. Uses string + strlen/charAt (not charbuffer) for multi-target.
+
+Import "AstNode.rgr"
+Import "Source.rgr"
+
+class AstParser {
+    def src:SourceFile
+    def code:string ""
+    def len:int 0
+    def i:int 0
+    def parenCnt:int 0
+    def hadError:boolean false
+    def errorMsg:string ""
+    def parents:[AstNode]
+    ; Strong refs: no parent pointers on AstNode, so no cycle. (weak + shape
+    ; unions currently break on the Rust target when upgrading.)
+    def root@(optional):AstNode
+    def curr@(optional):AstNode
+
+    Constructor (file:SourceFile) {
+        src = file
+        code = file.code
+        len = (strlen code)
+        def kids:[AstNode]
+        def r:AstNode (AstNode.exprNode(0 0 kids true))
+        root = r
+        curr = r
+        push parents r
+        parenCnt = 1
+    }
+
+    sfn parseString:AstNode (text:string) {
+        def file:SourceFile (new SourceFile(text "<memory>"))
+        def p:AstParser (new AstParser(file))
+        p.parse()
+        return (unwrap p.root)
+    }
+
+    sfn childAsString:string (rootNode:AstNode index:int) {
+        case rootNode e:AstNode.Expression {
+            if ((array_length e.children) > index) {
+                return (AstNode.asString((itemAt e.children index)))
+            }
+        }
+        return ""
+    }
+
+    fn fail:void (msg:string) {
+        hadError = true
+        errorMsg = msg
+    }
+
+    fn skipSpace:boolean (blockParent:boolean) {
+        if (i >= len) {
+            return true
+        }
+        def c:int (charAt code i)
+        while ((i < len) && (c <= 32)) {
+            if (blockParent && ((c == 10) || (c == 13))) {
+                this.endExpression()
+                return true
+            }
+            i = (i + 1)
+            if (i >= len) {
+                return true
+            }
+            c = (charAt code i)
+        }
+        return false
+    }
+
+    fn endExpression:void () {
+        parenCnt = (parenCnt - 1)
+        if (parenCnt < 0) {
+            this.fail(") mismatch")
+            return
+        }
+        if (!null? curr) {
+            def ignored:boolean (AstNode.setEnd((unwrap curr) i))
+        }
+        removeLast parents
+        if ((array_length parents) > 0) {
+            curr = (itemAt parents ((array_length parents) - 1))
+        }
+    }
+
+    fn insert:void (node:AstNode) {
+        if (null? curr) {
+            this.fail("insert with no current node")
+            return
+        }
+        def ok:boolean (AstNode.pushChild((unwrap curr) node))
+        if (false == ok) {
+            this.fail("insert into non-expression")
+        }
+    }
+
+    fn isIdentStop:boolean (c:int) {
+        if (c <= 32) {
+            return true
+        }
+        if ((c == 40) || (c == 41) || (c == 58)) {
+            return true
+        }
+        if ((c == (charcode "}")) || (c == (charcode "{")) || (c == (charcode "[")) || (c == (charcode "]"))) {
+            return true
+        }
+        return false
+    }
+
+    fn parse:void () {
+        while (i < len) {
+            if hadError {
+                break
+            }
+            def blockParent:boolean false
+            if ((array_length parents) >= 2) {
+                def maybeParent:AstNode (itemAt parents ((array_length parents) - 2))
+                blockParent = (AstNode.isBlock(maybeParent))
+            } {
+                if (!null? curr) {
+                    blockParent = (AstNode.isBlock((unwrap curr)))
+                }
+            }
+            if (this.skipSpace(blockParent)) {
+                break
+            }
+            if (i >= len) {
+                break
+            }
+            def c:int (charAt code i)
+
+            if (c == 59) {
+                def csp:int (i + 1)
+                i = (i + 1)
+                while ((i < len) && ((charAt code i) > 31)) {
+                    i = (i + 1)
+                }
+                this.insert((AstNode.commentNode(csp i (substring code csp i))))
+                continue
+            }
+
+            if ((c == 40) || (c == (charcode "{"))) {
+                def isBlock:boolean (c == (charcode "{"))
+                def kids:[AstNode]
+                def node:AstNode (AstNode.exprNode(i i kids isBlock))
+                this.insert(node)
+                push parents node
+                curr = node
+                parenCnt = (parenCnt + 1)
+                i = (i + 1)
+                this.parse()
+                continue
+            }
+
+            if (c == 41) {
+                i = (i + 1)
+                this.endExpression()
+                break
+            }
+
+            if (c == (charcode "}")) {
+                i = (i + 1)
+                this.endExpression()
+                break
+            }
+
+            def fc:int c
+            def isNumStart:boolean false
+            if ((fc >= 48) && (fc <= 57)) {
+                isNumStart = true
+            }
+            if ((fc == 45) && (i < (len - 1))) {
+                def nc:int (charAt code (i + 1))
+                if ((nc >= 48) && (nc <= 57)) {
+                    isNumStart = true
+                }
+            }
+            if isNumStart {
+                def sp:int i
+                def isDouble:boolean false
+                i = (i + 1)
+                while (i < len) {
+                    def ch:int (charAt code i)
+                    if ((ch >= 48) && (ch <= 57)) {
+                        i = (i + 1)
+                        continue
+                    }
+                    if (ch == (charcode ".")) {
+                        isDouble = true
+                        i = (i + 1)
+                        continue
+                    }
+                    break
+                }
+                def ep:int i
+                def lit:string (substring code sp ep)
+                if isDouble {
+                    this.insert((AstNode.doubleNode(sp ep (unwrap (str2double lit)))))
+                } {
+                    this.insert((AstNode.intNode(sp ep (unwrap (str2int lit)))))
+                }
+                continue
+            }
+
+            if (fc == 34) {
+                def ssp:int (i + 1)
+                i = (i + 1)
+                while (i < len) {
+                    def sch:int (charAt code i)
+                    if (sch == 34) {
+                        break
+                    }
+                    if (sch == 92) {
+                        i = (i + 1)
+                    }
+                    i = (i + 1)
+                }
+                def sep:int i
+                this.insert((AstNode.stringNode(ssp sep (substring code ssp sep))))
+                if (i < len) {
+                    i = (i + 1)
+                }
+                continue
+            }
+
+            if ((fc == (charcode "t")) && ((i + 4) <= len)) {
+                def tw:string (substring code i (i + 4))
+                if (tw == "true") {
+                    def stopT:boolean true
+                    if ((i + 4) < len) {
+                        stopT = (this.isIdentStop((charAt code (i + 4))))
+                    }
+                    if stopT {
+                        this.insert((AstNode.boolNode(i (i + 4) true)))
+                        i = (i + 4)
+                        continue
+                    }
+                }
+            }
+
+            if ((fc == (charcode "f")) && ((i + 5) <= len)) {
+                def fw:string (substring code i (i + 5))
+                if (fw == "false") {
+                    def stopF:boolean true
+                    if ((i + 5) < len) {
+                        stopF = (this.isIdentStop((charAt code (i + 5))))
+                    }
+                    if stopF {
+                        this.insert((AstNode.boolNode(i (i + 5) false)))
+                        i = (i + 5)
+                        continue
+                    }
+                }
+            }
+
+            if (!null? curr) {
+                if ((AstNode.isBlock((unwrap curr))) && (fc > 32)) {
+                    if (false == (this.isIdentStop(fc))) {
+                        def kids2:[AstNode]
+                        def stmt:AstNode (AstNode.exprNode(i i kids2 false))
+                        this.insert(stmt)
+                        push parents stmt
+                        curr = stmt
+                        parenCnt = (parenCnt + 1)
+                        this.parse()
+                        continue
+                    }
+                }
+            }
+
+            def vsp:int i
+            while ((i < len) && (false == (this.isIdentStop((charAt code i))))) {
+                i = (i + 1)
+            }
+            def vep:int i
+            if (vep <= vsp) {
+                this.fail("empty token")
+                break
+            }
+            def name:string (substring code vsp vep)
+
+            while ((i < len) && ((charAt code i) <= 32) && ((charAt code i) != 10) && ((charAt code i) != 13)) {
+                i = (i + 1)
+            }
+
+            if ((i < len) && ((charAt code i) == 58)) {
+                i = (i + 1)
+                while ((i < len) && ((charAt code i) <= 32)) {
+                    i = (i + 1)
+                }
+                if ((i < len) && ((charAt code i) == (charcode "["))) {
+                    i = (i + 1)
+                    def tsp:int i
+                    def hashSep:int 0
+                    while ((i < len) && ((charAt code i) != (charcode "]"))) {
+                        if ((charAt code i) == 58) {
+                            hashSep = i
+                        }
+                        i = (i + 1)
+                    }
+                    def tep:int i
+                    if (i < len) {
+                        i = (i + 1)
+                    }
+                    if (hashSep > 0) {
+                        def kt:string (substring code tsp hashSep)
+                        def at:string (substring code (hashSep + 1) tep)
+                        this.insert((AstNode.hashVref(vsp tep name kt at)))
+                    } {
+                        def at2:string (substring code tsp tep)
+                        this.insert((AstNode.arrayVref(vsp tep name at2)))
+                    }
+                    continue
+                }
+                def tsp2:int i
+                while ((i < len) && (false == (this.isIdentStop((charAt code i))))) {
+                    i = (i + 1)
+                }
+                def typeName:string (substring code tsp2 i)
+                this.insert((AstNode.typedVref(vsp vep name typeName)))
+                continue
+            }
+
+            this.insert((AstNode.vrefNode(vsp vep name)))
+        }
+    }
+}
