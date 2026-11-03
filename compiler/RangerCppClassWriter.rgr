@@ -1771,6 +1771,25 @@ class RangerCppClassWriter {
     wr.out("}" true)
   }
 
+  ; `if!` without an else: Lang.rgr routes it here for C++ (`(custom _)`), so
+  ; it must be written here or the statement is dropped. The condition is
+  ; negated, so walkNotNulls (which narrows on a true condition) is not used.
+  fn cppWriteIfNot:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def condition:CodeNode (node.getSecond())
+    def body:CodeNode (itemAt node.children 2)
+    def blockContext:RangerAppWriterContext (ctx.fork())
+    if (!null? body.evalCtx) {
+      blockContext = (unwrap body.evalCtx)
+    }
+    wr.out("if (false == (" false)
+    this.cppWriteOperand(condition ctx wr)
+    wr.out(")) {" true)
+    wr.indent(1)
+    this.WalkNode(body blockContext wr)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
   fn cppWriteWhile:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if ((array_length node.children) < 3) {
       return
@@ -1806,6 +1825,11 @@ class RangerCppClassWriter {
 
     if( cmd == "if" ) {
       this.cppWriteIf(node ctx wr)
+      return
+    }
+
+    if( cmd == "if!" ) {
+      this.cppWriteIfNot(node ctx wr)
       return
     }
 

@@ -32518,6 +32518,21 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     wr.indent(-1);
     wr.out("}", true);
   };
+  cppWriteIfNot (node, ctx, wr) {
+    const condition = node.getSecond();
+    const body = node.children[2];
+    let blockContext = ctx.fork();
+    if ( (typeof(body.evalCtx) !== "undefined" && body.evalCtx != null )  ) {
+      blockContext = body.evalCtx;
+    }
+    wr.out("if (false == (", false);
+    this.cppWriteOperand(condition, ctx, wr);
+    wr.out(")) {", true);
+    wr.indent(1);
+    this.WalkNode(body, blockContext, wr);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
   cppWriteWhile (node, ctx, wr) {
     if ( node.children.length < 3 ) {
       return;
@@ -32546,6 +32561,10 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     if ( cmd == "if" ) {
       this.cppWriteIf(node, ctx, wr);
+      return;
+    }
+    if ( cmd == "if!" ) {
+      this.cppWriteIfNot(node, ctx, wr);
       return;
     }
     if ( cmd == "while" ) {
@@ -46610,6 +46629,37 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     let elemType = node.eval_array_type;
     if ( elemType.length == 0 ) {
       elemType = node.array_type;
+    }
+    if ( elemType == "int" && node.children.length > 1000 ) {
+      let allLit = true;
+      // Loop start
+      for ( const ch of node.children) {
+        if ( ch.value_type != 3 ) {
+          allLit = false;
+        }
+      }
+      if ( allLit ) {
+        wr.out("listOf(\"", false);
+        let chunk = 0;
+        // Loop start
+        for ( let li = 0; li < node.children.length; li++) {
+          var lit = node.children[li];
+          const t = ((lit.int_value).toString());
+          if ( li > 0 ) {
+            if ( chunk + t.length > 60000 ) {
+              wr.out("\", \"", false);
+              chunk = 0;
+            } else {
+              wr.out(",", false);
+              chunk = chunk + 1;
+            }
+          }
+          wr.out(t, false);
+          chunk = chunk + t.length;
+        }
+        wr.out("\").joinToString(\",\").split(',').map { it.toLong() }.toMutableList()", false);
+        return;
+      }
     }
     wr.out("arrayListOf<", false);
     if ( elemType.length > 0 ) {

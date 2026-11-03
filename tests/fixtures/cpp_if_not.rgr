@@ -1,0 +1,16 @@
+; `if!` without an else was dropped by the C++ writer (Lang.rgr routes that
+; form to CustomOperator, which had no case for it).
+class Main {
+    sfn m@(main):void () {
+        def x:int 7
+        def branch@(mutable):string "small"
+        if! (x > 100) {
+            branch = "not-huge"
+        }
+        print ("if_not=" + branch)
+        if! (x > 5) {
+            branch = "wrong"
+        }
+        print ("if_not_false=" + branch)
+    }
+}

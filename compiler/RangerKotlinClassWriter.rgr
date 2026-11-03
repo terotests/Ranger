@@ -139,6 +139,39 @@ class RangerKotlinClassWriter {
     if ((strlen elemType) == 0) {
       elemType = node.array_type
     }
+    ; A long literal of int constants (UnicodeProps.ranges has 24 000) is
+    ; too much bytecode for one JVM method (64 KB: "Method too large"), so it
+    ; is written as text and parsed once. The text is split in pieces under
+    ; the 65 535-byte limit of a class-file constant, joined at run time so
+    ; kotlinc does not fold them back into one.
+    if ((elemType == "int") && ((array_length node.children) > 1000)) {
+      def allLit:boolean true
+      for node.children ch:CodeNode ci {
+        if (ch.value_type != RangerNodeType.Integer) {
+          allLit = false
+        }
+      }
+      if allLit {
+        wr.out("listOf(\"" false)
+        def chunk:int 0
+        for node.children lit:CodeNode li {
+          def t:string (to_string lit.int_value)
+          if (li > 0) {
+            if ((chunk + (strlen t)) > 60000) {
+              wr.out("\", \"" false)
+              chunk = 0
+            } {
+              wr.out("," false)
+              chunk = chunk + 1
+            }
+          }
+          wr.out(t false)
+          chunk = chunk + (strlen t)
+        }
+        wr.out("\").joinToString(\",\").split(',').map { it.toLong() }.toMutableList()" false)
+        return
+      }
+    }
     wr.out("arrayListOf<" false)
     if ((strlen elemType) > 0) {
       wr.out((this.getObjectTypeString(elemType ctx)) false)

@@ -155,7 +155,7 @@ a compiler flag. Support is uneven:
 | Area | Current expectation |
 | --- | --- |
 | Host/runtime | Node.js is the primary supported host for the compiler |
-| Self-hosting | Actively used. JavaScript is the reference; the compiler also compiles **itself for C++, Dart, Python, C#, Go and Kotlin** — each of those builds accepts the result and compiles the compiler again, all but C++ byte-for-byte identically ([`TARGET_NOTES.md`](TARGET_NOTES.md#cross-target-gate-the-compiler-itself-on-c-dart-python-c-go-and-kotlin)) |
+| Self-hosting | Actively used. JavaScript is the reference; the compiler also compiles **itself for C++, Dart, Python, C#, Go and Kotlin** — each of those builds accepts the result and compiles the compiler again (on 2026-11-03 the Go, C++ and Kotlin builds wrote JavaScript byte-identical to the Node build's; see [Testing the main targets](#testing-the-main-targets)) ([`TARGET_NOTES.md`](TARGET_NOTES.md#cross-target-gate-the-compiler-itself-on-c-dart-python-c-go-and-kotlin)) |
 | JavaScript / ES6 | Best baseline target and most reliable place to start |
 | Go / Python / Kotlin / C# / Rust / C++ | Large programs verified (TS engine and/or jpeg / parsers); expect remaining edge cases |
 | Dart / Swift | Strong for substantial modules (ts_parser; TS engine builds and matches Node on both when toolchains are present); Flutter packages via `-l=dart -pubspec` |
@@ -369,6 +369,78 @@ npm run test:syntaxapp    # The syntax app on every target
 
 ES6/JavaScript has full runtime coverage; Python and Go have compilation and
 runtime tests; Rust has compilation tests, with runtime tests in progress.
+
+### Testing the main targets
+
+Status of JavaScript, Go, C++, Kotlin and Swift, measured on 2026-11-03
+(master after the Rust-syntax work of #1260–#1268). A test that needs a
+toolchain which is not on `PATH` is skipped, not failed, so check the skip
+count when a target seems to pass too easily.
+
+| Target | Flag | Toolchain the tests run | Tests (`npm run …`) | Self-host round | Status |
+| --- | --- | --- | --- | --- | --- |
+| JavaScript | `-es6` | `node` | `test:es6` | reference | All pass |
+| Go | `-l=go` | `go` (1.24) | `test:go` | `selfhost:build:go`, byte-identical | All pass |
+| C++ | `-l=cpp` | `g++` (C++14/17) | `test:cpp` | `selfhost:build:cpp`, byte-identical | All pass |
+| Kotlin | `-l=kotlin` | `kotlinc` 2.1 + `java` | `test:kotlin` | `selfhost:build:kotlin`, byte-identical | All pass |
+| Swift 6 | `-l=swift6` | `swiftc` 6.0 | `test:swift` | — | All pass |
+
+`npm run test:targets` runs all five together with the cross-target suites
+(`core-targets`, `compiler-conformance`, `compiler-chain`). The larger gates
+are `npm run test:tsengine` (the TypeScript interpreter built and run on each
+target) and `npm run test:syntaxapp` (one program on all fifteen targets,
+compared against a checked-in matrix).
+
+A self-host round compiles the compiler for the target, builds it, and lets
+that binary compile `compiler/Compiler.rgr` to JavaScript again:
+
+```bash
+npm run selfhost:build:go          # or :cpp, :kotlin
+node dist/rgrc.js -es6 ./compiler/Compiler.rgr -nodecli -d=./tmp/rt/node -o=rgrc.js
+./tmp/selfhost-go/rangerc -es6 ./compiler/Compiler.rgr -nodecli -d=./tmp/rt/go -o=rgrc.js
+#   C++:    ./tmp/selfhost/rangerc ...
+#   Kotlin: java -Xss512m -Xmx8g -jar tmp/selfhost-kotlin/rangerc.jar ...
+cmp tmp/rt/node/rgrc.js tmp/rt/go/rgrc.js
+```
+
+Toolchains in a fresh Linux container:
+
+- **Kotlin**: unzip
+  `https://github.com/JetBrains/kotlin/releases/download/v2.1.20/kotlin-compiler-2.1.20.zip`
+  and put `kotlinc/bin` on `PATH`; Java 17+ is enough. `selfhost:check:kotlin`
+  passes `-J-Xmx12g` to kotlinc.
+- **Swift**: when download.swift.org is not reachable, the layers of the
+  `swift:6.0-jammy` Docker image can be unpacked into a folder and `swiftc` run
+  in a `chroot` of it (with `/home` and `/tmp` bind-mounted). The binaries it
+  writes need `LD_LIBRARY_PATH=<image>/usr/lib/swift/linux` on the host.
+- **Go, C++**: the distribution `go` and `g++` are enough.
+
+Known open items on these targets (2026-11-03):
+
+- `tests/syntax_app` `http` unit: `start server port` / `stop server` have no
+  operator in `compiler/Lang.rgr` and the HTTP server writers that ISSUES.md #93
+  describes (`RangerGolangHttpServerWriter`, `RangerJavaScriptHttpServerWriter`)
+  are not in the tree, so every target reports a compile error for it while
+  `target_matrix.json` still says `compiled`. This predates the Rust-syntax work
+  (it fails the same way at 2026-10-12).
+- `strict-strings.test.ts` reports two character counts in
+  `lib/core/RgText.rgr` (`RgText.kind`); unrelated to the targets.
+
+Fixed by the 2026-11-03 check: C++ dropped an `if!` that had no else branch;
+the C++ `join` template called a class's own static `join` when the class had
+one (the self-hosted compiler failed g++); Kotlin and Swift `strsplit` were not
+parenthesised, so `.size` / `[i]` after it bound to the else branch only (the
+Kotlin self-host failed kotlinc); and the Go self-hosted compiler read
+`lib/JSON.rgr` twice after the importing file's folder was searched first
+(`compiler/ast/CodeNode.rgr` imported `../lib/stdlib.rgr` by a relative path);
+and on Kotlin a long int literal (the 24 000 numbers of
+`gallery/componentengine/UnicodeProps.rgr`) was more bytecode than one JVM
+method may hold, so the TS engine did not build — a literal of over 1 000 int
+constants is now written as text and parsed once.
+
+`npm run test:tsengine` on 2026-11-03: the engine builds and answers like
+JavaScript on Go, Kotlin, Swift 6 and Python; Dart and C# were skipped (no
+`dart` / `mcs` in the container).
 
 ### Syntax app (every target, measured)
 

@@ -5947,10 +5947,10 @@ static class RgStr {
 }
 ")
                 )
-                swift3 ( (e 2) ".characters.count == 0 ? Array(" (e 1) ".characters).map { String($0) } : " (e 1) ".components( separatedBy : " (e 2) ")" (imp "Foundation"))
-                swift6 ( (e 2) ".count == 0 ? Array(" (e 1) ").map { String($0) } : " (e 1) ".components( separatedBy : " (e 2) ")" (imp "Foundation"))
+                swift3 ( "(" (e 2) ".characters.count == 0 ? Array(" (e 1) ".characters).map { String($0) } : " (e 1) ".components( separatedBy : " (e 2) "))" (imp "Foundation"))
+                swift6 ( "(" (e 2) ".count == 0 ? Array(" (e 1) ").map { String($0) } : " (e 1) ".components( separatedBy : " (e 2) "))" (imp "Foundation"))
                 java7( "new ArrayList<String>(Arrays.asList(" (e 1) ".split(" (e 2) ")))" )
-                kotlin ( "if (" (e 2) ".length == 0) " (e 1) ".map { it.toString() }.toMutableList() else " (e 1) ".split(" (e 2) ").toMutableList()" )
+                kotlin ( "(if (" (e 2) ".length == 0) " (e 1) ".map { it.toString() }.toMutableList() else " (e 1) ".split(" (e 2) ").toMutableList())" )
                 php ( "strlen(" (e 2) ") == 0 ? str_split(" (e 1) ") : " "explode(" (e 2) ", " (e 1) ")")               
                 go ("strings.Split(" (e 1) ", " (e 2) ")" (imp "strings"))
 
@@ -8880,7 +8880,7 @@ static String joinStrings(ArrayList<String> list, String delimiter)
                 
                 )
 
-                cpp ( "join( " (e 1) " , " (e 2) ")" (imp "<sstream>") (imp "<string>") (imp "<iostream>")
+                cpp ( "::join( " (e 1) " , " (e 2) ")" (imp "<sstream>") (imp "<string>") (imp "<iostream>")
 (create_polyfill "
 template <typename T>
 std::string join(const T& v, const std::string& delim) {
