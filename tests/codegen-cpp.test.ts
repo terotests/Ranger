@@ -25,6 +25,16 @@ describe("C++ Code Generation", () => {
     });
   });
 
+  describe("Control flow", () => {
+    it("writes `if!` without an else (it was dropped)", () => {
+      const result = getGeneratedCppCode(`${FIXTURES_DIR}/cpp_if_not.rgr`);
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("if (false == (x > 100)) {");
+      expect(result.code).toContain('branch = std::string("not-huge");');
+      expect(result.code).toContain("if (false == (x > 5)) {");
+    });
+  });
+
   describe("Nested Collections", () => {
     it("should render nested vector/map element types", () => {
       const result = getGeneratedCppCode(

@@ -32518,6 +32518,21 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     wr.indent(-1);
     wr.out("}", true);
   };
+  cppWriteIfNot (node, ctx, wr) {
+    const condition = node.getSecond();
+    const body = node.children[2];
+    let blockContext = ctx.fork();
+    if ( (typeof(body.evalCtx) !== "undefined" && body.evalCtx != null )  ) {
+      blockContext = body.evalCtx;
+    }
+    wr.out("if (false == (", false);
+    this.cppWriteOperand(condition, ctx, wr);
+    wr.out(")) {", true);
+    wr.indent(1);
+    this.WalkNode(body, blockContext, wr);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
   cppWriteWhile (node, ctx, wr) {
     if ( node.children.length < 3 ) {
       return;
@@ -32546,6 +32561,10 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     if ( cmd == "if" ) {
       this.cppWriteIf(node, ctx, wr);
+      return;
+    }
+    if ( cmd == "if!" ) {
+      this.cppWriteIfNot(node, ctx, wr);
       return;
     }
     if ( cmd == "while" ) {
