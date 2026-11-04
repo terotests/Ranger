@@ -1,0 +1,8 @@
+; a .rgr file the entry crate includes, which imports a second .rs crate
+Import "b/lib.rs"
+
+class Leaf {
+    sfn total:int () {
+        return (Blobs.total())
+    }
+}

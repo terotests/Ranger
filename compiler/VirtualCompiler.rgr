@@ -785,6 +785,11 @@ class tester {
     ; A `.rs` entry file (PLAN_RUST_SYNTAX.md) is lowered to Ranger source
     ; first; from here on it is read like any other file.
     def rustOriginal:string ""
+    ; a `.rs` entry is the program's first crate: a crate a .rgr file imports
+    ; later reuses its generated classes and gets clone helpers of its own
+    ; (FlowImport), as the second crate of a .rgr program does
+    def entryRsGen:[string]
+    def entryIsRust:boolean false
     if (RustLower.isRustFile(the_file)) {
       rustOriginal = mainSource
       def rl:RustLower (new RustLower())
@@ -804,6 +809,8 @@ class tester {
       rl.begin(mainSource the_file)
       RustCrateLoader.load(rl env theFilePath the_file)
       mainSource = (rl.finish())
+      entryRsGen = (rl.sharedClasses())
+      entryIsRust = true
       if ((array_length rl.errors) > 0) {
         cli.printHeader()
         for rl.errors rerr:string ri {
@@ -951,6 +958,12 @@ class tester {
     appCtx.libraryPaths = langFileDirs
     appCtx.libraryPathsBase = (array_length langFileDirs)
     set appCtx.compilerSettings "package" package_name
+    if entryIsRust {
+      set appCtx.already_imported ("@rscrate:" + the_file) true
+      for entryRsGen eg:string egi {
+        set appCtx.already_imported ("@rsgen:" + eg) true
+      }
+    }
     if(appCtx.hasCompilerFlag('verbose')) {
       for appCtx.libraryPaths include_path:string i {
         print "include-path : " + include_path
