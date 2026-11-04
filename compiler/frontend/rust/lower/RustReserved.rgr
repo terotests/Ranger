@@ -142,7 +142,7 @@ class RustReserved {
     push parts "normalize nullify on_keypress path_dirname poll_keypress print push"
     push parts "pushString random rawbytechar read_file read_file_sync regex_test"
     push parts "remove removeLast remove_index replace ret return reverse rs_abs"
-    push parts "rs_byte_len rs_byte_slice rs_ceil rs_char_code rs_char_count"
+    push parts "rs_byte_at rs_byte_len rs_byte_slice rs_ceil rs_char_code rs_char_count"
     push parts "rs_bytes_extend rs_bytes_grow rs_bytes_push rs_char_from rs_dbg rs_div rs_f2i rs_find_bytes rs_floor rs_fmt"
     push parts "rs_fmt_dbg_f64 rs_fmt_prec rs_i2f rs_lower rs_map_len rs_map_remove"
     push parts "rs_max rs_min rs_neg rs_panic rs_pow rs_powi rs_rem rs_sqrt rs_str_cmp"

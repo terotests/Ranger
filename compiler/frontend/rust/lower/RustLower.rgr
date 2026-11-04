@@ -8350,13 +8350,12 @@ class RustLower {
   fn lowerIndex:RsExpr (n:RustNode) {
     def recv0:RustNode (n.kid(0))
     if ((recv0.kind == "method") && (recv0.name == "as_bytes") && ((n.kid(1)).kind != "range")) {
-      ; `s.as_bytes()[i]`: the UTF-8 byte on every target
+      ; `s.as_bytes()[i]`: the UTF-8 byte on every target, read in place
+      ; (rs_byte_at); a charbuffer of s copied the whole text per byte
       def sv:RsExpr (this.lowerExpr((recv0.kid(0)) (RsType.mk("string"))))
-      def bs:string (this.tmp("bs"))
-      out.line((((("def " + bs) + ":charbuffer (to_charbuffer ") + sv.code) + ")"))
       def bi:RsExpr (this.lowerExpr((n.kid(1)) (RsType.mk("int"))))
       def bv:string (this.tmp("b"))
-      out.line((((((("def " + bv) + ":int (charAt ") + bs) + " ") + bi.code) + ")"))
+      out.line((((((("def " + bv) + ":int (rs_byte_at ") + sv.code) + " ") + bi.code) + ")"))
       return (this.simpleExpr(bv (RsType.mk("int"))))
     }
     def rv:RsExpr (this.lowerExpr((n.kid(0)) (RsType.mk("unknown"))))

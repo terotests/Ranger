@@ -1095,7 +1095,25 @@ function rs_bytes_grow(b, k, v, more) {
       ranger ( "(rs_byte_len " (e 1) ")" )
       ; std::string::size counts a NUL; the charbuffer's strlen does not
       cpp ( "((int)(" (e 1) ").size())" )
+      ; a Go and a Rust string are their UTF-8 bytes: strlen counts them
+      ; without the copy to_charbuffer makes (`s.as_bytes().to_vec()`, the
+      ; whole text for every `i < s.as_bytes().len()` of a loop)
+      go @macro(true) ( "(strlen " "(" (e 1) ")" ")" )
+      rust @macro(true) ( "(strlen " "(" (e 1) ")" ")" )
       * @macro(true) ( "(length (to_charbuffer " "(" (e 1) ")" "))" )
+    }
+  }
+  ; `s.as_bytes()[i]`: the UTF-8 byte at i. On Go, Rust and C++ a string's
+  ; charAt is that byte, read in place. Through to_charbuffer it was a copy
+  ; of the whole text per byte read, so a scan was quadratic: hashing a
+  ; 460 kB SVG one byte at a time took 5.4 s in a Rust WASM build.
+  rs_byte_at _:int (s:string i:int) {
+    templates {
+      ranger ( "(rs_byte_at " (e 1) " " (e 2) ")" )
+      go @macro(true) ( "(charAt " "(" (e 1) ")" " " "(" (e 2) ")" ")" )
+      rust @macro(true) ( "(charAt " "(" (e 1) ")" " " "(" (e 2) ")" ")" )
+      cpp @macro(true) ( "(charAt " "(" (e 1) ")" " " "(" (e 2) ")" ")" )
+      * @macro(true) ( "(charAt (to_charbuffer " "(" (e 1) ")" ") " "(" (e 2) ")" ")" )
     }
   }
   ; `s.push_str(x)` and `s.push(c)`: s + x. A Go string is immutable, so

@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`s.as_bytes()[i]` reads the byte in place on Go, Rust and C++.** The
+  `.rs` lowering made a charbuffer of `s` for every byte read (on Rust
+  `s.as_bytes().to_vec()`, a copy of the whole text), so a scan over a
+  string's bytes was quadratic: hashing a 460 kB SVG took 5.4 s in a Rust
+  WASM build. It lowers to `rs_byte_at`, which is `charAt` (the UTF-8 byte)
+  on those targets and the charbuffer read elsewhere; `s.as_bytes().len()`
+  (`rs_byte_len`) is `strlen` on Go and Rust.
+
 - **Kotlin `int` is a 64-bit `Long`.** The Kotlin writer mapped Ranger
   `int` (and `char`, and enums lowered to integers) to Kotlin's 32-bit `Int`,
   so a file size over 2 GB, a millisecond timestamp or a time after 2038
