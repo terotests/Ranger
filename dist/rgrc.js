@@ -88401,7 +88401,7 @@ RustReserved.operatorNames = function() {
   parts.push("normalize nullify on_keypress path_dirname poll_keypress print push");
   parts.push("pushString random rawbytechar read_file read_file_sync regex_test");
   parts.push("remove removeLast remove_index replace ret return reverse rs_abs");
-  parts.push("rs_byte_len rs_byte_slice rs_ceil rs_char_code rs_char_count");
+  parts.push("rs_byte_at rs_byte_len rs_byte_slice rs_ceil rs_char_code rs_char_count");
   parts.push("rs_bytes_extend rs_bytes_grow rs_bytes_push rs_char_from rs_dbg rs_div rs_f2i rs_find_bytes rs_floor rs_fmt");
   parts.push("rs_fmt_dbg_f64 rs_fmt_prec rs_i2f rs_lower rs_map_len rs_map_remove");
   parts.push("rs_max rs_min rs_neg rs_panic rs_pow rs_powi rs_rem rs_sqrt rs_str_cmp");
@@ -97224,11 +97224,9 @@ class RustLower  {
     const __REGx1 = n.kid(1);
     if ( (recv0.kind == "method" && recv0.name == "as_bytes") && __REGx1.kind != "range" ) {
       const sv = this.lowerExpr(recv0.kid(0), RsType.mk("string"));
-      const bs = this.tmp("bs");
-      this.out.line(((("def " + bs) + ":charbuffer (to_charbuffer ") + sv.code) + ")");
       const bi = this.lowerExpr(n.kid(1), RsType.mk("int"));
       const bv = this.tmp("b");
-      this.out.line(((((("def " + bv) + ":int (charAt ") + bs) + " ") + bi.code) + ")");
+      this.out.line(((((("def " + bv) + ":int (rs_byte_at ") + sv.code) + " ") + bi.code) + ")");
       return this.simpleExpr(bv, RsType.mk("int"));
     }
     const rv = this.lowerExpr(n.kid(0), RsType.mk("unknown"));
