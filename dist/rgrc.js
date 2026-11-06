@@ -100775,6 +100775,8 @@ class VirtualCompiler  {
     const c = operatorsOf_17.readc95file_18(env, theFilePath, the_file);
     let mainSource = c;
     let rustOriginal = "";
+    let entryRsGen = [];
+    let entryIsRust = false;
     if ( RustLower.isRustFile(the_file) ) {
       rustOriginal = mainSource;
       const rl = new RustLower();
@@ -100792,6 +100794,8 @@ class VirtualCompiler  {
       rl.begin(mainSource, the_file);
       RustCrateLoader.load(rl, env, theFilePath, the_file);
       mainSource = rl.finish();
+      entryRsGen = rl.sharedClasses();
+      entryIsRust = true;
       if ( rl.errors.length > 0 ) {
         cli.printHeader();
         // Loop start
@@ -100925,6 +100929,13 @@ class VirtualCompiler  {
     appCtx.libraryPaths = langFileDirs;
     appCtx.libraryPathsBase = langFileDirs.length;
     appCtx.compilerSettings["package"] = package_name;
+    if ( entryIsRust ) {
+      appCtx.already_imported["@rscrate:" + the_file] = true;
+      // Loop start
+      for ( const eg of entryRsGen) {
+        appCtx.already_imported["@rsgen:" + eg] = true;
+      }
+    }
     if ( appCtx.hasCompilerFlag("verbose") ) {
       // Loop start
       for ( const include_path of appCtx.libraryPaths) {
