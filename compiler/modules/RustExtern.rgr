@@ -76,6 +76,12 @@ class RustExtern {
   sfn enter:string (folded:string ctx:RangerAppWriterContext) {
     def rctx:RangerAppWriterContext (ctx.getRoot())
     def prev:string rctx.rust_extern_current
+    ; RustLower's prelude (RsStr, RsBytes, RsChar…) is each module's own:
+    ; every module that lowers .rs writes it
+    if (endsWith folded "lib/rust/RsPrelude.rgr") {
+      rctx.rust_extern_current = ""
+      return prev
+    }
     if (has rctx.rust_extern_roots folded) {
       rctx.rust_extern_current = (unwrap (get rctx.rust_extern_roots folded))
     }
@@ -142,6 +148,25 @@ class RustExtern {
   sfn crateOf:string (name:string ctx:RangerAppWriterContext) {
     def root:RangerAppWriterContext (ctx.getRoot())
     if (has root.rust_extern_types name) {
+      ; a class or trait of the crate that only this module's classes extend
+      ; or consume: the crate wrote it without the trait they are dispatched
+      ; through, and with methods shaped for no subclass, so this module writes
+      ; its own (nothing of the crate's can name it, or a class of the crate
+      ; would be among its subclasses)
+      if (root.isDefinedClass(name)) {
+        def tc:RangerAppClassDesc (root.findClass(name))
+        if ((array_length tc.child_classes) > 0) {
+          def anyThere:boolean false
+          for tc.child_classes cn:string ci {
+            if (has root.rust_extern_types cn) {
+              anyThere = true
+            }
+          }
+          if (anyThere == false) {
+            return ""
+          }
+        }
+      }
       return (unwrap (get root.rust_extern_types name))
     }
     return ""

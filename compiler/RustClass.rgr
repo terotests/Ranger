@@ -2737,6 +2737,32 @@ extension RangerRustClassWriter {
       } {
         wr.out((("impl RgAnyRef for " + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
       }
+      ; `-rust-extern`: a trait another crate writes has that crate's RgAnyRef
+      ; as its supertrait, so a class here that implements it carries that
+      ; one too, once per crate
+      def rgAnyCrates:[string:boolean]
+      def rgAnyParents:[string]
+      for cl.extends_classes rgxE:string rgxEi {
+        push rgAnyParents rgxE
+      }
+      for cl.consumes_traits rgxT:string rgxTi {
+        if (this.rustTraitIsInterface(rgxT ctx)) {
+          push rgAnyParents rgxT
+        }
+      }
+      for rgAnyParents rgxP:string rgxPi {
+        def rgxCrate:string (RustExtern.crateOf(rgxP ctx))
+        if ((strlen rgxCrate) > 0) {
+          if ((has rgAnyCrates rgxCrate) == false) {
+            set rgAnyCrates rgxCrate true
+            if (this.rustClassInReentrantTrait(cl ctx)) {
+              wr.out((((("impl " + rgxCrate) + "::RgAnyRef for Rc<RefCell<") + cl.name) + ">> { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
+            } {
+              wr.out((((("impl " + rgxCrate) + "::RgAnyRef for ") + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
+            }
+          }
+        }
+      }
     }
 
     ; Generate trait if this class is extended by other classes (for Rust polymorphism)

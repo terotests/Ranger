@@ -1,6 +1,12 @@
 Import "../Shared.rgr"
 Import "../base/Base.rgr"
 
+class BoldLabel extends Label {
+  fn show:string () {
+    return ("*" + text + "*")
+  }
+}
+
 ; app's own class, holding base's types
 class Report {
   def lines:[string]
@@ -15,6 +21,13 @@ class Report {
     for cat.items it:Item i {
       this.add(it)
     }
+  }
+  fn label:void (l:Label) {
+    push lines (l.show())
+  }
+  fn labels:void () {
+    this.label((new Label))
+    this.label((new BoldLabel))
   }
   fn text:string () {
     return (join lines "\n")

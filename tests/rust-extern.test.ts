@@ -37,12 +37,13 @@ describe("-rust-extern", () => {
       env: { ...process.env, CARGO_TARGET_DIR: target },
     });
     expect(r.status, r.stderr).toBe(0);
-    expect(r.stdout).toBe("a small 6\nb large 20\n2\n");
+    expect(r.stdout).toBe("a small 6\nb large 20\nplain\n*plain*\n2\n");
     const app = spawnSync("sh", ["-c", `cat ${target}/debug/build/app-*/out/App.rs`], { encoding: "utf8" }).stdout;
     expect(app).toContain("use base::*;");
     expect(app).not.toMatch(/struct Item\b/);
     expect(app).not.toMatch(/enum Kind\b/);
     expect(app).toMatch(/struct Report\b/);
+    expect(app).toMatch(/pub trait LabelTrait\b/);
   }, 300000);
 
   // RangerMath's .rs modules use EVG's types from the rangerevg crate, whose

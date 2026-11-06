@@ -24,3 +24,11 @@ class Item {
     return it
   }
 }
+
+; extended only by app: app writes it, with the trait its subclass needs
+class Label {
+  def text:string "plain"
+  fn show:string () {
+    return text
+  }
+}

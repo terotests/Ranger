@@ -25079,6 +25079,10 @@ RustExtern.prepend = function(root, ctx) {
 RustExtern.enter = function(folded, ctx) {
   const rctx = ctx.getRoot();
   const prev = rctx.rust_extern_current;
+  if ( folded.endsWith("lib/rust/RsPrelude.rgr") ) {
+    rctx.rust_extern_current = "";
+    return prev;
+  }
   if ( ( typeof(rctx.rust_extern_roots[folded] ) != "undefined" && Object.prototype.hasOwnProperty.call(rctx.rust_extern_roots, folded) ) ) {
     rctx.rust_extern_current = ( Object.prototype.hasOwnProperty.call(rctx.rust_extern_roots, folded) ? rctx.rust_extern_roots[folded] : undefined );
   }
@@ -25150,6 +25154,21 @@ RustExtern.collect = function(node, crate, root) {
 RustExtern.crateOf = function(name, ctx) {
   const root = ctx.getRoot();
   if ( ( typeof(root.rust_extern_types[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.rust_extern_types, name) ) ) {
+    if ( root.isDefinedClass(name) ) {
+      const tc = root.findClass(name);
+      if ( tc.child_classes.length > 0 ) {
+        let anyThere = false;
+        // Loop start
+        for ( const cn of tc.child_classes) {
+          if ( ( typeof(root.rust_extern_types[cn] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.rust_extern_types, cn) ) ) {
+            anyThere = true;
+          }
+        }
+        if ( anyThere == false ) {
+          return "";
+        }
+      }
+    }
     return ( Object.prototype.hasOwnProperty.call(root.rust_extern_types, name) ? root.rust_extern_types[name] : undefined );
   }
   return "";
@@ -46201,6 +46220,32 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         wr.out(("impl RgAnyRef for Rc<RefCell<" + cl.name) + ">> { fn rg_as_any(&self) -> &dyn std::any::Any { self } }", true);
       } else {
         wr.out(("impl RgAnyRef for " + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }", true);
+      }
+      let rgAnyCrates = {};
+      let rgAnyParents = [];
+      // Loop start
+      for ( const rgxE of cl.extends_classes) {
+        rgAnyParents.push(rgxE);
+      }
+      // Loop start
+      for ( const rgxT of cl.consumes_traits) {
+        if ( this.rustTraitIsInterface(rgxT, ctx) ) {
+          rgAnyParents.push(rgxT);
+        }
+      }
+      // Loop start
+      for ( const rgxP of rgAnyParents) {
+        const rgxCrate = RustExtern.crateOf(rgxP, ctx);
+        if ( rgxCrate.length > 0 ) {
+          if ( ( typeof(rgAnyCrates[rgxCrate] ) != "undefined" && Object.prototype.hasOwnProperty.call(rgAnyCrates, rgxCrate) ) == false ) {
+            rgAnyCrates[rgxCrate] = true;
+            if ( this.rustClassInReentrantTrait(cl, ctx) ) {
+              wr.out(((("impl " + rgxCrate) + "::RgAnyRef for Rc<RefCell<") + cl.name) + ">> { fn rg_as_any(&self) -> &dyn std::any::Any { self } }", true);
+            } else {
+              wr.out(((("impl " + rgxCrate) + "::RgAnyRef for ") + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }", true);
+            }
+          }
+        }
       }
     }
     if ( cl.is_extended_by_children ) {
