@@ -109,6 +109,9 @@ impl MathRender {
         }
         return MathPathBuf::text(&buf);
     }
+    // pub for the crates whose .rgr code calls it (MdMath); not API:
+    // its EVGElement is EVG's type, which Ranger's API check keeps internal
+    #[doc(hidden)]
     pub fn box_element(b: &Rc<RefCell<MathBox>>, px: f64, colour: &str) -> Rc<RefCell<EVGElement>> {
         let w: f64 = b.borrow().w * px;
         let h: f64 = (b.borrow().h + b.borrow().d) * px;
