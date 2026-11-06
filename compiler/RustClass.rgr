@@ -1621,11 +1621,12 @@ extension RangerRustClassWriter {
         header.out("" true)
       }
       ; `-rust-extern`: the types another crate writes (RustExtern.rgr). A
-      ; glob import yields to every name this module declares itself.
+      ; glob import yields to every name this module declares itself; the path is
+      ; absolute, since a crate may have a module of its own name (mfiles::mfiles).
       def extCrates:[string] (RustExtern.crates(ctx))
       for extCrates extCrate:string eci {
         header.out("#[allow(unused_imports)]" true)
-        header.out(("use " + extCrate + "::*;") true)
+        header.out(("use ::" + extCrate + "::*;") true)
       }
       if ((array_length extCrates) > 0) {
         header.out("" true)
@@ -1647,7 +1648,7 @@ extension RangerRustClassWriter {
       ; ones a subclass gets for its parent.
       def hdrTraitRoot:RangerAppWriterContext (ctx.getRoot())
       for hdrTraitRoot.definedClassList htName:string hti {
-        if ((this.rustTraitIsInterface(htName ctx)) && ((RustExtern.crateOf(htName ctx)) == "")) {
+        if ((this.rustTraitIsInterface(htName ctx)) && (((RustExtern.crateOf(htName ctx)) == "") || ((RustExtern.traitWrittenThere(htName ctx)) == false))) {
           def htc:RangerAppClassDesc (hdrTraitRoot.findClass(htName))
           header.out("" true)
           header.out(("pub trait " + htName + "Trait: RgAnyRef {") true)
@@ -2736,6 +2737,32 @@ extension RangerRustClassWriter {
         wr.out((("impl RgAnyRef for Rc<RefCell<" + cl.name) + ">> { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
       } {
         wr.out((("impl RgAnyRef for " + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
+      }
+      ; `-rust-extern`: a trait another crate writes has that crate's RgAnyRef
+      ; as its supertrait, so a class here that implements it carries that
+      ; one too, once per crate
+      def rgAnyCrates:[string:boolean]
+      def rgAnyParents:[string]
+      for cl.extends_classes rgxE:string rgxEi {
+        push rgAnyParents rgxE
+      }
+      for cl.consumes_traits rgxT:string rgxTi {
+        if (this.rustTraitIsInterface(rgxT ctx)) {
+          push rgAnyParents rgxT
+        }
+      }
+      for rgAnyParents rgxP:string rgxPi {
+        def rgxCrate:string (RustExtern.crateOf(rgxP ctx))
+        if ((strlen rgxCrate) > 0) {
+          if ((has rgAnyCrates rgxCrate) == false) {
+            set rgAnyCrates rgxCrate true
+            if (this.rustClassInReentrantTrait(cl ctx)) {
+              wr.out((((("impl " + rgxCrate) + "::RgAnyRef for Rc<RefCell<") + cl.name) + ">> { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
+            } {
+              wr.out((((("impl " + rgxCrate) + "::RgAnyRef for ") + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
+            }
+          }
+        }
       }
     }
 

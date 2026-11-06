@@ -76,6 +76,12 @@ class RustExtern {
   sfn enter:string (folded:string ctx:RangerAppWriterContext) {
     def rctx:RangerAppWriterContext (ctx.getRoot())
     def prev:string rctx.rust_extern_current
+    ; RustLower's prelude (RsStr, RsBytes, RsChar…) is each module's own:
+    ; every module that lowers .rs writes it
+    if (endsWith folded "lib/rust/RsPrelude.rgr") {
+      rctx.rust_extern_current = ""
+      return prev
+    }
     if (has rctx.rust_extern_roots folded) {
       rctx.rust_extern_current = (unwrap (get rctx.rust_extern_roots folded))
     }
@@ -122,6 +128,11 @@ class RustExtern {
           return
         }
         def nameNode:CodeNode (at node.children 1)
+        ; a class RustLower writes for a .rs crate's own use (RsStr, RsRes_…,
+        ; RsBox_…) is no crate's type: each module that needs one writes it
+        if (has root.already_imported ("@rsgen:" + nameNode.vref)) {
+          return
+        }
         if ((strlen nameNode.vref) > 0) {
           set root.rust_extern_types nameNode.vref crate
         }
@@ -137,9 +148,45 @@ class RustExtern {
   sfn crateOf:string (name:string ctx:RangerAppWriterContext) {
     def root:RangerAppWriterContext (ctx.getRoot())
     if (has root.rust_extern_types name) {
+      ; a class or trait of the crate that only this module's classes extend
+      ; or consume: the crate wrote it without the trait they are dispatched
+      ; through, and with methods shaped for no subclass, so this module writes
+      ; its own (nothing of the crate's can name it, or a class of the crate
+      ; would be among its subclasses)
+      if (root.isDefinedClass(name)) {
+        def tc:RangerAppClassDesc (root.findClass(name))
+        if ((array_length tc.child_classes) > 0) {
+          def anyThere:boolean false
+          for tc.child_classes cn:string ci {
+            if (has root.rust_extern_types cn) {
+              anyThere = true
+            }
+          }
+          if (anyThere == false) {
+            return ""
+          }
+        }
+      }
       return (unwrap (get root.rust_extern_types name))
     }
     return ""
+  }
+
+  ; A trait of another crate is written there only when a class of that crate
+  ; consumes it (RustClass.rustTraitIsInterface). One only this module's
+  ; classes consume is written here.
+  sfn traitWrittenThere:boolean (name:string ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    if ((root.isDefinedClass(name)) == false) {
+      return false
+    }
+    def tc:RangerAppClassDesc (root.findClass(name))
+    for tc.child_classes cn:string ci {
+      if ((RustExtern.crateOf(cn ctx)) != "") {
+        return true
+      }
+    }
+    return false
   }
 
   ; The crates, each once, in the order the setting names them.

@@ -13,6 +13,7 @@ fn main() {
     base::Catalog::add(&cat, base::Item::make("b".to_string(), 4.0, 5.0));
     let rep = Rc::new(RefCell::new(rgr::Report::new()));
     rgr::Report::fill(&rep, &cat);
+    rgr::Report::labels(&rep);
     println!("{}", rgr::Report::text(&rep));
     println!("{}", base::Catalog::count(&cat));
 }

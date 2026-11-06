@@ -214,6 +214,10 @@ class RangerApiBuilder {
           isApi = pdoc.is_public
         }
       }
+      ; another crate's type (`-rust-extern`): that crate exports it
+      if ((RustExtern.crateOf(pcl.name ctx)) != "") {
+        isApi = true
+      }
       if isApi {
         set publicClassNames pcl.name true
       } {

@@ -1156,6 +1156,9 @@ class RangerApiBuilder  {
           isApi = pdoc.is_public;
         }
       }
+      if ( RustExtern.crateOf(pcl.name, ctx) != "" ) {
+        isApi = true;
+      }
       if ( isApi ) {
         this.publicClassNames[pcl.name] = true;
       } else {
@@ -25076,6 +25079,10 @@ RustExtern.prepend = function(root, ctx) {
 RustExtern.enter = function(folded, ctx) {
   const rctx = ctx.getRoot();
   const prev = rctx.rust_extern_current;
+  if ( folded.endsWith("lib/rust/RsPrelude.rgr") ) {
+    rctx.rust_extern_current = "";
+    return prev;
+  }
   if ( ( typeof(rctx.rust_extern_roots[folded] ) != "undefined" && Object.prototype.hasOwnProperty.call(rctx.rust_extern_roots, folded) ) ) {
     rctx.rust_extern_current = ( Object.prototype.hasOwnProperty.call(rctx.rust_extern_roots, folded) ? rctx.rust_extern_roots[folded] : undefined );
   }
@@ -25130,6 +25137,9 @@ RustExtern.collect = function(node, crate, root) {
         return;
       }
       const nameNode = node.children[1];
+      if ( ( typeof(root.already_imported[("@rsgen:" + nameNode.vref)] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.already_imported, "@rsgen:" + nameNode.vref) ) ) {
+        return;
+      }
       if ( nameNode.vref.length > 0 ) {
         root.rust_extern_types[nameNode.vref] = crate;
       }
@@ -25144,9 +25154,38 @@ RustExtern.collect = function(node, crate, root) {
 RustExtern.crateOf = function(name, ctx) {
   const root = ctx.getRoot();
   if ( ( typeof(root.rust_extern_types[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.rust_extern_types, name) ) ) {
+    if ( root.isDefinedClass(name) ) {
+      const tc = root.findClass(name);
+      if ( tc.child_classes.length > 0 ) {
+        let anyThere = false;
+        // Loop start
+        for ( const cn of tc.child_classes) {
+          if ( ( typeof(root.rust_extern_types[cn] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.rust_extern_types, cn) ) ) {
+            anyThere = true;
+          }
+        }
+        if ( anyThere == false ) {
+          return "";
+        }
+      }
+    }
     return ( Object.prototype.hasOwnProperty.call(root.rust_extern_types, name) ? root.rust_extern_types[name] : undefined );
   }
   return "";
+};
+RustExtern.traitWrittenThere = function(name, ctx) {
+  const root = ctx.getRoot();
+  if ( root.isDefinedClass(name) == false ) {
+    return false;
+  }
+  const tc = root.findClass(name);
+  // Loop start
+  for ( const cn of tc.child_classes) {
+    if ( RustExtern.crateOf(cn, ctx) != "" ) {
+      return true;
+    }
+  }
+  return false;
 };
 RustExtern.crates = function(ctx) {
   let res = [];
@@ -45225,7 +45264,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       // Loop start
       for ( const extCrate of extCrates) {
         header.out("#[allow(unused_imports)]", true);
-        header.out(("use " + extCrate) + "::*;", true);
+        header.out(("use ::" + extCrate) + "::*;", true);
       }
       if ( extCrates.length > 0 ) {
         header.out("", true);
@@ -45234,7 +45273,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       // Loop start
       for ( let hti = 0; hti < hdrTraitRoot.definedClassList.length; hti++) {
         var htName = hdrTraitRoot.definedClassList[hti];
-        if ( this.rustTraitIsInterface(htName, ctx) && RustExtern.crateOf(htName, ctx) == "" ) {
+        if ( this.rustTraitIsInterface(htName, ctx) && (RustExtern.crateOf(htName, ctx) == "" || RustExtern.traitWrittenThere(htName, ctx) == false) ) {
           const htc = hdrTraitRoot.findClass(htName);
           header.out("", true);
           header.out(("pub trait " + htName) + "Trait: RgAnyRef {", true);
@@ -46181,6 +46220,32 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         wr.out(("impl RgAnyRef for Rc<RefCell<" + cl.name) + ">> { fn rg_as_any(&self) -> &dyn std::any::Any { self } }", true);
       } else {
         wr.out(("impl RgAnyRef for " + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }", true);
+      }
+      let rgAnyCrates = {};
+      let rgAnyParents = [];
+      // Loop start
+      for ( const rgxE of cl.extends_classes) {
+        rgAnyParents.push(rgxE);
+      }
+      // Loop start
+      for ( const rgxT of cl.consumes_traits) {
+        if ( this.rustTraitIsInterface(rgxT, ctx) ) {
+          rgAnyParents.push(rgxT);
+        }
+      }
+      // Loop start
+      for ( const rgxP of rgAnyParents) {
+        const rgxCrate = RustExtern.crateOf(rgxP, ctx);
+        if ( rgxCrate.length > 0 ) {
+          if ( ( typeof(rgAnyCrates[rgxCrate] ) != "undefined" && Object.prototype.hasOwnProperty.call(rgAnyCrates, rgxCrate) ) == false ) {
+            rgAnyCrates[rgxCrate] = true;
+            if ( this.rustClassInReentrantTrait(cl, ctx) ) {
+              wr.out(((("impl " + rgxCrate) + "::RgAnyRef for Rc<RefCell<") + cl.name) + ">> { fn rg_as_any(&self) -> &dyn std::any::Any { self } }", true);
+            } else {
+              wr.out(((("impl " + rgxCrate) + "::RgAnyRef for ") + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }", true);
+            }
+          }
+        }
       }
     }
     if ( cl.is_extended_by_children ) {

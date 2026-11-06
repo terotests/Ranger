@@ -11,8 +11,8 @@
 //     }
 //
 // A crate whose .rgr types other crates use is their extern crate: it sets
-// `links = "<name>"` in Cargo.toml and calls `.export_root()`, which hands the
-// .rgr root's path to its dependents (cargo's DEP_<NAME>_RGR_ROOT). A
+// `links = "<name>"` in Cargo.toml and calls `.export_root()` (or
+// `.export_path("src/lib.rs")`), which hands the root's path to its dependents (cargo's DEP_<NAME>_RGR_ROOT). A
 // dependent's `.extern_crate("<name>")` compiles with
 // `-rust-extern=<name>=<root>`: the types of that root's closure are not
 // written again but named from the crate, so EVGElement is one type across
@@ -27,7 +27,7 @@ pub struct Module {
     prefix: String,
     externs: Vec<(String, String)>,
     stubs: Vec<(String, String)>,
-    export: bool,
+    export: Option<String>,
 }
 
 impl Module {
@@ -41,7 +41,7 @@ impl Module {
             prefix: String::new(),
             externs: Vec::new(),
             stubs: Vec::new(),
-            export: false,
+            export: None,
         }
     }
 
@@ -77,7 +77,16 @@ impl Module {
 
     /// Hand this module's .rgr root to the crates that depend on this one.
     pub fn export_root(mut self) -> Module {
-        self.export = true;
+        self.export = Some(self.src.clone());
+        self
+    }
+
+    /// Hand `path` (relative to the manifest) to the dependents instead: the
+    /// crate's lib.rs when its Rust modules are types the dependents' .rgr
+    /// code uses too. Ranger reads the .rs modules and the .rgr files they
+    /// include (`import_rgr!`) as that root's closure.
+    pub fn export_path(mut self, path: &str) -> Module {
+        self.export = Some(path.to_string());
         self
     }
 
@@ -115,8 +124,8 @@ impl Module {
             code = format!("{}\n{}", self.prefix, code);
         }
         std::fs::write(&file, code).unwrap();
-        if self.export {
-            println!("cargo:rgr_root={}", src.canonicalize().unwrap().display());
+        if let Some(root) = &self.export {
+            println!("cargo:rgr_root={}", manifest.join(root).canonicalize().unwrap().display());
         }
         // `#[cfg(not(ranger))]` marks what only rustc reads (RustLower)
         println!("cargo::rustc-check-cfg=cfg(ranger)");
@@ -128,7 +137,8 @@ impl Module {
 }
 
 /// RANGER_HOME, else the Ranger checkout this crate sits in (a directory
-/// above the manifest with dist/rgrc.js).
+/// above the manifest with dist/rgrc.js), or one a directory above keeps in
+/// .deps/Ranger.
 pub fn ranger_home(manifest: &Path) -> PathBuf {
     if let Ok(h) = std::env::var("RANGER_HOME") {
         return PathBuf::from(h);
@@ -137,6 +147,11 @@ pub fn ranger_home(manifest: &Path) -> PathBuf {
     loop {
         if dir.join("dist/rgrc.js").is_file() {
             return dir;
+        }
+        // a project that keeps its Ranger checkout in .deps/Ranger
+        let deps = dir.join(".deps/Ranger");
+        if deps.join("dist/rgrc.js").is_file() {
+            return deps;
         }
         if !dir.pop() {
             panic!("no Ranger checkout above {}: set RANGER_HOME", manifest.display());

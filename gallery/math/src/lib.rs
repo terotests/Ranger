@@ -11,3 +11,9 @@ mod math_omml;
 mod math_parser;
 mod math_render;
 mod rgr;
+
+pub use math_layout::{MathBox, MathItem, MathLayout};
+pub use math_omml::MathOmml;
+pub use math_parser::{MathAtom, MathCell, MathParser};
+pub use math_render::MathRender;
+pub use rgr::{EVGColor, EVGElement, EVGUnit, MathFont, MathGlyph, MathPathBuf, MathSym, MathText};
