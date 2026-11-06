@@ -71,6 +71,9 @@ class RustLower {
   ; imported, and not an error when it is missing or repeats a class
   def pendingScan:[boolean]
   def rgrScanned:[string:boolean]
+  ; .rgr files already imported, by normalized path: two crates of one
+  ; program can include the same file
+  def rgrAdded:[string:boolean]
   def rgrClassNames:[string]
   ; `.rgr` files included with `ranger::import_rgr!`, for the Import lines
   def rgrImports:[string]
@@ -389,6 +392,27 @@ class RustLower {
     return ((dir + "/") + name)
   }
 
+  ; `a/b/../c/./d` -> `a/c/d`; a leading `..` stays
+  sfn normPath:string (path:string) {
+    def parts:[string] (strsplit path "/")
+    def out:[string]
+    for parts p:string i {
+      if (p == ".") {
+        continue
+      }
+      def n:int (array_length out)
+      if ((p == "..") && (n > 0)) {
+        def last:string (itemAt out (n - 1))
+        if ((last != "..") && (last != "")) {
+          remove_index out (n - 1)
+          continue
+        }
+      }
+      push out p
+    }
+    return (join out "/")
+  }
+
   ; A module's items; inline `mod m { … }` blocks are modules too, and a
   ; `mod m;` waits for its file.
   fn registerModule:void (root:RustNode key:string file:string dir:string) {
@@ -627,7 +651,16 @@ class RustLower {
   ; The classes of an included `.rgr` file: known by name to the `.rs`
   ; code, written by an ordinary Import of the file.
   fn addRgr:void (path:string src:string at:RustNode scanOnly:boolean) {
+    def np:string (RustLower.normPath(path))
+    ; another crate of the program included it already: its classes are known
+    if (has rgrAdded np) {
+      return
+    }
     set rgrScanned path true
+    set rgrScanned np true
+    if (scanOnly == false) {
+      set rgrAdded np true
+    }
     def sc:RsRgrScan (new RsRgrScan())
     sc.scan(src path)
     def wantParent:boolean false
@@ -665,7 +698,7 @@ class RustLower {
     if wantParent {
       for sc.imports imp:string ii {
         def ip:string (RustLower.joinPath((RustLower.dirOf(path)) imp))
-        if (has rgrScanned ip) {
+        if ((has rgrScanned ip) || (has rgrScanned (RustLower.normPath(ip)))) {
           continue
         }
         set rgrScanned ip true
