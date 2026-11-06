@@ -166,6 +166,11 @@ class RangerAppWriterContext {
   ; growing new source positions, so a depth ceiling stops the hang even then.
   def macro_expansion_depth:int 0
   def already_imported:[string:boolean]
+  ; `-rust-extern` (RustExtern.rgr): type name -> the crate that owns it
+  def rust_extern_types:[string:string]
+  ; folded root path -> crate, and the crate whose files are being read
+  def rust_extern_roots:[string:string]
+  def rust_extern_current:string ""
   def fileSystem:CodeFileSystem
   def is_function:boolean false
   def class_level_context:boolean false

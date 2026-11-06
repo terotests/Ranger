@@ -6613,6 +6613,9 @@ class RangerAppWriterContext  {
     this.active_macros = {};
     this.macro_expansion_depth = 0;
     this.already_imported = {};
+    this.rust_extern_types = {};
+    this.rust_extern_roots = {};
+    this.rust_extern_current = "";
     this.fileSystem = undefined;
     this.is_function = false;
     this.class_level_context = false;
@@ -24750,6 +24753,7 @@ class RangerFlowParser  {
       let source_code = "";
       const rootCtx = ctx.getRoot();
       let importFileDir = "";
+      let importFolded = "";
       if ( source_code.length == 0 ) {
         let searchName = PkgImport.stripDot(import_file);
         let searchPaths = [];
@@ -24793,6 +24797,7 @@ class RangerFlowParser  {
           return;
         }
         ctx.already_imported[seenKey] = true;
+        importFolded = seenKey.substring(1, seenKey.length );
         const c = operatorsOf_17.readc95file_18(env, filePathIs, searchName);
         source_code = c;
         const fullPath = (filePathIs + "/") + searchName;
@@ -24862,6 +24867,8 @@ class RangerFlowParser  {
       }
       const rn = parser.rootNode;
       ModuleFunctions.hoist(rn, import_file, ctx);
+      const extPrev = RustExtern.enter(importFolded, ctx);
+      RustExtern.noteFile(rn, ctx);
       if ( importFileDir.length > 0 ) {
         rootCtx.libraryPaths.push(importFileDir);
         if ( ctx.hasCompilerFlag("verbose") ) {
@@ -24869,6 +24876,7 @@ class RangerFlowParser  {
         }
       }
       this.mergeImports(rn, ctx, wr);
+      RustExtern.leave(extPrev, ctx);
       if ( importFileDir.length > 0 ) {
         rootCtx.libraryPaths.pop();
       }
@@ -25010,6 +25018,151 @@ ModuleFunctions.resolve = function(name, fileName, ctx) {
     return parts[0];
   }
   return "?" + mods;
+};
+class RustExtern  {
+}
+RustExtern.entries = function(ctx) {
+  let res = [];
+  if ( ctx.getCompilerSetting("l") != "rust" ) {
+    return res;
+  }
+  const raw = ctx.getCompilerSetting("rust-extern");
+  if ( raw.length == 0 ) {
+    return res;
+  }
+  const parts = raw.split(",");
+  // Loop start
+  for ( const p of parts) {
+    const eq = p.indexOf("=");
+    if ( eq > 0 ) {
+      res.push(p.substring(0, eq ));
+      res.push(p.substring(eq + 1, p.length ));
+    }
+  }
+  return res;
+};
+RustExtern.prepend = function(root, ctx) {
+  const ents = RustExtern.entries(ctx);
+  const n = ents.length;
+  if ( n == 0 ) {
+    return;
+  }
+  const rctx = ctx.getRoot();
+  let src = "";
+  let i = 0;
+  while (i < n) {
+    const crate = ents[i];
+    const file = ents[(i + 1)];
+    rctx.rust_extern_roots[PkgImport.foldPath(file)] = crate;
+    src = ((((src + "Import ") + String.fromCharCode(34)) + file) + String.fromCharCode(34)) + "\n";
+    i = i + 2;
+  };
+  const code = new SourceCode(src);
+  code.filename = "<rust-extern>";
+  const parser = new RangerLispParser(code);
+  parser.parse(false);
+  const rn = parser.rootNode;
+  let kids = [];
+  // Loop start
+  for ( const k of rn.children) {
+    kids.push(k);
+  }
+  // Loop start
+  for ( const c of root.children) {
+    kids.push(c);
+  }
+  root.children = kids;
+};
+RustExtern.enter = function(folded, ctx) {
+  const rctx = ctx.getRoot();
+  const prev = rctx.rust_extern_current;
+  if ( ( typeof(rctx.rust_extern_roots[folded] ) != "undefined" && Object.prototype.hasOwnProperty.call(rctx.rust_extern_roots, folded) ) ) {
+    rctx.rust_extern_current = ( Object.prototype.hasOwnProperty.call(rctx.rust_extern_roots, folded) ? rctx.rust_extern_roots[folded] : undefined );
+  }
+  return prev;
+};
+RustExtern.leave = function(prev, ctx) {
+  const rctx = ctx.getRoot();
+  rctx.rust_extern_current = prev;
+};
+RustExtern.noteFile = function(rn, ctx) {
+  const rctx = ctx.getRoot();
+  if ( rctx.rust_extern_current.length == 0 ) {
+    return;
+  }
+  RustExtern.collect(rn, rctx.rust_extern_current, rctx);
+};
+RustExtern.isDecl = function(head) {
+  if ( head == "class" ) {
+    return true;
+  }
+  if ( head == "CreateClass" ) {
+    return true;
+  }
+  if ( head == "record" ) {
+    return true;
+  }
+  if ( head == "trait" ) {
+    return true;
+  }
+  if ( head == "Enum" ) {
+    return true;
+  }
+  if ( head == "enum" ) {
+    return true;
+  }
+  if ( head == "union" ) {
+    return true;
+  }
+  if ( head == "systemunion" ) {
+    return true;
+  }
+  return false;
+};
+RustExtern.collect = function(node, crate, root) {
+  if ( node.children.length > 1 ) {
+    const head = node.children[0];
+    if ( head.vref == "Import" ) {
+      return;
+    }
+    if ( RustExtern.isDecl(head.vref) ) {
+      if ( node.hasExpressionProperty("params") ) {
+        return;
+      }
+      const nameNode = node.children[1];
+      if ( nameNode.vref.length > 0 ) {
+        root.rust_extern_types[nameNode.vref] = crate;
+      }
+      return;
+    }
+  }
+  // Loop start
+  for ( const ch of node.children) {
+    RustExtern.collect(ch, crate, root);
+  }
+};
+RustExtern.crateOf = function(name, ctx) {
+  const root = ctx.getRoot();
+  if ( ( typeof(root.rust_extern_types[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.rust_extern_types, name) ) ) {
+    return ( Object.prototype.hasOwnProperty.call(root.rust_extern_types, name) ? root.rust_extern_types[name] : undefined );
+  }
+  return "";
+};
+RustExtern.crates = function(ctx) {
+  let res = [];
+  let seen = {};
+  const ents = RustExtern.entries(ctx);
+  const n = ents.length;
+  let i = 0;
+  while (i < n) {
+    const c = ents[i];
+    if ( ( typeof(seen[c] ) != "undefined" && Object.prototype.hasOwnProperty.call(seen, c) ) == false ) {
+      seen[c] = true;
+      res.push(c);
+    }
+    i = i + 2;
+  };
+  return res;
 };
 class TFactory  {
 }
@@ -45068,11 +45221,20 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       if ( needsRc || anyWeakField ) {
         header.out("", true);
       }
+      const extCrates = RustExtern.crates(ctx);
+      // Loop start
+      for ( const extCrate of extCrates) {
+        header.out("#[allow(unused_imports)]", true);
+        header.out(("use " + extCrate) + "::*;", true);
+      }
+      if ( extCrates.length > 0 ) {
+        header.out("", true);
+      }
       const hdrTraitRoot = ctx.getRoot();
       // Loop start
       for ( let hti = 0; hti < hdrTraitRoot.definedClassList.length; hti++) {
         var htName = hdrTraitRoot.definedClassList[hti];
-        if ( this.rustTraitIsInterface(htName, ctx) ) {
+        if ( this.rustTraitIsInterface(htName, ctx) && RustExtern.crateOf(htName, ctx) == "" ) {
           const htc = hdrTraitRoot.findClass(htName);
           header.out("", true);
           header.out(("pub trait " + htName) + "Trait: RgAnyRef {", true);
@@ -45102,7 +45264,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       // Loop start
       for ( let hei = 0; hei < Object.keys(hdrEnumRoot.definedEnums).length; hei++) {
         var hen = Object.keys(hdrEnumRoot.definedEnums)[hei];
-        if ( this.rustEnumIsNative(hen, ctx) ) {
+        if ( this.rustEnumIsNative(hen, ctx) && RustExtern.crateOf(hen, ctx) == "" ) {
           const heDef = ( Object.prototype.hasOwnProperty.call(hdrEnumRoot.definedEnums, hen) ? hdrEnumRoot.definedEnums[hen] : undefined );
           header.out("#[repr(i64)]", true);
           header.out("#[derive(Clone, Copy, PartialEq, Eq, Debug)]", true);
@@ -45124,6 +45286,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       const unionNames = this.sealableUnionNames(ctx);
       // Loop start
       for ( const uname of unionNames) {
+        if ( RustExtern.crateOf(uname, ctx) != "" ) {
+          continue;
+        }
         const ucl_2 = hdrRoot.findClass(uname);
         header.out("#[derive(Clone)]", true);
         header.out(("pub enum " + this.unionInterfaceName(uname)) + " {", true);
@@ -72941,6 +73106,9 @@ class LiveCompiler  {
           if ( ctx.hasCompilerFlag("keep-examples") == false ) {
             return true;
           }
+        }
+        if ( RustExtern.crateOf(exDesc.name, ctx) != "" ) {
+          return true;
         }
       }
       this.langWriter.writeClass(node, ctx, wr);
@@ -101124,6 +101292,7 @@ class VirtualCompiler  {
       return res;
     }
     try {
+      RustExtern.prepend(node, appCtx);
       flowParser.mergeImports(node, appCtx, wr);
       const lang_str = operatorsOf_17.readc95file_18(
         env,

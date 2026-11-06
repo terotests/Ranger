@@ -455,6 +455,10 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             return true
           }
         }
+        ; `-rust-extern`: another crate writes it (RustExtern.rgr)
+        if ((RustExtern.crateOf(exDesc.name ctx)) != "") {
+          return true
+        }
       }
       langWriter.writeClass(node ctx wr)
       return true

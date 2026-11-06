@@ -1190,6 +1190,8 @@ class tester {
 
     try {
 
+      ; `-rust-extern`: each crate's root, imported first (RustExtern.rgr)
+      RustExtern.prepend(node appCtx)
       flowParser.mergeImports(node appCtx (unwrap wr) )
       def lang_str:string (read_file env langFilePath the_lang_file)
       def lang_code:SourceCode (new SourceCode ( (unwrap lang_str)) )

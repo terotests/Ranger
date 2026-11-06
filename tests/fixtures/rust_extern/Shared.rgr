@@ -1,0 +1,26 @@
+; The types both crates use: base writes them, app names base's.
+Enum Kind ( Small Large )
+
+class Size {
+  def w:double 0.0
+  def h:double 0.0
+  fn area:double () {
+    return (w * h)
+  }
+}
+
+class Item {
+  def name:string ""
+  def size:Size (new Size)
+  def kind:Kind Kind.Small
+  sfn make:Item (name:string w:double h:double) {
+    def it (new Item)
+    it.name = name
+    it.size.w = w
+    it.size.h = h
+    if ((w * h) > 10.0) {
+      it.kind = Kind.Large
+    }
+    return it
+  }
+}

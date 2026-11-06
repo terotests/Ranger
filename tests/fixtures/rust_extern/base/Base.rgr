@@ -1,0 +1,11 @@
+Import "../Shared.rgr"
+
+class Catalog {
+  def items:[Item]
+  fn add:void (it:Item) {
+    push items it
+  }
+  fn count:int () {
+    return (array_length items)
+  }
+}

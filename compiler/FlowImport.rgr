@@ -257,6 +257,8 @@ extension RangerFlowParser {
       
       ; Calculate the full path and directory of the imported file
       def importFileDir:string ""
+      ; the file's folded path, for `-rust-extern` (RustExtern.rgr)
+      def importFolded:string ""
       
       if( (strlen source_code) == 0 ) {
         def searchName:string (PkgImport.stripDot(import_file))
@@ -311,6 +313,7 @@ extension RangerFlowParser {
           return
         }
         set ctx.already_imported seenKey true
+        importFolded = (substring seenKey 1 (strlen seenKey))
         def c:string (read_file env filePathIs searchName)
         source_code = (unwrap c)
         
@@ -387,6 +390,9 @@ extension RangerFlowParser {
       def rn:CodeNode (unwrap parser.rootNode)
       ; top-level functions join the file's module class (ISSUES.md #104)
       ModuleFunctions.hoist(rn import_file ctx)
+      ; `-rust-extern`: inside a crate's root, the types are the crate's
+      def extPrev:string (RustExtern.enter(importFolded ctx))
+      RustExtern.noteFile(rn ctx)
       
       ; Add the imported file's directory to library paths for recursive imports
       if ((strlen importFileDir) > 0) {
@@ -397,6 +403,7 @@ extension RangerFlowParser {
       }
       
       this.mergeImports( rn ctx wr)
+      RustExtern.leave(extPrev ctx)
       
       ; Remove the directory after processing (restore original paths)
       if ((strlen importFileDir) > 0) {
