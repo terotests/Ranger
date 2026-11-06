@@ -45,7 +45,7 @@ impl MathRender {
     }
     fn element(tex: &str, display: bool, px: f64, colour: &str) -> Rc<RefCell<EVGElement>> {
         let mut b: Rc<RefCell<MathBox>> = MathLayout::layout(tex, display);
-        MathRender::boxElement(&b, px, colour)
+        MathRender::box_element(&b, px, colour)
     }
     /// The colours a box is drawn in, "" being the default.
     pub fn colours(b: &Rc<RefCell<MathBox>>) -> Vec<String> {
@@ -109,7 +109,7 @@ impl MathRender {
         }
         return MathPathBuf::text(&buf);
     }
-    fn boxElement(b: &Rc<RefCell<MathBox>>, px: f64, colour: &str) -> Rc<RefCell<EVGElement>> {
+    pub fn box_element(b: &Rc<RefCell<MathBox>>, px: f64, colour: &str) -> Rc<RefCell<EVGElement>> {
         let w: f64 = b.borrow().w * px;
         let h: f64 = (b.borrow().h + b.borrow().d) * px;
         let mut root: Rc<RefCell<EVGElement>> = EVGElement::create_div();

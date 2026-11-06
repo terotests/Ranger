@@ -1156,6 +1156,9 @@ class RangerApiBuilder  {
           isApi = pdoc.is_public;
         }
       }
+      if ( RustExtern.crateOf(pcl.name, ctx) != "" ) {
+        isApi = true;
+      }
       if ( isApi ) {
         this.publicClassNames[pcl.name] = true;
       } else {
