@@ -1620,6 +1620,16 @@ extension RangerRustClassWriter {
       if ((needsRc || anyWeakField)) {
         header.out("" true)
       }
+      ; `-rust-extern`: the types another crate writes (RustExtern.rgr). A
+      ; glob import yields to every name this module declares itself.
+      def extCrates:[string] (RustExtern.crates(ctx))
+      for extCrates extCrate:string eci {
+        header.out("#[allow(unused_imports)]" true)
+        header.out(("use " + extCrate + "::*;") true)
+      }
+      if ((array_length extCrates) > 0) {
+        header.out("" true)
+      }
       ; D-UNION (PLAN_SHAPES.md S5): a union is a real Rust enum, one variant
       ; per member, each holding that member's cell. A `case` narrowing is then
       ; an `if let` on the tag — no trait object, no downcast, and a closed set
@@ -1637,7 +1647,7 @@ extension RangerRustClassWriter {
       ; ones a subclass gets for its parent.
       def hdrTraitRoot:RangerAppWriterContext (ctx.getRoot())
       for hdrTraitRoot.definedClassList htName:string hti {
-        if (this.rustTraitIsInterface(htName ctx)) {
+        if ((this.rustTraitIsInterface(htName ctx)) && ((RustExtern.crateOf(htName ctx)) == "")) {
           def htc:RangerAppClassDesc (hdrTraitRoot.findClass(htName))
           header.out("" true)
           header.out(("pub trait " + htName + "Trait: RgAnyRef {") true)
@@ -1667,7 +1677,7 @@ extension RangerRustClassWriter {
       def hdrEnumRoot:RangerAppWriterContext (ctx.getRoot())
       def anyNativeEnum:boolean false
       for (keys hdrEnumRoot.definedEnums) hen:string hei {
-        if (this.rustEnumIsNative(hen ctx)) {
+        if ((this.rustEnumIsNative(hen ctx)) && ((RustExtern.crateOf(hen ctx)) == "")) {
           def heDef:RangerAppEnum (unwrap (get hdrEnumRoot.definedEnums hen))
           header.out("#[repr(i64)]" true)
           header.out("#[derive(Clone, Copy, PartialEq, Eq, Debug)]" true)
@@ -1686,6 +1696,9 @@ extension RangerRustClassWriter {
       }
       def unionNames:[string] (this.sealableUnionNames(ctx))
       for unionNames uname:string uni {
+        if ((RustExtern.crateOf(uname ctx)) != "") {
+          continue
+        }
         def ucl:RangerAppClassDesc (hdrRoot.findClass(uname))
         header.out("#[derive(Clone)]" true)
         header.out(("pub enum " + (this.unionInterfaceName(uname)) + " {") true)

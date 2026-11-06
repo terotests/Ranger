@@ -1,0 +1,22 @@
+Import "../Shared.rgr"
+Import "../base/Base.rgr"
+
+; app's own class, holding base's types
+class Report {
+  def lines:[string]
+  fn add:void (it:Item) {
+    def k:string "small"
+    if (it.kind == Kind.Large) {
+      k = "large"
+    }
+    push lines (((it.name + " ") + k) + " " + (to_string (it.size.area())))
+  }
+  fn fill:void (cat:Catalog) {
+    for cat.items it:Item i {
+      this.add(it)
+    }
+  }
+  fn text:string () {
+    return (join lines "\n")
+  }
+}

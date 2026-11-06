@@ -10,7 +10,7 @@ use crate::math_layout::MathLayout;
 use crate::rgr::MathFont;
 use crate::rgr::MathGlyph;
 use crate::rgr::MathPathBuf;
-use crate::rgr::{EVGColor, EVGElement, EVGUnit};
+use crate::rgr::{EVGColor, EVGElement, EVGUnit, MathText};
 
 /// ==============================================================================
 /// MathRender.rgr — a laid-out formula, as something to draw
@@ -93,7 +93,7 @@ impl MathRender {
                     if !g.borrow().path.is_empty() {
                         let mut _tmp_1239 = it.borrow().sx.clone();
                         let mut _tmp_1240 = it.borrow().sy.clone();
-                        MathFont::appendPath(
+                        MathFont::append_path(
                             &buf,
                             &g,
                             ox + it.borrow().x * px,
@@ -112,7 +112,7 @@ impl MathRender {
     fn boxElement(b: &Rc<RefCell<MathBox>>, px: f64, colour: &str) -> Rc<RefCell<EVGElement>> {
         let w: f64 = b.borrow().w * px;
         let h: f64 = (b.borrow().h + b.borrow().d) * px;
-        let mut root: Rc<RefCell<EVGElement>> = EVGElement::createDiv();
+        let mut root: Rc<RefCell<EVGElement>> = EVGElement::create_div();
         root.borrow_mut().position = "relative".to_string();
         root.borrow_mut().width = Some(EVGUnit::px(w));
         root.borrow_mut().height = Some(EVGUnit::px(h));
@@ -123,21 +123,21 @@ impl MathRender {
             let c: String = cols[i as usize].clone();
             let d: String = MathRender::pathOf(b, px, &c, p, p);
             if !d.is_empty() {
-                let mut path: Rc<RefCell<EVGElement>> = EVGElement::createPath();
+                let mut path: Rc<RefCell<EVGElement>> = EVGElement::create_path();
                 path.borrow_mut().position = "absolute".to_string();
                 path.borrow_mut().left = Some(EVGUnit::px(0.0 - p));
                 path.borrow_mut().top = Some(EVGUnit::px(0.0 - p));
                 path.borrow_mut().width = Some(EVGUnit::px(w + 2.0 * p));
                 path.borrow_mut().height = Some(EVGUnit::px(h + 2.0 * p));
-                path.borrow_mut().svgPath = d.clone();
-                path.borrow_mut().viewBox = format!("0 0 {} {}", MathFont::num(w + 2.0 * p), MathFont::num(h + 2.0 * p));
+                path.borrow_mut().svg_path = d.clone();
+                path.borrow_mut().view_box = format!("0 0 {} {}", MathFont::num(w + 2.0 * p), MathFont::num(h + 2.0 * p));
                 let mut r#use: String = c.clone();
                 if MathText::str_len(&r#use) == 0 {
                     r#use = colour.to_string();
                 }
-                path.borrow_mut().fillColor = Some(EVGColor::parse(&r#use));
-                path.borrow_mut().fillRule = "nonzero".to_string();
-                EVGElement::addChild(&root, path.clone());
+                path.borrow_mut().fill_color = Some(EVGColor::parse(&r#use));
+                path.borrow_mut().fill_rule = "nonzero".to_string();
+                EVGElement::add_child(&root, path.clone());
             }
             i += 1;
         }

@@ -1,0 +1,19 @@
+# EVG (lib/evg) as a crate: build.rs writes EVGCrate.rgr's closure as one
+# Rust module. Crates whose .rgr modules use EVG depend on it and compile
+# them with -rust-extern=rangerevg=<abs path of EVGCrate.rgr>.
+[package]
+name = "rangerevg"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+links = "rangerevg"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+ranger = { path = "../ranger" }
+
+[build-dependencies]
+ranger = { path = "../ranger" }

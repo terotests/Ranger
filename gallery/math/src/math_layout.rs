@@ -746,7 +746,7 @@ impl MathLayout {
         }
         if k == "not" {
             let mut base: Rc<RefCell<MathBox>> = self.list(&a.borrow().body.clone(), st);
-            let mut slash: Rc<RefCell<MathBox>> = self.glyph(MathFont::mainFont(),
+            let mut slash: Rc<RefCell<MathBox>> = self.glyph(MathFont::main_font(),
                 47,
                 st,
                 0.0,
@@ -1301,14 +1301,14 @@ impl MathLayout {
     }
     pub fn textChar(&self, c: i64, font0: i64, st: i64) -> Rc<RefCell<MathBox>> {
         let mut font: i64 = font0;
-        if font == MathFont::mathItalic() && !MathFont::has(font, c) {
-            font = MathFont::mainFont();
+        if font == MathFont::math_italic() && !MathFont::has(font, c) {
+            font = MathFont::main_font();
         }
         if MathFont::has(font, c) {
             return self.glyph(font, c, st, 0.0, 1.0, 1.0);
         }
-        if MathFont::has(MathFont::mainFont(), c) {
-            return self.glyph(MathFont::mainFont(),
+        if MathFont::has(MathFont::main_font(), c) {
+            return self.glyph(MathFont::main_font(),
                 c,
                 st,
                 0.0,
@@ -1317,8 +1317,8 @@ impl MathLayout {
             ).clone();
         }
         let alike: i64 = MathFont::lookalike(c);
-        if alike > 0 && MathFont::has(MathFont::mainFont(), alike) {
-            return self.glyph(MathFont::mainFont(),
+        if alike > 0 && MathFont::has(MathFont::main_font(), alike) {
+            return self.glyph(MathFont::main_font(),
                 alike,
                 st,
                 0.0,
@@ -1341,7 +1341,7 @@ impl MathLayout {
             if raise < 0.0 {
                 raise = 0.0;
             }
-            let mut ab: Rc<RefCell<MathBox>> = self.glyph(MathFont::mainFont(),
+            let mut ab: Rc<RefCell<MathBox>> = self.glyph(MathFont::main_font(),
                 acc,
                 st,
                 0.0 - raise,
@@ -1357,7 +1357,7 @@ impl MathLayout {
             out.borrow_mut().d = bb.borrow().d;
             return out;
         }
-        self.glyph(MathFont::mainFont(), 63, st, 0.0, 1.0, 1.0)
+        self.glyph(MathFont::main_font(), 63, st, 0.0, 1.0, 1.0)
     }
     /// --- arrays --------------------------------------------------------------------------
     pub fn array(&mut self, a: &Rc<RefCell<MathAtom>>, st: i64) -> Rc<RefCell<MathBox>> {

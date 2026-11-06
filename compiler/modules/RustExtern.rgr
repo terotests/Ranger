@@ -1,0 +1,162 @@
+; SPDX-License-Identifier: MIT
+
+; `-rust-extern=<crate>=<root>[,<crate>=<root>…]` (Rust target).
+;
+; A cargo program whose crates each include .rgr modules (`ranger::import_rgr!`
+; on `-rust-module` output) wrote every shared .rgr file once per crate: EVG
+; imported by two crates was two `EVGElement` types, and a value of one could
+; not be passed where the other was expected. With this setting <root> -- the
+; .rgr (or .rs) file <crate> compiles into its own module -- is imported ahead
+; of the program, and the classes, traits and enums declared in it and in
+; every file it imports are <crate>'s: read and checked as before, but not
+; written. The module brings them in with `use <crate>::*;` instead, so both
+; crates name the one type. <crate> re-exports its module (`pub use`).
+;
+; The program may import the same files itself; each file is read once, so
+; they stay <crate>'s. Give <root> as an absolute path.
+
+class RustExtern {
+
+  ; crate -> folded path prefix, from the setting
+  sfn entries:[string] (ctx:RangerAppWriterContext) {
+    def res:[string]
+    if ((ctx.getCompilerSetting("l")) != "rust") {
+      return res
+    }
+    def raw:string (ctx.getCompilerSetting("rust-extern"))
+    if ((strlen raw) == 0) {
+      return res
+    }
+    def parts:[string] (strsplit raw ",")
+    for parts p:string i {
+      def eq:int (indexOf p "=")
+      if (eq > 0) {
+        push res (substring p 0 eq)
+        push res (substring p (eq + 1) (strlen p))
+      }
+    }
+    return res
+  }
+
+  ; Before the program's imports are merged: an Import of each root, first,
+  ; and the roots by folded path so FlowImport knows them when it reads them.
+  sfn prepend:void (root:CodeNode ctx:RangerAppWriterContext) {
+    def ents:[string] (RustExtern.entries(ctx))
+    def n:int (array_length ents)
+    if (n == 0) {
+      return
+    }
+    def rctx:RangerAppWriterContext (ctx.getRoot())
+    def src:string ""
+    def i:int 0
+    while (i < n) {
+      def crate:string (itemAt ents i)
+      def file:string (itemAt ents (i + 1))
+      set rctx.rust_extern_roots (PkgImport.foldPath(file)) crate
+      src = src + "Import " + (strfromcode 34) + file + (strfromcode 34) + "\n"
+      i = i + 2
+    }
+    def code:SourceCode (new SourceCode (src))
+    code.filename = "<rust-extern>"
+    def parser:RangerLispParser (new RangerLispParser (code))
+    parser.parse(false)
+    def rn:CodeNode (unwrap parser.rootNode)
+    def kids:[CodeNode]
+    for rn.children k:CodeNode ki {
+      push kids k
+    }
+    for root.children c:CodeNode ci {
+      push kids c
+    }
+    root.children = kids
+  }
+
+  ; FlowImport is about to read the file `folded`: the crate whose root it is,
+  ; or the crate being read already. Returns the one before, to restore.
+  sfn enter:string (folded:string ctx:RangerAppWriterContext) {
+    def rctx:RangerAppWriterContext (ctx.getRoot())
+    def prev:string rctx.rust_extern_current
+    if (has rctx.rust_extern_roots folded) {
+      rctx.rust_extern_current = (unwrap (get rctx.rust_extern_roots folded))
+    }
+    return prev
+  }
+
+  sfn leave:void (prev:string ctx:RangerAppWriterContext) {
+    def rctx:RangerAppWriterContext (ctx.getRoot())
+    rctx.rust_extern_current = prev
+  }
+
+  ; An imported file has been parsed: inside a crate's root, its type
+  ; declarations are the crate's.
+  sfn noteFile:void (rn:CodeNode ctx:RangerAppWriterContext) {
+    def rctx:RangerAppWriterContext (ctx.getRoot())
+    if ((strlen rctx.rust_extern_current) == 0) {
+      return
+    }
+    RustExtern.collect(rn rctx.rust_extern_current rctx)
+  }
+
+  sfn isDecl:boolean (head:string) {
+    if (head == "class") { return true }
+    if (head == "CreateClass") { return true }
+    if (head == "record") { return true }
+    if (head == "trait") { return true }
+    if (head == "Enum") { return true }
+    if (head == "enum") { return true }
+    if (head == "union") { return true }
+    if (head == "systemunion") { return true }
+    return false
+  }
+
+  sfn collect:void (node:CodeNode crate:string root:RangerAppWriterContext) {
+    if ((size node.children) > 1) {
+      def head:CodeNode (at node.children 0)
+      if (head.vref == "Import") {
+        return
+      }
+      if (RustExtern.isDecl(head.vref)) {
+        ; a generic class is expanded where it is used: its instances stay
+        ; the module's own
+        if (node.hasExpressionProperty("params")) {
+          return
+        }
+        def nameNode:CodeNode (at node.children 1)
+        if ((strlen nameNode.vref) > 0) {
+          set root.rust_extern_types nameNode.vref crate
+        }
+        return
+      }
+    }
+    for node.children ch:CodeNode i {
+      RustExtern.collect(ch crate root)
+    }
+  }
+
+  ; The crate a type belongs to, "" for the module's own.
+  sfn crateOf:string (name:string ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    if (has root.rust_extern_types name) {
+      return (unwrap (get root.rust_extern_types name))
+    }
+    return ""
+  }
+
+  ; The crates, each once, in the order the setting names them.
+  sfn crates:[string] (ctx:RangerAppWriterContext) {
+    def res:[string]
+    def seen:[string:boolean]
+    def ents:[string] (RustExtern.entries(ctx))
+    def n:int (array_length ents)
+    def i:int 0
+    while (i < n) {
+      def c:string (itemAt ents i)
+      if ((has seen c) == false) {
+        set seen c true
+        push res c
+      }
+      i = i + 2
+    }
+    return res
+  }
+}

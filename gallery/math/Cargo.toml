@@ -6,8 +6,17 @@ version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 
+links = "rangermath"
+
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
+ranger = { path = "../../runtime/rust/ranger" }
+
+# a target table: Ranger reads EVG from the .rgr files (rgr.rs), not this crate
+[target.'cfg(all())'.dependencies]
+rangerevg = { path = "../../runtime/rust/rangerevg" }
+
+[build-dependencies]
 ranger = { path = "../../runtime/rust/ranger" }
