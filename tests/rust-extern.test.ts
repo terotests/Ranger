@@ -28,6 +28,18 @@ describe("-rust-extern", () => {
     expect(fs.readFileSync(path.join(OUT, "app.js"), "utf8")).toMatch(/^class Item /m);
   });
 
+  it("-rust-ranger-cell: the module keeps its objects in ranger::cell::RefCell", () => {
+    fs.mkdirSync(OUT, { recursive: true });
+    const run = (extra: string[], o: string) => {
+      const c = spawnSync("node", ["dist/rgrc.js", "-l=rust", "-rust-module", ...extra, path.join(DIR, "base/Base.rgr"), `-d=${OUT}`, `-o=${o}`], { cwd: ROOT, encoding: "utf8" });
+      const out = (c.stdout ?? "") + (c.stderr ?? "");
+      expect(c.status === 0 && !out.includes("[FAIL]"), out).toBe(true);
+      return fs.readFileSync(path.join(OUT, o), "utf8");
+    };
+    expect(run(["-rust-ranger-cell"], "cell.rs")).toContain("use ranger::cell::RefCell;");
+    expect(run([], "std.rs")).toContain("use std::cell::RefCell;");
+  });
+
   it.skipIf(!has("cargo", ["--version"]))("app names base's types: one Item under rustc", () => {
     const target = path.join(OUT, "target");
     fs.rmSync(target, { recursive: true, force: true });
