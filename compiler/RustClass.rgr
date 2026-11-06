@@ -1647,7 +1647,7 @@ extension RangerRustClassWriter {
       ; ones a subclass gets for its parent.
       def hdrTraitRoot:RangerAppWriterContext (ctx.getRoot())
       for hdrTraitRoot.definedClassList htName:string hti {
-        if ((this.rustTraitIsInterface(htName ctx)) && ((RustExtern.crateOf(htName ctx)) == "")) {
+        if ((this.rustTraitIsInterface(htName ctx)) && (((RustExtern.crateOf(htName ctx)) == "") || ((RustExtern.traitWrittenThere(htName ctx)) == false))) {
           def htc:RangerAppClassDesc (hdrTraitRoot.findClass(htName))
           header.out("" true)
           header.out(("pub trait " + htName + "Trait: RgAnyRef {") true)

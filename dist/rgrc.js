@@ -25133,6 +25133,9 @@ RustExtern.collect = function(node, crate, root) {
         return;
       }
       const nameNode = node.children[1];
+      if ( ( typeof(root.already_imported[("@rsgen:" + nameNode.vref)] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.already_imported, "@rsgen:" + nameNode.vref) ) ) {
+        return;
+      }
       if ( nameNode.vref.length > 0 ) {
         root.rust_extern_types[nameNode.vref] = crate;
       }
@@ -25150,6 +25153,20 @@ RustExtern.crateOf = function(name, ctx) {
     return ( Object.prototype.hasOwnProperty.call(root.rust_extern_types, name) ? root.rust_extern_types[name] : undefined );
   }
   return "";
+};
+RustExtern.traitWrittenThere = function(name, ctx) {
+  const root = ctx.getRoot();
+  if ( root.isDefinedClass(name) == false ) {
+    return false;
+  }
+  const tc = root.findClass(name);
+  // Loop start
+  for ( const cn of tc.child_classes) {
+    if ( RustExtern.crateOf(cn, ctx) != "" ) {
+      return true;
+    }
+  }
+  return false;
 };
 RustExtern.crates = function(ctx) {
   let res = [];
@@ -45237,7 +45254,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       // Loop start
       for ( let hti = 0; hti < hdrTraitRoot.definedClassList.length; hti++) {
         var htName = hdrTraitRoot.definedClassList[hti];
-        if ( this.rustTraitIsInterface(htName, ctx) && RustExtern.crateOf(htName, ctx) == "" ) {
+        if ( this.rustTraitIsInterface(htName, ctx) && (RustExtern.crateOf(htName, ctx) == "" || RustExtern.traitWrittenThere(htName, ctx) == false) ) {
           const htc = hdrTraitRoot.findClass(htName);
           header.out("", true);
           header.out(("pub trait " + htName) + "Trait: RgAnyRef {", true);

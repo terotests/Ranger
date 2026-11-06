@@ -122,6 +122,11 @@ class RustExtern {
           return
         }
         def nameNode:CodeNode (at node.children 1)
+        ; a class RustLower writes for a .rs crate's own use (RsStr, RsRes_…,
+        ; RsBox_…) is no crate's type: each module that needs one writes it
+        if (has root.already_imported ("@rsgen:" + nameNode.vref)) {
+          return
+        }
         if ((strlen nameNode.vref) > 0) {
           set root.rust_extern_types nameNode.vref crate
         }
@@ -140,6 +145,23 @@ class RustExtern {
       return (unwrap (get root.rust_extern_types name))
     }
     return ""
+  }
+
+  ; A trait of another crate is written there only when a class of that crate
+  ; consumes it (RustClass.rustTraitIsInterface). One only this module's
+  ; classes consume is written here.
+  sfn traitWrittenThere:boolean (name:string ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    if ((root.isDefinedClass(name)) == false) {
+      return false
+    }
+    def tc:RangerAppClassDesc (root.findClass(name))
+    for tc.child_classes cn:string ci {
+      if ((RustExtern.crateOf(cn ctx)) != "") {
+        return true
+      }
+    }
+    return false
   }
 
   ; The crates, each once, in the order the setting names them.
