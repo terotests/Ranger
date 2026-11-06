@@ -12,6 +12,10 @@ edition = "2021"
 license = "MIT"
 description = "Prelude for strict Rust modules compiled by Ranger"
 
+[features]
+# ranger::cell::RefCell without the run-time borrow check (src/cell.rs)
+shared-cell = []
+
 [dependencies]
 ranger-macros = { path = "macros", version = "0.1.0" }
 

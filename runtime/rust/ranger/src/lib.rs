@@ -19,6 +19,7 @@
 //   file (stage R6), `native!` and `tree!` (stage R7).
 
 pub mod build;
+pub mod cell;
 pub mod json;
 pub mod map;
 pub mod ops;

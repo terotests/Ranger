@@ -45255,7 +45255,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         header.out("use std::rc::Weak;", true);
       }
       if ( needsRc ) {
-        header.out("use std::cell::RefCell;", true);
+        if ( ctx.hasCompilerFlag("rust-ranger-cell") ) {
+          header.out("use ranger::cell::RefCell;", true);
+        } else {
+          header.out("use std::cell::RefCell;", true);
+        }
       }
       if ( needsRc || anyWeakField ) {
         header.out("", true);

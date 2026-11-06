@@ -1606,7 +1606,15 @@ extension RangerRustClassWriter {
         header.out("use std::rc::Weak;" true)
       }
       if needsRc {
-        header.out("use std::cell::RefCell;" true)
+        ; `-rust-ranger-cell` (ranger::build sets it): the module is in a
+        ; crate that has the ranger crate, and keeps its objects in that
+        ; crate's cell, std's unless the program turns on `shared-cell`
+        ; (runtime/rust/ranger/src/cell.rs)
+        if (ctx.hasCompilerFlag("rust-ranger-cell")) {
+          header.out("use ranger::cell::RefCell;" true)
+        } {
+          header.out("use std::cell::RefCell;" true)
+        }
       }
       ; …but `Cell` is NOT imported. A program is free to declare a class of
       ; its own by that name, and the import made the two collide — `struct

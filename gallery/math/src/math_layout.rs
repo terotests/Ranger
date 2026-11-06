@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use ranger::prelude::*;
-use std::cell::RefCell;
+use ranger::cell::RefCell;
 use std::rc::Rc;
 
 use crate::math_parser::MathAtom;

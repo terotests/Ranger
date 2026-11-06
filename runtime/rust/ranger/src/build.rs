@@ -99,7 +99,8 @@ impl Module {
         let mut cmd = Command::new("node");
         cmd.arg("--max-old-space-size=8192")
             .arg(&rgrc)
-            .args(["-l=rust", "-rust-module"])
+            // the module's objects in ranger::cell::RefCell (cell.rs)
+            .args(["-l=rust", "-rust-module", "-rust-ranger-cell"])
             .arg(&src)
             .arg(format!("-d={}", out_dir.display()))
             .arg(format!("-o={}.rs", self.out));
