@@ -39,7 +39,7 @@ describe("-rust-extern", () => {
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toBe("a small 6\nb large 20\nplain\n*plain*\n2\n");
     const app = spawnSync("sh", ["-c", `cat ${target}/debug/build/app-*/out/App.rs`], { encoding: "utf8" }).stdout;
-    expect(app).toContain("use base::*;");
+    expect(app).toContain("use ::base::*;");
     expect(app).not.toMatch(/struct Item\b/);
     expect(app).not.toMatch(/enum Kind\b/);
     expect(app).toMatch(/struct Report\b/);

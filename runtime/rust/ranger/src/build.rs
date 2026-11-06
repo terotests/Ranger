@@ -137,7 +137,8 @@ impl Module {
 }
 
 /// RANGER_HOME, else the Ranger checkout this crate sits in (a directory
-/// above the manifest with dist/rgrc.js).
+/// above the manifest with dist/rgrc.js), or one a directory above keeps in
+/// .deps/Ranger.
 pub fn ranger_home(manifest: &Path) -> PathBuf {
     if let Ok(h) = std::env::var("RANGER_HOME") {
         return PathBuf::from(h);
@@ -146,6 +147,11 @@ pub fn ranger_home(manifest: &Path) -> PathBuf {
     loop {
         if dir.join("dist/rgrc.js").is_file() {
             return dir;
+        }
+        // a project that keeps its Ranger checkout in .deps/Ranger
+        let deps = dir.join(".deps/Ranger");
+        if deps.join("dist/rgrc.js").is_file() {
+            return deps;
         }
         if !dir.pop() {
             panic!("no Ranger checkout above {}: set RANGER_HOME", manifest.display());

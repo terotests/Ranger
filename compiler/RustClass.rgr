@@ -1621,11 +1621,12 @@ extension RangerRustClassWriter {
         header.out("" true)
       }
       ; `-rust-extern`: the types another crate writes (RustExtern.rgr). A
-      ; glob import yields to every name this module declares itself.
+      ; glob import yields to every name this module declares itself; the path is
+      ; absolute, since a crate may have a module of its own name (mfiles::mfiles).
       def extCrates:[string] (RustExtern.crates(ctx))
       for extCrates extCrate:string eci {
         header.out("#[allow(unused_imports)]" true)
-        header.out(("use " + extCrate + "::*;") true)
+        header.out(("use ::" + extCrate + "::*;") true)
       }
       if ((array_length extCrates) > 0) {
         header.out("" true)

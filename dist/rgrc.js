@@ -45264,7 +45264,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       // Loop start
       for ( const extCrate of extCrates) {
         header.out("#[allow(unused_imports)]", true);
-        header.out(("use " + extCrate) + "::*;", true);
+        header.out(("use ::" + extCrate) + "::*;", true);
       }
       if ( extCrates.length > 0 ) {
         header.out("", true);
