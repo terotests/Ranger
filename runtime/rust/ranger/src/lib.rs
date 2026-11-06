@@ -18,6 +18,7 @@
 // - `import_rgr!`, which includes the Rust module `rgrc` writes for a `.rgr`
 //   file (stage R6), `native!` and `tree!` (stage R7).
 
+pub mod build;
 pub mod json;
 pub mod map;
 pub mod ops;

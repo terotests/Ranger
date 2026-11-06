@@ -89906,6 +89906,9 @@ class RustLower  {
       if ( a.name == "cfg" && a.value.split(" ").join("") == "(test)" ) {
         return false;
       }
+      if ( a.name == "cfg" && a.value.split(" ").join("") == "(not(ranger))" ) {
+        return false;
+      }
       if ( a.name != "ranger::target" && a.name != "target" ) {
         continue;
       }
@@ -90034,6 +90037,9 @@ class RustLower  {
     }
     if ( scanOnly == false ) {
       this.rgrImports.push(path);
+    }
+    if ( sc.classes.length == 0 ) {
+      wantParent = true;
     }
     if ( wantParent ) {
       // Loop start

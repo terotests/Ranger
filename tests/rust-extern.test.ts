@@ -44,4 +44,15 @@ describe("-rust-extern", () => {
     expect(app).not.toMatch(/enum Kind\b/);
     expect(app).toMatch(/struct Report\b/);
   }, 300000);
+
+  // RangerMath's .rs modules use EVG's types from the rangerevg crate, whose
+  // build.rs writes lib/evg (placed by npm run deps) as one module
+  it.skipIf(!has("cargo", ["--version"]) || !fs.existsSync(path.join(ROOT, "lib/evg/EVGElement.rgr")))("gallery/math builds with cargo on rangerevg", () => {
+    const r = spawnSync("cargo", ["build", "--offline"], {
+      cwd: path.join(ROOT, "gallery/math"),
+      encoding: "utf8",
+      env: { ...process.env, CARGO_TARGET_DIR: path.join(OUT, "target-math") },
+    });
+    expect(r.status, r.stderr).toBe(0);
+  }, 600000);
 });

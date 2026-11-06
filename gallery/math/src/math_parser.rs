@@ -273,16 +273,16 @@ impl MathParser {
             }
         }
         while i < arr.borrow().cols {
-            let mut a: String = "c";
+            let mut a: String = "c".to_string();
             if ((name == "aligned" || name == "align") || (name == "split" || name == "alignat")) || name == "alignedat" {
                 if i % 2 == 0 {
-                    a = "r";
+                    a = "r".to_string();
                 } else {
-                    a = "l";
+                    a = "l".to_string();
                 }
             }
             if (name == "cases" || name == "dcases") || name == "rcases" {
-                a = "l";
+                a = "l".to_string();
             }
             if i >= (arr.borrow().colAlign.len() as i64) {
                 arr.borrow_mut().colAlign.push(a.to_string());
@@ -458,7 +458,7 @@ impl MathParser {
     }
     /// Symbols KaTeX makes with a macro rather than the table.
     pub fn extra(t: &str) -> Rc<RefCell<MathAtom>> {
-        let mf: i64 = MathFont::mainFont();
+        let mf: i64 = MathFont::main_font();
         if t == "\\cdots" {
             return MathAtom::sym(mf, 8943, "inner".to_string());
         }
@@ -469,7 +469,7 @@ impl MathParser {
             return MathAtom::sym(mf, 8660, "rel".to_string());
         }
         if t == "\\varphi" {
-            return MathAtom::sym(MathFont::mathItalic(), 966, "ord".to_string());
+            return MathAtom::sym(MathFont::math_italic(), 966, "ord".to_string());
         }
         if t == "\\colon" {
             return MathAtom::sym(mf, 58, "punct".to_string());
@@ -798,7 +798,7 @@ impl MathParser {
             } else {
                 if t == "'" {
                     let mut prime: Rc<RefCell<MathAtom>> = MathAtom::sym(
-                        MathFont::mainFont(),
+                        MathFont::main_font(),
                         8242,
                         "ord".to_string()
                     );
@@ -808,7 +808,7 @@ impl MathParser {
                     while self.peek() == "'" {
                         self.next();
                         base.borrow_mut().sup.push(MathAtom::sym(
-                            MathFont::mainFont(),
+                            MathFont::main_font(),
                             8242,
                             "ord".to_string()
                         ));
@@ -917,7 +917,7 @@ impl MathParser {
             return;
         }
         if __len == 1 && (MathText::char_at(&t, 0) >= 48 && MathText::char_at(&t, 0) <= 57) {
-            let mut f: i64 = MathFont::mainFont();
+            let mut f: i64 = MathFont::main_font();
             if self.fontMode == "bf" {
                 f = MathFont::bold();
             }
@@ -937,7 +937,7 @@ impl MathParser {
     pub fn letter(&self, c: i64) -> Rc<RefCell<MathAtom>> {
         let upper: bool = (c >= 65 && c <= 90);
         if self.fontMode == "rm" {
-            return MathAtom::sym(MathFont::mainFont(), c, "ord".to_string());
+            return MathAtom::sym(MathFont::main_font(), c, "ord".to_string());
         }
         if self.fontMode == "bf" {
             return MathAtom::sym(MathFont::bold(), c, "ord".to_string());
@@ -948,7 +948,7 @@ impl MathParser {
         if self.fontMode == "cal" && upper {
             return MathAtom::sym(MathFont::cal(), c, "ord".to_string());
         }
-        MathAtom::sym(MathFont::mathItalic(), c, "ord".to_string())
+        MathAtom::sym(MathFont::math_italic(), c, "ord".to_string())
     }
     /// + = ( [ | , and the characters outside ASCII: by the symbol table.
     pub fn character(&self, t: &str, mut list: &mut Vec<Rc<RefCell<MathAtom>>>) {
@@ -976,8 +976,8 @@ impl MathParser {
         if MathText::char_at(&t, 0) == 35 {
             cp = if ((MathText::substr(&t, 1, (MathText::str_len(&t) as i64)).parse::<i64>().ok()).is_some()) { ((MathText::substr(&t, 1, (MathText::str_len(&t) as i64)).parse::<i64>().ok()).unwrap()) } else { 63 };
         }
-        if MathFont::has(MathFont::mainFont(), cp) {
-            list.push(MathAtom::sym(MathFont::mainFont(), cp, "ord".to_string()));
+        if MathFont::has(MathFont::main_font(), cp) {
+            list.push(MathAtom::sym(MathFont::main_font(), cp, "ord".to_string()));
             return;
         }
         let mut tx: Rc<RefCell<MathAtom>> = MathAtom::of("text".to_string());
@@ -985,35 +985,35 @@ impl MathParser {
         list.push(tx.clone());
     }
     fn fromSymbol(&self, s: &Rc<RefCell<MathSym>>) -> Rc<RefCell<MathAtom>> {
-        let mut r#type: String = "ord";
+        let mut r#type: String = "ord".to_string();
         let g: String = s.borrow().group.clone();
         if g == "bin" {
-            r#type = "bin";
+            r#type = "bin".to_string();
         }
         if g == "rel" {
-            r#type = "rel";
+            r#type = "rel".to_string();
         }
         if g == "open" {
-            r#type = "open";
+            r#type = "open".to_string();
         }
         if g == "close" {
-            r#type = "close";
+            r#type = "close".to_string();
         }
         if g == "punct" {
-            r#type = "punct";
+            r#type = "punct".to_string();
         }
         if g == "inner" {
-            r#type = "inner";
+            r#type = "inner".to_string();
         }
         if g == "op" {
-            r#type = "op";
+            r#type = "op".to_string();
         }
         let mut font: i64 = s.borrow().font;
         // mathord letters (Greek lowercase) are italic when the italic font
         // has them, as TeX sets them
         let mut _tmp_13 = s.borrow().cp.clone();
-        if (g == "mathord" && font == MathFont::mainFont()) && MathFont::has(MathFont::mathItalic(), _tmp_13) {
-            font = MathFont::mathItalic();
+        if (g == "mathord" && font == MathFont::main_font()) && MathFont::has(MathFont::math_italic(), _tmp_13) {
+            font = MathFont::math_italic();
         }
         let mut _tmp_15 = s.borrow().cp.clone();
         if self.fontMode == "bf" && MathFont::has(MathFont::bold(), _tmp_15) {
@@ -1031,7 +1031,7 @@ impl MathParser {
     }
     /// --- control sequences -----------------------------------------------------------
     pub fn control(&mut self, t: String, mut list: &mut Vec<Rc<RefCell<MathAtom>>>) {
-        let mf: i64 = MathFont::mainFont();
+        let mf: i64 = MathFont::main_font();
         // spacing
         let sp: f64 = MathParser::spaceOf(&t);
         if sp != 0.0 {
@@ -1116,7 +1116,7 @@ impl MathParser {
                 tx.borrow_mut().textFont = MathFont::bold();
             }
             if t == "\\textit" {
-                tx.borrow_mut().textFont = MathFont::mathItalic();
+                tx.borrow_mut().textFont = MathFont::math_italic();
             }
             list.push(tx.clone());
             return;
@@ -1199,7 +1199,8 @@ impl MathParser {
             return;
         }
         if t == "\\begin" {
-            list.push(self.environment(self.rawGroup().trim().to_string()));
+            let env_name: String = self.rawGroup().trim().to_string();
+            list.push(self.environment(env_name));
             return;
         }
         if ((t == "\\mathop" || t == "\\mathrel") || (t == "\\mathbin" || t == "\\mathord")) || ((t == "\\mathopen" || t == "\\mathclose") || (t == "\\mathpunct" || t == "\\mathinner")) {
@@ -1312,24 +1313,24 @@ impl MathParser {
         if t == "\\not" {
             // \not= \not\in: the negated relation where there is one
             let nx: String = self.peek();
-            let mut neg: String = "";
+            let mut neg: String = "".to_string();
             if nx == "=" {
-                neg = "\\neq";
+                neg = "\\neq".to_string();
             }
             if nx == "\\in" {
-                neg = "\\notin";
+                neg = "\\notin".to_string();
             }
             if nx == "<" {
-                neg = "\\nless";
+                neg = "\\nless".to_string();
             }
             if nx == ">" {
-                neg = "\\ngtr";
+                neg = "\\ngtr".to_string();
             }
             if nx == "\\equiv" {
-                neg = "\\not\\equiv";
+                neg = "\\not\\equiv".to_string();
             }
             if !neg.is_empty() {
-                let mut ns: Option<Rc<RefCell<MathSym>>> = MathFont::symbol(neg);
+                let mut ns: Option<Rc<RefCell<MathSym>>> = MathFont::symbol(&neg);
                 if ns.is_some() {
                     self.next();
                     list.push(self.fromSymbol(&ns.clone().unwrap()));

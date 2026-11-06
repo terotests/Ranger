@@ -92,7 +92,7 @@ impl MathOmml {
     /// How a glyph is set: "" as the math engine decides (italic letters),
     /// "p" upright, "b" bold. `scr` is the alphabet: double-struck, script.
     pub fn styOf(a: &Rc<RefCell<MathAtom>>) -> String {
-        if a.borrow().font == MathFont::mainFont() {
+        if a.borrow().font == MathFont::main_font() {
             if MathOmml::isLetter(a.borrow().cp.clone()) {
                 return "p".to_string();
             }
@@ -415,9 +415,9 @@ impl MathOmml {
             return MathOmml::list(&a.borrow().body.clone());
         }
         if k == "frac" {
-            let mut f: String = "";
+            let mut f: String = "".to_string();
             if a.borrow().num == 0.0 {
-                f = "<m:fPr><m:type m:val=\"noBar\"/></m:fPr>";
+                f = "<m:fPr><m:type m:val=\"noBar\"/></m:fPr>".to_string();
             }
             let mut _tmp_230 = a.borrow().body.clone();
             let fx: String = format!("<m:f>{}<m:num>{}</m:num><m:den>{}</m:den></m:f>", f, MathOmml::list(&_tmp_230), MathOmml::list(&a.borrow().body2.clone()));
@@ -455,14 +455,14 @@ impl MathOmml {
             return format!("<m:bar><m:barPr><m:pos m:val=\"bot\"/></m:barPr>{}</m:bar>", MathOmml::e(&a.borrow().body.clone()));
         }
         if k == "text" {
-            let mut sty: String = "p";
+            let mut sty: String = "p".to_string();
             if a.borrow().textFont == MathFont::bold() {
-                sty = "b";
+                sty = "b".to_string();
             }
-            if a.borrow().textFont == MathFont::mathItalic() {
-                sty = "i";
+            if a.borrow().textFont == MathFont::math_italic() {
+                sty = "i".to_string();
             }
-            return MathOmml::run(&a.borrow().text.clone(), sty, "");
+            return MathOmml::run(&a.borrow().text.clone(), &sty, "");
         }
         if k == "opname" {
             return MathOmml::run(&a.borrow().text.clone(), "p", "");
@@ -676,9 +676,9 @@ impl MathOmml {
         if !raised.is_empty() {
             return raised;
         }
-        let mut mark: String = "_";
+        let mut mark: String = "_".to_string();
         if sup {
-            mark = "^";
+            mark = "^".to_string();
         }
         format!("{}{}", mark, MathOmml::group(&s))
     }

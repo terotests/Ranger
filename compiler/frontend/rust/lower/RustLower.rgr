@@ -492,6 +492,12 @@ class RustLower {
       if ((a.name == "cfg") && ((join (strsplit a.value " ") "") == "(test)")) {
         return false
       }
+      ; `#[cfg(not(ranger))]`: for rustc only, Ranger leaves it out -- a
+      ; `pub use` of another crate's .rgr types (ranger::build, -rust-extern)
+      ; that Ranger reads from the .rgr files themselves
+      if ((a.name == "cfg") && ((join (strsplit a.value " ") "") == "(not(ranger))")) {
+        return false
+      }
       if ((a.name != "ranger::target") && (a.name != "target")) {
         continue
       }
@@ -650,7 +656,12 @@ class RustLower {
       push rgrImports path
     }
     ; a parent class from another file: the files this one imports are read
-    ; for their classes (once each), not imported
+    ; for their classes (once each), not imported. So are the files of a
+    ; file that is only imports -- one root a crate's build.rs writes as one
+    ; module (`import_rgr!("EVGCrate")`, ranger::build)
+    if ((array_length sc.classes) == 0) {
+      wantParent = true
+    }
     if wantParent {
       for sc.imports imp:string ii {
         def ip:string (RustLower.joinPath((RustLower.dirOf(path)) imp))
