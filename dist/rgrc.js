@@ -24232,8 +24232,12 @@ class RangerFlowParser  {
         if ( kw == "component" ) {
           if ( st.children.length == 3 ) {
             const cKey = (fname + " ") + st.getSecond().vref;
-            this.treeTags[cKey] = "";
-            this.treeComponents[cKey] = st.getThird().vref;
+            if ( ( typeof(this.treeTags[cKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeTags, cKey) ) ) {
+              ctx.addError(st, (("treefactory " + fname) + " already has a tag or component ") + st.getSecond().vref);
+            } else {
+              this.treeTags[cKey] = "";
+              this.treeComponents[cKey] = st.getThird().vref;
+            }
           } else {
             ctx.addError(st, "component takes a tag name and a function, e.g. `component Stars this.stars`");
           }
@@ -24265,6 +24269,9 @@ class RangerFlowParser  {
                     const tagName = st.getSecond().vref;
                     const clsName = st.getThird().vref;
                     const tagKey = (fname + " ") + tagName;
+                    if ( ( typeof(this.treeComponents[tagKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeComponents, tagKey) ) ) {
+                      ctx.addError(st, (("treefactory " + fname) + " already has a component ") + tagName);
+                    }
                     this.treeTags[tagKey] = clsName;
                     if ( argc == 4 ) {
                       const defs = st.children[3];

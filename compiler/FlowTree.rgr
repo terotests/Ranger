@@ -114,8 +114,12 @@ extension RangerFlowParser {
         if (kw == "component") {
           if ((array_length st.children) == 3) {
             def cKey:string ((fname + " ") + ((st.getSecond()).vref))
-            set treeTags cKey ""
-            set treeComponents cKey ((st.getThird()).vref)
+            if (has treeTags cKey) {
+              ctx.addError(st ((("treefactory " + fname) + " already has a tag or component ") + ((st.getSecond()).vref)))
+            } {
+              set treeTags cKey ""
+              set treeComponents cKey ((st.getThird()).vref)
+            }
           } {
             ctx.addError(st "component takes a tag name and a function, e.g. `component Stars this.stars`")
           }
@@ -147,6 +151,9 @@ extension RangerFlowParser {
                     def tagName:string ((st.getSecond()).vref)
                     def clsName:string ((st.getThird()).vref)
                     def tagKey:string ((fname + " ") + tagName)
+                    if (has treeComponents tagKey) {
+                      ctx.addError(st ((("treefactory " + fname) + " already has a component ") + tagName))
+                    }
                     set treeTags tagKey clsName
                     if (argc == 4) {
                       def defs:CodeNode (at st.children 3)
