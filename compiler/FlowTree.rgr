@@ -111,47 +111,57 @@ extension RangerFlowParser {
       } {
         def head:CodeNode (st.getFirst())
         def kw:string head.vref
-        if (kw == "on") {
-          if ((array_length st.children) == 2) {
-            set treeOnCall fname ((st.getSecond()).vref)
+        if (kw == "component") {
+          if ((array_length st.children) == 3) {
+            def cKey:string ((fname + " ") + ((st.getSecond()).vref))
+            set treeTags cKey ""
+            set treeComponents cKey ((st.getThird()).vref)
           } {
-            ctx.addError(st "on takes one function name, e.g. `on events.bind`")
+            ctx.addError(st "component takes a tag name and a function, e.g. `component Stars this.stars`")
           }
         } {
-          if (kw == "child") {
+          if (kw == "on") {
             if ((array_length st.children) == 2) {
-              set treeChildCall fname ((st.getSecond()).vref)
+              set treeOnCall fname ((st.getSecond()).vref)
             } {
-              ctx.addError(st "child takes one method name")
+              ctx.addError(st "on takes one function name, e.g. `on events.bind`")
             }
           } {
-            if (kw == "text") {
+            if (kw == "child") {
               if ((array_length st.children) == 2) {
-                set treeTextField fname ((st.getSecond()).vref)
+                set treeChildCall fname ((st.getSecond()).vref)
               } {
-                ctx.addError(st "text takes one field name")
+                ctx.addError(st "child takes one method name")
               }
             } {
-              if (kw == "tag") {
-                def argc:int (array_length st.children)
-                if ((argc == 3) || (argc == 4)) {
-                  def tagName:string ((st.getSecond()).vref)
-                  def clsName:string ((st.getThird()).vref)
-                  def tagKey:string ((fname + " ") + tagName)
-                  set treeTags tagKey clsName
-                  if (argc == 4) {
-                    def defs:CodeNode (at st.children 3)
-                    if (this.isTreeKeyword(defs "props")) {
-                      set treeTagDefaults tagKey defs
-                    } {
-                      ctx.addError(defs "a tag's defaults are a props form")
-                    }
-                  }
+              if (kw == "text") {
+                if ((array_length st.children) == 2) {
+                  set treeTextField fname ((st.getSecond()).vref)
                 } {
-                  ctx.addError(st "tag takes a tag name, a class name and optionally a props form")
+                  ctx.addError(st "text takes one field name")
                 }
               } {
-                ctx.addError(st (("unknown treefactory member " + kw) + ", expected child, text, on or tag"))
+                if (kw == "tag") {
+                  def argc:int (array_length st.children)
+                  if ((argc == 3) || (argc == 4)) {
+                    def tagName:string ((st.getSecond()).vref)
+                    def clsName:string ((st.getThird()).vref)
+                    def tagKey:string ((fname + " ") + tagName)
+                    set treeTags tagKey clsName
+                    if (argc == 4) {
+                      def defs:CodeNode (at st.children 3)
+                      if (this.isTreeKeyword(defs "props")) {
+                        set treeTagDefaults tagKey defs
+                      } {
+                        ctx.addError(defs "a tag's defaults are a props form")
+                      }
+                    }
+                  } {
+                    ctx.addError(st "tag takes a tag name, a class name and optionally a props form")
+                  }
+                } {
+                  ctx.addError(st (("unknown treefactory member " + kw) + ", expected child, text, on, component or tag"))
+                }
               }
             }
           }
@@ -281,6 +291,10 @@ extension RangerFlowParser {
     treeTmpCount = (treeTmpCount + 1)
     def reg:string ("_tree" + (to_string treeTmpCount))
 
+    if (has treeComponents key) {
+      return (this.lowerTreeComponent(el key reg fname prelude ctx wr))
+    }
+
     ; def <reg> (new <Class>) — untyped on purpose: Ranger already infers the
     ; type from `new`, and an annotation here would be a second place for the
     ; tag mapping to be wrong.
@@ -307,21 +321,126 @@ extension RangerFlowParser {
         if (this.isTreeOnForm(ch fname)) {
           this.lowerTreeOn(ch reg fname prelude ctx)
         } {
-          if (this.isTreeKeyword(ch "child")) {
-            ; An explicit computed child: `(child (UserBadge user))`. A component
-            ; is an ordinary function that returns a node, and this is how one is
-            ; spliced in — marked, because `(UserBadge user)` and a mistyped tag
-            ; are the same shape, and guessing between them would turn a typo
-            ; into a call to something that does not exist.
-            this.lowerComputedChildren(ch reg fname prelude ctx wr)
+          if (this.isTreeEachForm(ch fname)) {
+            this.lowerTreeEach(ch reg fname prelude ctx wr)
           } {
-            this.lowerTreeChild(ch reg fname prelude ctx wr)
+            if (this.isTreeKeyword(ch "child")) {
+              ; An explicit computed child: `(child (UserBadge user))`. A component
+              ; is an ordinary function that returns a node, and this is how one is
+              ; spliced in — marked, because `(UserBadge user)` and a mistyped tag
+              ; are the same shape, and guessing between them would turn a typo
+              ; into a call to something that does not exist.
+              this.lowerComputedChildren(ch reg fname prelude ctx wr)
+            } {
+              this.lowerTreeChild(ch reg fname prelude ctx wr)
+            }
           }
         }
       }
       idx = (idx + 1)
     }
     return reg
+  }
+
+  ; `(Stars a b (props …) (on …))` for `component Stars this.stars`:
+  ; `def <reg> this.stars(a b)`, then the props and handlers on what it
+  ; returned. A component is a function that returns a node, as with
+  ; `(child …)`, but written like a tag.
+  fn lowerTreeComponent:string (el:CodeNode key:string reg:string fname:string prelude:[CodeNode] ctx:RangerAppWriterContext wr:CodeWriter) {
+    def callee:string (unwrap (get treeComponents key))
+    def call:CodeNode (el.newExpressionNode())
+    call.add((el.newVRefNode(callee)))
+    def args:CodeNode (el.newExpressionNode())
+    def later:[CodeNode]
+    def idx:int 1
+    while (idx < (array_length el.children)) {
+      def ch:CodeNode (at el.children idx)
+      if ((this.isTreeKeyword(ch "props")) || (this.isTreeOnForm(ch fname))) {
+        push later ch
+      } {
+        args.add((ch.copy()))
+      }
+      idx = (idx + 1)
+    }
+    call.add(args)
+    def defNode:CodeNode (el.newExpressionNode())
+    defNode.add((el.newVRefNode("def")))
+    defNode.add((el.newVRefNode(reg)))
+    defNode.add(call)
+    push prelude defNode
+    for later ch:CodeNode j {
+      if (this.isTreeKeyword(ch "props")) {
+        this.lowerTreeProps(ch reg prelude ctx wr)
+      } {
+        this.lowerTreeOn(ch reg fname prelude ctx)
+      }
+    }
+    return reg
+  }
+
+  ; `(each <list> <item:Type> [<index>] (Tag …) …)`, unless the factory has
+  ; a tag named `each`.
+  fn isTreeEachForm:boolean (node:CodeNode fname:string) {
+    if ((this.isTreeKeyword(node "each")) == false) {
+      return false
+    }
+    return ((has treeTags (fname + " each")) == false)
+  }
+
+  ; `(each items it:Item i (Row …))` lowers to
+  ;   for items it:Item i { <the Row's statements> <reg>.addChild(<row>) }
+  ; The nodes are built inside the loop's own block, so each pass has its
+  ; own locals, and a handler made there captures that pass's item.
+  fn lowerTreeEach:void (ch:CodeNode reg:string fname:string prelude:[CodeNode] ctx:RangerAppWriterContext wr:CodeWriter) {
+    def n:int (array_length ch.children)
+    if (n < 4) {
+      ctx.addError(ch "each takes a list, an item with its type and one or more tags: (each items it:Item (Row …))")
+      return
+    }
+    def childCall:string (unwrap (get treeChildCall fname))
+    if ((strlen childCall) == 0) {
+      ctx.addError(ch (("treefactory " + fname) + " has no `child` method, so each has nowhere to put its nodes"))
+      return
+    }
+    def itemNode:CodeNode (at ch.children 2)
+    if (((strlen itemNode.type_name) == 0) && ((strlen itemNode.array_type) == 0)) {
+      ctx.addError(itemNode "the item of each needs its type, e.g. it:Item")
+      return
+    }
+    treeEachCount = (treeEachCount + 1)
+    def idxName:string ("_treeEach" + (to_string treeEachCount))
+    def first:int 3
+    def third:CodeNode (at ch.children 3)
+    if ((third.expression == false) && ((strlen third.vref) > 0)) {
+      idxName = third.vref
+      first = 4
+    }
+    if (first >= n) {
+      ctx.addError(ch "each needs at least one tag to build per item")
+      return
+    }
+    def loop:CodeNode (ch.newExpressionNode())
+    loop.add((ch.newVRefNode("for")))
+    loop.add(((ch.getSecond()).copy()))
+    loop.add((itemNode.copy()))
+    loop.add((ch.newVRefNode(idxName)))
+    def body:CodeNode (ch.newExpressionNode())
+    body.is_block_node = true
+    def inner:[CodeNode]
+    def k:int first
+    while (k < n) {
+      def tagNode:CodeNode (at ch.children k)
+      def childReg:string (this.lowerTreeElement(tagNode fname inner ctx wr))
+      if ((strlen childReg) > 0) {
+        push inner (this.treeCall(tagNode reg childCall (tagNode.newVRefNode(childReg))))
+      }
+      k = (k + 1)
+    }
+    for inner st@(lives):CodeNode j {
+      body.add(st)
+    }
+    loop.add(body)
+    push prelude loop
   }
 
   fn isTreeKeyword:boolean (node:CodeNode word:string) {

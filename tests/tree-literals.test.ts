@@ -101,6 +101,37 @@ describe("tree literals", () => {
     });
   });
 
+  /**
+   * `component Badge this.badge`: `(Badge who (props …))` is the node the
+   * function returns, with the props applied. `(each items it:Item i (Row …))`
+   * builds per item inside a `for` block. A factory with a tag named `each`
+   * keeps it a tag.
+   */
+  describe("component and each", () => {
+    const EACH = `${FIXTURES}/tree_each.rgr`;
+    const OUT = "list(row0:milk done0:false row1:bread done1:true badge:tero)\nlist(badge:tero)\np(tag-each:x)";
+
+    it("ES6", () => {
+      expect(expectOutput(EACH, OUT).output).toContain(OUT);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expect(expectGoOutput(EACH, OUT).output).toContain(OUT);
+    });
+
+    it.skipIf(!isRustAvailable())("Rust", () => {
+      expect(expectRustOutput(EACH, OUT).output).toContain(OUT);
+    });
+
+    it.skipIf(!isPythonAvailable())("Python", () => {
+      expect(expectPythonOutput(EACH, OUT).output).toContain(OUT);
+    });
+
+    it("names an each without a typed item", () => {
+      expectCompileError(`${FIXTURES}/tree_bad_each.rgr`, "the item of each needs its type");
+    });
+  });
+
   describe("lowers to ordinary code, not to a runtime", () => {
     it("emits a constructor call and field assignments, and nothing else", () => {
       const cpp = getGeneratedCppCode(TREE);
