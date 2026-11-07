@@ -1,0 +1,95 @@
+; SPDX-License-Identifier: MIT
+;
+; Tree literals: `component` tags and `each`.
+;
+; `component Badge this.badge` makes `(Badge who)` the node `this.badge(who)`
+; returns, with props applied to it. `(each items it:Item i (Row …))` builds
+; the rows in a loop, one pass per item, inside the loop's own block.
+
+class Node {
+    def name:string ""
+    def label:string ""
+    def kids:[Node]
+    Constructor () { }
+    fn add:void (k:Node) {
+        push kids k
+    }
+    fn render:string () {
+        def out:string name
+        if ((strlen label) > 0) {
+            out = ((out + ":") + label)
+        }
+        if ((array_length kids) > 0) {
+            out = out + "("
+            def i:int 0
+            while (i < (array_length kids)) {
+                if (i > 0) {
+                    out = out + " "
+                }
+                out = out + ((itemAt kids i).render())
+                i = (i + 1)
+            }
+            out = out + ")"
+        }
+        return out
+    }
+}
+
+class Item {
+    def title:string ""
+    def done:boolean false
+    Constructor () { }
+}
+
+treefactory Ui {
+    child add
+    text label
+    tag Box Node
+    tag Row Node
+    component Badge this.badge
+}
+
+; A factory with a tag named `each`: there `each` stays a tag.
+treefactory Plain {
+    child add
+    text label
+    tag each Node
+    tag Box Node
+}
+
+class App {
+    def items:[Item]
+    Constructor () {
+        def a (new Item())
+        a.title = "milk"
+        def b (new Item())
+        b.title = "bread"
+        b.done = true
+        push items a
+        push items b
+    }
+
+    fn badge:Node (who:string) {
+        return (tree Ui (Box (props (name "badge")) who))
+    }
+
+    fn view:Node () {
+        return (tree Ui (Box (props (name "list"))
+            (each items it:Item i
+                (Row (props (name ("row" + (to_string i)))) it.title)
+                (Badge (to_string it.done) (props (name ("done" + (to_string i))))))
+            (Badge "tero")))
+    }
+}
+
+class Main {
+    sfn main@(main):void () {
+        def app (new App())
+        print (app.view().render())
+        def empty (new App())
+        clear empty.items
+        print (empty.view().render())
+        def p (tree Plain (Box (props (name "p")) (each (props (name "tag-each")) "x")))
+        print (p.render())
+    }
+}
