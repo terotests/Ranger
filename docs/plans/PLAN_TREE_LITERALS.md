@@ -67,6 +67,7 @@ factory object and no word from this document.
 | --- | --- |
 | `(props (name value) …)` | field assignments on the node |
 | `(child expr …)` | expressions attached with the factory's `child` method |
+| `(on event handler)` | `<fn>(node "event" handler)`, only in a factory that declares `on <fn>` |
 | `(Tag …)` where `Tag` is declared | a nested element |
 | anything else | a value child, assigned to the factory's `text` field |
 
@@ -85,6 +86,30 @@ sfn badge:Box (who:string) {
         (Cell (props (name "badge")) who))
 }
 ```
+
+### Handlers: `on`
+
+A factory may name a function that takes handlers:
+
+```ranger
+treefactory Ui {
+    child addChild
+    on    events.bind        ; any callable name in scope where the tree is built
+    tag   Button EVGElement
+}
+
+(tree Ui (Button (props (id bid))
+    (on press (fn:void (e:UiEvent) { count = (count + 1) }))))
+```
+
+`(on press h)` lowers to `events.bind(_tree1 "press" h)`, after the props, in
+the order written. The event is a bare word or a string; the handler is any
+expression. The node class is not involved, so EVGElement needs no field for
+handlers: the function the factory names keeps them (EVGUI's `UiEvents`).
+
+`on` is a keyword only inside the tags of a factory that declares it. A
+factory without `on` lowers exactly as before, and a tag of its named `on`
+stays a tag (tests/fixtures/tree_on.rgr checks both).
 
 ## Why the checking is not a second type checker
 

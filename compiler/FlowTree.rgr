@@ -102,6 +102,7 @@ extension RangerFlowParser {
     set treeFactoryNames fname true
     set treeChildCall fname ""
     set treeTextField fname ""
+    set treeOnCall fname ""
 
     def body:CodeNode (node.getThird())
     for body.children st@(lives):CodeNode i {
@@ -110,40 +111,48 @@ extension RangerFlowParser {
       } {
         def head:CodeNode (st.getFirst())
         def kw:string head.vref
-        if (kw == "child") {
+        if (kw == "on") {
           if ((array_length st.children) == 2) {
-            set treeChildCall fname ((st.getSecond()).vref)
+            set treeOnCall fname ((st.getSecond()).vref)
           } {
-            ctx.addError(st "child takes one method name")
+            ctx.addError(st "on takes one function name, e.g. `on events.bind`")
           }
         } {
-          if (kw == "text") {
+          if (kw == "child") {
             if ((array_length st.children) == 2) {
-              set treeTextField fname ((st.getSecond()).vref)
+              set treeChildCall fname ((st.getSecond()).vref)
             } {
-              ctx.addError(st "text takes one field name")
+              ctx.addError(st "child takes one method name")
             }
           } {
-            if (kw == "tag") {
-              def argc:int (array_length st.children)
-              if ((argc == 3) || (argc == 4)) {
-                def tagName:string ((st.getSecond()).vref)
-                def clsName:string ((st.getThird()).vref)
-                def tagKey:string ((fname + " ") + tagName)
-                set treeTags tagKey clsName
-                if (argc == 4) {
-                  def defs:CodeNode (at st.children 3)
-                  if (this.isTreeKeyword(defs "props")) {
-                    set treeTagDefaults tagKey defs
-                  } {
-                    ctx.addError(defs "a tag's defaults are a props form")
-                  }
-                }
+            if (kw == "text") {
+              if ((array_length st.children) == 2) {
+                set treeTextField fname ((st.getSecond()).vref)
               } {
-                ctx.addError(st "tag takes a tag name, a class name and optionally a props form")
+                ctx.addError(st "text takes one field name")
               }
             } {
-              ctx.addError(st (("unknown treefactory member " + kw) + ", expected child, text or tag"))
+              if (kw == "tag") {
+                def argc:int (array_length st.children)
+                if ((argc == 3) || (argc == 4)) {
+                  def tagName:string ((st.getSecond()).vref)
+                  def clsName:string ((st.getThird()).vref)
+                  def tagKey:string ((fname + " ") + tagName)
+                  set treeTags tagKey clsName
+                  if (argc == 4) {
+                    def defs:CodeNode (at st.children 3)
+                    if (this.isTreeKeyword(defs "props")) {
+                      set treeTagDefaults tagKey defs
+                    } {
+                      ctx.addError(defs "a tag's defaults are a props form")
+                    }
+                  }
+                } {
+                  ctx.addError(st "tag takes a tag name, a class name and optionally a props form")
+                }
+              } {
+                ctx.addError(st (("unknown treefactory member " + kw) + ", expected child, text, on or tag"))
+              }
             }
           }
         }
@@ -295,15 +304,19 @@ extension RangerFlowParser {
       if (this.isTreeKeyword(ch "props")) {
         this.lowerTreeProps(ch reg prelude ctx wr)
       } {
-        if (this.isTreeKeyword(ch "child")) {
-          ; An explicit computed child: `(child (UserBadge user))`. A component
-          ; is an ordinary function that returns a node, and this is how one is
-          ; spliced in — marked, because `(UserBadge user)` and a mistyped tag
-          ; are the same shape, and guessing between them would turn a typo
-          ; into a call to something that does not exist.
-          this.lowerComputedChildren(ch reg fname prelude ctx wr)
+        if (this.isTreeOnForm(ch fname)) {
+          this.lowerTreeOn(ch reg fname prelude ctx)
         } {
-          this.lowerTreeChild(ch reg fname prelude ctx wr)
+          if (this.isTreeKeyword(ch "child")) {
+            ; An explicit computed child: `(child (UserBadge user))`. A component
+            ; is an ordinary function that returns a node, and this is how one is
+            ; spliced in — marked, because `(UserBadge user)` and a mistyped tag
+            ; are the same shape, and guessing between them would turn a typo
+            ; into a call to something that does not exist.
+            this.lowerComputedChildren(ch reg fname prelude ctx wr)
+          } {
+            this.lowerTreeChild(ch reg fname prelude ctx wr)
+          }
         }
       }
       idx = (idx + 1)
@@ -320,6 +333,49 @@ extension RangerFlowParser {
       return false
     }
     return (head.vref == word)
+  }
+
+  ; `(on <event> <handler>)`, only in a factory that declared `on <fn>`: a
+  ; factory without one lowers exactly as it always did, and a tag of its
+  ; named `on` stays a tag.
+  fn isTreeOnForm:boolean (node:CodeNode fname:string) {
+    if ((this.isTreeKeyword(node "on")) == false) {
+      return false
+    }
+    if ((has treeOnCall fname) == false) {
+      return false
+    }
+    def callee:string (unwrap (get treeOnCall fname))
+    return ((strlen callee) > 0)
+  }
+
+  ; `(on press h)` -> `<fn>(<reg> "press" h)`. The event is a bare word or a
+  ; string; the handler is any expression (a lambda, a method reference). The
+  ; element is not told: what keeps the handler is the factory's function, so
+  ; a node class needs no field for it.
+  fn lowerTreeOn:void (ch:CodeNode reg:string fname:string prelude:[CodeNode] ctx:RangerAppWriterContext) {
+    if ((array_length ch.children) != 3) {
+      ctx.addError(ch "on takes an event name and a handler: (on press (fn:void (e:UiEvent) { … }))")
+      return
+    }
+    def callee:string (unwrap (get treeOnCall fname))
+    def evNode:CodeNode (ch.getSecond())
+    def evName:string evNode.vref
+    if (evNode.value_type == RangerNodeType.String) {
+      evName = evNode.string_value
+    }
+    if ((strlen evName) == 0) {
+      ctx.addError(evNode "the event of an on form is a word or a string, e.g. press")
+      return
+    }
+    def call:CodeNode (ch.newExpressionNode())
+    call.add((ch.newVRefNode(callee)))
+    def args:CodeNode (ch.newExpressionNode())
+    args.add((ch.newVRefNode(reg)))
+    args.add((ch.newStringNode(evName)))
+    args.add(((ch.getThird()).copy()))
+    call.add(args)
+    push prelude call
   }
 
   fn lowerComputedChildren:void (ch:CodeNode reg:string fname:string prelude:[CodeNode] ctx:RangerAppWriterContext wr:CodeWriter) {

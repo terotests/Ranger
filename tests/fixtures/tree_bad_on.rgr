@@ -1,0 +1,32 @@
+; SPDX-License-Identifier: MIT
+; Negative control: an `on` form needs an event and a handler.
+
+class Box {
+    def name:string ""
+    def kids:[Box]
+    Constructor () { }
+    fn addKid:void (k:Box) {
+        push kids k
+    }
+}
+
+class Reg {
+    Constructor () { }
+    fn bind:void (b:Box name:string run:(fn:void ())) { }
+}
+
+treefactory UiTree {
+    child addKid
+    on    reg.bind
+    tag   Row Box
+}
+
+class T {
+    def reg:Reg (new Reg())
+    Constructor () { }
+    fn build:void () {
+        def b (tree UiTree (Row (on press)))
+        print b.name
+    }
+    sfn main:void () { def t (new T()) t.build() }
+}

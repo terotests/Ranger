@@ -70,6 +70,37 @@ describe("tree literals", () => {
     });
   });
 
+  /**
+   * `on <fn>` in a factory: `(on press h)` inside a tag is a call
+   * `<fn>(element "press" h)`. The fixture's node class has no handler field;
+   * the function the factory names keeps them. A factory without `on` keeps
+   * `on` as an ordinary tag name.
+   */
+  describe("on: handlers in the tree", () => {
+    const ON = `${FIXTURES}/tree_on.rgr`;
+    const OUT = "buttons 3 handlers 6\ncount 7 last b2\nlast hover b1\nrelease handled false\nplain tag-on x";
+
+    it("ES6", () => {
+      expect(expectOutput(ON, OUT).output).toContain(OUT);
+    });
+
+    it.skipIf(!isGoAvailable())("Go", () => {
+      expect(expectGoOutput(ON, OUT).output).toContain(OUT);
+    });
+
+    // Not Rust or Python: the lowering is the same for every target, but the
+    // fixture keeps closures in a class field and mutates the builder from
+    // them, which the Rust writer cannot write yet (no Clone for a boxed
+    // FnMut field, a second borrow of self) and the Python writer spells as
+    // `nonlocal` on a field. Those are the writers' limits on lambdas, not
+    // this form's.
+
+    it("names a malformed on form", () => {
+      const bad = `${FIXTURES}/tree_bad_on.rgr`;
+      expectCompileError(bad, "on takes an event name and a handler");
+    });
+  });
+
   describe("lowers to ordinary code, not to a runtime", () => {
     it("emits a constructor call and field assignments, and nothing else", () => {
       const cpp = getGeneratedCppCode(TREE);

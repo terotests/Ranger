@@ -1,0 +1,120 @@
+; SPDX-License-Identifier: MIT
+;
+; Tree literals with handlers: `on <fn>` in a factory makes
+; `(on <event> <handler>)` inside its tags a call `<fn>(element "event" handler)`.
+;
+; The node class knows nothing of it: `Node` has no handler field. What keeps
+; the handlers is the function the factory names, here a method of a field of
+; the class that builds the tree (`events.bind`), so the same node class can
+; be built by a factory with handlers and by one without.
+
+class Node {
+    def id:string ""
+    def label:string ""
+    def kids:[Node]
+    Constructor () { }
+    fn add:void (k:Node) {
+        push kids k
+    }
+}
+
+class Ev {
+    def name:string ""
+    def target:string ""
+    Constructor () { }
+}
+
+class Handler {
+    def id:string ""
+    def name:string ""
+    def run@(optional):(fn:void (e:Ev))
+    Constructor () { }
+}
+
+class Events {
+    def all:[Handler]
+    Constructor () { }
+    fn bind:void (n:Node name:string run:(fn:void (e:Ev))) {
+        def h (new Handler())
+        h.id = n.id
+        h.name = name
+        h.run = run
+        push all h
+    }
+    fn fire:boolean (id:string name:string) {
+        def found:boolean false
+        for all h:Handler i {
+            if ((h.id == id) && (h.name == name)) {
+                def e (new Ev())
+                e.name = name
+                e.target = id
+                def f (unwrap h.run)
+                f(e)
+                found = true
+            }
+        }
+        return found
+    }
+}
+
+treefactory Ui {
+    child add
+    text label
+    on events.bind
+    tag Box Node
+    tag Button Node
+}
+
+; A factory without `on`: here `on` is an ordinary tag.
+treefactory Plain {
+    child add
+    text label
+    tag on Node
+    tag Box Node
+}
+
+class App {
+    def events:Events (new Events())
+    def count:int 0
+    def last:string ""
+    Constructor () { }
+
+    fn view:Node () {
+        def root (tree Ui (Box (props (id "root"))))
+        def i:int 0
+        while (i < 3) {
+            def step:int (i + 1)
+            def bid:string ("b" + (to_string i))
+            root.add((tree Ui (Button (props (id bid))
+                (on press (fn:void (e:Ev) {
+                    count = (count + step)
+                    last = e.target
+                }))
+                (on "hover" (fn:void (e:Ev) {
+                    last = ("hover " + e.target)
+                }))
+                "+")))
+            i = (i + 1)
+        }
+        return root
+    }
+}
+
+class Main {
+    sfn main@(main):void () {
+        def app (new App())
+        def root (app.view())
+        print ("buttons " + (to_string (array_length root.kids)) + " handlers " + (to_string (array_length app.events.all)))
+        app.events.fire("b0" "press")
+        app.events.fire("b2" "press")
+        app.events.fire("b2" "press")
+        print ("count " + (to_string app.count) + " last " + app.last)
+        app.events.fire("b1" "hover")
+        print ("last " + app.last)
+        def missing:boolean (app.events.fire("b1" "release"))
+        print ("release handled " + (to_string missing))
+        def p (tree Plain (Box (props (id "p")) (on (props (id "tag-on")) "x")))
+        def k:Node (itemAt p.kids 0)
+        print ("plain " + k.id + " " + k.label)
+    }
+}
