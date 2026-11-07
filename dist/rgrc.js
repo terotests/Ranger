@@ -15067,6 +15067,7 @@ class RangerFlowParser  {
     this._debug = false;     /* note: unused */
     this.treeChildCall = {};
     this.treeTextField = {};
+    this.treeOnCall = {};
     this.treeTags = {};
     this.treeTagDefaults = {};
     this.treeFactoryNames = {};
@@ -24217,6 +24218,7 @@ class RangerFlowParser  {
     this.treeFactoryNames[fname] = true;
     this.treeChildCall[fname] = "";
     this.treeTextField[fname] = "";
+    this.treeOnCall[fname] = "";
     const body = node.getThird();
     // Loop start
     for ( const st of body.children) {
@@ -24225,40 +24227,48 @@ class RangerFlowParser  {
       } else {
         const head = st.getFirst();
         const kw = head.vref;
-        if ( kw == "child" ) {
+        if ( kw == "on" ) {
           if ( st.children.length == 2 ) {
-            this.treeChildCall[fname] = st.getSecond().vref;
+            this.treeOnCall[fname] = st.getSecond().vref;
           } else {
-            ctx.addError(st, "child takes one method name");
+            ctx.addError(st, "on takes one function name, e.g. `on events.bind`");
           }
         } else {
-          if ( kw == "text" ) {
+          if ( kw == "child" ) {
             if ( st.children.length == 2 ) {
-              this.treeTextField[fname] = st.getSecond().vref;
+              this.treeChildCall[fname] = st.getSecond().vref;
             } else {
-              ctx.addError(st, "text takes one field name");
+              ctx.addError(st, "child takes one method name");
             }
           } else {
-            if ( kw == "tag" ) {
-              const argc = st.children.length;
-              if ( argc == 3 || argc == 4 ) {
-                const tagName = st.getSecond().vref;
-                const clsName = st.getThird().vref;
-                const tagKey = (fname + " ") + tagName;
-                this.treeTags[tagKey] = clsName;
-                if ( argc == 4 ) {
-                  const defs = st.children[3];
-                  if ( this.isTreeKeyword(defs, "props") ) {
-                    this.treeTagDefaults[tagKey] = defs;
-                  } else {
-                    ctx.addError(defs, "a tag's defaults are a props form");
-                  }
-                }
+            if ( kw == "text" ) {
+              if ( st.children.length == 2 ) {
+                this.treeTextField[fname] = st.getSecond().vref;
               } else {
-                ctx.addError(st, "tag takes a tag name, a class name and optionally a props form");
+                ctx.addError(st, "text takes one field name");
               }
             } else {
-              ctx.addError(st, ("unknown treefactory member " + kw) + ", expected child, text or tag");
+              if ( kw == "tag" ) {
+                const argc = st.children.length;
+                if ( argc == 3 || argc == 4 ) {
+                  const tagName = st.getSecond().vref;
+                  const clsName = st.getThird().vref;
+                  const tagKey = (fname + " ") + tagName;
+                  this.treeTags[tagKey] = clsName;
+                  if ( argc == 4 ) {
+                    const defs = st.children[3];
+                    if ( this.isTreeKeyword(defs, "props") ) {
+                      this.treeTagDefaults[tagKey] = defs;
+                    } else {
+                      ctx.addError(defs, "a tag's defaults are a props form");
+                    }
+                  }
+                } else {
+                  ctx.addError(st, "tag takes a tag name, a class name and optionally a props form");
+                }
+              } else {
+                ctx.addError(st, ("unknown treefactory member " + kw) + ", expected child, text, on or tag");
+              }
             }
           }
         }
@@ -24409,10 +24419,14 @@ class RangerFlowParser  {
       if ( this.isTreeKeyword(ch, "props") ) {
         this.lowerTreeProps(ch, reg, prelude, ctx, wr);
       } else {
-        if ( this.isTreeKeyword(ch, "child") ) {
-          this.lowerComputedChildren(ch, reg, fname, prelude, ctx, wr);
+        if ( this.isTreeOnForm(ch, fname) ) {
+          this.lowerTreeOn(ch, reg, fname, prelude, ctx);
         } else {
-          this.lowerTreeChild(ch, reg, fname, prelude, ctx, wr);
+          if ( this.isTreeKeyword(ch, "child") ) {
+            this.lowerComputedChildren(ch, reg, fname, prelude, ctx, wr);
+          } else {
+            this.lowerTreeChild(ch, reg, fname, prelude, ctx, wr);
+          }
         }
       }
       idx = idx + 1;
@@ -24428,6 +24442,40 @@ class RangerFlowParser  {
       return false;
     }
     return head.vref == word;
+  };
+  isTreeOnForm (node, fname) {
+    if ( this.isTreeKeyword(node, "on") == false ) {
+      return false;
+    }
+    if ( ( typeof(this.treeOnCall[fname] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeOnCall, fname) ) == false ) {
+      return false;
+    }
+    const callee = ( Object.prototype.hasOwnProperty.call(this.treeOnCall, fname) ? this.treeOnCall[fname] : undefined );
+    return callee.length > 0;
+  };
+  lowerTreeOn (ch, reg, fname, prelude, ctx) {
+    if ( ch.children.length != 3 ) {
+      ctx.addError(ch, "on takes an event name and a handler: (on press (fn:void (e:UiEvent) { … }))");
+      return;
+    }
+    const callee = ( Object.prototype.hasOwnProperty.call(this.treeOnCall, fname) ? this.treeOnCall[fname] : undefined );
+    const evNode = ch.getSecond();
+    let evName = evNode.vref;
+    if ( evNode.value_type == 4 ) {
+      evName = evNode.string_value;
+    }
+    if ( evName.length == 0 ) {
+      ctx.addError(evNode, "the event of an on form is a word or a string, e.g. press");
+      return;
+    }
+    const call = ch.newExpressionNode();
+    call.add(ch.newVRefNode(callee));
+    const args = ch.newExpressionNode();
+    args.add(ch.newVRefNode(reg));
+    args.add(ch.newStringNode(evName));
+    args.add(ch.getThird().copy());
+    call.add(args);
+    prelude.push(call);
   };
   lowerComputedChildren (ch, reg, fname, prelude, ctx, wr) {
     const childCall = ( Object.prototype.hasOwnProperty.call(this.treeChildCall, fname) ? this.treeChildCall[fname] : undefined );

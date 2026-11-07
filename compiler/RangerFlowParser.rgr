@@ -86,6 +86,11 @@ class RangerFlowParser {
   ; lowers exactly the same way.
   def treeChildCall:[string:string]
   def treeTextField:[string:string]
+  ; "<factory>" -> the function an `(on <event> <handler>)` form calls with the
+  ; element, the event's name and the handler: `on events.bind` in the
+  ; factory. Empty when the factory declares no `on`, and then `on` is not a
+  ; keyword inside its tags at all.
+  def treeOnCall:[string:string]
   ; "<factory> <Tag>" -> the class the tag builds.
   def treeTags:[string:string]
   ; "<factory> <Tag>" -> a props form every use of that tag starts with, so a
