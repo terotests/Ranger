@@ -68,11 +68,26 @@ const status = real.status === null ? 1 : real.status;
 
 // Only a compile that writes somewhere is compared (not --help, not a check).
 const compiles = args.some((a) => a.endsWith(".rgr") || a.endsWith(".rs"));
+// The gate must never break the build it watches: whatever goes wrong here
+// is recorded as an ERROR row, and the head compiler's exit code stands.
 if (compiles) {
+  try {
+    compareOnce();
+  } catch (err) {
+    try {
+      fs.mkdirSync(WORK, { recursive: true });
+      fs.appendFileSync(REPORT, JSON.stringify({ cwd, args, result: "ERROR", files: [String(err && err.message)] }) + "\n");
+    } catch (_) {}
+  }
+}
+process.exit(status);
+
+function compareOnce() {
   fs.mkdirSync(WORK, { recursive: true });
   const id = crypto.randomBytes(6).toString("hex");
   const T = path.join(WORK, "run", id, "out");
   fs.mkdirSync(path.dirname(T), { recursive: true });
+  fs.mkdirSync(T, { recursive: true });
   const b = run(BASE, withOutDir(T), true);
   const baseOk = b.status === 0 && listFiles(T).length > 0;
   fs.renameSync(T, T + ".base");
@@ -91,4 +106,3 @@ if (compiles) {
   fs.appendFileSync(REPORT, JSON.stringify(row) + "\n");
   if (row.result === "SAME") fs.rmSync(path.dirname(T), { recursive: true, force: true });
 }
-process.exit(status);

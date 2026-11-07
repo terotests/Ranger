@@ -75,7 +75,7 @@ function report() {
     process.exit(1);
   }
   const rows = fs.readFileSync(REPORT, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
-  const count = { SAME: 0, DIFF: 0, NEW: 0, "HEAD-FAIL": 0 };
+  const count = { SAME: 0, DIFF: 0, NEW: 0, "HEAD-FAIL": 0, ERROR: 0 };
   for (const r of rows) {
     count[r.result] = (count[r.result] || 0) + 1;
     if (r.result !== "SAME") {
@@ -83,8 +83,8 @@ function report() {
       for (const f of r.files || []) console.log(`            ${f}`);
     }
   }
-  console.log(`compiles ${rows.length}: same ${count.SAME}, differ ${count.DIFF}, new-only ${count.NEW}, failing with head only ${count["HEAD-FAIL"]}`);
-  process.exit(count.DIFF > 0 || count["HEAD-FAIL"] > 0 ? 1 : 0);
+  console.log(`compiles ${rows.length}: same ${count.SAME}, differ ${count.DIFF}, new-only ${count.NEW}, failing with head only ${count["HEAD-FAIL"]}, gate errors ${count.ERROR}`);
+  process.exit(count.DIFF > 0 || count["HEAD-FAIL"] > 0 || count.ERROR > 0 ? 1 : 0);
 }
 
 const cmd = process.argv[2];
