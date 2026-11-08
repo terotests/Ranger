@@ -1,5 +1,9 @@
 # Zoo.js / Octane bench for the Ranger TS engine
 
+**Compat-table (ES6 / ES2016+) scores:** see [`ZOO_COMPAT_RESULTS.md`](./ZOO_COMPAT_RESULTS.md)
+and `zoo-compat-score.cjs` — same weighted Kangax suite zoo.js.org uses for its
+ES6 / ES2016+ columns.
+
 Runs the same V8 Octane v9 suites published on
 [zoo.js.org](https://zoo.js.org/?arch=amd64&v8=true) through:
 
