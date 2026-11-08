@@ -125,6 +125,11 @@ class TrueTypeFont {
     def legacyKernOffset:int 0
     def legacyKernPairs:int 0
     def hasKerning:boolean false
+
+    ; Lookups the text measurer repeats for every character and pair of every
+    ; line: the cmap binary search and the GPOS pair walk (coverage tables).
+    def glyphCache:[int:int]
+    def kernCache:[int:int]
     
     Constructor () {
         def t:[TTFTableRecord]
@@ -460,6 +465,19 @@ class TrueTypeFont {
     }
 
     fn getGlyphIndex:int (charCode:int) {
+        if (cmapOffset == 0) {
+            return 0
+        }
+        def hit@(optional):int (get glyphCache charCode)
+        if (!null? hit) {
+            return (unwrap hit)
+        }
+        def g:int (this.lookupGlyphIndex(charCode))
+        set glyphCache charCode g
+        return g
+    }
+
+    fn lookupGlyphIndex:int (charCode:int) {
         ; Get glyph index for a character code using cmap
         if (cmapOffset == 0) {
             return 0
@@ -503,7 +521,7 @@ class TrueTypeFont {
         def lo:int 0
         def hi:int (nGroups - 1)
         while (lo <= hi) {
-            def mid:int (to_int ((lo + hi) / 2))
+            def mid:int (idiv (lo + hi) 2)
             def g:int (off + 16 + (mid * 12))
             def startChar:int (this.readUInt32(g))
             def endChar:int (this.readUInt32(g + 4))
@@ -1532,6 +1550,18 @@ class TrueTypeFont {
         if (hasKerning == false) {
             return 0
         }
+        ; glyph ids are 16-bit
+        def key:int ((leftGlyph * 65536) + rightGlyph)
+        def hit@(optional):int (get kernCache key)
+        if (!null? hit) {
+            return (unwrap hit)
+        }
+        def k:int (this.lookupKernAdvance(leftGlyph rightGlyph))
+        set kernCache key k
+        return k
+    }
+
+    fn lookupKernAdvance:int (leftGlyph:int rightGlyph:int) {
         if (legacyKernOffset > 0) {
             return (this.legacyKernAdvance(leftGlyph rightGlyph))
         }
@@ -1577,7 +1607,7 @@ class TrueTypeFont {
             def lo:int 0
             def hi:int (pairCount - 1)
             while (lo <= hi) {
-                def mid:int (to_int ((lo + hi) / 2))
+                def mid:int (idiv (lo + hi) 2)
                 def recOff:int ((pairSetOff + 2) + (mid * recSize))
                 def second:int (this.readUInt16(recOff))
                 if (second == rightGlyph) {
@@ -1663,7 +1693,7 @@ class TrueTypeFont {
             def lo:int 0
             def hi:int (count - 1)
             while (lo <= hi) {
-                def mid:int (to_int ((lo + hi) / 2))
+                def mid:int (idiv (lo + hi) 2)
                 def g:int (this.readUInt16(cov + 4 + (mid * 2)))
                 if (g == glyph) {
                     return mid
@@ -1681,7 +1711,7 @@ class TrueTypeFont {
             def lo2:int 0
             def hi2:int (rangeCount - 1)
             while (lo2 <= hi2) {
-                def mid2:int (to_int ((lo2 + hi2) / 2))
+                def mid2:int (idiv (lo2 + hi2) 2)
                 def rec:int (cov + 4 + (mid2 * 6))
                 def start:int (this.readUInt16(rec))
                 def end:int (this.readUInt16(rec + 2))
@@ -1719,7 +1749,7 @@ class TrueTypeFont {
             def lo:int 0
             def hi:int (rangeCount - 1)
             while (lo <= hi) {
-                def mid:int (to_int ((lo + hi) / 2))
+                def mid:int (idiv (lo + hi) 2)
                 def rec:int (cd + 4 + (mid * 6))
                 def start:int (this.readUInt16(rec))
                 def end:int (this.readUInt16(rec + 2))
@@ -1742,7 +1772,7 @@ class TrueTypeFont {
         def lo:int 0
         def hi:int (legacyKernPairs - 1)
         while (lo <= hi) {
-            def mid:int (to_int ((lo + hi) / 2))
+            def mid:int (idiv (lo + hi) 2)
             def rec:int (legacyKernOffset + (mid * 6))
             def l:int (this.readUInt16(rec))
             def r:int (this.readUInt16(rec + 2))

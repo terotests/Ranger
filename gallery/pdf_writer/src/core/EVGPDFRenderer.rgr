@@ -834,14 +834,11 @@ class EVGPDFRenderer {
                 ; Reset layout state for fresh layout
                 pg.resetLayoutState()
                 
-                pg.width.pixels = contentWidth
-                pg.width.value = contentWidth
-                pg.width.unitType = 0  ; pixels
-                pg.width.isSet = true
-                pg.height.pixels = contentHeight
-                pg.height.value = contentHeight
-                pg.height.unitType = 0  ; pixels
-                pg.height.isSet = true
+                ; The page's own units: an unset width/height is EVGUnit.unset(),
+                ; one unit shared by every element, so writing into it would size
+                ; every unset box in the document to the page.
+                pg.width = (EVGUnit.px(contentWidth))
+                pg.height = (EVGUnit.px(contentHeight))
                 
                 ; Layout each page independently
                 layout.layout(pg)

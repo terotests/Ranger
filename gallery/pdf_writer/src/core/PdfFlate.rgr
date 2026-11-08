@@ -30,40 +30,53 @@
 Import "pkg:image/Deflate.rgr"
 Import "pkg:image/Buffer.rgr"
 
+; One compressor for every stream: Deflate keeps its tables and hash heads
+; between streams (see headBase in Deflate.rgr).
+class PdfFlateState @singleton(true) {
+    def deflate:Deflate (new Deflate)
+}
+
 class PdfFlate {
     ; The zlib stream for `src`, ready to be a `/FlateDecode` stream.
     sfn zlib:buffer (src:buffer) {
         def n:int (buffer_length src)
-        def out (new GrowableBuffer)
-        ; CMF = 0x78: deflate, 32K window. FLG = 0x01: no dictionary.
-        out.writeByte(120)
-        out.writeByte(1)
         def w (new DeflateWriter)
-        def d (new Deflate)
+        def d:Deflate ((PdfFlateState.__singleton()).deflate)
         d.compress(src n w)
         w.align()
         def body:buffer (w.out.toBuffer())
-        def bi:int 0
-        while (bi < (buffer_length body)) {
-            out.writeByte((buffer_get body bi))
-            bi = (bi + 1)
-        }
+        def bn:int (buffer_length body)
+        def out:buffer (buffer_alloc (bn + 6))
+        ; CMF = 0x78: deflate, 32K window. FLG = 0x01: no dictionary.
+        buffer_set out 0 120
+        buffer_set out 1 1
+        buffer_copy out 2 body 0 bn
         def adler:int (PdfFlate.adler32(src n))
-        out.writeByte((bit_and (bit_shr adler 24) 255))
-        out.writeByte((bit_and (bit_shr adler 16) 255))
-        out.writeByte((bit_and (bit_shr adler 8) 255))
-        out.writeByte((bit_and adler 255))
-        return (out.toBuffer())
+        buffer_set out (bn + 2) (bit_and (bit_shr adler 24) 255)
+        buffer_set out (bn + 3) (bit_and (bit_shr adler 16) 255)
+        buffer_set out (bn + 4) (bit_and (bit_shr adler 8) 255)
+        buffer_set out (bn + 5) (bit_and adler 255)
+        return out
     }
 
+    ; The modulo is taken once per 5552 bytes, the most that can be summed
+    ; before b overflows 32 bits (as zlib does).
     sfn adler32:int (data:buffer n:int) {
         def a:int 1
         def b:int 0
         def i:int 0
         while (i < n) {
-            a = ((a + (buffer_get data i)) % 65521)
-            b = ((b + a) % 65521)
-            i = (i + 1)
+            def end:int (i + 5552)
+            if (end > n) {
+                end = n
+            }
+            while (i < end) {
+                a = (a + (buffer_get data i))
+                b = (b + a)
+                i = (i + 1)
+            }
+            a = (a % 65521)
+            b = (b % 65521)
         }
         return (bit_or (bit_shl b 16) a)
     }
