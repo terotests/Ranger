@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Linear string appends on Rust for `.rgr` code.** `s = s + a + b` on a
+  plain owned String is written as `s.push_str(..)` instead of
+  `s = format!("{}{}{}", s, a, b)`, which copied all of `s` on every pass
+  (quadratic when a loop builds a string). The appended part goes through a
+  temporary when it calls something or names the target. 160 000 appends:
+  30.3 s -> 7 ms; the PDF writer has 385 such sites. Test:
+  tests/rust-string-append.test.ts.
+
 - **Cargo package dependencies for `.rs` crates.** `rgrc main.rs` reads the
   `[dependencies]` of the crate's Cargo.toml (path dependencies, and git
   ones through the package of the same name in ranger.json), so strict

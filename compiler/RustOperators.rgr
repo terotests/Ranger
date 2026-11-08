@@ -364,6 +364,129 @@ extension RangerRustClassWriter {
     return true
   }
 
+  fn rustSubtreeHasCall:boolean (n:CodeNode) {
+    if (n.hasFnCall || n.has_call) {
+      return true
+    }
+    if n.hasNewOper {
+      return true
+    }
+    for n.children ch:CodeNode i {
+      if (this.rustSubtreeHasCall(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; `s = s + a + b` appends in place: `s.push_str(..)`. Written as
+  ; `s = format!("{}{}{}", s, a, b)` it copies all of `s` on every pass, so a
+  ; loop that builds a string is quadratic. Only a plain owned String target
+  ; (no cell, no optional, no static str, no read-only borrow) whose chain
+  ; starts with the same path; the appended part goes through a temporary
+  ; when it calls something or names the target's root, so the target's
+  ; mutable borrow never overlaps its evaluation.
+  fn rustTryStringAppend:boolean (left:CodeNode right:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((this.rustPlainScalarPath(left)) == false) {
+      return false
+    }
+    if (this.rustNodeIsCellField(left)) {
+      return false
+    }
+    if (this.rustStaticStrRead(left)) {
+      return false
+    }
+    for left.nsp lseg:RangerAppParamDesc lsi {
+      if (lseg.rust_borrow_type == 1) {
+        return false
+      }
+    }
+    def rr:CodeNode (this.rustUnwrapParens(right))
+    if ((array_length rr.children) != 3) {
+      return false
+    }
+    if (rr.eval_type != RangerNodeType.String) {
+      return false
+    }
+    if ((rr.getFirst()).vref != "+") {
+      return false
+    }
+    def ops:[CodeNode]
+    this.rustCollectConcatOperands(rr ops)
+    if ((array_length ops) < 2) {
+      return false
+    }
+    def first:CodeNode (this.rustUnwrapParens((itemAt ops 0)))
+    if (first.expression || (first.value_type != RangerNodeType.VRef)) {
+      return false
+    }
+    if ((this.rustPlainScalarPath(first)) == false) {
+      return false
+    }
+    if ((array_length first.ns) != (array_length left.ns)) {
+      return false
+    }
+    for left.ns part:string pi {
+      if ((itemAt first.ns pi) != part) {
+        return false
+      }
+    }
+    def rest:[CodeNode]
+    def needTmp:boolean false
+    def root:string (itemAt left.ns 0)
+    for ops o:CodeNode oi {
+      if (oi > 0) {
+        push rest o
+        if (this.rustSubtreeHasCall(o)) {
+          needTmp = true
+        }
+        if (this.rustSubtreeNames(o root)) {
+          needTmp = true
+        }
+      }
+    }
+    def oneLit:boolean false
+    if ((array_length rest) == 1) {
+      oneLit = ((itemAt rest 0).value_type == RangerNodeType.String)
+    }
+    def tmp:string ""
+    if (needTmp && (oneLit == false)) {
+      tmp = (ctx.rustGetTempVar())
+      wr.out((("{ let " + tmp) + " = format!(") false)
+      this.writeRustFormatOps(rest ctx wr)
+      wr.out("); " false)
+    }
+    ctx.setInLhs()
+    this.WriteVRef(left ctx wr)
+    ctx.unsetInLhs()
+    if oneLit {
+      def lit:CodeNode (itemAt rest 0)
+      wr.out(((".push_str(\"" + (this.EncodeString(lit ctx wr))) + "\");") true)
+      return true
+    }
+    if ((strlen tmp) > 0) {
+      wr.out(((".push_str(&" + tmp) + "); }") true)
+      return true
+    }
+    if ((array_length rest) == 1) {
+      def one:CodeNode (this.rustUnwrapParens((this.rustStripToString((itemAt rest 0)))))
+      if (one.eval_type == RangerNodeType.String) {
+        wr.out(".push_str(&" false)
+        ctx.setInExpr()
+        wr.suppress_expr_parens = true
+        this.WalkNode(one ctx wr)
+        wr.suppress_expr_parens = false
+        ctx.unsetInExpr()
+        wr.out(");" true)
+        return true
+      }
+    }
+    wr.out(".push_str(&format!(" false)
+    this.writeRustFormatOps(rest ctx wr)
+    wr.out("));" true)
+    return true
+  }
+
   fn rustArgNeedsCellWrap:boolean (arg:RangerAppParamDesc nVal:CodeNode ctx:RangerAppWriterContext) {
     def acNN@(optional):CodeNode arg.nameNode
     if (null? acNN) {
@@ -976,6 +1099,9 @@ extension RangerRustClassWriter {
       ; starts from the same path. Anything less plain falls through to the
       ; full assignment machinery below.
       if (this.rustTryCompoundAssign(left right ctx wr)) {
+        return
+      }
+      if (this.rustTryStringAppend(left right ctx wr)) {
         return
       }
 
