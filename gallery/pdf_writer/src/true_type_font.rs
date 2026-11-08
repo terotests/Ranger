@@ -85,6 +85,8 @@ impl TTFShapedRun {
 #[derive(Clone)]
 pub struct TrueTypeFont {
     pub fontData: Vec<u8>,
+    /// The sfnt pdfFontData is writing (empty between calls).
+    pdfOut: Vec<u8>,
     pub fontPath: String,
     pub fontFamily: String,
     pub fontStyle: String,
@@ -162,6 +164,7 @@ impl TrueTypeFont {
     pub fn new() -> Self {
         let mut me = Self {
             fontData: vec![0u8; 0],
+            pdfOut: Vec::new(),
             fontPath: String::new(),
             fontFamily: String::new(),
             fontStyle: "Regular".to_string(),
@@ -333,11 +336,12 @@ impl TrueTypeFont {
         }
         sum
     }
-    pub fn putLoca(mut out: &mut Vec<u8>, dst: i64, i: i64, value: i64, format: i64) {
+    /// One `loca` entry into `pdfOut`: short offsets are stored halved.
+    pub fn putLoca(&mut self, dst: i64, i: i64, value: i64, format: i64) {
         if format == 0 {
-            TrueTypeFont::put16(out, dst + i * 2, (value as f64 / 2.0).floor() as i64);
+            self.put16(dst + i * 2, (value as f64 / 2.0).floor() as i64);
         } else {
-            TrueTypeFont::put32(out, dst + i * 4, value);
+            self.put32(dst + i * 4, value);
         }
     }
     pub fn tagLess(a: &str, b: &str) -> bool {
@@ -358,15 +362,15 @@ impl TrueTypeFont {
         }
         false
     }
-    pub fn put16(mut b: &mut Vec<u8>, at: i64, v: i64) {
-        b[at as usize] = ((v >> 8) & 255) as u8;
-        b[(at + 1) as usize] = (v & 255) as u8;
+    pub fn put16(&mut self, at: i64, v: i64) {
+        self.pdfOut[at as usize] = ((v >> 8) & 255) as u8;
+        self.pdfOut[(at + 1) as usize] = (v & 255) as u8;
     }
-    pub fn put32(mut b: &mut Vec<u8>, at: i64, v: i64) {
-        b[at as usize] = ((v >> 24) & 255) as u8;
-        b[(at + 1) as usize] = ((v >> 16) & 255) as u8;
-        b[(at + 2) as usize] = ((v >> 8) & 255) as u8;
-        b[(at + 3) as usize] = (v & 255) as u8;
+    pub fn put32(&mut self, at: i64, v: i64) {
+        self.pdfOut[at as usize] = ((v >> 24) & 255) as u8;
+        self.pdfOut[(at + 1) as usize] = ((v >> 16) & 255) as u8;
+        self.pdfOut[(at + 2) as usize] = ((v >> 8) & 255) as u8;
+        self.pdfOut[(at + 3) as usize] = (v & 255) as u8;
     }
     /// Is this codepoint a variation selector — VS15 (text) or VS16 (emoji)?
     ///
@@ -1062,10 +1066,12 @@ impl TrueTypeFont {
             k += 1;
         }
         let total: i64 = at;
-        let mut out: Vec<u8> = vec![0u8; (total) as usize];
+        // Written in place through put16/put32 (a buffer field: a `&mut Vec`
+        // parameter is copied in and out on every call).
+        self.pdfOut = vec![0u8; (total) as usize];
         // sfnt version 1.0 for TrueType outlines.
-        TrueTypeFont::put32(&mut out, 0, 65536);
-        TrueTypeFont::put16(&mut out, 4, n);
+        self.put32(0, 65536);
+        self.put16(4, n);
         // searchRange / entrySelector / rangeShift: the binary-search hints.
         let mut pow2: i64 = 1;
         let mut log2: i64 = 0;
@@ -1073,24 +1079,24 @@ impl TrueTypeFont {
             pow2 *= 2;
             log2 += 1;
         }
-        TrueTypeFont::put16(&mut out, 6, pow2 * 16);
-        TrueTypeFont::put16(&mut out, 8, log2);
-        TrueTypeFont::put16(&mut out, 10, n * 16 - pow2 * 16);
+        self.put16(6, pow2 * 16);
+        self.put16(8, log2);
+        self.put16(10, n * 16 - pow2 * 16);
         let mut d: i64 = 0;
         while d < n {
             let mut rec: Rc<RefCell<TTFTableRecord>> = kept[d as usize].clone();
             let dst: i64 = offsets[d as usize];
             // unused:  let __len: i64 = lengths[d as usize];
             if rec.borrow().tag == "glyf" {
-                self.writeGlyf(&mut out, dst, &plan);
+                self.writeGlyf(dst, &plan);
             } else {
                 if rec.borrow().tag == "loca" {
-                    self.writeLoca(&mut out, dst, &plan);
+                    self.writeLoca(dst, &plan);
                 } else {
                     let src: i64 = rec.borrow().offset;
                     let mut c: i64 = 0;
                     while c < rec.borrow().length {
-                        out[(dst + c) as usize] = (self.fontData[(src + c) as usize] as i64) as u8;
+                        self.pdfOut[(dst + c) as usize] = (self.fontData[(src + c) as usize] as i64) as u8;
                         c += 1;
                     }
                 }
@@ -1111,20 +1117,23 @@ impl TrueTypeFont {
                 if ti < (PdfText::str_len(&r2.borrow().tag) as i64) {
                     ch = PdfText::char_at(&r2.borrow().tag, ti);
                 }
-                out[(base + ti) as usize] = (ch) as u8;
+                self.pdfOut[(base + ti) as usize] = (ch) as u8;
                 ti += 1;
             }
             let off2: i64 = offsets[e as usize];
             let len2: i64 = lengths[e as usize];
-            TrueTypeFont::put32(&mut out, base + 4, TrueTypeFont::tableSum(&out, off2, len2));
-            TrueTypeFont::put32(&mut out, base + 8, off2);
-            TrueTypeFont::put32(&mut out, base + 12, len2);
+            let sum: i64 = TrueTypeFont::tableSum(&self.pdfOut, off2, len2);
+            self.put32(base + 4, sum);
+            self.put32(base + 8, off2);
+            self.put32(base + 12, len2);
             e += 1;
         }
+        let out: Vec<u8> = self.pdfOut.clone();
+        self.pdfOut = Vec::new();
         out
     }
     /// `plan` is [totalGlyfBytes, keep0, keep1, …] — see `buildGlyf`.
-    pub fn writeGlyf(&self, mut out: &mut Vec<u8>, dst: i64, plan: &[i64]) {
+    pub fn writeGlyf(&mut self, dst: i64, plan: &[i64]) {
         let mut w: i64 = dst;
         let mut g: i64 = 0;
         while g < self.numGlyphs {
@@ -1136,12 +1145,12 @@ impl TrueTypeFont {
                     let mut glyf: Rc<RefCell<TTFTableRecord>> = self.findTable("glyf");
                     let mut c: i64 = 0;
                     while c < __len {
-                        out[(w + c) as usize] = (self.fontData[((glyf.borrow().offset + from) + c) as usize] as i64) as u8;
+                        self.pdfOut[(w + c) as usize] = (self.fontData[((glyf.borrow().offset + from) + c) as usize] as i64) as u8;
                         c += 1;
                     }
                     w += __len;
                     while (w - dst) % 2 != 0 {
-                        out[w as usize] = 0;
+                        self.pdfOut[w as usize] = 0;
                         w += 1;
                     }
                 }
@@ -1149,11 +1158,12 @@ impl TrueTypeFont {
             g += 1;
         }
     }
-    pub fn writeLoca(&self, mut out: &mut Vec<u8>, dst: i64, plan: &[i64]) {
+    pub fn writeLoca(&mut self, dst: i64, plan: &[i64]) {
         let mut at: i64 = 0;
         let mut g: i64 = 0;
         while g < self.numGlyphs {
-            TrueTypeFont::putLoca(out, dst, g, at, self.indexToLocFormat.clone());
+            let fmt: i64 = self.indexToLocFormat;
+            self.putLoca(dst, g, at, fmt);
             if plan[(g + 1) as usize] == 1 {
                 let __len: i64 = self.glyphEnd(g) - self.glyphStart(g);
                 if __len > 0 {
@@ -1166,7 +1176,8 @@ impl TrueTypeFont {
             g += 1;
         }
         let mut _tmp_36 = self.numGlyphs.clone();
-        TrueTypeFont::putLoca(out, dst, _tmp_36, at, self.indexToLocFormat.clone());
+        let fmt: i64 = self.indexToLocFormat;
+        self.putLoca(dst, _tmp_36, at, fmt);
     }
     /// Get PostScript name for PDF
     pub fn getPostScriptName(&self) -> String {

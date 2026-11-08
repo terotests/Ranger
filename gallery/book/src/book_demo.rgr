@@ -29,7 +29,7 @@ class BookDemo {
         print "== Ranger book engine demo =="
 
         ; --- fonts first, so every measurement is the printed one ---
-        def setup (new EVGFontSetup())
+        def setup (EVGFontSetup.new_())
         setup.init("./gallery/book/" "")
         def manager:FontManager (setup.getManager())
         def measurer (new TTFTextMeasurer(manager))

@@ -51,7 +51,7 @@ class EmojiRow {
 class EmojiShapes {
     sfn main:void () {
         def fontPath:string "gallery/pdf_writer/assets/fonts/Noto_Emoji/NotoEmoji-Regular.ttf"
-        def ttf (new TrueTypeFont())
+        def ttf (TrueTypeFont.new_())
         if ((ttf.loadFromFile(fontPath)) == false) {
             print ("could not read " + fontPath)
             return

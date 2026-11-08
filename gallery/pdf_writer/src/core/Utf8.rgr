@@ -1,3 +1,4 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; Utf8.rgr is Rust now (utf8.rs); this name stays for its importers.
 Import "../lib.rs"
+Import "pkg:evg/EVGCodepoint.rgr"

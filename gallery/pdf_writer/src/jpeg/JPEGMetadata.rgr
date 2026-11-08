@@ -1,3 +1,4 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; JPEGMetadata.rgr is Rust now (jpeg_metadata.rs); this name stays for its importers.
 Import "../lib.rs"
+Import "pkg:image/Buffer.rgr"

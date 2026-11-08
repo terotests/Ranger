@@ -38,7 +38,7 @@ class UICachedLine {
 }
 
 class UITextRenderer {
-    def fm:FontManager (new FontManager)
+    def fm:FontManager (FontManager.new_())
     ; The families a caller named — see `familyNames`.
     def named:[string]
     ; Base measurer gives rough estimates until a real font is loaded.

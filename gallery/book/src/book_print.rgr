@@ -39,7 +39,7 @@ class BookPrint {
 
         ; Real faces before layout, or the line breaks in the PDF are not the
         ; ones that were measured.
-        def setup (new EVGFontSetup())
+        def setup (EVGFontSetup.new_())
         setup.init("./gallery/book/" "")
         def manager:FontManager (setup.getManager())
         def measurer (new TTFTextMeasurer(manager))

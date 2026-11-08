@@ -29,7 +29,7 @@ class BookAlbumMeasure {
     ; the ones that were not keep 0 by 0, which preflight reports as unknown
     ; rather than passing.
     sfn measure:int (album:AppleAlbum root:string) {
-        def parser (new JPEGMetadataParser())
+        def parser (JPEGMetadataParser.new_())
         def dir:string root
         if ((strlen dir) == 0) {
             dir = "."

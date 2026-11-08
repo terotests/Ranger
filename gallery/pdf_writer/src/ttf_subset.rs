@@ -97,6 +97,8 @@ impl TTFSubset {
         if !f.borrow().isLoaded() {
             return empty;
         }
+        // The font's bytes, read once: every table below is copied out of them.
+        let font_data: Vec<u8> = f.borrow().fontData.clone();
         let mut glyf_tab: Rc<RefCell<TTFTableRecord>> = f.borrow().findTable("glyf");
         let mut loca_tab: Rc<RefCell<TTFTableRecord>> = f.borrow().findTable("loca");
         let mut head_tab: Rc<RefCell<TTFTableRecord>> = f.borrow().findTable("head");
@@ -165,10 +167,9 @@ impl TTFSubset {
                 let start: i64 = self.glyphStart(g);
                 let end: i64 = self.glyphEnd(g);
                 if end > start {
-                    let mut _tmp_88 = self.font.as_ref().unwrap().borrow().fontData.clone();
                     GrowableBuffer::writeBytes(
                         &new_glyf,
-                        &_tmp_88,
+                        &font_data,
                         self.glyfOffset + start,
                         end - start
                     );
@@ -194,9 +195,8 @@ impl TTFSubset {
         }
         // ---- head, with the loca format corrected ------------------------
         let mut new_head: Rc<RefCell<GrowableBuffer>> = Rc::new(RefCell::new(GrowableBuffer::new()));
-        let mut _tmp_89 = self.font.as_ref().unwrap().borrow().fontData.clone();
         let mut _tmp_90 = head_tab.borrow().offset.clone();
-        GrowableBuffer::writeBytes(&new_head, &_tmp_89, _tmp_90, head_tab.borrow().length.clone());
+        GrowableBuffer::writeBytes(&new_head, &font_data, _tmp_90, head_tab.borrow().length.clone());
         let mut head_buf: Vec<u8> = GrowableBuffer::toBuffer(&new_head);
         // checkSumAdjustment (offset 8) is zeroed: it is a checksum over the
         // whole assembled file, and no reader that matters verifies it.
@@ -238,17 +238,15 @@ impl TTFSubset {
             m += 1;
         }
         let mut new_hhea: Rc<RefCell<GrowableBuffer>> = Rc::new(RefCell::new(GrowableBuffer::new()));
-        let mut _tmp_93 = self.font.as_ref().unwrap().borrow().fontData.clone();
         let mut _tmp_94 = hhea_tab.borrow().offset.clone();
-        GrowableBuffer::writeBytes(&new_hhea, &_tmp_93, _tmp_94, hhea_tab.borrow().length.clone());
+        GrowableBuffer::writeBytes(&new_hhea, &font_data, _tmp_94, hhea_tab.borrow().length.clone());
         let mut hhea_buf: Vec<u8> = GrowableBuffer::toBuffer(&new_hhea);
         // numberOfHMetrics (offset 34) now equals the glyph count.
         hhea_buf[34] = ((new_num_glyphs as f64 / 256.0).floor() as i64) as u8;
         hhea_buf[35] = (new_num_glyphs % 256) as u8;
         let mut new_maxp: Rc<RefCell<GrowableBuffer>> = Rc::new(RefCell::new(GrowableBuffer::new()));
-        let mut _tmp_96 = self.font.as_ref().unwrap().borrow().fontData.clone();
         let mut _tmp_97 = maxp_tab.borrow().offset.clone();
-        GrowableBuffer::writeBytes(&new_maxp, &_tmp_96, _tmp_97, maxp_tab.borrow().length.clone());
+        GrowableBuffer::writeBytes(&new_maxp, &font_data, _tmp_97, maxp_tab.borrow().length.clone());
         let mut maxp_buf: Vec<u8> = GrowableBuffer::toBuffer(&new_maxp);
         // numGlyphs (offset 4)
         maxp_buf[4] = ((new_num_glyphs as f64 / 256.0).floor() as i64) as u8;

@@ -59,7 +59,7 @@ Import "pkg:evg/EVGTextMeasurer.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
 
 class OfficeMeasure {
-    def fm:FontManager (new FontManager)
+    def fm:FontManager (FontManager.new_())
     def measurer:EVGTextMeasurer (new EVGTextMeasurer)
     ; Are there real faces behind `measurer`? DERIVED rather than stored: a
     ; caller can hold one of these across a font load — `OfficeTextMeasure`

@@ -1,3 +1,4 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; PDFWriter.rgr is Rust now (pdf_writer.rs); this name stays for its importers.
 Import "../lib.rs"
+Import "pkg:image/Buffer.rgr"

@@ -72,3 +72,5 @@ class TTFTextMeasurer {
         return (fontSize * 0.5)
     }
 }
+Import "pkg:evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGGrapheme.rgr"

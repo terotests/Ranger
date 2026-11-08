@@ -1,3 +1,4 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; EVGResourceLoader.rgr is Rust now (evg_resource_loader.rs); this name stays for its importers.
 Import "../lib.rs"
+Import "pkg:evg/EVGElement.rgr"

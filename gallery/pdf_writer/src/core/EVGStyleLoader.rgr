@@ -1,3 +1,5 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; EVGStyleLoader.rgr is Rust now (evg_style_loader.rs); this name stays for its importers.
 Import "../lib.rs"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"

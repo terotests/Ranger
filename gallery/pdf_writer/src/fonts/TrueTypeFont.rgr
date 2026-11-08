@@ -1,3 +1,6 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; TrueTypeFont.rgr is Rust now (true_type_font.rs); this name stays for its importers.
 Import "../lib.rs"
+Import "pkg:evg/EVGCodepoint.rgr"
+Import "pkg:image/Buffer.rgr"
+Import "pkg:evg/EVGGrapheme.rgr"

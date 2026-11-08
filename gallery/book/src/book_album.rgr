@@ -143,7 +143,7 @@ class BookAlbumCli {
 
         ; Real faces before layout, or the captions break where nothing else
         ; will break them.
-        def setup (new EVGFontSetup())
+        def setup (EVGFontSetup.new_())
         setup.init("./gallery/book/" "")
         def manager:FontManager (setup.getManager())
         def measurer (new TTFTextMeasurer(manager))
