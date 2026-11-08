@@ -14,7 +14,6 @@
 Import "../core/EVGPDFRenderer.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
 Import "pkg:image/Buffer.rgr"
-Import "../core/ImageUtils.rgr"
 
 ; JSX/TSX parsing and evaluation
 Import "../jsx/ComponentEngine.rgr"
@@ -29,7 +28,6 @@ Import "../fonts/FontManager.rgr"
 Import "pkg:image/JPEGDecoder.rgr"
 Import "../jpeg/JPEGEncoder.rgr"
 Import "pkg:image/ImageBuffer.rgr"
-Import "../jpeg/JPEGMetadata.rgr"
 
 ; Raster rendering
 Import "../raster/EVGRasterRenderer.rgr"

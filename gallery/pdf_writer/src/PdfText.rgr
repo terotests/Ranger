@@ -35,4 +35,7 @@ class PdfText {
     sfn read_file:buffer (dir:string name:string) {
         return (buffer_read_file dir name)
     }
+    sfn write_file:void (dir:string name:string data:buffer) {
+        buffer_write_file dir name data
+    }
 }

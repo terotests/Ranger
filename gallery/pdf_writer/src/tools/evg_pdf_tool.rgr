@@ -9,7 +9,6 @@
 
 Import "../core/EVGDocSource.rgr"
 Import "../core/EVGPDFRenderer.rgr"
-Import "../core/EVGStyleLoader.rgr"
 Import "../lib.rs"
 Import "../fonts/FontManager.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
@@ -47,7 +46,7 @@ class EVGPDFTool {
     def strictPrint:boolean false
     
     Constructor () {
-        def sl (new EVGStyleLoader())
+        def sl (EVGStyleLoader.new_())
         styles = sl
     }
 

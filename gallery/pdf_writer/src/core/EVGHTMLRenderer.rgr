@@ -19,7 +19,6 @@ Import "pkg:evg/EVGColor.rgr"
 Import "pkg:evg/SVGPathParser.rgr"
 Import "pkg:evg/VectorViewBox.rgr"
 Import "pkg:evg/SvgParser.rgr"
-Import "EVGResourceLoader.rgr"
 
 ; Geometry a child needs from its laid-out parent while rendering.
 ;
@@ -131,7 +130,7 @@ class EVGHTMLRenderer {
         layout = lay
         def m (new SimpleTextMeasurer())
         measurer = m
-        def rl (new EVGResourceLoader())
+        def rl (EVGResourceLoader.new_())
         resourceLoader = rl
         def uf:[string]
         usedFontFamilies = uf

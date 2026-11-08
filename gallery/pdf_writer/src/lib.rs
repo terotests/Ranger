@@ -7,7 +7,13 @@
 //! and substring in the target's own units).
 
 mod evg_font_setup;
+mod evg_resource_loader;
+mod evg_style_loader;
 mod font_manager;
+mod image_utils;
+mod jpeg_metadata;
+mod jpeg_reader;
+mod pdf_writer;
 mod rgr;
 mod true_type_font;
 mod ttf_subset;

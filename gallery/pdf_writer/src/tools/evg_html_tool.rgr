@@ -12,7 +12,6 @@
 
 Import "../core/EVGDocSource.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
-Import "../core/EVGStyleLoader.rgr"
 Import "../lib.rs"
 Import "../fonts/FontManager.rgr"
 Import "pkg:evg/EVGElement.rgr"
@@ -41,7 +40,7 @@ class EVGHTMLTool {
     def title:string "EVG Preview"
     
     Constructor () {
-        def sl (new EVGStyleLoader())
+        def sl (EVGStyleLoader.new_())
         styles = sl
     }
 

@@ -5,7 +5,6 @@ Import "pkg:evg/EVGCodepoint.rgr"
 ; 
 ; Takes EVG element tree with calculated positions and renders to PDF using PDFWriter.
 
-Import "PDFWriter.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
 Import "pkg:evg/EVGLayout.rgr"
@@ -22,8 +21,6 @@ Import "pkg:image/Buffer.rgr"
 Import "../lib.rs"
 Import "PdfFlate.rgr"
 Import "pkg:evg/EVGGrapheme.rgr"
-Import "../jpeg/JPEGReader.rgr"
-Import "../jpeg/JPEGMetadata.rgr"
 Import "pkg:image/JPEGDecoder.rgr"
 Import "../jpeg/JPEGEncoder.rgr"
 Import "pkg:image/ImageBuffer.rgr"
@@ -203,10 +200,10 @@ class EVGPDFRenderer {
     ; first would hand a reader a fragment when the emoji is copied out.
     def cidUsedText:[string]
     def embeddedImages:[EmbeddedImage]
-    def jpegReader:JPEGReader (new JPEGReader())
+    def jpegReader:JPEGReader (JPEGReader.new_())
     def jpegDecoder:JPEGDecoder (new JPEGDecoder())
     def jpegEncoder:JPEGEncoder (new JPEGEncoder())
-    def metadataParser:JPEGMetadataParser (new JPEGMetadataParser())
+    def metadataParser:JPEGMetadataParser (JPEGMetadataParser.new_())
     ; --- pictures handed over rather than found ---------------------------------
     ;
     ; Everything below resolves a picture's `src` as a PATH: it is split into a
@@ -287,7 +284,7 @@ class EVGPDFRenderer {
     def foundPages:[EVGElement]
     
     Constructor () {
-        def w (new PDFWriter())
+        def w (PDFWriter.new_())
         writer = w
         def lay (new EVGLayout())
         layout = lay
@@ -468,7 +465,7 @@ class EVGPDFRenderer {
         }
         
         ; Read JPEG dimensions using JPEGReader
-        def reader:JPEGReader (new JPEGReader())
+        def reader:JPEGReader (JPEGReader.new_())
         def jpegImage:JPEGImage (reader.readJPEG(imgDir imgFile))
         
         ; If file not found, try with ./assets/ prefix (same fallback as ResourceLoader)

@@ -97,10 +97,10 @@ class EVGPDFRenderer {
     def embeddedFonts:[EmbeddedFont]
     def usedFontNames:[string]
     def embeddedImages:[EmbeddedImage]
-    def jpegReader:JPEGReader (new JPEGReader())
+    def jpegReader:JPEGReader (JPEGReader.new_())
     def jpegDecoder:JPEGDecoder (new JPEGDecoder())
     def jpegEncoder:JPEGEncoder (new JPEGEncoder())
-    def metadataParser:JPEGMetadataParser (new JPEGMetadataParser())
+    def metadataParser:JPEGMetadataParser (JPEGMetadataParser.new_())
     def baseDir:string "./"
     def assetPaths:[string]  ; Multiple asset directories for image resolution
     def maxImageWidth:int 800
@@ -110,7 +110,7 @@ class EVGPDFRenderer {
     def imageDimensionsCacheKeys:[string]
     
     Constructor () {
-        def w (new PDFWriter())
+        def w (PDFWriter.new_())
         writer = w
         def lay (new EVGLayout())
         layout = lay
@@ -254,7 +254,7 @@ class EVGPDFRenderer {
         }
         
         ; Read JPEG dimensions using JPEGReader
-        def reader:JPEGReader (new JPEGReader())
+        def reader:JPEGReader (JPEGReader.new_())
         def jpegImage:JPEGImage (reader.readJPEG(imgDir imgFile))
         
         if jpegImage.isValid {
