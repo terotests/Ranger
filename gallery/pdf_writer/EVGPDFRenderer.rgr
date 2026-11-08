@@ -132,7 +132,7 @@ class EVGPDFRenderer {
         assetPaths = ap
         ; Create separate image measurer that delegates to this renderer
         ; This avoids passing 'this' to setImageMeasurer (Rust compatibility)
-        def imgMeasurer (new PDFImageMeasurer())
+        def imgMeasurer (PDFImageMeasurer.new_())
         imageMeasurer = imgMeasurer
         imgMeasurer.setRenderer(this)
         layout.setImageMeasurer(imgMeasurer)
@@ -1219,7 +1219,7 @@ class EVGPDFRenderer {
             i = i + 1
         }
         ; Not found, add it
-        def newImg (new EmbeddedImage(src))
+        def newImg (EmbeddedImage.new_(src))
         push embeddedImages newImg
         return ("/Im" + (to_string (array_length embeddedImages)))
     }

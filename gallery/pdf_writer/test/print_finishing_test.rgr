@@ -18,7 +18,7 @@
 ; drifts, and it is the most common way a file that looked fine prints badly.
 ; ==============================================================================
 
-Import "../src/core/EVGPDFRenderer.rgr"
+Import "../src/lib.rs"
 
 class PrintCheck {
     def passed:int 0
@@ -91,7 +91,7 @@ class PrintFinishingTest {
 
     sfn testOperators:void (c:PrintCheck) {
         print "-- the operators that reach the page --"
-        def r (new EVGPDFRenderer())
+        def r (EVGPDFRenderer.new_())
         c.ok("an ordinary file is RGB" ((r.isCmyk()) == false))
         def rgbFill:string (r.fillOp(1.0 0.0 0.0))
         c.ok("and writes rg" (PrintFinishingTest.hasSub(rgbFill "rg")))
@@ -106,7 +106,7 @@ class PrintFinishingTest {
 
     sfn testIdentification:void (c:PrintCheck) {
         print "-- the claim, and what it obliges --"
-        def r (new EVGPDFRenderer())
+        def r (EVGPDFRenderer.new_())
         c.ok("nothing is claimed by default" ((r.wantsFinishing()) == false))
         c.ok("and the header is unchanged" ((r.headerLine()) == "%PDF-1.5\n"))
         def plainCatalog:string (r.catalogBody(3 0 0))
@@ -178,7 +178,7 @@ class PrintFinishingTest {
 
     sfn testHonesty:void (c:PrintCheck) {
         print "-- what it will not claim --"
-        def r (new EVGPDFRenderer())
+        def r (EVGPDFRenderer.new_())
         r.setPdfxProfile("X-4")
         r.setColorMode("cmyk")
         c.ok("no pictures, no problem" ((r.conformanceIssues()) == 0))

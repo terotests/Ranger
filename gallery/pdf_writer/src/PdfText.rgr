@@ -1,4 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/SvgParser.rgr"
 ; ==============================================================================
 ; PdfText - text in the target's own units, for the Rust-syntax modules.
 ; ==============================================================================
@@ -8,6 +11,27 @@
 ; that from strlen, charAt and substring; these are the same operators for
 ; the .rs code (Ranger's Rust frontend has no spelling for them, and
 ; `s.as_bytes()[i]` copies the string on JavaScript and Go at every call).
+
+; EVG object fields read into a plain value. The fields have no initial
+; value, so to Ranger they are optional, and the Rust syntax has no unwrap
+; that keeps their type.
+class PdfOpt {
+    sfn background:EVGColor (el:EVGElement) {
+        return (unwrap el.backgroundColor)
+    }
+    sfn fill:EVGColor (el:EVGElement) {
+        return (unwrap el.fillColor)
+    }
+    sfn shadow:EVGColor (el:EVGElement) {
+        return (unwrap el.shadowColor)
+    }
+    sfn itemFill:EVGColor (it:SvgVectorItem) {
+        return (unwrap it.fillColor)
+    }
+    sfn itemStroke:EVGColor (it:SvgVectorItem) {
+        return (unwrap it.strokeColor)
+    }
+}
 
 class PdfText {
     sfn str_len:int (s:string) {

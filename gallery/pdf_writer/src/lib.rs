@@ -7,6 +7,7 @@
 //! and substring in the target's own units).
 
 mod evg_font_setup;
+mod evg_pdf_renderer;
 mod evg_resource_loader;
 mod evg_style_loader;
 mod font_manager;

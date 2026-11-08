@@ -41,7 +41,6 @@
 
 Import "../jsx/ComponentEngine.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
-Import "../core/EVGPDFRenderer.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
@@ -378,7 +377,7 @@ class EVGPreviewServer@(HttpServer) {
         print "PDF page size from engine: " + (to_string useWidth) + "x" + (to_string useHeight)
         
         ; Create PDF renderer
-        def pdfRenderer (new EVGPDFRenderer())
+        def pdfRenderer (EVGPDFRenderer.new_())
         pdfRenderer.setPageSize(useWidth useHeight)
         pdfRenderer.setBaseDir(inputDir)
         pdfRenderer.init(pdfRenderer)
