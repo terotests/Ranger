@@ -91829,6 +91829,11 @@ class RustLower  {
     }
     return false;
   };
+  traitLacks (traitName, name) {
+    const tr = ( Object.prototype.hasOwnProperty.call(this.traits, traitName) ? this.traits[traitName] : undefined );
+    const tm = tr.method(name);
+    return typeof(tm) === "undefined";
+  };
   dynUnion (traitName) {
     const name = "Dyn" + traitName;
     if ( false == ( typeof(this.dynNames[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.dynNames, name) ) ) {
@@ -96261,6 +96266,9 @@ class RustLower  {
     const rv = this.lowerExpr(recvN, RsType.mk("unknown"));
     const t = rv.ty;
     if ( t.kind == "named" && ( typeof(this.traits[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.traits, t.name) ) ) {
+      if ( (((((name == "borrow" || name == "borrow_mut") || name == "clone") || name == "as_ref") || name == "as_mut") && args.length == 0) && this.traitLacks(t.name, name) ) {
+        return rv;
+      }
       const tr = ( Object.prototype.hasOwnProperty.call(this.traits, t.name) ? this.traits[t.name] : undefined );
       const tm = tr.method(name);
       if ( typeof(tm) === "undefined" ) {
@@ -96281,6 +96289,18 @@ class RustLower  {
     if ( t.kind == "named" ) {
       if ( ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
         const s3 = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+        if ( t.shared && args.length == 0 ) {
+          if ( name == "clone" ) {
+            return rv;
+          }
+          if ( (name == "borrow" || name == "borrow_mut") && (typeof(s3.method(name)) === "undefined") ) {
+            const bt = t.copy();
+            bt.shared = false;
+            const be = RsExpr.of(rv.code, bt);
+            be.simple = rv.simple;
+            return be;
+          }
+        }
         const m = s3.method(name);
         if ( (typeof(m) !== "undefined" && m != null )  ) {
           return this.userMethodCall(rv, m, args, n);
