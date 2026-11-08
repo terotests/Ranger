@@ -11,7 +11,7 @@ Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGUnit.rgr"
 Import "pkg:evg/EVGColor.rgr"
 Import "pkg:evg/EVGGradient.rgr"
-Import "../core/Utf8.rgr"
+Import "../lib.rs"
 
 class JSXToEVG {
     def parser:TSParserSimple

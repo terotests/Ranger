@@ -12,6 +12,7 @@ Import "../../../ts_parser/ts_parser_simple.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "../core/EVGPDFRenderer.rgr"
 Import "../jsx/ComponentEngine.rgr"
+Import "../lib.rs"
 Import "../fonts/FontManager.rgr"
 
 class EVGComponentTool {
@@ -21,7 +22,7 @@ class EVGComponentTool {
     def outputPath:string ""
     def fontsDir:string "./Fonts"
     def assetPaths:string ""  ; Semicolon-separated asset paths
-    def fontManager:FontManager (new FontManager()) (new FontManager())
+    def fontManager:FontManager (FontManager.new_()) (FontManager.new_())
     
     Constructor () {}
     

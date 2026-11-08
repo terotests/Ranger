@@ -13,10 +13,10 @@
 ;   lib/evg/gl/evg-webgl.js       WebGL 2, in a browser
 ;   lib/evg/gl/evg_gl_host.rgr    SDL2 + OpenGL, via the C++ target
 
-Import "../core/Utf8.rgr"
+Import "../lib.rs"
+Import "../fonts/FontManager.rgr"
 Import "../core/EVGDocSource.rgr"
 Import "../core/EVGStyleLoader.rgr"
-Import "../fonts/EVGFontSetup.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
@@ -105,7 +105,7 @@ class EVGDisplayListTool {
             inputName = (substring inputFile (lastSlash + 1) (strlen inputFile))
         }
 
-        def fontSetup (new EVGFontSetup())
+        def fontSetup (EVGFontSetup.new_())
         fontSetup.init(inputDir fontsOverride)
 
         def root:EVGElement (EVGDocSource.load(inputDir inputName pageWidth pageHeight))

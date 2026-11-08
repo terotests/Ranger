@@ -1,0 +1,38 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; ==============================================================================
+; PdfText - text in the target's own units, for the Rust-syntax modules.
+; ==============================================================================
+;
+; The PDF writer counts string offsets the way each target's strings do:
+; UTF-16 units in JavaScript, bytes in Go, C++ and Rust. The .rgr code got
+; that from strlen, charAt and substring; these are the same operators for
+; the .rs code (Ranger's Rust frontend has no spelling for them, and
+; `s.as_bytes()[i]` copies the string on JavaScript and Go at every call).
+
+class PdfText {
+    sfn str_len:int (s:string) {
+        return (strlen s)
+    }
+    sfn char_at:int (s:string i:int) {
+        return (charAt s i)
+    }
+    sfn substr:string (s:string a:int b:int) {
+        return (substring s a b)
+    }
+    sfn index_of:int (text:string key:string) {
+        return (indexOf text key)
+    }
+    sfn index_of_from:int (text:string key:string from:int) {
+        return (indexOfFrom text key from)
+    }
+    sfn last_index_of:int (text:string key:string) {
+        return (lastIndexOf text key)
+    }
+    ; file reads: the Rust frontend has no buffer_read_file
+    sfn file_exists:boolean (dir:string name:string) {
+        return (file_exists dir name)
+    }
+    sfn read_file:buffer (dir:string name:string) {
+        return (buffer_read_file dir name)
+    }
+}

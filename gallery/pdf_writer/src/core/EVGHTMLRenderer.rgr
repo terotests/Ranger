@@ -1,6 +1,6 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
-Import "../fonts/FontManager.rgr"
+Import "../lib.rs"
 Import "pkg:evg/EVGCodepoint.rgr"
 ; EVGHTMLRenderer.rgr - Render EVG elements to HTML/CSS
 ; 

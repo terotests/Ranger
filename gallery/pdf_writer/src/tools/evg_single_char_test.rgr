@@ -5,8 +5,7 @@
 Import "../raster/EVGRasterRenderer.rgr"
 Import "../raster/RasterText.rgr"
 Import "pkg:image/PNGEncoder.rgr"
-Import "../fonts/TrueTypeFont.rgr"
-Import "../fonts/FontManager.rgr"
+Import "../lib.rs"
 
 class SingleCharTest {
     
@@ -21,7 +20,7 @@ class SingleCharTest {
         print ""
         
         ; Load font
-        def fontManager:FontManager (new FontManager())
+        def fontManager:FontManager (FontManager.new_())
         fontManager.setFontsDirectories("./gallery/pdf_writer/assets/fonts")
         def fontLoaded:boolean (fontManager.loadFont("Open_Sans/OpenSans-Regular.ttf"))
         

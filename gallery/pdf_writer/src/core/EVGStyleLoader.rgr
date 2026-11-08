@@ -12,7 +12,7 @@
 
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGStyleSheet.rgr"
-Import "Utf8.rgr"
+Import "../lib.rs"
 
 class EVGStyleLoader {
     def sheet:EVGStyleSheet

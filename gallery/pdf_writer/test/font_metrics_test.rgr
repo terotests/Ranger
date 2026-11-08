@@ -14,9 +14,8 @@
 ;   bash gallery/pdf_writer/test/run_fonts.sh
 ; ==============================================================================
 
+Import "../src/lib.rs"
 Import "../src/fonts/FontManager.rgr"
-Import "../src/fonts/EVGFontSetup.rgr"
-Import "../src/fonts/TTFSubset.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
 Import "pkg:evg/EVGTextMeasurer.rgr"
 Import "pkg:evg/EVGElement.rgr"
@@ -29,7 +28,7 @@ class FontMetricsTest {
         def test (new FontMetricsTest())
         def t:RgTest (RgTest.forSuite("pdf_writer/font_metrics"))
 
-        def setup (new EVGFontSetup())
+        def setup (EVGFontSetup.new_())
         setup.init("./gallery/pdf_writer/" "")
         def fm:FontManager (setup.getManager())
 
