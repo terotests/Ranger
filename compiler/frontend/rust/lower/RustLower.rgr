@@ -2428,6 +2428,12 @@ class RustLower {
 
   ; `dyn Trait` / `impl Trait` is a union of the structs implementing it,
   ; with a dispatcher per method.
+  fn traitLacks:boolean (traitName:string name:string) {
+    def tr:RsTrait (unwrap (get traits traitName))
+    def tm@(optional):RsFn (tr.method(name))
+    return (null? tm)
+  }
+
   fn dynUnion:string (traitName:string) {
     def name:string ("Dyn" + traitName)
     if (false == (has dynNames name)) {
@@ -7101,6 +7107,11 @@ class RustLower {
     def rv:RsExpr (this.lowerExpr(recvN (RsType.mk("unknown"))))
     def t:RsType rv.ty
     if ((t.kind == "named") && (has traits t.name)) {
+      ; `Rc<RefCell<dyn T>>`: the union value is the shared object, so its
+      ; borrow and its handle's clone are the value itself
+      if (((name == "borrow") || (name == "borrow_mut") || (name == "clone") || (name == "as_ref") || (name == "as_mut")) && ((array_length args) == 0) && (this.traitLacks(t.name name))) {
+        return rv
+      }
       def tr:RsTrait (unwrap (get traits t.name))
       def tm@(optional):RsFn (tr.method(name))
       if (null? tm) {
@@ -7120,6 +7131,20 @@ class RustLower {
     if (t.kind == "named") {
       if (has structs t.name) {
         def s3:RsStruct (unwrap (get structs t.name))
+        ; on an `Rc<RefCell<T>>`, rustc finds Rc's `clone` (the same object)
+        ; before T's own, and `.borrow()` is the T whose methods then apply
+        if (t.shared && ((array_length args) == 0)) {
+          if (name == "clone") {
+            return rv
+          }
+          if (((name == "borrow") || (name == "borrow_mut")) && (null? (s3.method(name)))) {
+            def bt:RsType (t.copy())
+            bt.shared = false
+            def be:RsExpr (RsExpr.of(rv.code bt))
+            be.simple = rv.simple
+            return be
+          }
+        }
         def m@(optional):RsFn (s3.method(name))
         if (!null? m) {
           return (this.userMethodCall(rv (unwrap m) args n))
