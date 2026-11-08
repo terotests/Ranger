@@ -12,6 +12,12 @@ full language manual.
    guides, and the **generated operator reference**
 3. Repo-root [`AGENTS.md`](../AGENTS.md) — git/PR rules and syntax gotchas
 
+## Deferred structural work
+
+| File | Role |
+| --- | --- |
+| [`PLAN_REPO_REORG.md`](../PLAN_REPO_REORG.md) | **Deferred** plan: make compiler / language / packages / runtime responsibilities visible. No file moves until active feature work quietens. |
+
 ## What remains here
 
 | File | Role |
