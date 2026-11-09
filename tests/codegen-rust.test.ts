@@ -43,6 +43,20 @@ describe("Rust Code Generation", () => {
     });
   });
 
+  describe("A weak back reference in a subclass's cell field", () => {
+    const result = getGeneratedRustCode(`${FIXTURES_DIR}/rust_weak_cell.rgr`);
+
+    it("declares the cell with the Weak form", () => {
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("owner: RefCell<Option<Weak<RefCell<Owner>>>>");
+    });
+
+    it("stores a downgraded handle, so the owner is not kept alive by it", () => {
+      expect(result.code).toContain("replace(Some(Rc::downgrade(&");
+      expect(result.code).not.toContain("owner: RefCell<Option<Rc<RefCell<Owner>>>>");
+    });
+  });
+
   describe("String formatting and index shape", () => {
     const result = getGeneratedRustCode(`${FIXTURES_DIR}/rust_format.rgr`);
 

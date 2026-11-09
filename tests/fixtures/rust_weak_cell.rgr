@@ -1,0 +1,47 @@
+; A back reference kept in a subclass's cell field: the measurer a renderer
+; hands its layout points back at the renderer (pdf_writer's
+; PDFImageMeasurer). The field is @(optional weak), so it must be stored
+; as a Weak: the strong form made renderer <-> measurer a cycle that is
+; never freed.
+
+class Sizer {
+    fn size:int (name:string) {
+        return 0
+    }
+}
+
+class OwnerSizer {
+    Extends(Sizer)
+    def owner@(optional weak):Owner
+
+    fn setOwner:void (o:Owner) {
+        owner = o
+    }
+
+    fn size:int (name:string) {
+        if (!null? owner) {
+            return ((unwrap owner).sizeOf(name))
+        }
+        return 0
+    }
+}
+
+class Owner {
+    def sizer:OwnerSizer (new OwnerSizer())
+
+    fn init:void (self:Owner) {
+        sizer.setOwner(self)
+    }
+
+    fn sizeOf:int (name:string) {
+        return (strlen name)
+    }
+}
+
+class WeakCellMain {
+    sfn main@(main):void () {
+        def o:Owner (new Owner())
+        o.init(o)
+        print (to_string (o.sizer.size("four")))
+    }
+}

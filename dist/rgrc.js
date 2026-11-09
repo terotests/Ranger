@@ -42267,8 +42267,21 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           cellOpt = false;
         }
         if ( cellOpt ) {
+          let cellWeak = false;
+          if ( (typeof(cellLP.nameNode) !== "undefined" && cellLP.nameNode != null )  ) {
+            const cellWN = cellLP.nameNode;
+            cellWeak = cellWN.hasFlag("weak");
+          }
           if ( right.hasFlag("optional") == false && this.rustExprIsOptional(right, ctx) == false ) {
-            cellVal = ("Some(" + cellTmp) + ")";
+            if ( cellWeak ) {
+              cellVal = ("Some(Rc::downgrade(&" + cellTmp) + "))";
+            } else {
+              cellVal = ("Some(" + cellTmp) + ")";
+            }
+          } else {
+            if ( cellWeak ) {
+              cellVal = cellTmp + ".as_ref().map(Rc::downgrade)";
+            }
           }
         }
         if ( cellCopy ) {
@@ -44216,7 +44229,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         return;
       }
       wr.out("RefCell<Option<", false);
-      wr.out(this.rustSharedTypeString(cellNameN.type_name, ctx), false);
+      if ( cellNameN.hasFlag("weak") ) {
+        wr.out(this.rustSharedWeakTypeString(cellNameN.type_name, ctx), false);
+      } else {
+        wr.out(this.rustSharedTypeString(cellNameN.type_name, ctx), false);
+      }
       wr.out(">>", false);
       return;
     }
