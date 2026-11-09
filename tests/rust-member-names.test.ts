@@ -122,3 +122,21 @@ describe("one .rgr file import_rgr!'d by two crates of the program", () => {
     expect(build(RGR_SHARED, "cpp", "rgrshared")).toBe("2\n3\n");
   });
 });
+
+// a crate that was .rgr (dep/Wide.rgr only imports dep/lib.rs now), used by
+// another crate through `import_rgr!`: its structs by their signatures, by
+// the camelCase names and the snake_case ones Ranger's Rust writer gives them
+const THROUGH = "tests/fixtures/rust_rs_through_rgr/Main.rgr";
+const THROUGH_OUT = "65:Open:[Open]\n";
+
+describe("a Rust crate brought in by an imported .rgr file", () => {
+  it("es6", () => {
+    expect(build(THROUGH, "es6", "through")).toBe(THROUGH_OUT);
+  });
+  it.skipIf(!HAS_GO)("go", () => {
+    expect(build(THROUGH, "go", "through")).toBe(THROUGH_OUT);
+  });
+  it.skipIf(!HAS_CPP)("cpp", () => {
+    expect(build(THROUGH, "cpp", "through")).toBe(THROUGH_OUT);
+  });
+});

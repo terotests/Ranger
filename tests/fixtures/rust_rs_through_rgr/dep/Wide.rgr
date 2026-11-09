@@ -1,0 +1,2 @@
+; Wide is Rust now (wide.rs); this name stays for its importers.
+Import "lib.rs"

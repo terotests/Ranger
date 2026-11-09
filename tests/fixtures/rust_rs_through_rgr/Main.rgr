@@ -1,0 +1,7 @@
+Import "app/lib.rs"
+
+class Main {
+    sfn main@(main):void () {
+        print (App.run())
+    }
+}
