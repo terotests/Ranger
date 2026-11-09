@@ -18,6 +18,10 @@ class RsRgrScan {
   ; the file's own `Import "x.rgr"` lines (not pkg:), where a parent class
   ; declared elsewhere is looked for
   def imports:[string]
+  ; its `Import "x.rs"` lines: a Rust crate whose structs the file brings in
+  ; (a library moved from .rgr to Rust keeps a .rgr of its old name that
+  ; imports the crate)
+  def rsImports:[string]
   ; the type parameters of the class being read: `class H @params(Op)`
   def curGenerics:[string]
 
@@ -42,6 +46,9 @@ class RsRgrScan {
             def imp:string (substring rest 0 q2)
             if (((indexOf imp "pkg:") != 0) && ((indexOf imp ".rgr") > 0)) {
               push imports imp
+            }
+            if (((indexOf imp "pkg:") != 0) && (endsWith imp ".rs")) {
+              push rsImports imp
             }
           }
         }

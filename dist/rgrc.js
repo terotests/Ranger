@@ -89439,6 +89439,7 @@ class RsRgrScan  {
     this.errors = [];     /* note: unused */
     this.classes = [];
     this.imports = [];
+    this.rsImports = [];
     this.curGenerics = [];
   }
   scan (src, file) {
@@ -89463,6 +89464,9 @@ class RsRgrScan  {
             const imp = rest.substring(0, q2 );
             if ( imp.indexOf("pkg:") != 0 && imp.indexOf(".rgr") > 0 ) {
               this.imports.push(imp);
+            }
+            if ( imp.indexOf("pkg:") != 0 && imp.endsWith(".rs") ) {
+              this.rsImports.push(imp);
             }
           }
         }
@@ -89874,6 +89878,13 @@ class RustLower  {
     this.declLate = false;
     this.pendingFiles = [];
     this.pendingScan = [];
+    this.pendingSig = [];
+    this.sigRoots = [];
+    this.sigFiles = [];
+    this.sigScanned = {};
+    this.sigTypes = {};
+    this.sigOrder = [];
+    this.sigMode = false;
     this.rgrScanned = {};
     this.rgrAdded = {};
     this.rgrClassNames = [];
@@ -90098,6 +90109,7 @@ class RustLower  {
         this.pendingNodes.push(it);
         this.pendingFiles.push(RustLower.joinPath(RustLower.dirOf(file), rgrName + ".rgr"));
         this.pendingScan.push(false);
+        this.pendingSig.push(false);
         continue;
       }
       if ( it.kind != "mod" ) {
@@ -90113,6 +90125,7 @@ class RustLower  {
         this.pendingNodes.push(it);
         this.pendingFiles.push("");
         this.pendingScan.push(false);
+        this.pendingSig.push(false);
       }
     }
   };
@@ -90251,8 +90264,9 @@ class RustLower  {
     const rf = this.pendingFiles[this.pendingPos];
     const at = this.pendingNodes[this.pendingPos];
     const scanOnly = this.pendingScan[this.pendingPos];
+    const sigOnly = this.pendingSig[this.pendingPos];
     this.pendingPos = this.pendingPos + 1;
-    if ( rf != "" ) {
+    if ( rf != "" && false == sigOnly ) {
       this.addRgr(path, src, at, scanOnly);
       return;
     }
@@ -90266,8 +90280,57 @@ class RustLower  {
     if ( this.errors.length > 0 ) {
       return;
     }
+    if ( sigOnly ) {
+      let sdir = RustLower.joinPath(d, m);
+      if ( rf != "" ) {
+        sdir = RustLower.dirOf(path);
+      }
+      this.registerSig(root, path, sdir);
+      return;
+    }
     const own = RustLower.joinPath(d, m);
     this.registerModule(root, key, path, own);
+  };
+  registerSig (root, file, dir) {
+    this.filterTargets(root, 0);
+    this.sigRoots.push(root);
+    this.sigFiles.push(file);
+    // Loop start
+    for ( const it of root.kids) {
+      if ( it.kind == "macro_item" && this.isImportRgr(it.name) ) {
+        const rgrName = this.macroString(it);
+        if ( rgrName == "" ) {
+          continue;
+        }
+        const rp = RustLower.joinPath(RustLower.dirOf(file), (rgrName + ".rgr"));
+        if ( ( typeof(this.rgrScanned[rp] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rgrScanned, rp) ) || ( typeof(this.rgrScanned[RustLower.normPath(rp)] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rgrScanned, RustLower.normPath(rp)) ) ) {
+          continue;
+        }
+        this.rgrScanned[rp] = true;
+        this.pendingKeys.push("");
+        this.pendingDirs.push(dir);
+        this.pendingNames.push(rgrName);
+        this.pendingNodes.push(it);
+        this.pendingFiles.push(rp);
+        this.pendingScan.push(true);
+        this.pendingSig.push(false);
+        continue;
+      }
+      if ( it.kind != "mod" ) {
+        continue;
+      }
+      if ( it.hasMod("inline") ) {
+        this.registerSig(it, file, RustLower.joinPath(dir, it.name));
+      } else {
+        this.pendingKeys.push("");
+        this.pendingDirs.push(dir);
+        this.pendingNames.push(it.name);
+        this.pendingNodes.push(it);
+        this.pendingFiles.push("");
+        this.pendingScan.push(true);
+        this.pendingSig.push(true);
+      }
+    }
   };
   addRgr (path, src, at, scanOnly) {
     const np = RustLower.normPath(path);
@@ -90323,7 +90386,23 @@ class RustLower  {
         this.pendingNodes.push(at);
         this.pendingFiles.push(ip);
         this.pendingScan.push(true);
+        this.pendingSig.push(false);
       }
+    }
+    // Loop start
+    for ( const rimp of sc.rsImports) {
+      const rp = RustLower.normPath(RustLower.joinPath(RustLower.dirOf(path), rimp));
+      if ( ( typeof(this.sigScanned[rp] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.sigScanned, rp) ) ) {
+        continue;
+      }
+      this.sigScanned[rp] = true;
+      this.pendingKeys.push("");
+      this.pendingDirs.push(RustLower.dirOf(rp));
+      this.pendingNames.push(rimp);
+      this.pendingNodes.push(at);
+      this.pendingFiles.push(rp);
+      this.pendingScan.push(true);
+      this.pendingSig.push(true);
     }
   };
   isRgrClass (name) {
@@ -90401,7 +90480,11 @@ class RustLower  {
     const at = this.pendingNodes[this.pendingPos];
     const m = this.pendingNames[this.pendingPos];
     const rf2 = this.pendingFiles[this.pendingPos];
+    const sig2 = this.pendingSig[this.pendingPos];
     this.pendingPos = this.pendingPos + 1;
+    if ( sig2 ) {
+      return;
+    }
     if ( rf2 != "" ) {
       if ( this.pendingScan[(this.pendingPos - 1)] ) {
         return;
@@ -90615,6 +90698,17 @@ class RustLower  {
       this.collectNames(this.modRoots[mi1]);
       mi1 = mi1 + 1;
     };
+    this.enterModule(0);
+    const saveFile = this.fileName;
+    this.sigMode = true;
+    let sj = 0;
+    while (sj < this.sigRoots.length) {
+      this.fileName = this.sigFiles[sj];
+      this.collectNames(this.sigRoots[sj]);
+      sj = sj + 1;
+    };
+    this.sigMode = false;
+    this.fileName = saveFile;
     let mi2 = 0;
     while (mi2 < this.modRoots.length) {
       this.enterModule(mi2);
@@ -90625,6 +90719,20 @@ class RustLower  {
       }
       mi2 = mi2 + 1;
     };
+    this.sigMode = true;
+    let sk = 0;
+    while (sk < this.sigRoots.length) {
+      this.fileName = this.sigFiles[sk];
+      const rs2 = this.sigRoots[sk];
+      // Loop start
+      for ( const its of rs2.kids) {
+        this.collectSigItem(its);
+      }
+      sk = sk + 1;
+    };
+    this.sigMode = false;
+    this.enterModule(0);
+    this.sigNames();
     let mi3 = this.modRoots.length - 1;
     while (mi3 >= 0) {
       this.enterModule(mi3);
@@ -90648,6 +90756,10 @@ class RustLower  {
     this.fileName = this.modFiles[i];
   };
   collectNames (root) {
+    if ( this.sigMode ) {
+      this.collectSigNames(root);
+      return;
+    }
     // Loop start
     for ( const it of root.kids) {
       if ( it.kind == "struct" ) {
@@ -90677,6 +90789,110 @@ class RustLower  {
       if ( it.kind == "type_alias" ) {
         this.aliases[it.name] = it.kid(3);
       }
+    }
+  };
+  collectSigNames (root) {
+    // Loop start
+    for ( const it of root.kids) {
+      if ( it.kind == "mod" && it.hasMod("inline") ) {
+        continue;
+      }
+      if ( it.kind != "struct" && it.kind != "enum" ) {
+        continue;
+      }
+      if ( ( typeof(this.structs[it.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, it.name) ) || ( typeof(this.enums[it.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, it.name) ) ) {
+        continue;
+      }
+      if ( it.kind == "struct" ) {
+        const s = new RsStruct();
+        s.name = it.name;
+        s.node = it;
+        s.derives = this.deriveList(it.attrs);
+        s.generics = this.genericNames(it.kid(0));
+        this.structs[it.name] = s;
+        this.sigOrder.push(it.name);
+      } else {
+        const e = new RsEnum();
+        e.name = it.name;
+        e.derives = this.deriveList(it.attrs);
+        e.generics = this.genericNames(it.kid(0));
+        e.node = it;
+        this.enums[it.name] = e;
+      }
+      this.sigTypes[it.name] = true;
+    }
+  };
+  collectSigItem (it) {
+    const k = it.kind;
+    if ( k == "struct" || k == "enum" ) {
+      if ( ( typeof(this.sigTypes[it.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.sigTypes, it.name) ) ) {
+        this.collectItem(it);
+      }
+      return;
+    }
+    if ( k == "impl" ) {
+      const owner = this.typeNameOf(it.kid(2));
+      if ( false == ( typeof(this.sigTypes[owner] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.sigTypes, owner) ) ) {
+        return;
+      }
+      if ( false == it.kid(1).isNone() ) {
+        return;
+      }
+      this.collectItem(it);
+    }
+  };
+  sigNames () {
+    // Loop start
+    for ( const sn of this.sigOrder) {
+      const st = ( Object.prototype.hasOwnProperty.call(this.structs, sn) ? this.structs[sn] : undefined );
+      // Loop start
+      for ( let smi = 0; smi < st.methods.length; smi++) {
+        var sm = st.methods[smi];
+        if ( (typeof(st.field(sm.name)) !== "undefined" && st.field(sm.name) != null )  ) {
+          sm.rname = sm.name + "_m";
+          if ( false == sm.hasSelf ) {
+            sm.statName = this.staticName(sm.name) + "_m";
+          }
+        }
+      }
+      const nf = st.fields.length;
+      let fi = 0;
+      while (fi < nf) {
+        const f = st.fields[fi];
+        fi = fi + 1;
+        const fsn = RsRgrScan.rustName(f.name);
+        if ( (fsn != f.name && (typeof(st.field(fsn)) === "undefined")) && (typeof(st.method(fsn)) === "undefined") ) {
+          const af = new RsField();
+          af.name = fsn;
+          af.rname = this.fieldName(f.name);
+          if ( f.rname != "" ) {
+            af.rname = f.rname;
+          }
+          af.ty = f.ty;
+          af.node = f.node;
+          st.fields.push(af);
+        }
+      };
+      const nm = st.methods.length;
+      let mi = 0;
+      while (mi < nm) {
+        const m = st.methods[mi];
+        mi = mi + 1;
+        const sn2 = RsRgrScan.rustName(m.name);
+        if ( (sn2 != m.name && (typeof(st.method(sn2)) === "undefined")) && (typeof(st.field(sn2)) === "undefined") ) {
+          const am = this.retarget(m, sn);
+          am.name = sn2;
+          am.bounds = m.bounds;
+          am.ownerGenerics = m.ownerGenerics;
+          am.modCls = m.modCls;
+          am.rgrCtor = m.rgrCtor;
+          am.statName = m.statName;
+          if ( am.statName == "" ) {
+            am.statName = this.staticName(m.name);
+          }
+          st.methods.push(am);
+        }
+      };
     }
   };
   collectRest () {

@@ -70,6 +70,16 @@ class RustLower {
   ; a pending .rgr read only for the classes a parent is looked up in: not
   ; imported, and not an error when it is missing or repeats a class
   def pendingScan:[boolean]
+  ; a pending Rust module read only for the signatures of its structs and
+  ; enums: a crate a scanned .rgr file imports (`Import "../lib.rs"`), which
+  ; the .rgr import writes; the `.rs` code calls its types by name
+  def pendingSig:[boolean]
+  def sigRoots:[RustNode]
+  def sigFiles:[string]
+  def sigScanned:[string:boolean]
+  def sigTypes:[string:boolean]
+  def sigOrder:[string]
+  def sigMode:boolean false
   def rgrScanned:[string:boolean]
   ; .rgr files already imported, by normalized path: two crates of one
   ; program can include the same file
@@ -437,6 +447,7 @@ class RustLower {
         push pendingNodes it
         push pendingFiles (RustLower.joinPath((RustLower.dirOf(file)) (rgrName + ".rgr")))
         push pendingScan false
+        push pendingSig false
         continue
       }
       if (it.kind != "mod") {
@@ -452,6 +463,7 @@ class RustLower {
         push pendingNodes it
         push pendingFiles ""
         push pendingScan false
+        push pendingSig false
       }
     }
   }
@@ -630,8 +642,9 @@ class RustLower {
     def rf:string (itemAt pendingFiles pendingPos)
     def at:RustNode (itemAt pendingNodes pendingPos)
     def scanOnly:boolean (itemAt pendingScan pendingPos)
+    def sigOnly:boolean (itemAt pendingSig pendingPos)
     pendingPos = pendingPos + 1
-    if (rf != "") {
+    if ((rf != "") && (false == sigOnly)) {
       this.addRgr(path src at scanOnly)
       return
     }
@@ -643,9 +656,61 @@ class RustLower {
     if ((array_length errors) > 0) {
       return
     }
+    if sigOnly {
+      ; a crate root keeps its modules beside it; `m.rs` puts them in `m/`
+      def sdir:string (RustLower.joinPath(d m))
+      if (rf != "") {
+        sdir = (RustLower.dirOf(path))
+      }
+      this.registerSig(root path sdir)
+      return
+    }
     ; `m/mod.rs` keeps its directory; `m.rs` puts its own modules in `m/`
     def own:string (RustLower.joinPath(d m))
     this.registerModule(root key path own)
+  }
+
+  ; A module of a crate read for its signatures: its `mod m;` files are
+  ; read the same way, its `import_rgr!` files for their classes only.
+  fn registerSig:void (root:RustNode file:string dir:string) {
+    this.filterTargets(root 0)
+    push sigRoots root
+    push sigFiles file
+    for root.kids it:RustNode i {
+      if ((it.kind == "macro_item") && (this.isImportRgr(it.name))) {
+        def rgrName:string (this.macroString(it))
+        if (rgrName == "") {
+          continue
+        }
+        def rp:string (RustLower.joinPath((RustLower.dirOf(file)) (rgrName + ".rgr")))
+        if ((has rgrScanned rp) || (has rgrScanned (RustLower.normPath(rp)))) {
+          continue
+        }
+        set rgrScanned rp true
+        push pendingKeys ""
+        push pendingDirs dir
+        push pendingNames rgrName
+        push pendingNodes it
+        push pendingFiles rp
+        push pendingScan true
+        push pendingSig false
+        continue
+      }
+      if (it.kind != "mod") {
+        continue
+      }
+      if (it.hasMod("inline")) {
+        this.registerSig(it file (RustLower.joinPath(dir it.name)))
+      } {
+        push pendingKeys ""
+        push pendingDirs dir
+        push pendingNames it.name
+        push pendingNodes it
+        push pendingFiles ""
+        push pendingScan true
+        push pendingSig true
+      }
+    }
   }
 
   ; The classes of an included `.rgr` file: known by name to the `.rs`
@@ -708,7 +773,23 @@ class RustLower {
         push pendingNodes at
         push pendingFiles ip
         push pendingScan true
+        push pendingSig false
       }
+    }
+    ; a crate the file imports: its structs by their signatures
+    for sc.rsImports rimp:string rii {
+      def rp:string (RustLower.normPath((RustLower.joinPath((RustLower.dirOf(path)) rimp))))
+      if (has sigScanned rp) {
+        continue
+      }
+      set sigScanned rp true
+      push pendingKeys ""
+      push pendingDirs (RustLower.dirOf(rp))
+      push pendingNames rimp
+      push pendingNodes at
+      push pendingFiles rp
+      push pendingScan true
+      push pendingSig true
     }
   }
 
@@ -788,7 +869,11 @@ class RustLower {
     def at:RustNode (itemAt pendingNodes pendingPos)
     def m:string (itemAt pendingNames pendingPos)
     def rf2:string (itemAt pendingFiles pendingPos)
+    def sig2:boolean (itemAt pendingSig pendingPos)
     pendingPos = pendingPos + 1
+    if sig2 {
+      return
+    }
     if (rf2 != "") {
       if (itemAt pendingScan (pendingPos - 1)) {
         return
@@ -1021,6 +1106,18 @@ class RustLower {
       this.collectNames((itemAt modRoots mi1))
       mi1 = mi1 + 1
     }
+    ; the structs and enums of crates that imported .rgr files bring in
+    this.enterModule(0)
+    def saveFile:string fileName
+    sigMode = true
+    def sj:int 0
+    while (sj < (array_length sigRoots)) {
+      fileName = (itemAt sigFiles sj)
+      this.collectNames((itemAt sigRoots sj))
+      sj = sj + 1
+    }
+    sigMode = false
+    fileName = saveFile
     ; pass 2: fields, variants, signatures
     def mi2:int 0
     while (mi2 < (array_length modRoots)) {
@@ -1031,6 +1128,19 @@ class RustLower {
       }
       mi2 = mi2 + 1
     }
+    sigMode = true
+    def sk:int 0
+    while (sk < (array_length sigRoots)) {
+      fileName = (itemAt sigFiles sk)
+      def rs2:RustNode (itemAt sigRoots sk)
+      for rs2.kids its:RustNode sjj {
+        this.collectSigItem(its)
+      }
+      sk = sk + 1
+    }
+    sigMode = false
+    this.enterModule(0)
+    this.sigNames()
     ; `use Expr::*;` / `use Shape::{Circle, Rect}`: variants named bare;
     ; `use geometry::area;`: a function of another module. Last module
     ; first, so a `pub use` of a dependency or a submodule is known when a
@@ -1058,6 +1168,10 @@ class RustLower {
   }
 
   fn collectNames:void (root:RustNode) {
+    if sigMode {
+      this.collectSigNames(root)
+      return
+    }
     for root.kids it:RustNode i {
       if (it.kind == "struct") {
         def s:RsStruct (new RsStruct())
@@ -1085,6 +1199,117 @@ class RustLower {
       }
       if (it.kind == "type_alias") {
         set aliases it.name (it.kid(3))
+      }
+    }
+  }
+
+  ; A signature crate's structs and enums, unless the program declares the
+  ; name itself; not written (the crate's own import writes them).
+  fn collectSigNames:void (root:RustNode) {
+    for root.kids it:RustNode i {
+      if ((it.kind == "mod") && (it.hasMod("inline"))) {
+        continue
+      }
+      if ((it.kind != "struct") && (it.kind != "enum")) {
+        continue
+      }
+      if ((has structs it.name) || (has enums it.name)) {
+        continue
+      }
+      if (it.kind == "struct") {
+        def s:RsStruct (new RsStruct())
+        s.name = it.name
+        s.node = it
+        s.derives = (this.deriveList(it.attrs))
+        s.generics = (this.genericNames((it.kid(0))))
+        set structs it.name s
+        push sigOrder it.name
+      } {
+        def e:RsEnum (new RsEnum())
+        e.name = it.name
+        e.derives = (this.deriveList(it.attrs))
+        e.generics = (this.genericNames((it.kid(0))))
+        e.node = it
+        set enums it.name e
+      }
+      set sigTypes it.name true
+    }
+  }
+
+  ; A signature crate's fields, variants and methods: of its own types only
+  fn collectSigItem:void (it:RustNode) {
+    def k:string it.kind
+    if ((k == "struct") || (k == "enum")) {
+      if (has sigTypes it.name) {
+        this.collectItem(it)
+      }
+      return
+    }
+    if (k == "impl") {
+      def owner:string (this.typeNameOf((it.kid(2))))
+      if (false == (has sigTypes owner)) {
+        return
+      }
+      if (false == ((it.kid(1)).isNone())) {
+        ; a trait's methods are called through the trait
+        return
+      }
+      this.collectItem(it)
+    }
+  }
+
+  ; Their methods also by the snake_case names Ranger's Rust writer gives
+  ; them, as a crate built with rustc calls them (`fromWinAnsi` ->
+  ; from_win_ansi); a method named like a field is renamed as the crate's
+  ; own lowering renames it.
+  fn sigNames:void () {
+    for sigOrder sn:string si {
+      def st:RsStruct (unwrap (get structs sn))
+      for st.methods sm:RsFn smi {
+        if (!null? (st.field(sm.name))) {
+          sm.rname = (sm.name + "_m")
+          if (false == sm.hasSelf) {
+            sm.statName = ((this.staticName(sm.name)) + "_m")
+          }
+        }
+      }
+      def nf:int (array_length st.fields)
+      def fi:int 0
+      while (fi < nf) {
+        def f:RsField (itemAt st.fields fi)
+        fi = fi + 1
+        def fsn:string (RsRgrScan.rustName(f.name))
+        if ((fsn != f.name) && (null? (st.field(fsn))) && (null? (st.method(fsn)))) {
+          def af:RsField (new RsField())
+          af.name = fsn
+          af.rname = (this.fieldName(f.name))
+          if (f.rname != "") {
+            af.rname = f.rname
+          }
+          af.ty = f.ty
+          af.node = f.node
+          push st.fields af
+        }
+      }
+      def nm:int (array_length st.methods)
+      def mi:int 0
+      while (mi < nm) {
+        def m:RsFn (itemAt st.methods mi)
+        mi = mi + 1
+        def sn2:string (RsRgrScan.rustName(m.name))
+        if ((sn2 != m.name) && (null? (st.method(sn2))) && (null? (st.field(sn2)))) {
+          def am:RsFn (this.retarget(m sn))
+          am.name = sn2
+          am.bounds = m.bounds
+          am.ownerGenerics = m.ownerGenerics
+          am.modCls = m.modCls
+          am.rgrCtor = m.rgrCtor
+          am.statName = m.statName
+          if (am.statName == "") {
+            am.statName = (this.staticName(m.name))
+          }
+          push st.methods am
+        }
       }
     }
   }
