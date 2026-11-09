@@ -41924,6 +41924,17 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           }
         }
         if ( bosHoist == false ) {
+          if ( this.rust_receiverless_method && bosOwn ) {
+            if ( bosReal.children.length == 0 ) {
+              if ( bosReal.expression == false && bosReal.value_type == 11 ) {
+                if ( this.rustNodeIsOwnPath(bosReal, ctx) ) {
+                  bosHoist = true;
+                }
+              }
+            }
+          }
+        }
+        if ( bosHoist == false ) {
           if ( bosReal.children.length > 0 ) {
             if ( bosHandle.length > 0 ) {
               if ( this.rustExprMentionsName(bosArg, bosHandle) ) {
@@ -43519,6 +43530,34 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               wr.out(";", true);
               right_1.rust_use_tmpvar = pushTmp;
             }
+          }
+        }
+      }
+      if ( ctx.expressionLevel() == 0 && right_1.rust_use_tmpvar.length == 0 ) {
+        const pushVal = this.rustUnwrapParens(right_1);
+        if ( pushVal.expression == false && pushVal.value_type == 11 ) {
+          let pushSame = false;
+          if ( this.rustNodeIsOwnPath(left_1, ctx) ) {
+            if ( this.rustNodeIsOwnPath(pushVal, ctx) ) {
+              pushSame = true;
+            }
+          }
+          if ( pushSame == false ) {
+            if ( left_1.ns.length >= 2 && pushVal.ns.length >= 2 ) {
+              const pushHandle = left_1.ns[0];
+              if ( pushHandle != "this" && pushHandle == pushVal.ns[0] ) {
+                pushSame = true;
+              }
+            }
+          }
+          if ( pushSame ) {
+            const pushValTmp = ctx.rustGetTempVar();
+            wr.out(("let " + pushValTmp) + " = ", false);
+            ctx.setInExpr();
+            this.WalkNode(pushVal, ctx, wr);
+            ctx.unsetInExpr();
+            wr.out(".clone();", true);
+            right_1.rust_use_tmpvar = pushValTmp;
           }
         }
       }
