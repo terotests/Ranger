@@ -83,6 +83,12 @@ describe.skipIf(!rustAvailable)("Ranger Compiler - Rust Target", () => {
     });
   });
 
+  describe("A push or set whose operand is read from the cell it writes", () => {
+    it("should read the value first and agree with the other targets", () => {
+      expectRustOutput("tests/fixtures/rust_push_own_field.rgr", ["2", "2", "2"]);
+    });
+  });
+
   describe("Names the Rust preamble could shadow", () => {
     // `use std::cell::Cell` was in the preamble of every generated program, so
     // a program declaring its own `Cell` collided with it and every later

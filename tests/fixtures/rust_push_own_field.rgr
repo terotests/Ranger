@@ -1,0 +1,45 @@
+; `push sections section` in a class whose objects are shared (Rc<RefCell>):
+; the target was written through borrow_mut() and the value read through
+; borrow() of the same cell in one statement, which compiled and panicked
+; at run time. RangerDocx's RichDocument constructor has this form.
+class Sec {
+    def n:int 0
+}
+class Doc {
+    def sections:[Sec]
+    def section:Sec (new Sec())
+    def counts:[int]
+    def total:int 3
+    def byId:[int:int]
+    Constructor () {
+        push sections section
+        push counts total
+    }
+    fn more:void () {
+        push sections section
+        push counts total
+        set byId total (array_length counts)
+    }
+}
+class Other {
+    def d:Doc (new Doc())
+    fn run:void () {
+        push d.sections d.section
+        push d.counts d.total
+    }
+}
+class Main {
+    sfn main@(main):void () {
+        def d:Doc (new Doc())
+        d.more()
+        def all:[Doc]
+        push all d
+        push all d
+        def o:Other (new Other())
+        push all o.d
+        o.run()
+        print (to_string (array_length d.sections))
+        print (to_string (array_length o.d.sections))
+        print (to_string (unwrap (get d.byId 3)))
+    }
+}

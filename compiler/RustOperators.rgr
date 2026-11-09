@@ -660,6 +660,21 @@ extension RangerRustClassWriter {
             }
           }
         }
+        ; …and a bare FIELD of the same object there: `set numToAbstract
+        ; maxNumId abs.id` read `__self_rc.borrow().max_num_id` inside the
+        ; insert that holds `__self_rc.borrow_mut()`. A field is never a
+        ; slice of the buffer being read, so it can be copied out first.
+        if (bosHoist == false) {
+          if (rust_receiverless_method && bosOwn) {
+            if ((array_length bosReal.children) == 0) {
+              if ((bosReal.expression == false) && (bosReal.value_type == RangerNodeType.VRef)) {
+                if (this.rustNodeIsOwnPath(bosReal ctx)) {
+                  bosHoist = true
+                }
+              }
+            }
+          }
+        }
         ; …and any COMPUTED operand that reads through the same name. Only a
         ; computed one: a bare name may be a slice of the very buffer the
         ; operator means to read in place, and hoisting that MOVES it.
@@ -2627,6 +2642,39 @@ extension RangerRustClassWriter {
               wr.out(";" true)
               right.rust_use_tmpvar = pushTmp
             }
+          }
+        }
+      }
+      ; `push sections section` in a shared class, `push d.items d.item`
+      ; through a handle: the target is written through the cell's
+      ; borrow_mut() and the value read through its borrow() in the same
+      ; statement, which compiles and panics at run time (RefCell already
+      ; mutably borrowed), so the value is read first, into a local
+      if (((ctx.expressionLevel()) == 0) && ((strlen right.rust_use_tmpvar) == 0)) {
+        def pushVal:CodeNode (this.rustUnwrapParens(right))
+        if ((pushVal.expression == false) && (pushVal.value_type == RangerNodeType.VRef)) {
+          def pushSame:boolean false
+          if (this.rustNodeIsOwnPath(left ctx)) {
+            if (this.rustNodeIsOwnPath(pushVal ctx)) {
+              pushSame = true
+            }
+          }
+          if (pushSame == false) {
+            if (((array_length left.ns) >= 2) && ((array_length pushVal.ns) >= 2)) {
+              def pushHandle:string (itemAt left.ns 0)
+              if ((pushHandle != "this") && (pushHandle == (itemAt pushVal.ns 0))) {
+                pushSame = true
+              }
+            }
+          }
+          if pushSame {
+            def pushValTmp:string (ctx.rustGetTempVar())
+            wr.out((("let " + pushValTmp) + " = ") false)
+            ctx.setInExpr()
+            this.WalkNode(pushVal ctx wr)
+            ctx.unsetInExpr()
+            wr.out(".clone();" true)
+            right.rust_use_tmpvar = pushValTmp
           }
         }
       }
