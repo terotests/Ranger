@@ -89,7 +89,7 @@ class EVGListToElementsTest {
 
     fn testBareFamilyIsRegular:void () {
         print "--- a bare family name is the regular face ---"
-        def fm (new FontManager())
+        def fm (FontManager.new_())
         def dir:string "gallery/pdf_writer/assets/fonts/Open_Sans"
         ; loaded italic first, the order a browser's parallel fetches can land in
         fm.loadFontBuffer("Open Sans-Italic" (buffer_read_file dir "OpenSans-Italic.ttf"))

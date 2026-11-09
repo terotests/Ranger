@@ -11,10 +11,8 @@
 ; =============================================================================
 
 ; Core rendering
-Import "../core/EVGPDFRenderer.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
 Import "pkg:image/Buffer.rgr"
-Import "../core/ImageUtils.rgr"
 
 ; JSX/TSX parsing and evaluation
 Import "../jsx/ComponentEngine.rgr"
@@ -22,14 +20,13 @@ Import "../jsx/JSXToEVG.rgr"
 Import "../jsx/EvalValue.rgr"
 
 ; Font handling
+Import "../lib.rs"
 Import "../fonts/FontManager.rgr"
-Import "../fonts/TrueTypeFont.rgr"
 
 ; Image handling
 Import "pkg:image/JPEGDecoder.rgr"
 Import "../jpeg/JPEGEncoder.rgr"
 Import "pkg:image/ImageBuffer.rgr"
-Import "../jpeg/JPEGMetadata.rgr"
 
 ; Raster rendering
 Import "../raster/EVGRasterRenderer.rgr"
@@ -49,7 +46,7 @@ Import "pkg:evg/EVGGradient.rgr"
 ; PDFBuilder - High-level API for creating PDFs
 ; =============================================================================
 class PDFBuilder {
-    def fontManager:FontManager (new FontManager())
+    def fontManager:FontManager (FontManager.new_())
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     def baseDir:string "./"
@@ -127,7 +124,7 @@ class PDFBuilder {
     
     ; Render EVG element tree to PDF buffer
     fn renderElement:buffer (root:EVGElement) {
-        def renderer (new EVGPDFRenderer())
+        def renderer (EVGPDFRenderer.new_())
         renderer.init(renderer)
         renderer.setPageSize(pageWidth pageHeight)
         renderer.setFontManager(fontManager)
@@ -153,7 +150,7 @@ class PDFBuilder {
 ; HTMLBuilder - High-level API for creating HTML
 ; =============================================================================
 class HTMLBuilder {
-    def fontManager:FontManager (new FontManager())
+    def fontManager:FontManager (FontManager.new_())
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     def baseDir:string "./"
@@ -204,7 +201,7 @@ class HTMLBuilder {
 ; RasterBuilder - High-level API for creating raster images (PNG/JPEG)
 ; =============================================================================
 class RasterBuilder {
-    def fontManager:FontManager (new FontManager())
+    def fontManager:FontManager (FontManager.new_())
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     def baseDir:string "./"
@@ -290,7 +287,7 @@ class RasterBuilder {
 ; =============================================================================
 class ComponentBuilder {
     def engine:ComponentEngine (new ComponentEngine())
-    def fontManager:FontManager (new FontManager())
+    def fontManager:FontManager (FontManager.new_())
     def pageWidth:double 595.0
     def pageHeight:double 842.0
     def baseDir:string "./"
@@ -375,7 +372,7 @@ class RangerPDFTool {
     }
     
     sfn createFontManager:FontManager () {
-        return (new FontManager())
+        return (FontManager.new_())
     }
     
     sfn createEVGElement:EVGElement () {

@@ -245,7 +245,7 @@ class BookPhotosCli {
         }
         def album:AppleAlbum (PhotoIndex.asAlbum(bookTitle found))
 
-        def setup (new EVGFontSetup())
+        def setup (EVGFontSetup.new_())
         setup.init("./gallery/book/" "")
         def manager:FontManager (setup.getManager())
         def measurer (new TTFTextMeasurer(manager))

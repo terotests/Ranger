@@ -1,0 +1,32 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; Stays .rgr: it extends EVGImageMeasurer, and a Rust struct cannot extend a
+; .rgr class. EVGPDFRenderer is Rust (evg_pdf_renderer.rs).
+Import "../lib.rs"
+Import "pkg:evg/EVGImageMeasurer.rgr"
+
+; PDFImageMeasurer - Composition pattern to avoid passing 'this' to trait parameters
+; This allows us to pass imageMeasurer (not 'this') to layout.setImageMeasurer
+; Uses @(optional weak) to break the reference cycle with EVGPDFRenderer
+class PDFImageMeasurer {
+    Extends(EVGImageMeasurer)
+    ; Use @(optional weak) - the renderer is set after construction
+    ; weak reference prevents circular ownership in Rust
+    def renderer@(optional weak):EVGPDFRenderer
+    
+    Constructor () {
+    }
+    
+    fn setRenderer:void (r:EVGPDFRenderer) {
+        renderer = r
+    }
+    
+    fn getImageDimensions:EVGImageDimensions (src:string) {
+        ; Delegate to renderer's loadImageDimensions method
+        if (!null? renderer) {
+            return ((unwrap renderer).loadImageDimensions(src))
+        }
+        ; Return empty dimensions if no renderer set
+        def dims (new EVGImageDimensions())
+        return dims
+    }
+}

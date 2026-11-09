@@ -6,8 +6,7 @@ Import "../raster/EVGRasterRenderer.rgr"
 Import "../raster/RasterText.rgr"
 Import "../raster/RasterBlur.rgr"
 Import "pkg:image/PNGEncoder.rgr"
-Import "../fonts/TrueTypeFont.rgr"
-Import "../fonts/FontManager.rgr"
+Import "../lib.rs"
 
 class RasterTextTest {
     
@@ -23,7 +22,7 @@ class RasterTextTest {
         
         ; Use FontManager to load fonts (same as PDF renderer)
         print "Loading fonts using FontManager..."
-        def fontManager:FontManager (new FontManager())
+        def fontManager:FontManager (FontManager.new_())
         
         ; Set font directories - use the same ones as the examples
         fontManager.setFontsDirectories("./gallery/pdf_writer/assets/fonts")

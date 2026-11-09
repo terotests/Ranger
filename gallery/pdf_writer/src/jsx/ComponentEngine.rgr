@@ -12,9 +12,8 @@ Import "../../../ts_parser/ts_parser_simple.rgr"
 Import "../../../ts_parser/ts_lexer.rgr"
 Import "../../../ts_parser/ts_ast_patch.rgr"
 Import "pkg:evg/EVGElement.rgr"
-Import "../core/Utf8.rgr"
+Import "../lib.rs"
 Import "EvalValue.rgr"
-Import "../jpeg/JPEGMetadata.rgr"
 
 ; =============================================================================
 ; ImportedSymbol - Represents an imported component or function
@@ -7121,7 +7120,7 @@ class ComponentEngine {
         print "Hook: parsing JPEG - dir: " + dirPath + " file: " + fileName
         
         ; Parse the JPEG metadata
-        def parser (new JPEGMetadataParser())
+        def parser (JPEGMetadataParser.new_())
         def metadata:JPEGMetadataInfo (parser.parseMetadata(dirPath fileName))
         
         ; If file not found or invalid, try with ./assets/ prefix (same as ResourceLoader)

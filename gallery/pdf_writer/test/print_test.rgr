@@ -8,8 +8,7 @@
 ;   bash gallery/pdf_writer/test/run_print.sh
 ; ==============================================================================
 
-Import "../src/core/Utf8.rgr"
-Import "../src/core/EVGPDFRenderer.rgr"
+Import "../src/lib.rs"
 Import "../../game_engine/v2/tests/harness/RgTest.rgr"
 
 class PrintTest {
@@ -118,7 +117,7 @@ class PrintTest {
 
     ; Bleed grows the sheet and declares where the finished page is cut.
     fn testPageBoxes:void (t:RgTest) {
-        def r (new EVGPDFRenderer())
+        def r (EVGPDFRenderer.new_())
 
         ; With no bleed the output is exactly the single MediaBox it always was.
         def plain:string (r.pageBoxes(595.0 842.0))

@@ -93,14 +93,14 @@ class EVGPDFRenderer {
     def contentObjNums:[int]
     def pageCount:int 1
     def debug:boolean false
-    def fontManager:FontManager (new FontManager())
+    def fontManager:FontManager (FontManager.new_())
     def embeddedFonts:[EmbeddedFont]
     def usedFontNames:[string]
     def embeddedImages:[EmbeddedImage]
-    def jpegReader:JPEGReader (new JPEGReader())
+    def jpegReader:JPEGReader (JPEGReader.new_())
     def jpegDecoder:JPEGDecoder (new JPEGDecoder())
     def jpegEncoder:JPEGEncoder (new JPEGEncoder())
-    def metadataParser:JPEGMetadataParser (new JPEGMetadataParser())
+    def metadataParser:JPEGMetadataParser (JPEGMetadataParser.new_())
     def baseDir:string "./"
     def assetPaths:[string]  ; Multiple asset directories for image resolution
     def maxImageWidth:int 800
@@ -110,7 +110,7 @@ class EVGPDFRenderer {
     def imageDimensionsCacheKeys:[string]
     
     Constructor () {
-        def w (new PDFWriter())
+        def w (PDFWriter.new_())
         writer = w
         def lay (new EVGLayout())
         layout = lay
@@ -132,7 +132,7 @@ class EVGPDFRenderer {
         assetPaths = ap
         ; Create separate image measurer that delegates to this renderer
         ; This avoids passing 'this' to setImageMeasurer (Rust compatibility)
-        def imgMeasurer (new PDFImageMeasurer())
+        def imgMeasurer (PDFImageMeasurer.new_())
         imageMeasurer = imgMeasurer
         imgMeasurer.setRenderer(this)
         layout.setImageMeasurer(imgMeasurer)
@@ -254,7 +254,7 @@ class EVGPDFRenderer {
         }
         
         ; Read JPEG dimensions using JPEGReader
-        def reader:JPEGReader (new JPEGReader())
+        def reader:JPEGReader (JPEGReader.new_())
         def jpegImage:JPEGImage (reader.readJPEG(imgDir imgFile))
         
         if jpegImage.isValid {
@@ -1219,7 +1219,7 @@ class EVGPDFRenderer {
             i = i + 1
         }
         ; Not found, add it
-        def newImg (new EmbeddedImage(src))
+        def newImg (EmbeddedImage.new_(src))
         push embeddedImages newImg
         return ("/Im" + (to_string (array_length embeddedImages)))
     }

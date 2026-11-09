@@ -1,6 +1,6 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
-Import "../fonts/FontManager.rgr"
+Import "../lib.rs"
 Import "pkg:evg/EVGCodepoint.rgr"
 ; EVGHTMLRenderer.rgr - Render EVG elements to HTML/CSS
 ; 
@@ -19,7 +19,6 @@ Import "pkg:evg/EVGColor.rgr"
 Import "pkg:evg/SVGPathParser.rgr"
 Import "pkg:evg/VectorViewBox.rgr"
 Import "pkg:evg/SvgParser.rgr"
-Import "EVGResourceLoader.rgr"
 
 ; Geometry a child needs from its laid-out parent while rendering.
 ;
@@ -131,7 +130,7 @@ class EVGHTMLRenderer {
         layout = lay
         def m (new SimpleTextMeasurer())
         measurer = m
-        def rl (new EVGResourceLoader())
+        def rl (EVGResourceLoader.new_())
         resourceLoader = rl
         def uf:[string]
         usedFontFamilies = uf

@@ -30,14 +30,14 @@
 ; ==============================================================================
 
 Import "../core/EVGDocSource.rgr"
-Import "../core/EVGStyleLoader.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGTreeJson.rgr"
 Import "pkg:evg/EVGPatch.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
-Import "../fonts/EVGFontSetup.rgr"
+Import "../lib.rs"
 Import "pkg:evg/EVGTextEngine.rgr"
+Import "../fonts/FontManager.rgr"
 
 class EVGJsonTool {
     def inputFile:string ""
@@ -54,7 +54,7 @@ class EVGJsonTool {
     }
 
     fn run:void () {
-        def sl (new EVGStyleLoader())
+        def sl (EVGStyleLoader.new_())
         styles = sl
         def argCount:int (shell_arg_cnt)
         if (argCount < 2) {
@@ -203,7 +203,7 @@ class EVGJsonTool {
             return
         }
         def copy:EVGElement (unwrap again)
-        def setup (new EVGFontSetup())
+        def setup (EVGFontSetup.new_())
         setup.init(dir "")
         def a (new EVGLayout())
         a.setMeasurer((new TTFTextMeasurer((setup.getManager()))))

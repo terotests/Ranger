@@ -19,11 +19,9 @@ Import "pkg:evg/SvgParser.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
-Import "../fonts/TrueTypeFont.rgr"
+Import "../lib.rs"
 Import "../fonts/FontManager.rgr"
-Import "../fonts/EVGFontSetup.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
-Import "../core/EVGStyleLoader.rgr"
 Import "pkg:evg/EVGImageDecode.rgr"
 Import "pkg:image/JPEGDecoder.rgr"
 Import "pkg:image/ProgressiveJPEGDecoder.rgr"
@@ -69,7 +67,7 @@ class EVGPNGTool {
     }
     
     fn run:void () {
-        def sl (new EVGStyleLoader())
+        def sl (EVGStyleLoader.new_())
         styles = sl
         def argCount:int (shell_arg_cnt)
         
@@ -242,7 +240,7 @@ class EVGPNGTool {
         
         ; Initialize font manager through the shared setup, so the raster
         ; target resolves the same faces as PDF and HTML.
-        def fontSetup (new EVGFontSetup())
+        def fontSetup (EVGFontSetup.new_())
         fontSetup.init(inputDir "")
         def fm:FontManager (fontSetup.getManager())
         fontManager = fm

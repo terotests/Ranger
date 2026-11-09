@@ -12,9 +12,8 @@
 
 Import "../core/EVGDocSource.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
-Import "../core/EVGStyleLoader.rgr"
+Import "../lib.rs"
 Import "../fonts/FontManager.rgr"
-Import "../fonts/EVGFontSetup.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGGrapheme.rgr"
 
@@ -34,14 +33,14 @@ class EVGHTMLTool {
     ; The HTML preview measures with the same TTF faces the PDF embeds.
     ; Without this the preview laid out with heuristic widths, so a page could
     ; look right in the browser and still print wrong.
-    def fontSetup:EVGFontSetup (new EVGFontSetup())
+    def fontSetup:EVGFontSetup (EVGFontSetup.new_())
     def fontsOverride:string ""
     def strictFonts:boolean false
     def embedAssets:boolean false
     def title:string "EVG Preview"
     
     Constructor () {
-        def sl (new EVGStyleLoader())
+        def sl (EVGStyleLoader.new_())
         styles = sl
     }
 

@@ -12,7 +12,7 @@
 Import "pkg:image/JPEGDecoder.rgr"
 Import "../jpeg/JPEGEncoder.rgr"
 Import "pkg:image/ProgressiveJPEGDecoder.rgr"
-Import "../jpeg/JPEGMetadata.rgr"
+Import "../lib.rs"
 
 class JPEGScaler {
     
@@ -118,7 +118,7 @@ class JPEGScaler {
             inputName = (substring inputFile (lastInputSlash + 1) (strlen inputFile))
         }
         
-        def metaParser (new JPEGMetadataParser())
+        def metaParser (JPEGMetadataParser.new_())
         def metaInfo:JPEGMetadataInfo (metaParser.parseMetadata(inputDir inputName))
         def orientation:int metaInfo.orientation
         print ("EXIF Orientation: " + (to_string orientation))

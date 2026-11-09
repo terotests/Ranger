@@ -4,7 +4,7 @@
 ; Tests all 8 EXIF orientation values
 
 Import "pkg:image/JPEGDecoder.rgr"
-Import "../jpeg/JPEGMetadata.rgr"
+Import "../lib.rs"
 Import "pkg:image/ImageBuffer.rgr"
 Import "pkg:image/PPMImage.rgr"
 
@@ -23,7 +23,7 @@ class ExifOrientationTest {
         print "Original size: " + (to_string imgBuf.width) + "x" + (to_string imgBuf.height)
         
         ; Parse EXIF metadata to get actual orientation
-        def metaParser (new JPEGMetadataParser())
+        def metaParser (JPEGMetadataParser.new_())
         def info:JPEGMetadataInfo (metaParser.parseMetadata(dirPath fileName))
         print "EXIF Orientation from file: " + (to_string info.orientation)
         

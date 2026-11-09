@@ -49,7 +49,7 @@ class OfficeFontTest {
             (OfficeFont.faceName("Open Sans" true true)) "Open Sans-Bold Italic")
         c.eqStr("no family, no name" (OfficeFont.faceName("" true true)) "")
 
-        def fm:FontManager (new FontManager)
+        def fm:FontManager (FontManager.new_())
         fm.setFontsDirectory("gallery/pdf_writer/assets/fonts")
 
         print "-- with nothing loaded --"

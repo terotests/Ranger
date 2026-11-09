@@ -22,9 +22,6 @@
 
 Import "../jsx/ComponentEngine.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
-Import "../core/EVGPDFRenderer.rgr"
-Import "../core/ImageUtils.rgr"
-Import "../fonts/FontManager.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "../raster/EVGRasterRenderer.rgr"
@@ -32,7 +29,7 @@ Import "../raster/RasterText.rgr"
 Import "../raster/RasterCompositing.rgr"
 Import "pkg:image/RasterBuffer.rgr"
 Import "pkg:image/PNGEncoder.rgr"
-Import "../fonts/TrueTypeFont.rgr"
+Import "../lib.rs"
 Import "pkg:image/JPEGDecoder.rgr"
 Import "pkg:image/ImageBuffer.rgr"
 
@@ -49,7 +46,7 @@ class EVGPreviewServerNode {
     def serverUrl:string ""
     
     ; Shared image utilities
-    def imageUtils:ImageUtils (new ImageUtils())
+    def imageUtils:ImageUtils (ImageUtils.new_())
     
     ; Cached content for serving
     def cachedShellHTML:string ""

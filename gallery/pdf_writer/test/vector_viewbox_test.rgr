@@ -21,7 +21,7 @@
 ; ==============================================================================
 
 Import "pkg:evg/VectorViewBox.rgr"
-Import "../src/core/Utf8.rgr"
+Import "../src/lib.rs"
 Import "../../game_engine/v2/tests/harness/RgTest.rgr"
 
 class VectorViewBoxTest {

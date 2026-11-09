@@ -44,7 +44,7 @@ class PhotoScan {
         if ((strlen prefix) == 0) {
             prefix = dir
         }
-        def parser (new JPEGMetadataParser())
+        def parser (JPEGMetadataParser.new_())
         def i:int 0
         while (i < (array_length names)) {
             def name:string (itemAt names i)
@@ -87,7 +87,7 @@ class PhotoScan {
         if ((PhotoScan.isJpeg(name)) == false) {
             return r
         }
-        def parser (new JPEGMetadataParser())
+        def parser (JPEGMetadataParser.new_())
         def info:JPEGMetadataInfo (parser.parseBuffer(bytes))
         PhotoScan.applyExif(r info)
         return r

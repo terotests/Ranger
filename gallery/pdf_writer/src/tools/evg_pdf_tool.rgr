@@ -8,10 +8,8 @@
 ; Run: npm run evgpdf:run
 
 Import "../core/EVGDocSource.rgr"
-Import "../core/EVGPDFRenderer.rgr"
-Import "../core/EVGStyleLoader.rgr"
+Import "../lib.rs"
 Import "../fonts/FontManager.rgr"
-Import "../fonts/EVGFontSetup.rgr"
 Import "pkg:evg/EVGTextEngine.rgr"
 Import "pkg:image/Buffer.rgr"
 Import "pkg:evg/EVGElement.rgr"
@@ -30,8 +28,8 @@ class EVGPDFTool {
     def fontsDir:string "./gallery/pdf_writer/Fonts"
     def debug:boolean false
     def styles:EVGStyleLoader
-    def fontManager:FontManager (new FontManager()) (new FontManager())
-    def fontSetup:EVGFontSetup (new EVGFontSetup())
+    def fontManager:FontManager (FontManager.new_()) (FontManager.new_())
+    def fontSetup:EVGFontSetup (EVGFontSetup.new_())
     def fontsOverride:string ""
     def strictFonts:boolean false
     def bleed:double 0.0
@@ -47,7 +45,7 @@ class EVGPDFTool {
     def strictPrint:boolean false
     
     Constructor () {
-        def sl (new EVGStyleLoader())
+        def sl (EVGStyleLoader.new_())
         styles = sl
     }
 
@@ -290,7 +288,7 @@ class EVGPDFTool {
         print ""
         print "Rendering to PDF..."
         
-        def renderer (new EVGPDFRenderer())
+        def renderer (EVGPDFRenderer.new_())
         renderer.init(renderer)  ; Pass self for Rust Rc pattern
         renderer.setPageSize(pageWidth pageHeight)
         renderer.setFontManager(fontManager)

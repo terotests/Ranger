@@ -15,8 +15,7 @@ Import "pkg:evg/EVGGrapheme.rgr"
 Import "pkg:image/RasterBuffer.rgr"
 Import "RasterCompositing.rgr"
 Import "RasterBlur.rgr"
-Import "../fonts/TrueTypeFont.rgr"
-Import "../fonts/FontManager.rgr"
+Import "../lib.rs"
 
 ; A point in a glyph outline
 class GlyphPoint {

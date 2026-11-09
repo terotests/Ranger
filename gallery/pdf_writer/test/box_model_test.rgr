@@ -20,7 +20,7 @@
 ;   bash gallery/pdf_writer/test/run_layout.sh
 ; ==============================================================================
 
-Import "../src/core/Utf8.rgr"
+Import "../src/lib.rs"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGUnit.rgr"
