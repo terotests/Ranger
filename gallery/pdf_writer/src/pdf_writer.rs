@@ -96,7 +96,7 @@ impl PDFWriter {
             color_space = "/DeviceCMYK";
         }
         // Get raw JPEG data - unwrap the optional buffer
-        let mut img_data: Vec<u8> = img.borrow().imageData.clone().unwrap();
+        let mut img_data: Vec<u8> = img.borrow().imageData.clone();
         let data_len: i64 = img_data.len() as i64;
         // Create image XObject header with DCTDecode (raw JPEG)
         let mut img_header: String = "<< /Type /XObject /Subtype /Image".to_string();

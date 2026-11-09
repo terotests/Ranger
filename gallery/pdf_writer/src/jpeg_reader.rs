@@ -23,7 +23,7 @@ pub struct JPEGImage {
     /// Usually 3 for RGB/YCbCr, 1 for grayscale
     pub colorComponents: i64,
     pub bitsPerComponent: i64,
-    pub imageData: Option<Vec<u8>>,
+    pub imageData: Vec<u8>,
     pub isValid: bool,
     pub errorMessage: String,
 }
@@ -35,7 +35,7 @@ impl JPEGImage {
             height: 0,
             colorComponents: 3,
             bitsPerComponent: 8,
-            imageData: None,
+            imageData: Vec::new(),
             isValid: false,
             errorMessage: String::new(),
         };
@@ -137,7 +137,7 @@ impl JPEGReader {
         }
         // Store the entire JPEG data for PDF embedding
         // PDF can embed JPEG directly with DCTDecode filter
-        result.borrow_mut().imageData = Some(data.clone());
+        result.borrow_mut().imageData = data.clone();
         result.borrow_mut().isValid = true;
         result
     }
