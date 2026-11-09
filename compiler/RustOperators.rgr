@@ -1082,8 +1082,22 @@ extension RangerRustClassWriter {
           cellOpt = false
         }
         if cellOpt {
+          def cellWeak:boolean false
+          if (!null? cellLP.nameNode) {
+            def cellWN:CodeNode (unwrap cellLP.nameNode)
+            cellWeak = (cellWN.hasFlag("weak"))
+          }
           if ((right.hasFlag("optional") == false) && ((this.rustExprIsOptional(right ctx)) == false)) {
-            cellVal = (("Some(" + cellTmp) + ")")
+            if cellWeak {
+              ; a weak slot stores the non-owning form (RustClass declares it Weak)
+              cellVal = (("Some(Rc::downgrade(&" + cellTmp) + "))")
+            } {
+              cellVal = (("Some(" + cellTmp) + ")")
+            }
+          } {
+            if cellWeak {
+              cellVal = (cellTmp + ".as_ref().map(Rc::downgrade)")
+            }
           }
         }
         if cellCopy {
