@@ -1100,6 +1100,49 @@ function rs_bytes_grow(b, k, v, more) {
       ; whole text for every `i < s.as_bytes().len()` of a loop)
       go @macro(true) ( "(strlen " "(" (e 1) ")" ")" )
       rust @macro(true) ( "(strlen " "(" (e 1) ")" ")" )
+      es6 ( "rs_byte_len(" (e 1) ")"
+(create_polyfill "
+// A string's UTF-8 bytes for s.as_bytes()[i] and s.as_bytes().len(),
+// without encoding the text again at every read: an ASCII string's
+// bytes are its char codes, and another string's encoding is kept while
+// it is read. Short strings (punctuators, names) stay in a map; a few
+// long ones (a source text) in a ring.
+const rs_u8_enc = new TextEncoder();
+const rs_u8_short = new Map();
+const rs_u8_long = [null, null, null, null];
+let rs_u8_next = 0;
+function rs_u8_of(s) {
+  if (s.length <= 64) {
+    let e = rs_u8_short.get(s);
+    if (e === undefined) {
+      e = rs_u8_make(s);
+      if (rs_u8_short.size >= 4096) rs_u8_short.clear();
+      rs_u8_short.set(s, e);
+    }
+    return e;
+  }
+  for (let k = 0; k < 4; k++) {
+    const e = rs_u8_long[k];
+    if (e !== null && e.s === s) return e;
+  }
+  const e = rs_u8_make(s);
+  rs_u8_long[rs_u8_next] = e;
+  rs_u8_next = (rs_u8_next + 1) & 3;
+  return e;
+}
+function rs_u8_make(s) {
+  const ascii = !/[^\\x00-\\x7f]/.test(s);
+  return { s: s, b: ascii ? null : rs_u8_enc.encode(s) };
+}
+function rs_byte_at(s, i) {
+  const e = rs_u8_of(s);
+  return e.b === null ? s.charCodeAt(i) : e.b[i];
+}
+function rs_byte_len(s) {
+  const e = rs_u8_of(s);
+  return e.b === null ? s.length : e.b.length;
+}
+"))
       * @macro(true) ( "(length (to_charbuffer " "(" (e 1) ")" "))" )
     }
   }
@@ -1113,6 +1156,49 @@ function rs_bytes_grow(b, k, v, more) {
       go @macro(true) ( "(charAt " "(" (e 1) ")" " " "(" (e 2) ")" ")" )
       rust @macro(true) ( "(charAt " "(" (e 1) ")" " " "(" (e 2) ")" ")" )
       cpp @macro(true) ( "(charAt " "(" (e 1) ")" " " "(" (e 2) ")" ")" )
+      es6 ( "rs_byte_at(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+// A string's UTF-8 bytes for s.as_bytes()[i] and s.as_bytes().len(),
+// without encoding the text again at every read: an ASCII string's
+// bytes are its char codes, and another string's encoding is kept while
+// it is read. Short strings (punctuators, names) stay in a map; a few
+// long ones (a source text) in a ring.
+const rs_u8_enc = new TextEncoder();
+const rs_u8_short = new Map();
+const rs_u8_long = [null, null, null, null];
+let rs_u8_next = 0;
+function rs_u8_of(s) {
+  if (s.length <= 64) {
+    let e = rs_u8_short.get(s);
+    if (e === undefined) {
+      e = rs_u8_make(s);
+      if (rs_u8_short.size >= 4096) rs_u8_short.clear();
+      rs_u8_short.set(s, e);
+    }
+    return e;
+  }
+  for (let k = 0; k < 4; k++) {
+    const e = rs_u8_long[k];
+    if (e !== null && e.s === s) return e;
+  }
+  const e = rs_u8_make(s);
+  rs_u8_long[rs_u8_next] = e;
+  rs_u8_next = (rs_u8_next + 1) & 3;
+  return e;
+}
+function rs_u8_make(s) {
+  const ascii = !/[^\\x00-\\x7f]/.test(s);
+  return { s: s, b: ascii ? null : rs_u8_enc.encode(s) };
+}
+function rs_byte_at(s, i) {
+  const e = rs_u8_of(s);
+  return e.b === null ? s.charCodeAt(i) : e.b[i];
+}
+function rs_byte_len(s) {
+  const e = rs_u8_of(s);
+  return e.b === null ? s.length : e.b.length;
+}
+"))
       * @macro(true) ( "(charAt (to_charbuffer " "(" (e 1) ")" ") " "(" (e 2) ")" ")" )
     }
   }
