@@ -300,6 +300,9 @@ func rs_f2i(x float64) int64 {
   ; its code point.
   rs_char_code _:int (c:string) {
     templates {
+      ; a char is one code point: read it in place, not through an array
+      ; of every code point of the string
+      es6 ( "(" (e 1) ").codePointAt(0)" )
       * @macro(true) ( "(itemAt (to_chars " "(" (e 1) ")" ") 0)" )
     }
   }
