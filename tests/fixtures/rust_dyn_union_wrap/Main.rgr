@@ -1,0 +1,20 @@
+Import "lib.rs"
+
+class Main {
+  sfn m@(main):void () {
+    def r:Registry (Registry.new_())
+    r.add_js()
+    r.add_plain()
+    def js:DynEditorLanguage (r.by_id("js"))
+    def a:int (DynEditorLanguage_ops.count(js))
+    def b:int (DynEditorLanguage_ops.count(js))
+    print ((DynEditorLanguage_ops.id(js)) + " " + (to_string b) + " " + (to_string (array_length r.plugins)))
+    ; the registry holds the same object: a third count through a fresh
+    ; lookup continues from 2
+    def c:int (DynEditorLanguage_ops.count((r.by_id("js"))))
+    print ((to_string a) + " " + (to_string c))
+    print (DynEditorLanguage_ops.id(r.last))
+    r.reset_last()
+    print ((DynEditorLanguage_ops.id(r.last)) + " " + (DynEditorLanguage_ops.id(r.by_id("go"))))
+  }
+}

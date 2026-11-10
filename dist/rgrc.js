@@ -39762,6 +39762,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             tempVars.push(tmpName);
             let needsMutDecl = false;
             let preevalScalar = false;
+            let preevalUnionType = "";
             if ( (typeof(fnD3) !== "undefined" && fnD3 != null )  ) {
               const fnD_1 = fnD3;
               if ( argIdx < fnD_1.params.length ) {
@@ -39779,6 +39780,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                   if ( (((argPT == "int" || argPT == "double") || argPT == "boolean") || argPT == "char") || TTypeRegistry.isIntAlias(argPT) ) {
                     preevalScalar = true;
                   }
+                  if ( argP.needs_cpp_reference == false && argP.rust_borrow_type != 2 ) {
+                    if ( this.rustArgNeedsUnionWrap(argPT, argNode, ctx) ) {
+                      preevalUnionType = argPT;
+                    }
+                  }
                 }
               }
             }
@@ -39786,6 +39792,12 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               wr.out(("let mut " + tmpName) + " = ", false);
             } else {
               wr.out(("let " + tmpName) + " = ", false);
+            }
+            if ( preevalUnionType.length > 0 ) {
+              this.rustWriteUnionValue(preevalUnionType, argNode, ctx, wr);
+              wr.out(";", true);
+              tempWriteback.push("");
+              continue;
             }
             ctx.setInExpr();
             this.WalkNode(argNode, ctx, wr);
@@ -46786,6 +46798,23 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
         const pdNode = pdNN;
         return pdNode.type_name;
+      }
+    }
+    if ( nVal.hasFnCall ) {
+      const fdOpt = nVal.fnDesc;
+      if ( (typeof(fdOpt) !== "undefined" && fdOpt != null )  ) {
+        const fd = fdOpt;
+        const fnnOpt = fd.nameNode;
+        if ( (typeof(fnnOpt) !== "undefined" && fnnOpt != null )  ) {
+          const fnn = fnnOpt;
+          return fnn.type_name;
+        }
+      }
+    }
+    if ( nVal.children.length == 1 ) {
+      const only = nVal.children[0];
+      if ( only.hasFnCall || only.hasNewOper ) {
+        return this.rustDeclaredClassOf(only);
       }
     }
     return "";
@@ -82279,6 +82308,14 @@ class StaticAnalyzer  {
               allScalar = false;
             }
           }
+        }
+      }
+    }
+    if ( allScalar ) {
+      // Loop start
+      for ( const um of cl.methods) {
+        if ( this.checkDirectSelfMutation(um) ) {
+          return false;
         }
       }
     }
