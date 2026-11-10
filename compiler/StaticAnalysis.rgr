@@ -2372,6 +2372,19 @@ class StaticAnalyzer {
         }
       }
     }
+    ; A case with a method that writes its own fields is an object with
+    ; identity: in the variant every copy of the union -- the one a getter
+    ; returns, the one a dispatcher matches over a reference -- would be a
+    ; copy, so `c.count()` either does not compile (`&` binding) or counts in
+    ; a copy. `Rc<RefCell<dyn Trait>>` from Rust syntax is exactly that: a
+    ; trait object whose struct keeps state. It stays behind the cell.
+    if allScalar {
+      for cl.methods um:RangerAppFunctionDesc umi {
+        if (this.checkDirectSelfMutation(um)) {
+          return false
+        }
+      }
+    }
     return allScalar
   }
 

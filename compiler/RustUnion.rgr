@@ -42,6 +42,27 @@ extension RangerRustClassWriter {
         return pdNode.type_name
       }
     }
+    ; a call -- `PlainText.new_()`, `PlainText.zeroOf()`, which is how the
+    ; Rust-syntax frontend writes `Rc::new(RefCell::new(PlainText::new()))` and
+    ; a trait object's first value: the class the called function DECLARES it
+    ; returns (the node's eval_type_name is the widened union by now)
+    if nVal.hasFnCall {
+      def fdOpt@(optional):RangerAppFunctionDesc nVal.fnDesc
+      if (!null? fdOpt) {
+        def fd:RangerAppFunctionDesc (unwrap fdOpt)
+        def fnnOpt@(optional):CodeNode fd.nameNode
+        if (!null? fnnOpt) {
+          def fnn:CodeNode (unwrap fnnOpt)
+          return fnn.type_name
+        }
+      }
+    }
+    if ((array_length nVal.children) == 1) {
+      def only:CodeNode (itemAt nVal.children 0)
+      if (only.hasFnCall || only.hasNewOper) {
+        return (this.rustDeclaredClassOf(only))
+      }
+    }
     return ""
   }
 
