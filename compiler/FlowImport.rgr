@@ -349,7 +349,11 @@ extension RangerFlowParser {
         if (nCrates > 0) {
           rl.cloneClass = ("RsClone" + (to_string nCrates))
         }
-        set ctx.already_imported ("@rscrate:" + import_file) true
+        ; keyed on the file's whole path: two crates are both `lib.rs` to
+        ; their `Import`, and keyed on that they counted as one, so a third
+        ; crate's clone helpers took the second's class name and replaced it
+        def crateKey:string (? ((strlen importFolded) > 0) importFolded import_file)
+        set ctx.already_imported ("@rscrate:" + crateKey) true
         rl.begin(source_code modName)
         rl.setEntryName(import_file)
         if (modBase != "") {
