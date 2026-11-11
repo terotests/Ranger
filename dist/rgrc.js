@@ -24878,7 +24878,8 @@ class RangerFlowParser  {
         if ( nCrates > 0 ) {
           rl.cloneClass = "RsClone" + ((nCrates).toString());
         }
-        ctx.already_imported["@rscrate:" + import_file] = true;
+        const crateKey = (importFolded.length > 0) ? importFolded : import_file;
+        ctx.already_imported["@rscrate:" + crateKey] = true;
         rl.begin(source_code, modName);
         rl.setEntryName(import_file);
         if ( modBase != "" ) {
