@@ -488,6 +488,15 @@ class RangerDocCommentWriter {
     return out
   }
 
+  ; Kotlin block comments nest: a `/*` inside a doc comment (a glob such as
+  ; `xl/tables/*.xml` in prose) opens a comment of its own, so the comment's
+  ; `*/` closes only that one and the rest of the file is read as comment up
+  ; to some later `*/`. A `*/` in the text would end the comment early. Both
+  ; are written with the slash as an HTML entity, which KDoc shows as a slash.
+  fn kdocText:string (text:string) {
+    return (replace (replace text "/*" "&#47;*") "*/" "*&#47;")
+  }
+
   fn writeKotlinDoc:void (doc:RangerDocBlock retType:string params:[RangerApiParam] wr:CodeWriter) {
     wr.out("/**" true)
     def descLines:[string] (this.linesOf(doc.description))
@@ -496,7 +505,7 @@ class RangerDocCommentWriter {
       if ((strlen line) == 0) {
         wr.out(" *" true)
       } {
-        wr.out((" * " + line) true)
+        wr.out((" * " + (this.kdocText(line))) true)
       }
       wroteBody = true
     }
@@ -513,7 +522,7 @@ class RangerDocCommentWriter {
         if (wroteBody && (wroteTag == false)) {
           wr.out(" *" true)
         }
-        wr.out((" * @param " + p.compiledName + " " + p.description) true)
+        wr.out((this.kdocText((" * @param " + p.compiledName + " " + p.description))) true)
         wroteTag = true
       }
     }
@@ -523,12 +532,12 @@ class RangerDocCommentWriter {
         if (wroteBody && (wroteTag == false)) {
           wr.out(" *" true)
         }
-        wr.out((" * @return " + doc.returns) true)
+        wr.out((this.kdocText((" * @return " + doc.returns))) true)
         wroteTag = true
       }
     }
     for doc.throws t:string i {
-      wr.out((" * @throws Exception " + t) true)
+      wr.out((this.kdocText((" * @throws Exception " + t))) true)
       wroteTag = true
     }
     if ((strlen doc.since) > 0) {
@@ -536,7 +545,7 @@ class RangerDocCommentWriter {
       wroteTag = true
     }
     for doc.see sname:string i {
-      wr.out((" * @see " + sname) true)
+      wr.out((this.kdocText((" * @see " + sname))) true)
       wroteTag = true
     }
     for (this.allExamples(doc)) e:string i {
@@ -544,7 +553,7 @@ class RangerDocCommentWriter {
       wr.out(" * ```kotlin" true)
       def exLines:[string] (this.linesOf(e))
       for exLines line:string j {
-        wr.out((" * " + line) true)
+        wr.out((" * " + (this.kdocText(line))) true)
       }
       wr.out(" * ```" true)
     }
