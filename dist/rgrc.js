@@ -15068,6 +15068,8 @@ class RangerFlowParser  {
     this.treeChildCall = {};
     this.treeTextField = {};
     this.treeOnCall = {};
+    this.treeComponents = {};
+    this.treeEachCount = 0;
     this.treeTags = {};
     this.treeTagDefaults = {};
     this.treeFactoryNames = {};
@@ -24227,47 +24229,64 @@ class RangerFlowParser  {
       } else {
         const head = st.getFirst();
         const kw = head.vref;
-        if ( kw == "on" ) {
-          if ( st.children.length == 2 ) {
-            this.treeOnCall[fname] = st.getSecond().vref;
-          } else {
-            ctx.addError(st, "on takes one function name, e.g. `on events.bind`");
-          }
-        } else {
-          if ( kw == "child" ) {
-            if ( st.children.length == 2 ) {
-              this.treeChildCall[fname] = st.getSecond().vref;
+        if ( kw == "component" ) {
+          if ( st.children.length == 3 ) {
+            const cKey = (fname + " ") + st.getSecond().vref;
+            if ( ( typeof(this.treeTags[cKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeTags, cKey) ) ) {
+              ctx.addError(st, (("treefactory " + fname) + " already has a tag or component ") + st.getSecond().vref);
             } else {
-              ctx.addError(st, "child takes one method name");
+              this.treeTags[cKey] = "";
+              this.treeComponents[cKey] = st.getThird().vref;
             }
           } else {
-            if ( kw == "text" ) {
+            ctx.addError(st, "component takes a tag name and a function, e.g. `component Stars this.stars`");
+          }
+        } else {
+          if ( kw == "on" ) {
+            if ( st.children.length == 2 ) {
+              this.treeOnCall[fname] = st.getSecond().vref;
+            } else {
+              ctx.addError(st, "on takes one function name, e.g. `on events.bind`");
+            }
+          } else {
+            if ( kw == "child" ) {
               if ( st.children.length == 2 ) {
-                this.treeTextField[fname] = st.getSecond().vref;
+                this.treeChildCall[fname] = st.getSecond().vref;
               } else {
-                ctx.addError(st, "text takes one field name");
+                ctx.addError(st, "child takes one method name");
               }
             } else {
-              if ( kw == "tag" ) {
-                const argc = st.children.length;
-                if ( argc == 3 || argc == 4 ) {
-                  const tagName = st.getSecond().vref;
-                  const clsName = st.getThird().vref;
-                  const tagKey = (fname + " ") + tagName;
-                  this.treeTags[tagKey] = clsName;
-                  if ( argc == 4 ) {
-                    const defs = st.children[3];
-                    if ( this.isTreeKeyword(defs, "props") ) {
-                      this.treeTagDefaults[tagKey] = defs;
-                    } else {
-                      ctx.addError(defs, "a tag's defaults are a props form");
-                    }
-                  }
+              if ( kw == "text" ) {
+                if ( st.children.length == 2 ) {
+                  this.treeTextField[fname] = st.getSecond().vref;
                 } else {
-                  ctx.addError(st, "tag takes a tag name, a class name and optionally a props form");
+                  ctx.addError(st, "text takes one field name");
                 }
               } else {
-                ctx.addError(st, ("unknown treefactory member " + kw) + ", expected child, text, on or tag");
+                if ( kw == "tag" ) {
+                  const argc = st.children.length;
+                  if ( argc == 3 || argc == 4 ) {
+                    const tagName = st.getSecond().vref;
+                    const clsName = st.getThird().vref;
+                    const tagKey = (fname + " ") + tagName;
+                    if ( ( typeof(this.treeComponents[tagKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeComponents, tagKey) ) ) {
+                      ctx.addError(st, (("treefactory " + fname) + " already has a component ") + tagName);
+                    }
+                    this.treeTags[tagKey] = clsName;
+                    if ( argc == 4 ) {
+                      const defs = st.children[3];
+                      if ( this.isTreeKeyword(defs, "props") ) {
+                        this.treeTagDefaults[tagKey] = defs;
+                      } else {
+                        ctx.addError(defs, "a tag's defaults are a props form");
+                      }
+                    }
+                  } else {
+                    ctx.addError(st, "tag takes a tag name, a class name and optionally a props form");
+                  }
+                } else {
+                  ctx.addError(st, ("unknown treefactory member " + kw) + ", expected child, text, on, component or tag");
+                }
               }
             }
           }
@@ -24396,6 +24415,9 @@ class RangerFlowParser  {
     const clsName = ( Object.prototype.hasOwnProperty.call(this.treeTags, key) ? this.treeTags[key] : undefined );
     this.treeTmpCount = this.treeTmpCount + 1;
     const reg = "_tree" + ((this.treeTmpCount).toString());
+    if ( ( typeof(this.treeComponents[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeComponents, key) ) ) {
+      return this.lowerTreeComponent(el, key, reg, fname, prelude, ctx, wr);
+    }
     const defNode = el.newExpressionNode();
     defNode.add(el.newVRefNode("def"));
     defNode.add(el.newVRefNode(reg));
@@ -24422,16 +24444,115 @@ class RangerFlowParser  {
         if ( this.isTreeOnForm(ch, fname) ) {
           this.lowerTreeOn(ch, reg, fname, prelude, ctx);
         } else {
-          if ( this.isTreeKeyword(ch, "child") ) {
-            this.lowerComputedChildren(ch, reg, fname, prelude, ctx, wr);
+          if ( this.isTreeEachForm(ch, fname) ) {
+            this.lowerTreeEach(ch, reg, fname, prelude, ctx, wr);
           } else {
-            this.lowerTreeChild(ch, reg, fname, prelude, ctx, wr);
+            if ( this.isTreeKeyword(ch, "child") ) {
+              this.lowerComputedChildren(ch, reg, fname, prelude, ctx, wr);
+            } else {
+              this.lowerTreeChild(ch, reg, fname, prelude, ctx, wr);
+            }
           }
         }
       }
       idx = idx + 1;
     };
     return reg;
+  };
+  lowerTreeComponent (el, key, reg, fname, prelude, ctx, wr) {
+    const callee = ( Object.prototype.hasOwnProperty.call(this.treeComponents, key) ? this.treeComponents[key] : undefined );
+    const call = el.newExpressionNode();
+    call.add(el.newVRefNode(callee));
+    const args = el.newExpressionNode();
+    let later = [];
+    let idx = 1;
+    while (idx < el.children.length) {
+      const ch = el.children[idx];
+      if ( this.isTreeKeyword(ch, "props") || this.isTreeOnForm(ch, fname) ) {
+        later.push(ch);
+      } else {
+        args.add(ch.copy());
+      }
+      idx = idx + 1;
+    };
+    call.add(args);
+    const defNode = el.newExpressionNode();
+    defNode.add(el.newVRefNode("def"));
+    defNode.add(el.newVRefNode(reg));
+    defNode.add(call);
+    prelude.push(defNode);
+    // Loop start
+    for ( const ch_1 of later) {
+      if ( this.isTreeKeyword(ch_1, "props") ) {
+        this.lowerTreeProps(ch_1, reg, prelude, ctx, wr);
+      } else {
+        this.lowerTreeOn(ch_1, reg, fname, prelude, ctx);
+      }
+    }
+    return reg;
+  };
+  isTreeEachForm (node, fname) {
+    if ( this.isTreeKeyword(node, "each") == false ) {
+      return false;
+    }
+    return ( typeof(this.treeTags[(fname + " each")] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeTags, fname + " each") ) == false;
+  };
+  lowerTreeEach (ch, reg, fname, prelude, ctx, wr) {
+    const n = ch.children.length;
+    if ( n < 4 ) {
+      ctx.addError(ch, "each takes a list, an item with its type and one or more tags: (each items it:Item (Row …))");
+      return;
+    }
+    const childCall = ( Object.prototype.hasOwnProperty.call(this.treeChildCall, fname) ? this.treeChildCall[fname] : undefined );
+    if ( childCall.length == 0 ) {
+      ctx.addError(ch, ("treefactory " + fname) + " has no `child` method, so each has nowhere to put its nodes");
+      return;
+    }
+    const itemNode = ch.children[2];
+    if ( itemNode.type_name.length == 0 && itemNode.array_type.length == 0 ) {
+      ctx.addError(itemNode, "the item of each needs its type, e.g. it:Item");
+      return;
+    }
+    this.treeEachCount = this.treeEachCount + 1;
+    let idxName = "_treeEach" + ((this.treeEachCount).toString());
+    let first = 3;
+    const third = ch.children[3];
+    if ( third.expression == false && third.vref.length > 0 ) {
+      idxName = third.vref;
+      first = 4;
+    }
+    if ( first >= n ) {
+      ctx.addError(ch, "each needs at least one tag to build per item");
+      return;
+    }
+    const loop = ch.newExpressionNode();
+    loop.add(ch.newVRefNode("for"));
+    loop.add(ch.getSecond().copy());
+    loop.add(itemNode.copy());
+    loop.add(ch.newVRefNode(idxName));
+    const body = ch.newExpressionNode();
+    body.is_block_node = true;
+    let inner = [];
+    let k = first;
+    while (k < n) {
+      const tagNode = ch.children[k];
+      const childReg = this.lowerTreeElement(tagNode, fname, inner, ctx, wr);
+      if ( childReg.length > 0 ) {
+        inner.push(this.treeCall(
+          tagNode,
+          reg,
+          childCall,
+          tagNode.newVRefNode(childReg)
+        ));
+      }
+      k = k + 1;
+    };
+    // Loop start
+    for ( const st of inner) {
+      body.add(st);
+    }
+    loop.add(body);
+    prelude.push(loop);
   };
   isTreeKeyword (node, word) {
     if ( node.children.length == 0 ) {

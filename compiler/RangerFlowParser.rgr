@@ -91,6 +91,10 @@ class RangerFlowParser {
   ; factory. Empty when the factory declares no `on`, and then `on` is not a
   ; keyword inside its tags at all.
   def treeOnCall:[string:string]
+  ; "<factory> <Tag>" -> the function a component tag calls: `component
+  ; Stars this.stars` makes `(Stars a b)` the node `this.stars(a b)` returns
+  def treeComponents:[string:string]
+  def treeEachCount:int 0
   ; "<factory> <Tag>" -> the class the tag builds.
   def treeTags:[string:string]
   ; "<factory> <Tag>" -> a props form every use of that tag starts with, so a

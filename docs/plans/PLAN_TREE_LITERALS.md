@@ -68,6 +68,8 @@ factory object and no word from this document.
 | `(props (name value) …)` | field assignments on the node |
 | `(child expr …)` | expressions attached with the factory's `child` method |
 | `(on event handler)` | `<fn>(node "event" handler)`, only in a factory that declares `on <fn>` |
+| `(each list item:Type [index] (Tag …) …)` | the tags built once per item in a `for` loop, each attached with `child` |
+| `(Comp args… (props …) (on …))` | for `component Comp <fn>`: the node `<fn>(args…)` returns, then its props and handlers |
 | `(Tag …)` where `Tag` is declared | a nested element |
 | anything else | a value child, assigned to the factory's `text` field |
 
@@ -110,6 +112,32 @@ handlers: the function the factory names keeps them (EVGUI's `UiEvents`).
 `on` is a keyword only inside the tags of a factory that declares it. A
 factory without `on` lowers exactly as before, and a tag of its named `on`
 stays a tag (tests/fixtures/tree_on.rgr checks both).
+
+### Lists and components: `each`, `component`
+
+```ranger
+treefactory Ui {
+    child addChild
+    tag   List Node
+    tag   Row  Node
+    component Badge this.badge        ; fn badge:Node (who:string)
+}
+
+(tree Ui (List
+    (each items it:Item i
+        (Row (props (name ("row" + (to_string i)))) it.title))
+    (Badge "tero" (props (name "me")))))
+```
+
+`each` lowers to `for items it:Item i { … _tree1.addChild(_tree2) }`: the
+item's type is required (the loop declares it), the index name is optional,
+and the nodes are built inside the loop's block, so each pass has its own
+locals and a handler made there captures that pass's item. A component tag
+lowers to `def _tree3 this.badge("tero")` and then the props on the node it
+returned. Both are keywords only where they cannot mean something else: a
+factory with a tag named `each` keeps it a tag, and `component` is a factory
+member that did not exist before. tests/fixtures/tree_each.rgr runs on ES6, Go,
+Rust and Python.
 
 ## Why the checking is not a second type checker
 
