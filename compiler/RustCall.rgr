@@ -894,7 +894,59 @@ extension RangerRustClassWriter {
     return (-1)
   }
 
+  ; Two OUT parameters that are fields of this object, in a receiverless
+  ; method: `EVGConnector.collectAnchors(root anchorNames anchorNodes)` went
+  ; `&mut __self_rc.borrow_mut().anchor_names, &mut __self_rc.borrow_mut()
+  ; .anchor_nodes`, two RefMuts of one cell at once. One borrow is taken
+  ; around the call and split into its fields:
+  ; `{ let mut __g = __self_rc.borrow_mut(); let __g = &mut *__g; f(&mut
+  ; __g.a, &mut __g.b); }`.
   fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def split:boolean false
+    if (((ctx.expressionLevel()) == 0) && rust_receiverless_method) {
+      if (node.hasFnCall && ((array_length node.children) >= 2)) {
+        def sArgs:CodeNode (node.getSecond())
+        def outIdx:[int]
+        def outField:[string]
+        for sArgs.children sA:CodeNode sI {
+          if (this.rustArgIsOutParam(node sI)) {
+            def sReal:CodeNode (this.rustUnwrapParens(sA))
+            def fName:string ""
+            if ((array_length sReal.ns) == 2) {
+              if ((itemAt sReal.ns 0) == "this") {
+                fName = (itemAt sReal.ns 1)
+              }
+            }
+            if (((array_length sReal.ns) == 1) && sReal.hasParamDesc) {
+              def sP:RangerAppParamDesc sReal.paramDesc
+              if sP.is_class_variable {
+                fName = sP.compiledName
+              }
+            }
+            if ((strlen fName) > 0) {
+              push outIdx sI
+              push outField fName
+            }
+          }
+        }
+        if ((array_length outIdx) >= 2) {
+          split = true
+          wr.out("{ let mut __g = __self_rc.borrow_mut(); let __g = &mut *__g;" true)
+          for outIdx oi:int oj {
+            def oA:CodeNode (itemAt sArgs.children oi)
+            def oReal:CodeNode (this.rustUnwrapParens(oA))
+            oReal.rust_use_tmpvar = ("__g." + (this.adjustType((itemAt outField oj))))
+          }
+        }
+      }
+    }
+    this.writeFnCallInner(node ctx wr)
+    if split {
+      wr.out("}" true)
+    }
+  }
+
+  fn writeFnCallInner:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     ; true while a `{ let recv = …;` block is open around the call being
     ; written -- see writeSelfRcReceiverHoist
     def rgHoisted:boolean false

@@ -39925,6 +39925,54 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     return -1;
   };
   writeFnCall (node, ctx, wr) {
+    let split = false;
+    if ( ctx.expressionLevel() == 0 && this.rust_receiverless_method ) {
+      if ( node.hasFnCall && node.children.length >= 2 ) {
+        const sArgs = node.getSecond();
+        let outIdx = [];
+        let outField = [];
+        // Loop start
+        for ( let sI = 0; sI < sArgs.children.length; sI++) {
+          var sA = sArgs.children[sI];
+          if ( this.rustArgIsOutParam(node, sI) ) {
+            const sReal = this.rustUnwrapParens(sA);
+            let fName = "";
+            if ( sReal.ns.length == 2 ) {
+              if ( sReal.ns[0] == "this" ) {
+                fName = sReal.ns[1];
+              }
+            }
+            if ( sReal.ns.length == 1 && sReal.hasParamDesc ) {
+              const sP = sReal.paramDesc;
+              if ( sP.is_class_variable ) {
+                fName = sP.compiledName;
+              }
+            }
+            if ( fName.length > 0 ) {
+              outIdx.push(sI);
+              outField.push(fName);
+            }
+          }
+        }
+        if ( outIdx.length >= 2 ) {
+          split = true;
+          wr.out("{ let mut __g = __self_rc.borrow_mut(); let __g = &mut *__g;", true);
+          // Loop start
+          for ( let oj = 0; oj < outIdx.length; oj++) {
+            var oi = outIdx[oj];
+            const oA = sArgs.children[oi];
+            const oReal = this.rustUnwrapParens(oA);
+            oReal.rust_use_tmpvar = "__g." + this.adjustType(outField[oj]);
+          }
+        }
+      }
+    }
+    this.writeFnCallInner(node, ctx, wr);
+    if ( split ) {
+      wr.out("}", true);
+    }
+  };
+  writeFnCallInner (node, ctx, wr) {
     let rgHoisted = false;
     if ( ctx.expressionLevel() == 0 ) {
       this.rustExtractSelfCallConflicts(node, ctx, wr);
