@@ -92518,8 +92518,10 @@ class RustLower  {
       impl.push(this.emitEnumZero(e, cname));
     }
     if ( false == this.hasFmt(RsType.named(e.name), "Debug") ) {
-      impl.push(this.emitEnumDebug(e, cname));
-      if ( false == e.plain ) {
+      if ( e.plain || e.derives.indexOf("Debug") >= 0 ) {
+        impl.push(this.emitEnumDebug(e, cname));
+      }
+      if ( false == e.plain && e.derives.indexOf("PartialEq") >= 0 ) {
         impl.push(this.emitEnumEq(e, cname));
       }
     }

@@ -2919,9 +2919,13 @@ class RustLower {
     if (false == e.plain) {
       push impl (this.emitEnumZero(e cname))
     }
+    ; Debug and PartialEq only as the enum derives them: a variant's data
+    ; (an Rc of a struct that derives neither) has nothing to print or compare
     if (false == (this.hasFmt((RsType.named(e.name)) "Debug"))) {
-      push impl (this.emitEnumDebug(e cname))
-      if (false == e.plain) {
+      if (e.plain || ((indexOf e.derives "Debug") >= 0)) {
+        push impl (this.emitEnumDebug(e cname))
+      }
+      if ((false == e.plain) && ((indexOf e.derives "PartialEq") >= 0)) {
         push impl (this.emitEnumEq(e cname))
       }
     }
