@@ -8226,15 +8226,18 @@ class RustLower {
     def t:RsType rv.ty
     def inner:RsType (t.arg(0))
     def o:string (this.bindTemp(rv t "opt"))
+    ; the value inside is copied when it is a Copy struct: Rust copies it out
+    ; of the Option, and on the targets the Option's object would be shared
+    def got:string (this.copyCode((("(unwrap " + o) + ")") inner))
     if ((name == "unwrap") || (name == "expect")) {
-      return (RsExpr.of((("(unwrap " + o) + ")") inner))
+      return (RsExpr.of(got inner))
     }
     if (name == "unwrap_or") {
       def d:RsExpr (this.arg0(args inner))
-      return (RsExpr.of((((("(? (null? " + o) + ") ") + d.code) + ((" (unwrap " + o) + "))")) inner))
+      return (RsExpr.of((((("(? (null? " + o) + ") ") + d.code) + ((" " + got) + ")")) inner))
     }
     if (name == "unwrap_or_default") {
-      return (RsExpr.of((((("(? (null? " + o) + ") ") + (this.defaultValue(inner))) + ((" (unwrap " + o) + "))")) inner))
+      return (RsExpr.of((((("(? (null? " + o) + ") ") + (this.defaultValue(inner))) + ((" " + got) + ")")) inner))
     }
     if (name == "is_some") {
       return (RsExpr.of((("(!null? " + o) + ")") (RsType.mk("bool"))))
