@@ -677,6 +677,10 @@ class RangerRustClassWriter {
     ; consumed here, so a lambda nested in this one is written as usual
     def boxed:boolean rust_lambda_boxed
     rust_lambda_boxed = false
+    ; …and a literal handed to a parameter the method keeps is owned too
+    if ((boxed == false) && (this.rustLambdaArgStored(node ctx))) {
+      boxed = true
+    }
     if boxed {
       ; it outlives the call that made it: owned, and its captures copied in
       wr.out("Box::new(move |" false)
@@ -711,6 +715,98 @@ class RangerRustClassWriter {
   ; A name whose type is a function: `f:(fn:int (x:int))`.
   fn rustIsFnTyped:boolean (n:CodeNode) {
     return ((!null? n.expression_value) || (n.value_type == RangerNodeType.ExpressionType))
+  }
+
+  ; Does the method keep its function parameter `name` in a field
+  ; (`field = name`, `this.field = name`)? The closure then outlives the
+  ; call: the parameter is owned, `Box<dyn FnMut(…)>`, the field's own type,
+  ; and a literal handed to it is boxed (rustLambdaArgStored). As a borrow
+  ; it could not be stored at all (EVGHostTextMeasurer.attach).
+  fn rustFnParamStored:boolean (fd:RangerAppFunctionDesc pname:string) {
+    def bO@(optional):CodeNode fd.fnBody
+    if (null? bO) {
+      return false
+    }
+    def body:CodeNode (unwrap bO)
+    def found:boolean false
+    body.forTree({
+      if ((array_length item.children) >= 3) {
+        def h:CodeNode (item.getFirst())
+        if (h.vref == "=") {
+          def l:CodeNode (itemAt item.children 1)
+          def r:CodeNode (itemAt item.children 2)
+          def rName:string r.vref
+          if (((strlen rName) == 0) && ((array_length r.children) == 1)) {
+            def r1:CodeNode (itemAt r.children 0)
+            rName = r1.vref
+          }
+          if (rName == pname) {
+            if ((array_length l.ns) >= 2) {
+              if ((itemAt l.ns 0) == "this") {
+                found = true
+              }
+            }
+            def lpO@(optional):RangerAppParamDesc l.paramDesc
+            if (!null? lpO) {
+              def lp:RangerAppParamDesc (unwrap lpO)
+              if lp.is_class_variable {
+                found = true
+              }
+            }
+          }
+        }
+      }
+    })
+    return found
+  }
+
+  ; Is this lambda literal the argument of a parameter its method stores?
+  ; A lambda node carries no parent, so the call that holds it is looked up
+  ; in the body of the method being written.
+  fn rustLambdaArgStored:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    def mOpt@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+    if (null? mOpt) {
+      return false
+    }
+    def m:RangerAppFunctionDesc (unwrap mOpt)
+    def bO@(optional):CodeNode m.fnBody
+    if (null? bO) {
+      return false
+    }
+    def body:CodeNode (unwrap bO)
+    def calls:[CodeNode]
+    def argIdx:[int]
+    body.forTree({
+      if (!null? item.fnDesc) {
+        for item.children c:CodeNode ci {
+          if (c == node) {
+            push calls item
+            push argIdx (ci - 1)
+          }
+          for c.children c3:CodeNode ci3 {
+            if (c3 == node) {
+              push calls item
+              push argIdx ci3
+            }
+          }
+        }
+      }
+    })
+    for calls call:CodeNode i {
+      def fd:RangerAppFunctionDesc (unwrap call.fnDesc)
+      def idx:int (itemAt argIdx i)
+      if ((idx >= 0) && (idx < (array_length fd.params))) {
+        def prm:RangerAppParamDesc (itemAt fd.params idx)
+        def pnO@(optional):CodeNode prm.nameNode
+        if (!null? pnO) {
+          def pn:CodeNode (unwrap pnO)
+          if (this.rustFnParamStored(fd pn.vref)) {
+            return true
+          }
+        }
+      }
+    }
+    return false
   }
 
   ; The owned closure type, `Box<dyn FnMut(…) -> R>`, of a function-typed name.
@@ -3640,6 +3736,14 @@ class RangerRustClassWriter {
           ; a string and an object alike — which no call site and no `unwrap` in
           ; the body agrees with. An optional LOCAL and an optional RETURN never
           ; went through here, which is why only parameters were wrong.
+          ; a function parameter the method keeps is the field's owned Box
+          if ((this.rustIsFnTyped(nameN)) && (!null? nameN.expression_value)) {
+            if (this.rustFnParamStored(fnDesc nameN.vref)) {
+              wr.out((paramName + ": ") false)
+              this.rustWriteBoxedFnType(nameN ctx wr)
+              continue
+            }
+          }
           if is_object {
             wr.out((rust_mut_pfx + paramName + ": ") false)
           } {

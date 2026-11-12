@@ -162,6 +162,15 @@ describe.skipIf(!rustAvailable)("Ranger Compiler - Rust Target", () => {
     });
   });
 
+  // EVGHostTextMeasurer keeps the platform's measuring function in an
+  // optional field: the stored parameter has to be owned and the field
+  // called through a borrow (a Box<dyn FnMut> has no clone)
+  describe("Closure Fields", () => {
+    it("should store a closure parameter in a field and call it", () => {
+      expectRustOutput("tests/fixtures/rust_closure_field.rgr", ["-1", "42", "2"]);
+    });
+  });
+
   describe("Polyfill Deduplication", () => {
     it("should not duplicate polyfills when on_keypress is used multiple times", () => {
       const result = getGeneratedRustCode("tests/fixtures/polyfill_dedup.rgr");

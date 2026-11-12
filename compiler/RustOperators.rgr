@@ -1651,6 +1651,17 @@ extension RangerRustClassWriter {
           }
         }
       }
+      ; a call on the right is a call like any other: an argument that
+      ; reads through a handle the callee borrows goes to a temporary
+      ; first. `y = this.layoutParagraph(p ml y contentW)` held
+      ; `__self_rc.borrow().content_w` over the callee's borrow_mut; the
+      ; statement and `def` forms already went through this
+      if ((preeval_rhs == false) && ((ctx.expressionLevel()) == 0)) {
+        def asgReal:CodeNode (this.rustUnwrapParens(right))
+        if asgReal.hasFnCall {
+          this.rustExtractSelfCallConflicts(right ctx wr)
+        }
+      }
       if preeval_rhs {
         ; the right side itself may nest a self-call conflict
         ; (`this.f(this.g(...))`) — its inner call goes to a temporary
@@ -2913,10 +2924,24 @@ extension RangerRustClassWriter {
           if (TTypeRegistry.isIntAlias(inner_type)) { unwrap_bare_local = false }
           if (TTypeRegistry.isFloatAlias(inner_type)) { unwrap_bare_local = false }
         }
+        ; an optional closure is Option<Box<dyn FnMut>>, which no clone
+        ; reaches: the closure is borrowed in place, `&mut dyn FnMut`, the
+        ; type a function-typed local has (EVGHostTextMeasurer.metricFn)
+        def unwrapFn:boolean (arg.eval_type == RangerNodeType.ExpressionType)
+        if (arg.value_type == RangerNodeType.ExpressionType) {
+          unwrapFn = true
+        }
+        if (!null? arg.expression_value) {
+          unwrapFn = true
+        }
+        if unwrapFn {
+          wr.out(".as_deref_mut().unwrap()" false)
+        } {
         if (is_self_field || unwrap_bare_local) {
           wr.out(".clone().unwrap()" false)
         } {
           wr.out(".unwrap()" false)
+        }
         }
       }
       ctx.unsetInExpr()

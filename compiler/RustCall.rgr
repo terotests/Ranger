@@ -2512,6 +2512,25 @@ extension RangerRustClassWriter {
             }
           }
         }
+        ; …and an operator expression over such reads — `(itemAt
+        ; kernSubtables i)` — is the same Ref, held as long:
+        ; `TrueTypeFont::pair_advance(__self_rc, __self_rc.borrow()
+        ; .kern_subtables[i], …)` was a borrow over the callee's borrow_mut
+        if (cNeedsTmp == false) {
+          if rust_receiverless_method {
+            if ((cReal.hasFnCall == false) && ((array_length cReal.children) > 0)) {
+              if ((this.rustNodeIsLambda(cReal)) == false) {
+                if ((this.rustNodeContainsCall(cReal)) == false) {
+                  ; an operator's value is its own: no clone after it (a
+                  ; cast followed by `.clone()` does not parse)
+                  if (this.containsSelfReference(cReal)) {
+                    cNeedsTmp = true
+                  }
+                }
+              }
+            }
+          }
+        }
         ; …but an OUT parameter — one the callee takes by `&mut` — must stay
         ; the PLACE it names. Hoisting `slide.shapes` into a local and
         ; handing `&mut` that pushed every parsed shape into a copy nobody
