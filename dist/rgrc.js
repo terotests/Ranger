@@ -41223,6 +41223,19 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             }
           }
         }
+        if ( cNeedsTmp == false ) {
+          if ( this.rust_receiverless_method ) {
+            if ( cReal.hasFnCall == false && cReal.children.length > 0 ) {
+              if ( this.rustNodeIsLambda(cReal) == false ) {
+                if ( this.rustNodeContainsCall(cReal) == false ) {
+                  if ( this.containsSelfReference(cReal) ) {
+                    cNeedsTmp = true;
+                  }
+                }
+              }
+            }
+          }
+        }
         if ( cNeedsTmp ) {
           if ( this.rustArgIsOutParam(real, cI) ) {
             cNeedsTmp = false;
@@ -42838,6 +42851,12 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               preeval_rhs = true;
             }
           }
+        }
+      }
+      if ( preeval_rhs == false && ctx.expressionLevel() == 0 ) {
+        const asgReal = this.rustUnwrapParens(right);
+        if ( asgReal.hasFnCall ) {
+          this.rustExtractSelfCallConflicts(right, ctx, wr);
         }
       }
       if ( preeval_rhs ) {
