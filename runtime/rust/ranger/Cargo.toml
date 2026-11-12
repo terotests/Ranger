@@ -15,6 +15,8 @@ description = "Prelude for strict Rust modules compiled by Ranger"
 [features]
 # ranger::cell::RefCell without the run-time borrow check (src/cell.rs)
 shared-cell = []
+# shared-cell that lists every overlapping borrow instead (src/cell.rs)
+cell-audit = ["shared-cell"]
 
 [dependencies]
 ranger-macros = { path = "macros", version = "0.1.0" }

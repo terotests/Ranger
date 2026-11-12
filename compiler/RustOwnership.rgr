@@ -833,7 +833,33 @@ extension RangerRustClassWriter {
   }
 
   fn fnBodyDirectlyMutatesThis:boolean (node:CodeNode ctx:RangerAppWriterContext) {
-    ; Debug: show every node being checked
+    ; `(unwrap fnField)`: an optional closure field is borrowed in place as
+    ; `&mut dyn FnMut` (calling an FnMut needs it mutable), so the method
+    ; takes `&mut self` (EVGHostTextMeasurer.faceIndex)
+    if ((array_length node.children) == 2) {
+      def uwH:CodeNode (itemAt node.children 0)
+      if (uwH.vref == "unwrap") {
+        def uwA:CodeNode (itemAt node.children 1)
+        def uwName:string uwA.vref
+        if ((array_length uwA.ns) >= 2) {
+          if ((itemAt uwA.ns 0) == "this") {
+            uwName = (itemAt uwA.ns 1)
+          }
+        }
+        if (((strlen uwName) > 0) && (ctx.isVarDefined(uwName))) {
+          def uwD:RangerAppParamDesc (ctx.getVariableDef(uwName))
+          if uwD.is_class_variable {
+            def uwNN@(optional):CodeNode uwD.nameNode
+            if (!null? uwNN) {
+              def uwN:CodeNode (unwrap uwNN)
+              if (!null? uwN.expression_value) {
+                return true
+              }
+            }
+          }
+        }
+      }
+    }
     
     ; Check ns array for optional field access (requires as_mut())
     if (has node.ns) {

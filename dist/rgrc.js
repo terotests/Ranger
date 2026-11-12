@@ -34992,8 +34992,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     const lambdaCtx = node.lambda_ctx;
     const args = node.children[1];
     const body = node.children[2];
-    const boxed = this.rust_lambda_boxed;
+    let boxed = this.rust_lambda_boxed;
     this.rust_lambda_boxed = false;
+    if ( boxed == false && this.rustLambdaArgStored(node, ctx) ) {
+      boxed = true;
+    }
     if ( boxed ) {
       wr.out("Box::new(move |", false);
     } else {
@@ -35024,6 +35027,94 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustIsFnTyped (n) {
     return ((typeof(n.expression_value) !== "undefined" && n.expression_value != null ) ) || n.value_type == 20;
+  };
+  rustFnParamStored (fd, pname) {
+    const bO = fd.fnBody;
+    if ( typeof(bO) === "undefined" ) {
+      return false;
+    }
+    const body = bO;
+    let found = false;
+    body.forTree(((item, i) => { 
+      if ( item.children.length >= 3 ) {
+        const h = item.getFirst();
+        if ( h.vref == "=" ) {
+          const l = item.children[1];
+          const r = item.children[2];
+          let rName = r.vref;
+          if ( rName.length == 0 && r.children.length == 1 ) {
+            const r1 = r.children[0];
+            rName = r1.vref;
+          }
+          if ( rName == pname ) {
+            if ( l.ns.length >= 2 ) {
+              if ( l.ns[0] == "this" ) {
+                found = true;
+              }
+            }
+            const lpO = l.paramDesc;
+            if ( (typeof(lpO) !== "undefined" && lpO != null )  ) {
+              const lp = lpO;
+              if ( lp.is_class_variable ) {
+                found = true;
+              }
+            }
+          }
+        }
+      }
+    }));
+    return found;
+  };
+  rustLambdaArgStored (node, ctx) {
+    const mOpt = ctx.getCurrentMethod();
+    if ( typeof(mOpt) === "undefined" ) {
+      return false;
+    }
+    const m = mOpt;
+    const bO = m.fnBody;
+    if ( typeof(bO) === "undefined" ) {
+      return false;
+    }
+    const body = bO;
+    let calls = [];
+    let argIdx = [];
+    body.forTree(((item, i) => { 
+      if ( (typeof(item.fnDesc) !== "undefined" && item.fnDesc != null )  ) {
+        // Loop start
+        for ( let ci = 0; ci < item.children.length; ci++) {
+          var c = item.children[ci];
+          if ( c == node ) {
+            calls.push(item);
+            argIdx.push(ci - 1);
+          }
+          // Loop start
+          for ( let ci3 = 0; ci3 < c.children.length; ci3++) {
+            var c3 = c.children[ci3];
+            if ( c3 == node ) {
+              calls.push(item);
+              argIdx.push(ci3);
+            }
+          }
+        }
+      }
+    }));
+    // Loop start
+    for ( let i = 0; i < calls.length; i++) {
+      var call = calls[i];
+      const fd = call.fnDesc;
+      const idx = argIdx[i];
+      if ( idx >= 0 && idx < fd.params.length ) {
+        const prm = fd.params[idx];
+        const pnO = prm.nameNode;
+        if ( (typeof(pnO) !== "undefined" && pnO != null )  ) {
+          const pn = pnO;
+          if ( this.rustFnParamStored(fd, pn.vref) ) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   };
   rustWriteBoxedFnType (n, ctx, wr) {
     const prev = this.rust_writing_field_type;
@@ -37198,6 +37289,13 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             }
           }
         } else {
+          if ( this.rustIsFnTyped(nameN) && ((typeof(nameN.expression_value) !== "undefined" && nameN.expression_value != null ) ) ) {
+            if ( this.rustFnParamStored(fnDesc, nameN.vref) ) {
+              wr.out(paramName + ": ", false);
+              this.rustWriteBoxedFnType(nameN, ctx, wr);
+              continue;
+            }
+          }
           if ( is_object ) {
             wr.out((rust_mut_pfx + paramName) + ": ", false);
           } else {
@@ -38128,6 +38226,30 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     return false;
   };
   fnBodyDirectlyMutatesThis (node, ctx) {
+    if ( node.children.length == 2 ) {
+      const uwH = node.children[0];
+      if ( uwH.vref == "unwrap" ) {
+        const uwA = node.children[1];
+        let uwName = uwA.vref;
+        if ( uwA.ns.length >= 2 ) {
+          if ( uwA.ns[0] == "this" ) {
+            uwName = uwA.ns[1];
+          }
+        }
+        if ( uwName.length > 0 && ctx.isVarDefined(uwName) ) {
+          const uwD = ctx.getVariableDef(uwName);
+          if ( uwD.is_class_variable ) {
+            const uwNN = uwD.nameNode;
+            if ( (typeof(uwNN) !== "undefined" && uwNN != null )  ) {
+              const uwN = uwNN;
+              if ( (typeof(uwN.expression_value) !== "undefined" && uwN.expression_value != null )  ) {
+                return true;
+              }
+            }
+          }
+        }
+      }
+    }
     if ( node.ns.length > 0 ) {
       if ( node.ns.length > 0 ) {
         const firstPart = node.ns[0];
@@ -43759,10 +43881,21 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             unwrap_bare_local = false;
           }
         }
-        if ( is_self_field || unwrap_bare_local ) {
-          wr.out(".clone().unwrap()", false);
+        let unwrapFn = arg_3.eval_type == 20;
+        if ( arg_3.value_type == 20 ) {
+          unwrapFn = true;
+        }
+        if ( (typeof(arg_3.expression_value) !== "undefined" && arg_3.expression_value != null )  ) {
+          unwrapFn = true;
+        }
+        if ( unwrapFn ) {
+          wr.out(".as_deref_mut().unwrap()", false);
         } else {
-          wr.out(".unwrap()", false);
+          if ( is_self_field || unwrap_bare_local ) {
+            wr.out(".clone().unwrap()", false);
+          } else {
+            wr.out(".unwrap()", false);
+          }
         }
       }
       ctx.unsetInExpr();

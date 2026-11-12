@@ -1,0 +1,35 @@
+; Test: a closure kept in an optional field (EVGHostTextMeasurer.metricFn)
+; The parameter that is stored is an owned Box, the literal handed to it is
+; boxed, and the field is called through a borrow, not a clone.
+; Expected: -1 then 42 then 2
+
+class ClosureHolder {
+    def fnv@(optional):(fn:int (x:int))
+    def calls:int 0
+
+    fn attach:void (f:(fn:int (x:int))) {
+        fnv = f
+    }
+
+    fn run:int (x:int) {
+        if (null? fnv) {
+            return (0 - 1)
+        }
+        def f:(fn:int (x:int)) (unwrap fnv)
+        calls = (calls + 1)
+        return (f(x))
+    }
+}
+
+class Test_ClosureField {
+    sfn m@(main):void () {
+        def h (new ClosureHolder())
+        print (to_string (h.run(1)))
+        h.attach((fn:int (x:int) {
+            return (x * 2)
+        }))
+        print (to_string (h.run(21)))
+        h.run(2)
+        print (to_string h.calls)
+    }
+}
