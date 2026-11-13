@@ -5531,7 +5531,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 go ( "!" (goset 1 ) ".has_value " )             
                 kotlin ((e 1) "== null")     
                 dart ((e 1) " == null")
-                es6 (  "typeof(" ( e 1 ) ") === \"undefined\"")
+                es6 ( "(" ( e 1 ) " == null)" )
                 python ((e 1) " is None")
                 * ((e 1) "== null")
             }
@@ -6330,8 +6330,42 @@ static bool r_regex_test_i(string pattern, string s) {
 // A charbuffer is a buffer of BYTES, so it is a Uint8Array here
 // rather than the string it used to be. One encoder and one decoder for the
 // process: constructing them per call is most of the cost of a short slice.
-const r_cb_enc = new TextEncoder();
-const r_cb_dec = new TextDecoder();
+// They are made on first use, and where the host has no TextEncoder (an
+// embedded engine) a plain UTF-8 coder stands in.
+const r_cb_enc = { e: null, encode: function (s) {
+  if (this.e === null) this.e = typeof TextEncoder !== 'undefined' ? new TextEncoder() : false;
+  if (this.e) return this.e.encode(s);
+  var out = [];
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i);
+    if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length) {
+      var d = s.charCodeAt(i + 1);
+      if (d >= 0xdc00 && d < 0xe000) { c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00); i++; }
+    }
+    if (c < 0x80) out.push(c);
+    else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+    else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+    else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+  }
+  return new Uint8Array(out);
+} };
+const r_cb_dec = { d: null, decode: function (b) {
+  if (this.d === null) this.d = typeof TextDecoder !== 'undefined' ? new TextDecoder() : false;
+  if (this.d) return this.d.decode(b);
+  var s = '';
+  for (var i = 0; i < b.length;) {
+    var c = b[i++];
+    if (c >= 0xf0) {
+      c = (((c & 7) << 18) | ((b[i++] & 63) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63)) - 0x10000;
+      s += String.fromCharCode(0xd800 + (c >> 10), 0xdc00 + (c & 1023));
+      continue;
+    }
+    if (c >= 0xe0) c = ((c & 15) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63);
+    else if (c >= 0xc0) c = ((c & 31) << 6) | (b[i++] & 63);
+    s += String.fromCharCode(c);
+  }
+  return s;
+} };
 ")
                 )
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")") 
@@ -6359,8 +6393,42 @@ const r_cb_dec = new TextDecoder();
 // A charbuffer is a buffer of BYTES, so it is a Uint8Array here
 // rather than the string it used to be. One encoder and one decoder for the
 // process: constructing them per call is most of the cost of a short slice.
-const r_cb_enc = new TextEncoder();
-const r_cb_dec = new TextDecoder();
+// They are made on first use, and where the host has no TextEncoder (an
+// embedded engine) a plain UTF-8 coder stands in.
+const r_cb_enc = { e: null, encode: function (s) {
+  if (this.e === null) this.e = typeof TextEncoder !== 'undefined' ? new TextEncoder() : false;
+  if (this.e) return this.e.encode(s);
+  var out = [];
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i);
+    if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length) {
+      var d = s.charCodeAt(i + 1);
+      if (d >= 0xdc00 && d < 0xe000) { c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00); i++; }
+    }
+    if (c < 0x80) out.push(c);
+    else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+    else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+    else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+  }
+  return new Uint8Array(out);
+} };
+const r_cb_dec = { d: null, decode: function (b) {
+  if (this.d === null) this.d = typeof TextDecoder !== 'undefined' ? new TextDecoder() : false;
+  if (this.d) return this.d.decode(b);
+  var s = '';
+  for (var i = 0; i < b.length;) {
+    var c = b[i++];
+    if (c >= 0xf0) {
+      c = (((c & 7) << 18) | ((b[i++] & 63) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63)) - 0x10000;
+      s += String.fromCharCode(0xd800 + (c >> 10), 0xdc00 + (c & 1023));
+      continue;
+    }
+    if (c >= 0xe0) c = ((c & 15) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63);
+    else if (c >= 0xc0) c = ((c & 31) << 6) | (b[i++] & 63);
+    s += String.fromCharCode(c);
+  }
+  return s;
+} };
 ")
                 )
                 rust ( "String::from_utf8_lossy(&" (e 1) ").to_string()" )
@@ -6387,8 +6455,42 @@ const r_cb_dec = new TextDecoder();
 // A charbuffer is a buffer of BYTES, so it is a Uint8Array here
 // rather than the string it used to be. One encoder and one decoder for the
 // process: constructing them per call is most of the cost of a short slice.
-const r_cb_enc = new TextEncoder();
-const r_cb_dec = new TextDecoder();
+// They are made on first use, and where the host has no TextEncoder (an
+// embedded engine) a plain UTF-8 coder stands in.
+const r_cb_enc = { e: null, encode: function (s) {
+  if (this.e === null) this.e = typeof TextEncoder !== 'undefined' ? new TextEncoder() : false;
+  if (this.e) return this.e.encode(s);
+  var out = [];
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i);
+    if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length) {
+      var d = s.charCodeAt(i + 1);
+      if (d >= 0xdc00 && d < 0xe000) { c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00); i++; }
+    }
+    if (c < 0x80) out.push(c);
+    else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+    else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+    else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+  }
+  return new Uint8Array(out);
+} };
+const r_cb_dec = { d: null, decode: function (b) {
+  if (this.d === null) this.d = typeof TextDecoder !== 'undefined' ? new TextDecoder() : false;
+  if (this.d) return this.d.decode(b);
+  var s = '';
+  for (var i = 0; i < b.length;) {
+    var c = b[i++];
+    if (c >= 0xf0) {
+      c = (((c & 7) << 18) | ((b[i++] & 63) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63)) - 0x10000;
+      s += String.fromCharCode(0xd800 + (c >> 10), 0xdc00 + (c & 1023));
+      continue;
+    }
+    if (c >= 0xe0) c = ((c & 15) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63);
+    else if (c >= 0xc0) c = ((c & 31) << 6) | (b[i++] & 63);
+    s += String.fromCharCode(c);
+  }
+  return s;
+} };
 ")
                 )
                 rust ( "String::from_utf8_lossy(&" (e 1) ").to_string()" )
@@ -6678,8 +6780,42 @@ function r_char_length(s) {
 // A charbuffer is a buffer of BYTES, so it is a Uint8Array here
 // rather than the string it used to be. One encoder and one decoder for the
 // process: constructing them per call is most of the cost of a short slice.
-const r_cb_enc = new TextEncoder();
-const r_cb_dec = new TextDecoder();
+// They are made on first use, and where the host has no TextEncoder (an
+// embedded engine) a plain UTF-8 coder stands in.
+const r_cb_enc = { e: null, encode: function (s) {
+  if (this.e === null) this.e = typeof TextEncoder !== 'undefined' ? new TextEncoder() : false;
+  if (this.e) return this.e.encode(s);
+  var out = [];
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i);
+    if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length) {
+      var d = s.charCodeAt(i + 1);
+      if (d >= 0xdc00 && d < 0xe000) { c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00); i++; }
+    }
+    if (c < 0x80) out.push(c);
+    else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+    else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+    else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+  }
+  return new Uint8Array(out);
+} };
+const r_cb_dec = { d: null, decode: function (b) {
+  if (this.d === null) this.d = typeof TextDecoder !== 'undefined' ? new TextDecoder() : false;
+  if (this.d) return this.d.decode(b);
+  var s = '';
+  for (var i = 0; i < b.length;) {
+    var c = b[i++];
+    if (c >= 0xf0) {
+      c = (((c & 7) << 18) | ((b[i++] & 63) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63)) - 0x10000;
+      s += String.fromCharCode(0xd800 + (c >> 10), 0xdc00 + (c & 1023));
+      continue;
+    }
+    if (c >= 0xe0) c = ((c & 15) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63);
+    else if (c >= 0xc0) c = ((c & 31) << 6) | (b[i++] & 63);
+    s += String.fromCharCode(c);
+  }
+  return s;
+} };
 ")
                 )
                 * ( (e 1) )

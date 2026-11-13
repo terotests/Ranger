@@ -754,6 +754,44 @@ extension CodeNode {
       def np:CodeNode (oldp.rebuildWithType(match changeVref))
       set newNode.props key np
     }
+    ; A walked array literal holds its elements as its children and only the
+    ; is_array_literal mark says what they are; a plain copy would be a bare
+    ; list of elements (ISSUES.md #85, #106). The copy is the unwalked form
+    ; again, `([] _:T (a b))`, which the next walk analyses whole.
+    if is_array_literal {
+      def elemT:string (match.getTypeName(eval_array_type))
+      def useMarker:boolean false
+      if (((strlen elemT) > 0) && (elemT != "Any")) {
+        if ((indexOf elemT "[") < 0) {
+          useMarker = true
+        }
+      }
+      if (useMarker || ((array_length children) > 0)) {
+        def litHead:CodeNode (this.newVRefNode("[]"))
+        litHead.parent = newNode
+        push newNode.children litHead
+        def items:CodeNode (this.newExpressionNode())
+        for children ach:CodeNode ai {
+          def newACh:CodeNode (ach.rebuildWithType(match changeVref))
+          newACh.parent = items
+          push items.children newACh
+        }
+        if useMarker {
+          def marker:CodeNode (this.newVRefNode("_"))
+          marker.type_name = elemT
+          marker.parent = newNode
+          push newNode.children marker
+          items.parent = newNode
+          push newNode.children items
+        } {
+          for items.children ich:CodeNode ii {
+            ich.parent = newNode
+            push newNode.children ich
+          }
+        }
+        return newNode
+      }
+    }
     for children ch:CodeNode i {
       def newCh:CodeNode (ch.rebuildWithType(match changeVref))
       newCh.parent = newNode
