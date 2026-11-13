@@ -1,0 +1,38 @@
+; ISSUES.md #106: an array literal handed to a shape case's constructor,
+; where the case is stored into the union type (`convertToUnion` copies the
+; walked `new`).
+shape Sample {
+  case Points {
+    def xs:[double]
+  }
+  case Names {
+    def names:[string]
+  }
+  case Scale {
+    def f:double 0.0
+  }
+}
+
+class Main {
+  sfn count:int (s:Sample) {
+    case s p:Sample.Points {
+      return (array_length p.xs)
+    }
+    case s n:Sample.Names {
+      return (array_length n.names)
+    }
+    return -1
+  }
+  sfn m@(main):void () {
+    def a:Sample (new Sample.Points(([] _:double (1.0 2.0))))
+    print ("typed=" + (Main.count(a)))
+    def b:Sample (new Sample.Points(([] _:double ())))
+    print ("empty=" + (Main.count(b)))
+    def c:Sample (new Sample.Names(([] "x" "y" "z")))
+    print ("untyped=" + (Main.count(c)))
+    def d:Sample (new Sample.Points(([] _:double (4.0))))
+    print ("one=" + (Main.count(d)))
+    d = (new Sample.Names(([] _:string ("p" "q"))))
+    print ("assigned=" + (Main.count(d)))
+  }
+}

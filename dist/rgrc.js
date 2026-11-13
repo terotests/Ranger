@@ -5827,6 +5827,42 @@ class CodeNode  {
       const np = oldp.rebuildWithType(match, changeVref);
       newNode.props[key] = np;
     }
+    if ( this.is_array_literal ) {
+      const elemT = match.getTypeName(this.eval_array_type);
+      let useMarker = false;
+      if ( elemT.length > 0 && elemT != "Any" ) {
+        if ( elemT.indexOf("[") < 0 ) {
+          useMarker = true;
+        }
+      }
+      if ( useMarker || this.children.length > 0 ) {
+        const litHead = this.newVRefNode("[]");
+        litHead.parent = newNode;
+        newNode.children.push(litHead);
+        const items = this.newExpressionNode();
+        // Loop start
+        for ( const ach of this.children) {
+          const newACh = ach.rebuildWithType(match, changeVref);
+          newACh.parent = items;
+          items.children.push(newACh);
+        }
+        if ( useMarker ) {
+          const marker = this.newVRefNode("_");
+          marker.type_name = elemT;
+          marker.parent = newNode;
+          newNode.children.push(marker);
+          items.parent = newNode;
+          newNode.children.push(items);
+        } else {
+          // Loop start
+          for ( const ich of items.children) {
+            ich.parent = newNode;
+            newNode.children.push(ich);
+          }
+        }
+        return newNode;
+      }
+    }
     // Loop start
     for ( const ch of this.children) {
       const newCh = ch.rebuildWithType(match, changeVref);
