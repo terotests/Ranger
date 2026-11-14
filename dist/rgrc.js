@@ -2628,6 +2628,9 @@ class RangerDocCommentWriter  {
     };
     return out;
   };
+  kdocText (text) {
+    return text.split("/*").join("&#47;*").split("*/").join("*&#47;");
+  };
   writeKotlinDoc (doc, retType, params, wr) {
     wr.out("/**", true);
     const descLines = this.linesOf(doc.description);
@@ -2637,7 +2640,7 @@ class RangerDocCommentWriter  {
       if ( line.length == 0 ) {
         wr.out(" *", true);
       } else {
-        wr.out(" * " + line, true);
+        wr.out(" * " + this.kdocText(line), true);
       }
       wroteBody = true;
     }
@@ -2655,7 +2658,7 @@ class RangerDocCommentWriter  {
         if ( wroteBody && wroteTag == false ) {
           wr.out(" *", true);
         }
-        wr.out(((" * @param " + p.compiledName) + " ") + p.description, true);
+        wr.out(this.kdocText((((" * @param " + p.compiledName) + " ") + p.description)), true);
         wroteTag = true;
       }
     }
@@ -2665,13 +2668,13 @@ class RangerDocCommentWriter  {
         if ( wroteBody && wroteTag == false ) {
           wr.out(" *", true);
         }
-        wr.out(" * @return " + doc.returns, true);
+        wr.out(this.kdocText((" * @return " + doc.returns)), true);
         wroteTag = true;
       }
     }
     // Loop start
     for ( const t of doc.throws) {
-      wr.out(" * @throws Exception " + t, true);
+      wr.out(this.kdocText((" * @throws Exception " + t)), true);
       wroteTag = true;
     }
     if ( doc.since.length > 0 ) {
@@ -2680,7 +2683,7 @@ class RangerDocCommentWriter  {
     }
     // Loop start
     for ( const sname of doc.see) {
-      wr.out(" * @see " + sname, true);
+      wr.out(this.kdocText((" * @see " + sname)), true);
       wroteTag = true;
     }
     // Loop start
@@ -2691,7 +2694,7 @@ class RangerDocCommentWriter  {
       const exLines = this.linesOf(e);
       // Loop start
       for ( const line_1 of exLines) {
-        wr.out(" * " + line_1, true);
+        wr.out(" * " + this.kdocText(line_1), true);
       }
       wr.out(" * ```", true);
     }
@@ -48168,9 +48171,29 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       wr.out(")", false);
     }
   };
+  ktEmptyCaseTwin (cl, ctx) {
+    if ( ((cl.is_interface || cl.is_trait) || cl.is_system) || cl.is_extended_by_children ) {
+      return false;
+    }
+    if ( ((cl.variables.length > 0 || cl.static_methods.length > 0) || cl.defined_variants.length > 0) || cl.extends_classes.length > 0 ) {
+      return false;
+    }
+    const low = cl.name.toLowerCase();
+    const root = ctx.getRoot();
+    // Loop start
+    for ( const n of root.definedClassList) {
+      if ( n != cl.name && n.toLowerCase() == low ) {
+        return true;
+      }
+    }
+    return false;
+  };
   writeClass (node, ctx, orig_wr) {
     const cl = node.clDesc;
     if ( (cl == null) ) {
+      return;
+    }
+    if ( this.ktEmptyCaseTwin(cl, ctx) ) {
       return;
     }
     let declaredFunction = {};

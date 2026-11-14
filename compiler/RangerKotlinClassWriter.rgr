@@ -955,9 +955,35 @@ class RangerKotlinClassWriter {
   ; types sit in the default package is not one anybody can depend on.
   def kotlin_package_written:boolean false
 
+  ; A JVM class file is named after its class, and the file systems of macOS
+  ; and Windows fold case: an empty module class `JpegReader` (a Rust module
+  ; jpeg_reader.rs with no free functions) and the class `JPEGReader` compile
+  ; to one .class file, and d8 refuses it ("Class content provided for type
+  ; descriptor JPEGReader actually defines class JpegReader"). A class with
+  ; nothing in it that folds onto another class's name is not written.
+  fn ktEmptyCaseTwin:boolean (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if (cl.is_interface || cl.is_trait || cl.is_system || cl.is_extended_by_children) {
+      return false
+    }
+    if (((array_length cl.variables) > 0) || ((array_length cl.static_methods) > 0) || ((array_length cl.defined_variants) > 0) || ((array_length cl.extends_classes) > 0)) {
+      return false
+    }
+    def low:string (to_lowercase cl.name)
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClassList n:string i {
+      if ((n != cl.name) && ((to_lowercase n) == low)) {
+        return true
+      }
+    }
+    return false
+  }
+
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
+      return
+    }
+    if (this.ktEmptyCaseTwin((unwrap cl) ctx)) {
       return
     }
     def declaredFunction:[string:boolean]
