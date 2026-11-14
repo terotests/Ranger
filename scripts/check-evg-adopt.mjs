@@ -58,6 +58,12 @@ const EXPECTED_SKIPS = {
   ringsScale: "derived — the scale the cache was flattened at",
   ringsViewBox: "derived — the viewBox the cache was flattened under",
   ringsFit: "derived — the preserveAspectRatio the cache was flattened under",
+  altForce: "in-flight — set only during EVGLayout.relayoutAlt's own call",
+  fragSlot: "the display list's note of where this element's fragment is, validated against its own list",
+  colPlaceOf: "derived — the grid-column the cached placement was parsed from, which validates it",
+  colPlace: "derived — the parsed grid-column, re-parsed when gridColumn differs",
+  rowPlaceOf: "derived — the grid-row the cached placement was parsed from, which validates it",
+  rowPlace: "derived — the parsed grid-row, re-parsed when gridRow differs",
 };
 
 const src = fs.readFileSync(FILE, "utf8").split("\n");
