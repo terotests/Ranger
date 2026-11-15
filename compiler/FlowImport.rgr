@@ -332,6 +332,7 @@ extension RangerFlowParser {
         def modBase:string importFileDir
         def modName:string (RustLower.baseName(import_file))
         rl.setTarget((ctx.getCompilerSetting("l")))
+        rl.setFeatures((ctx.getCompilerSetting("features")) (ctx.hasCompilerFlag("no-default-features")))
         ; a second crate in the program: the generated classes the earlier
         ; ones wrote are reused, and its clone helpers get their own class
         def genDone:[string:boolean]
@@ -354,6 +355,9 @@ extension RangerFlowParser {
         ; crate's clone helpers took the second's class name and replaced it
         def crateKey:string (? ((strlen importFolded) > 0) importFolded import_file)
         set ctx.already_imported ("@rscrate:" + crateKey) true
+        if (modBase != "") {
+          RustCrateLoader.entryFeatures(rl env modBase modName)
+        }
         rl.begin(source_code modName)
         rl.setEntryName(import_file)
         if (modBase != "") {

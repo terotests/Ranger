@@ -716,6 +716,12 @@ through the loader.
   last module first, so a re-export is known before a module using it.
 - `#[cfg(test)]` items are left out, so a library's `mod tests` does not
   reach the other targets.
+- **Cargo features**: an item (a `mod x;` too) with `#[cfg(feature = "x")]`
+  is kept when `x` is on, one with `#[cfg(not(feature = "x"))]` when it is
+  off. On are the `[features] default` lists of the crates read (the entry
+  crate's before its first file), unless `-no-default-features`, and the
+  ones `-features=a,b` names. The features of all crates are one set, so two
+  crates that use one feature name share it (fixture `rust_cargo/c2_features`).
 
 Limits: types are global by name (§9.4), so two crates that both declare
 `Error` are refused; one crate under two names (a rename in one dependent,
