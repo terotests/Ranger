@@ -805,6 +805,10 @@ class tester {
           rl.setTarget("es6")
         }
       }
+      ; Cargo features: -features=a,b, -no-default-features
+      def featOpt@(optional):string (params.getParam("features"))
+      rl.setFeatures((?? featOpt "") (has params.flags "no-default-features"))
+      RustCrateLoader.entryFeatures(rl env theFilePath the_file)
       ; the `mod x;` files, then the Cargo.toml dependencies (R6, §9.6)
       rl.begin(mainSource the_file)
       RustCrateLoader.load(rl env theFilePath the_file)

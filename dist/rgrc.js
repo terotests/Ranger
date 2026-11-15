@@ -25319,6 +25319,7 @@ class RangerFlowParser  {
         const modBase = importFileDir;
         const modName = RustLower.baseName(import_file);
         rl.setTarget(ctx.getCompilerSetting("l"));
+        rl.setFeatures(ctx.getCompilerSetting("features"), ctx.hasCompilerFlag("no-default-features"));
         let genDone = {};
         const genSeen = Object.keys(ctx.already_imported);
         let nCrates = 0;
@@ -25337,6 +25338,9 @@ class RangerFlowParser  {
         }
         const crateKey = (importFolded.length > 0) ? importFolded : import_file;
         ctx.already_imported["@rscrate:" + crateKey] = true;
+        if ( modBase != "" ) {
+          RustCrateLoader.entryFeatures(rl, env, modBase, modName);
+        }
         rl.begin(source_code, modName);
         rl.setEntryName(import_file);
         if ( modBase != "" ) {
@@ -91023,6 +91027,8 @@ class RustLower  {
     this.jsonN = 0;
     this.nativeN = 0;
     this.target = "";
+    this.features = [];
+    this.noDefaultFeatures = false;
     this.declLate = false;
     this.pendingFiles = [];
     this.pendingScan = [];
@@ -91328,6 +91334,34 @@ class RustLower  {
   setTarget (t) {
     this.target = t;
   };
+  setFeatures (list, noDefault) {
+    this.noDefaultFeatures = noDefault;
+    const parts = list.split(",");
+    // Loop start
+    for ( const part of parts) {
+      this.enableFeature(part.trim());
+    }
+  };
+  addDefaultFeatures (list) {
+    if ( this.noDefaultFeatures ) {
+      return;
+    }
+    // Loop start
+    for ( const f of list) {
+      this.enableFeature(f);
+    }
+  };
+  enableFeature (f) {
+    if ( f == "" ) {
+      return;
+    }
+    if ( this.features.indexOf(f) < 0 ) {
+      this.features.push(f);
+    }
+  };
+  featureOn (f) {
+    return this.features.indexOf(f) >= 0;
+  };
   targetKeeps (it) {
     // Loop start
     for ( const a of it.attrs) {
@@ -91336,6 +91370,19 @@ class RustLower  {
       }
       if ( a.name == "cfg" && a.value.split(" ").join("") == "(not(ranger))" ) {
         return false;
+      }
+      if ( a.name == "cfg" ) {
+        const cv = a.value.split(" ").join("");
+        const fon = RustLower.featureOf(cv);
+        if ( fon != "" && false == this.featureOn(fon) ) {
+          return false;
+        }
+        if ( cv.startsWith("(not(") && cv.length > 6 ) {
+          const foff = RustLower.featureOf(cv.substring(4, cv.length - 1 ));
+          if ( foff != "" && this.featureOn(foff) ) {
+            return false;
+          }
+        }
       }
       if ( a.name != "ranger::target" && a.name != "target" ) {
         continue;
@@ -102553,6 +102600,16 @@ RustLower.normPath = function(path) {
   }
   return out.join("/");
 };
+RustLower.featureOf = function(v) {
+  if ( v.startsWith("(feature=") == false ) {
+    return "";
+  }
+  const inner = v.substring(9, v.length - 1 );
+  if ( inner.length < 2 ) {
+    return "";
+  }
+  return inner.substring(1, inner.length - 1 );
+};
 RustLower.targetAlias = function(t) {
   if ( t == "js" || t == "javascript" ) {
     return "es6";
@@ -102586,6 +102643,7 @@ class RsCargoManifest  {
     this.libName = "";
     this.libPath = "";
     this.deps = [];
+    this.defaultFeatures = [];
   }
   dep (key) {
     const name = RsCargoToml.unquote(key).split("-").join("_");
@@ -102661,6 +102719,12 @@ RsCargoToml.parse = function(src) {
       }
       continue;
     }
+    if ( section == "features" ) {
+      if ( key == "default" ) {
+        m.defaultFeatures = RsCargoToml.stringArray(val);
+      }
+      continue;
+    }
     if ( section == "dependencies" ) {
       const dot = RsCargoToml.findTop(key, 46);
       if ( dot > 0 ) {
@@ -102686,6 +102750,23 @@ RsCargoToml.parse = function(src) {
     }
   };
   return m;
+};
+RsCargoToml.stringArray = function(val) {
+  let out = [];
+  const v = val.trim();
+  if ( v.length < 2 ) {
+    return out;
+  }
+  const inner = v.substring(1, v.length - 1 );
+  const parts = inner.split(",");
+  // Loop start
+  for ( const part of parts) {
+    const name = RsCargoToml.unquote(part.trim());
+    if ( name != "" ) {
+      out.push(name);
+    }
+  }
+  return out;
 };
 RsCargoToml.setField = function(d, key, val) {
   const k = RsCargoToml.unquote(key);
@@ -102862,6 +102943,7 @@ RustCrateLoader.load = function(rl, env, base, entry) {
         continue;
       }
       const dm = RustCrateLoader.readManifest(env, base, depDir);
+      rl.addDefaultFeatures(dm.defaultFeatures);
       let libPath = "src/lib.rs";
       if ( dm.libPath != "" ) {
         libPath = dm.libPath;
@@ -102890,6 +102972,14 @@ RustCrateLoader.load = function(rl, env, base, entry) {
       queue.push(depDir);
     }
   };
+};
+RustCrateLoader.entryFeatures = function(rl, env, base, entry) {
+  const dir = RustCrateLoader.findManifest(env, base, RustLower.dirOf(entry));
+  if ( dir == "?" ) {
+    return;
+  }
+  const man = RustCrateLoader.readManifest(env, base, dir);
+  rl.addDefaultFeatures(man.defaultFeatures);
 };
 RustCrateLoader.readModules = function(rl, env, base) {
   while (rl.hasPendingModule()) {
@@ -103289,6 +103379,9 @@ class VirtualCompiler  {
           rl.setTarget("es6");
         }
       }
+      const featOpt = params.getParam("features");
+      rl.setFeatures((featOpt ?? ""), ( typeof(params.flags["no-default-features"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-default-features") ));
+      RustCrateLoader.entryFeatures(rl, env, theFilePath, the_file);
       rl.begin(mainSource, the_file);
       RustCrateLoader.load(rl, env, theFilePath, the_file);
       mainSource = rl.finish();

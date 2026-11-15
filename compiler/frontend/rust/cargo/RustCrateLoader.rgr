@@ -45,6 +45,9 @@ class RustCrateLoader {
           continue
         }
         def dm:RsCargoManifest (RustCrateLoader.readManifest(env base depDir))
+        ; (its default features, before its files are read: a
+        ; `#[cfg(feature = "…")]` item or `mod` is kept by them, RustLower)
+        rl.addDefaultFeatures(dm.defaultFeatures)
         def libPath:string "src/lib.rs"
         if (dm.libPath != "") {
           libPath = dm.libPath
@@ -74,6 +77,17 @@ class RustCrateLoader {
         push queue depDir
       }
     }
+  }
+
+  ; The entry crate's `[features] default`, before RustLower.begin reads
+  ; its first file: `#[cfg(feature = "…")]` items are kept by them.
+  sfn entryFeatures:void (rl:RustLower env:InputEnv base:string entry:string) {
+    def dir:string (RustCrateLoader.findManifest(env base (RustLower.dirOf(entry))))
+    if (dir == "?") {
+      return
+    }
+    def man:RsCargoManifest (RustCrateLoader.readManifest(env base dir))
+    rl.addDefaultFeatures(man.defaultFeatures)
   }
 
   ; `mod x;` reads x.rs or x/mod.rs beside the declaring file (R6)

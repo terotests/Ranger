@@ -64,6 +64,10 @@ class RustLower {
   def nativeN:int 0
   ; the target being compiled for (`es6`, `cpp`, …), for `#[ranger::target]`
   def target:string ""
+  ; Cargo features `#[cfg(feature = "x")]` sees: the crates' `[features]
+  ; default` lists (unless -no-default-features) and -features=a,b
+  def features:[string]
+  def noDefaultFeatures:boolean false
   def declLate:boolean false
   ; the file itself for an `import_rgr!`, "" for a `mod x;`
   def pendingFiles:[string]
@@ -525,6 +529,50 @@ class RustLower {
     target = t
   }
 
+  ; -features=a,b and -no-default-features, as cargo takes them
+  fn setFeatures:void (list:string noDefault:boolean) {
+    noDefaultFeatures = noDefault
+    def parts:[string] (strsplit list ",")
+    for parts part:string pi {
+      this.enableFeature((trim part))
+    }
+  }
+
+  ; a crate's `[features] default`: on unless -no-default-features
+  fn addDefaultFeatures:void (list:[string]) {
+    if noDefaultFeatures {
+      return
+    }
+    for list f:string fi {
+      this.enableFeature(f)
+    }
+  }
+
+  fn enableFeature:void (f:string) {
+    if (f == "") {
+      return
+    }
+    if ((indexOf features f) < 0) {
+      push features f
+    }
+  }
+
+  fn featureOn:boolean (f:string) {
+    return ((indexOf features f) >= 0)
+  }
+
+  ; `(feature="x")` -> x, else ""
+  sfn featureOf:string (v:string) {
+    if ((startsWith v "(feature=") == false) {
+      return ""
+    }
+    def inner:string (substring v 9 ((strlen v) - 1))
+    if ((strlen inner) < 2) {
+      return ""
+    }
+    return (substring inner 1 ((strlen inner) - 1))
+  }
+
   ; `#[ranger::target(es6, python)]` on an item or a method: the item is
   ; there only when compiling for one of those targets (R7). rustc builds the
   ; Rust target, and the prelude's `target` macro keeps the item only when
@@ -540,6 +588,21 @@ class RustLower {
       ; that Ranger reads from the .rgr files themselves
       if ((a.name == "cfg") && ((join (strsplit a.value " ") "") == "(not(ranger))")) {
         return false
+      }
+      ; `#[cfg(feature = "x")]` / `#[cfg(not(feature = "x"))]`: a Cargo
+      ; feature, on by the crate's default list or -features
+      if (a.name == "cfg") {
+        def cv:string (join (strsplit a.value " ") "")
+        def fon:string (RustLower.featureOf(cv))
+        if ((fon != "") && (false == (this.featureOn(fon)))) {
+          return false
+        }
+        if ((startsWith cv "(not(") && ((strlen cv) > 6)) {
+          def foff:string (RustLower.featureOf((substring cv 4 ((strlen cv) - 1))))
+          if ((foff != "") && (this.featureOn(foff))) {
+            return false
+          }
+        }
       }
       if ((a.name != "ranger::target") && (a.name != "target")) {
         continue

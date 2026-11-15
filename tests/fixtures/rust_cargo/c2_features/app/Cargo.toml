@@ -1,0 +1,19 @@
+[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+zones = { path = "../zones" }
+ranger = { path = "../../../../../runtime/rust/ranger" }
+
+[features]
+default = ["long"]
+long = []
+short = []
+
+[profile.dev]
+overflow-checks = false
+
+[workspace]

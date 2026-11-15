@@ -26,6 +26,8 @@ class RsCargoManifest {
   def libName:string ""
   def libPath:string ""
   def deps:[RsCargoDep]
+  ; `[features] default = [...]`
+  def defaultFeatures:[string]
 
   fn dep:RsCargoDep (key:string) {
     def name:string (replace (RsCargoToml.unquote(key)) "-" "_")
@@ -106,6 +108,12 @@ class RsCargoToml {
         }
         continue
       }
+      if (section == "features") {
+        if (key == "default") {
+          m.defaultFeatures = (RsCargoToml.stringArray(val))
+        }
+        continue
+      }
       if (section == "dependencies") {
         ; `evg.path = "…"` (dotted key) or `evg = …`
         def dot:int (RsCargoToml.findTop(key 46))
@@ -128,6 +136,24 @@ class RsCargoToml {
       }
     }
     return m
+  }
+
+  ; `["a", "b"]` -> a, b
+  sfn stringArray:[string] (val:string) {
+    def out:[string]
+    def v:string (trim val)
+    if ((strlen v) < 2) {
+      return out
+    }
+    def inner:string (substring v 1 ((strlen v) - 1))
+    def parts:[string] (strsplit inner ",")
+    for parts part:string pi {
+      def name:string (RsCargoToml.unquote((trim part)))
+      if (name != "") {
+        push out name
+      }
+    }
+    return out
   }
 
   sfn setField:void (d:RsCargoDep key:string val:string) {
