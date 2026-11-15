@@ -8876,7 +8876,15 @@ class SourceMapBuilder  {
           out = out + "\\t";
           break;
         default: 
-          out = out + piece;
+          const code = value.charCodeAt(i );
+          if ( code < 32 ) {
+            const hex = "0123456789abcdef";
+            const hi = Math.floor( code / 16);
+            const lo = code - hi * 16;
+            out = ((out + "\\u00") + hex.substring(hi, hi + 1 )) + hex.substring(lo, lo + 1 );
+          } else {
+            out = out + piece;
+          }
           break;
       };
       i = i + 1;
@@ -9723,6 +9731,12 @@ class CodeFileSystem  {
       return true;
     }
     if ( fileName.endsWith(".ts") ) {
+      return true;
+    }
+    if ( fileName.endsWith(".cjs") ) {
+      return true;
+    }
+    if ( fileName.endsWith(".mjs") ) {
       return true;
     }
     return false;

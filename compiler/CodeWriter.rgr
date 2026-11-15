@@ -835,6 +835,13 @@ class CodeFileSystem {
         if (endsWith fileName ".ts") {
             return true
         }
+        ; CommonJS and ES module output (-nodemodule writes .cjs) map too.
+        if (endsWith fileName ".cjs") {
+            return true
+        }
+        if (endsWith fileName ".mjs") {
+            return true
+        }
         return false
     }
 
