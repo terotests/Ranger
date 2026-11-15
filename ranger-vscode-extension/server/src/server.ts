@@ -28,6 +28,10 @@ import {
 } from "vscode-languageserver/node";
 
 import { TextDocument } from "vscode-languageserver-textdocument";
+import * as path from "path";
+import { URI_TO_PATH, PATH_TO_URI } from "./uris";
+import { findRangerRoot, runRealCheck } from "./realCheck";
+import { ProjectIndex, wordAt } from "./projectIndex";
 
 import {
   parseRangerCode,
@@ -80,7 +84,13 @@ connection.onInitialize((params: InitializeParams) => {
 
   const result: InitializeResult = {
     capabilities: {
-      textDocumentSync: TextDocumentSyncKind.Incremental,
+      textDocumentSync: {
+        openClose: true,
+        change: TextDocumentSyncKind.Incremental,
+        save: { includeText: false },
+      },
+      // Go to definition, across Import and pkg: imports
+      definitionProvider: true,
       // Completion support
       completionProvider: {
         resolveProvider: true,
@@ -231,7 +241,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
       });
 
       // Send diagnostics immediately and return - don't try to analyze
-      connection.sendDiagnostics({ uri, diagnostics });
+      if (!usesRealCompiler(uri)) connection.sendDiagnostics({ uri, diagnostics });
       return;
     }
 
@@ -318,8 +328,101 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     });
   }
 
-  connection.sendDiagnostics({ uri, diagnostics });
+  if (!usesRealCompiler(uri)) connection.sendDiagnostics({ uri, diagnostics });
 }
+
+// --- the real compiler ---------------------------------------------------------
+//
+// When the file sits in a Ranger checkout (or the extension does), the
+// checkout's own dist/rgrc.js checks it on open and on save, and its messages
+// are the diagnostics: they follow Import and pkg: and know every form the
+// compiler knows. The in-memory analyzer above then only feeds completion and
+// hover, because on such files it reports what the old embedded compiler
+// cannot read rather than what is wrong.
+const EXTENSION_RANGER = path.resolve(__dirname, "..", "..", "..");
+function rangerRootFor(uri: string): string | null {
+  const file = URI_TO_PATH(uri);
+  if (!file) return null;
+  return findRangerRoot(file, [EXTENSION_RANGER]);
+}
+function usesRealCompiler(uri: string): boolean {
+  return rangerRootFor(uri) !== null;
+}
+
+// The files each checked file last put diagnostics on, so a fixed error in an
+// imported file is cleared too.
+const realDiagFiles = new Map<string, Set<string>>();
+const realRunning = new Map<string, boolean>();
+const realAgain = new Set<string>();
+
+async function realCheck(uri: string): Promise<void> {
+  const root = rangerRootFor(uri);
+  const file = URI_TO_PATH(uri);
+  if (!root || !file) return;
+  if (realRunning.get(uri)) {
+    realAgain.add(uri);
+    return;
+  }
+  realRunning.set(uri, true);
+  try {
+    const groups = await runRealCheck(file, root);
+    const now = new Set<string>();
+    for (const g of groups) {
+      const target = PATH_TO_URI(g.file);
+      now.add(target);
+      connection.sendDiagnostics({
+        uri: target,
+        diagnostics: g.messages.map((m) => ({
+          severity: m.severity === "warning" ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
+          range: {
+            start: { line: m.line, character: m.column },
+            end: { line: m.line, character: m.column + 1 },
+          },
+          message: m.message,
+          source: "rgrc",
+        })),
+      });
+    }
+    for (const old of realDiagFiles.get(uri) || []) {
+      if (!now.has(old)) connection.sendDiagnostics({ uri: old, diagnostics: [] });
+    }
+    realDiagFiles.set(uri, now);
+  } catch (e: any) {
+    connection.console.error(`rgrc check failed: ${e && e.message}`);
+  } finally {
+    realRunning.set(uri, false);
+    if (realAgain.delete(uri)) realCheck(uri);
+  }
+}
+
+documents.onDidOpen((e) => {
+  realCheck(e.document.uri);
+});
+documents.onDidSave((e) => {
+  realCheck(e.document.uri);
+});
+
+connection.onDefinition((params) => {
+  const document = documents.get(params.textDocument.uri);
+  const file = URI_TO_PATH(params.textDocument.uri);
+  if (!document || !file) return null;
+  const lineText = document.getText({
+    start: { line: params.position.line, character: 0 },
+    end: { line: params.position.line + 1, character: 0 },
+  });
+  const at = wordAt(lineText, params.position.character);
+  if (!at) return null;
+  try {
+    const index = new ProjectIndex(file, document.getText());
+    const hits = index.definition(at.word, at.qualifier, file);
+    return hits.map((h) =>
+      Location.create(PATH_TO_URI(h.file), Range.create(h.line, h.column, h.line, h.column + h.name.length))
+    );
+  } catch (e: any) {
+    connection.console.error(`definition failed: ${e && e.message}`);
+    return null;
+  }
+});
 
 /**
  * Provide completion items using the real compiler's type information

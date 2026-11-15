@@ -40,6 +40,23 @@ Quick snippets for common patterns:
 - Unmatched brackets/parentheses detection
 - Basic syntax error reporting
 
+### Diagnostics from the real compiler
+
+When a file sits in a Ranger checkout (the nearest directory with
+`dist/rgrc.js`, or the checkout this extension is in), that compiler checks it
+on open and on save, as a build would: `Import` and `pkg:` imports are
+followed (through `ranger.json`), and every form the compiler knows is
+understood. An error inside an imported file is shown on that file, and
+cleared there when it is fixed. These diagnostics replace the in-memory
+analyzer's for such files; the analyzer still serves completion and hover.
+
+### Go to Definition
+
+Classes, methods, static methods, fields, `treefactory` names and
+`component` tags (which go to their function), across the file and
+everything it imports. `Box.make` looks in class `Box`; the unsaved text of
+the open file is used.
+
 ### Hover Information
 
 Hover over keywords, types, and built-in functions to see documentation.
