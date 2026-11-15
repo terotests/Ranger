@@ -44,12 +44,12 @@
     },
     "ui_src": {
       "git": "https://github.com/terotests/EVGUI.git",
-      "rev": "04092cf6bb78fda76157dfceb4f664aefd9aba0a",
+      "rev": "c1d3a0c4c108e6fc5f1e64f10d8aac69146d8593",
       "subdir": "src"
     },
     "ui_theme": {
       "git": "https://github.com/terotests/EVGUI.git",
-      "rev": "04092cf6bb78fda76157dfceb4f664aefd9aba0a",
+      "rev": "c1d3a0c4c108e6fc5f1e64f10d8aac69146d8593",
       "subdir": "theme"
     }
   }
