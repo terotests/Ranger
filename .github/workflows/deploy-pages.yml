@@ -318,6 +318,14 @@ jobs:
       # nobody could see. See the note in build-api-docs.mjs.
       - uses: dart-lang/setup-dart@v1
 
+      # Dokka runs on the runner's default JDK, which became 25; the Kotlin
+      # Gradle plugin Dokka resolves cannot parse "25.0.5" and stops with
+      # only that string as its message. Pin a JDK it knows.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
       - name: Build the Vela page
         run: bash gallery/vela/web/build.sh --out "$GITHUB_WORKSPACE/_site/vela"
 
