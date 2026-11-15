@@ -1086,13 +1086,14 @@ public class RgJson {
           wr.out("[]{ null }" false)
         } {
           def b_was_set:boolean false
-          if (nn.value_type == RangerNodeType.Array) {
+          ; an optional array or map starts as null (the `= null` below)
+          if ((nn.value_type == RangerNodeType.Array) && (false == (nn.hasFlag("optional")))) {
             wr.out(" = new " false)
             this.writeTypeDef( (unwrap p.nameNode) ctx wr)
             wr.out("()" false)
             b_was_set = true
           }
-          if (nn.value_type == RangerNodeType.Hash) {
+          if ((nn.value_type == RangerNodeType.Hash) && (false == (nn.hasFlag("optional")))) {
             wr.out(" = new " false)
             this.writeTypeDef((unwrap p.nameNode)  ctx wr)
             wr.out("()" false)

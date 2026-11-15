@@ -2457,15 +2457,43 @@ class RangerRustClassWriter {
   ; Rc. Each of those is a case in the `=` handler; none of them is folded.
   ; When any field needs one, this returns false having written nothing and
   ; the ordinary path runs, statements and all.
+  ; the folded struct literal's parts (StaticAnalysis sets them; optional
+  ; on CodeNode, so a node that is not folded allocates nothing)
+  fn rgInitFields:[string] (node:CodeNode) {
+    if (null? node.rg_init_fields) {
+      def none:[string]
+      return none
+    }
+    return (unwrap node.rg_init_fields)
+  }
+
+  fn rgInitValues:[CodeNode] (node:CodeNode) {
+    if (null? node.rg_init_values) {
+      def none:[CodeNode]
+      return none
+    }
+    return (unwrap node.rg_init_values)
+  }
+
+  fn rgInitStmts:[CodeNode] (node:CodeNode) {
+    if (null? node.rg_init_stmts) {
+      def none:[CodeNode]
+      return none
+    }
+    return (unwrap node.rg_init_stmts)
+  }
+
   fn rustFoldedInitIsWritable:boolean (node:CodeNode ctx:RangerAppWriterContext) {
     def value:CodeNode (itemAt node.children 2)
     def clNode:CodeNode (value.getSecond())
     def cl:RangerAppClassDesc (ctx.findClass(clNode.vref))
-    def cnt:int (array_length node.rg_init_fields)
+    def rgFields:[string] (this.rgInitFields(node))
+    def rgValues:[CodeNode] (this.rgInitValues(node))
+    def cnt:int (array_length rgFields)
     def i:int 0
     while (i < cnt) {
-      def fName:string (itemAt node.rg_init_fields i)
-      def fVal:CodeNode (itemAt node.rg_init_values i)
+      def fName:string (itemAt rgFields i)
+      def fVal:CodeNode (itemAt rgValues i)
       def found:boolean false
       for cl.variables fv:RangerAppParamDesc fvi {
         if (fv.name == fName) {
@@ -2778,7 +2806,8 @@ class RangerRustClassWriter {
     ; rather than removing them -- so the line to compare against is the last
     ; one the literal took, not the `def` itself
     def flFoldLine:int (node.getLine())
-    for node.rg_init_values flV:CodeNode flVi {
+    def flValues:[CodeNode] (this.rgInitValues(node))
+    for flValues flV:CodeNode flVi {
       def flVLine:int (flV.getLine())
       if (flVLine > flFoldLine) {
         flFoldLine = flVLine
@@ -2821,11 +2850,13 @@ class RangerRustClassWriter {
     }
     wr.out(((foldMut + (this.adjustType(p.compiledName))) + ": " + clName + " = " + clName + " {") true)
     wr.indent(1)
-    def cnt:int (array_length node.rg_init_fields)
+    def rgFields:[string] (this.rgInitFields(node))
+    def rgValues:[CodeNode] (this.rgInitValues(node))
+    def cnt:int (array_length rgFields)
     def i:int 0
     while (i < cnt) {
-      def fName:string (itemAt node.rg_init_fields i)
-      def fVal:CodeNode (itemAt node.rg_init_values i)
+      def fName:string (itemAt rgFields i)
+      def fVal:CodeNode (itemAt rgValues i)
       def outName:string fName
       for cl.variables fv:RangerAppParamDesc fvi {
         if (fv.name == fName) {
@@ -2888,7 +2919,8 @@ class RangerRustClassWriter {
     }
     wr.indent(-1)
     wr.out("};" true)
-    for node.rg_init_stmts fs:CodeNode fsi {
+    def rgStmts:[CodeNode] (this.rgInitStmts(node))
+    for rgStmts fs:CodeNode fsi {
       fs.disabled_node = true
     }
   }

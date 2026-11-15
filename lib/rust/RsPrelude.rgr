@@ -2018,6 +2018,127 @@ class RsStr {
     return (utf8_substring s a b)
   }
 
+  ; `s.trim_start_matches(p)`: p taken off the start as often as it is there
+  sfn trimStartMatches:string (s:string p:string) {
+    def n:int (strlen p)
+    if (n == 0) {
+      return s
+    }
+    def r:string s
+    ; compared by substring: the Rust writer's startsWith wants a String
+    ; pattern (p.as_str() on a &str parameter is unstable)
+    while (((strlen r) >= n) && ((substring r 0 n) == p)) {
+      r = (substring r n (strlen r))
+    }
+    return r
+  }
+
+  ; `s.trim_end_matches(p)`
+  sfn trimEndMatches:string (s:string p:string) {
+    def n:int (strlen p)
+    if (n == 0) {
+      return s
+    }
+    def r:string s
+    while (((strlen r) >= n) && ((substring r ((strlen r) - n) (strlen r)) == p)) {
+      r = (substring r 0 ((strlen r) - n))
+    }
+    return r
+  }
+
+  ; `s.trim_matches(p)`
+  sfn trimMatches:string (s:string p:string) {
+    return (RsStr.trimEndMatches((RsStr.trimStartMatches(s p)) p))
+  }
+
+  ; `s.splitn(n, sep)`: at most n parts; the last holds the rest
+  sfn splitN:[string] (s:string n:int sep:string) {
+    def res:[string]
+    if (n <= 0) {
+      return res
+    }
+    def sl:int (strlen sep)
+    def rest:string s
+    while (((array_length res) < (n - 1)) && (sl > 0)) {
+      def at:int (indexOf rest sep)
+      if (at < 0) {
+        break
+      }
+      push res (substring rest 0 at)
+      rest = (substring rest (at + sl) (strlen rest))
+    }
+    push res rest
+    return res
+  }
+
+  ; `T::from_str_radix(s, radix)`: an optional sign and digits of the radix
+  ; (either case), within lo..hi; nothing else
+  sfn parseRadix@(optional):int (s:string radix:int lo:int hi:int) {
+    ; hi -1 / lo -2: the 64-bit bounds, kept by the target's own int (a
+    ; literal that large does not survive every writer)
+    def none@(optional):int
+    def wide:boolean ((hi == -1) || (lo == -2))
+    def cs:[int] (to_chars s)
+    def n:int (array_length cs)
+    def i:int 0
+    def neg:boolean false
+    if (n == 0) {
+      return none
+    }
+    def first:int (itemAt cs 0)
+    if ((first == 43) || (first == 45)) {
+      neg = (first == 45)
+      i = 1
+    }
+    if (i >= n) {
+      return none
+    }
+    if (neg && (lo >= 0)) {
+      return none
+    }
+    def v:int 0
+    while (i < n) {
+      def c:int (itemAt cs i)
+      def d:int -1
+      if ((c >= 48) && (c <= 57)) {
+        d = c - 48
+      }
+      if ((c >= 97) && (c <= 122)) {
+        d = (c - 97) + 10
+      }
+      if ((c >= 65) && (c <= 90)) {
+        d = (c - 65) + 10
+      }
+      if ((d < 0) || (d >= radix)) {
+        return none
+      }
+      if wide {
+        def nv:int ((v * radix) + d)
+        if ((nv < v) || ((rs_div (nv - d) radix) != v)) {
+          return none
+        }
+        v = nv
+      } {
+        if (v > (rs_div (hi - d) radix)) {
+          return none
+        }
+        v = (v * radix) + d
+      }
+      i = i + 1
+    }
+    if neg {
+      v = 0 - v
+      if ((false == wide) && (v < lo)) {
+        return none
+      }
+    }
+    if ((false == wide) && (v > hi)) {
+      return none
+    }
+    def r@(optional):int v
+    return r
+  }
+
   ; `s.split_whitespace()`: the runs between White_Space characters.
   sfn splitWhitespace:[string] (s:string) {
     def res:[string]

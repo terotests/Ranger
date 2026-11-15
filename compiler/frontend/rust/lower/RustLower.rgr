@@ -74,6 +74,11 @@ class RustLower {
   ; enums: a crate a scanned .rgr file imports (`Import "../lib.rs"`), which
   ; the .rgr import writes; the `.rs` code calls its types by name
   def pendingSig:[boolean]
+  ; the file a `#[path = "…"] mod m;` names, "" when rustc's own lookup
+  ; (`m.rs`, `m/mod.rs`) finds it
+  def pendingRsPath:[string]
+  ; `curMod|local` -> module key, for `use super::ops;` (module aliases)
+  def modAlias:[string:string]
   def sigRoots:[RustNode]
   def sigFiles:[string]
   def sigScanned:[string:boolean]
@@ -448,6 +453,7 @@ class RustLower {
         push pendingFiles (RustLower.joinPath((RustLower.dirOf(file)) (rgrName + ".rgr")))
         push pendingScan false
         push pendingSig false
+        push pendingRsPath ""
         continue
       }
       if (it.kind != "mod") {
@@ -464,6 +470,7 @@ class RustLower {
         push pendingFiles ""
         push pendingScan false
         push pendingSig false
+        push pendingRsPath (this.modPathAttr(it root file dir))
       }
     }
   }
@@ -609,6 +616,35 @@ class RustLower {
     return ""
   }
 
+  ; `#[path = "../x/y.rs"] mod m;`: the file, relative to the directory of
+  ; the declaring file (rustc's rule outside inline `mod { }` blocks; inside
+  ; one, relative to the block's own directory). "" without the attribute.
+  fn modPathAttr:string (it:RustNode root:RustNode file:string dir:string) {
+    for it.attrs a:RustNode ai {
+      if (a.name == "path") {
+        def v:string (trim a.value)
+        if ((strlen v) > 0) {
+          if ((charAt v 0) == 61) {
+            v = (trim (substring v 1 (strlen v)))
+          }
+        }
+        def n:int (strlen v)
+        if ((n >= 2) && ((charAt v 0) == 34) && ((charAt v (n - 1)) == 34)) {
+          def rel:string (substring v 1 (n - 1))
+          def base:string dir
+          if (root.kind == "file") {
+            base = (RustLower.dirOf(file))
+          }
+          if (((strlen rel) > 0) && ((charAt rel 0) == 47)) {
+            return rel
+          }
+          return (RustLower.normPath((RustLower.joinPath(base rel))))
+        }
+      }
+    }
+    return ""
+  }
+
   fn hasPendingModule:boolean () {
     return (pendingPos < (array_length pendingKeys))
   }
@@ -627,6 +663,12 @@ class RustLower {
       push list rf
       return list
     }
+    def pp:string (itemAt pendingRsPath pendingPos)
+    if (pp != "") {
+      push list pp
+      push list pp
+      return list
+    }
     push list (RustLower.joinPath(d (m + ".rs")))
     push list (RustLower.joinPath((RustLower.joinPath(d m)) "mod.rs"))
     return list
@@ -643,6 +685,7 @@ class RustLower {
     def at:RustNode (itemAt pendingNodes pendingPos)
     def scanOnly:boolean (itemAt pendingScan pendingPos)
     def sigOnly:boolean (itemAt pendingSig pendingPos)
+    def rsPath:string (itemAt pendingRsPath pendingPos)
     pendingPos = pendingPos + 1
     if ((rf != "") && (false == sigOnly)) {
       this.addRgr(path src at scanOnly)
@@ -659,14 +702,18 @@ class RustLower {
     if sigOnly {
       ; a crate root keeps its modules beside it; `m.rs` puts them in `m/`
       def sdir:string (RustLower.joinPath(d m))
-      if (rf != "") {
+      if ((rf != "") || (rsPath != "")) {
         sdir = (RustLower.dirOf(path))
       }
       this.registerSig(root path sdir)
       return
     }
-    ; `m/mod.rs` keeps its directory; `m.rs` puts its own modules in `m/`
+    ; `m/mod.rs` keeps its directory; `m.rs` puts its own modules in `m/`;
+    ; a file named by `#[path]` keeps its directory, as a mod.rs does
     def own:string (RustLower.joinPath(d m))
+    if (rsPath != "") {
+      own = (RustLower.dirOf(path))
+    }
     this.registerModule(root key path own)
   }
 
@@ -694,6 +741,7 @@ class RustLower {
         push pendingFiles rp
         push pendingScan true
         push pendingSig false
+        push pendingRsPath ""
         continue
       }
       if (it.kind != "mod") {
@@ -709,6 +757,7 @@ class RustLower {
         push pendingFiles ""
         push pendingScan true
         push pendingSig true
+        push pendingRsPath (this.modPathAttr(it root file dir))
       }
     }
   }
@@ -774,6 +823,7 @@ class RustLower {
         push pendingFiles ip
         push pendingScan true
         push pendingSig false
+        push pendingRsPath ""
       }
     }
     ; a crate the file imports: its structs by their signatures
@@ -790,6 +840,7 @@ class RustLower {
       push pendingFiles rp
       push pendingScan true
       push pendingSig true
+      push pendingRsPath ""
     }
   }
 
@@ -890,6 +941,8 @@ class RustLower {
       return ""
     }
     this.inheritRgr()
+    this.renameSameNamedTypes()
+    this.narrowMemberVisibility()
     this.collectModules()
     if ((array_length errors) > 0) {
       return ""
@@ -918,6 +971,287 @@ class RustLower {
       return ""
     }
     return text
+  }
+
+  ; ------------------------------------- types of the same name in two modules
+
+  ; `json::Parser` and `vbs::parser::Parser`: Ranger's classes share one
+  ; namespace, so every declaration of the name but the first is renamed
+  ; (`VbsParserParser`) in the syntax trees, and so is every path that
+  ; reaches it: from its own module, through a `use` of it, or by a module
+  ; path. Debug output keeps the Rust name (rustTypeName).
+  def typeRename:[string:string]
+  def rustNames:[string:string]
+
+  fn typeDeclsOf:[string] (root:RustNode) {
+    def res:[string]
+    for root.kids it:RustNode i {
+      if ((it.kind == "struct") || (it.kind == "enum") || (it.kind == "trait")) {
+        push res it.name
+      }
+    }
+    return res
+  }
+
+  ; `pub(crate) struct S { pub f: … }`: a `pub` field or method of a type
+  ; that is not itself `pub` is as visible as the type (rustc's rule), so it
+  ; is not documented as public API
+  fn narrowMemberVisibility:void () {
+    def inner:[string:boolean]
+    for modRoots root:RustNode ri {
+      for root.kids it:RustNode i {
+        if (((it.kind == "struct") || (it.kind == "enum")) && (false == (it.hasMod("pub")))) {
+          set inner it.name true
+          for it.kids k:RustNode ki {
+            if (k.kind == "fields_named") {
+              for k.kids fd:RustNode fi {
+                this.narrowPub(fd)
+              }
+            }
+          }
+        }
+      }
+    }
+    for modRoots root2:RustNode ri2 {
+      for root2.kids im:RustNode i2 {
+        if ((im.kind != "impl") || ((array_length im.kids) < 3)) {
+          continue
+        }
+        def tr:RustNode (im.kid(1))
+        if (tr.kind != "none") {
+          continue
+        }
+        def st:RustNode (im.kid(2))
+        if (st.kind != "path_type") {
+          continue
+        }
+        def sp:RustNode (st.kid(0))
+        if ((array_length sp.kids) != 1) {
+          continue
+        }
+        if (false == (has inner ((sp.kid(0)).name))) {
+          continue
+        }
+        for im.kids m:RustNode mi {
+          if (m.kind == "fn") {
+            this.narrowPub(m)
+          }
+        }
+      }
+    }
+  }
+
+  fn narrowPub:void (n:RustNode) {
+    def ms:[string]
+    for n.mods md:string mi {
+      if (md == "pub") {
+        push ms "pub(crate)"
+      } {
+        push ms md
+      }
+    }
+    n.mods = ms
+  }
+
+  fn rustTypeName:string (n:string) {
+    if (has rustNames n) {
+      return (unwrap (get rustNames n))
+    }
+    return n
+  }
+
+  fn renameSameNamedTypes:void () {
+    def firstOf:[string:string]
+    def taken:[string:boolean]
+    def mi:int 0
+    while (mi < (array_length modRoots)) {
+      def decls:[string] (this.typeDeclsOf((itemAt modRoots mi)))
+      for decls tn:string ti {
+        set taken tn true
+      }
+      mi = mi + 1
+    }
+    def any:boolean false
+    mi = 0
+    while (mi < (array_length modRoots)) {
+      def mk:string (itemAt modKeys mi)
+      def decls2:[string] (this.typeDeclsOf((itemAt modRoots mi)))
+      for decls2 tn2:string ti2 {
+        if (false == (has firstOf tn2)) {
+          set firstOf tn2 mk
+          continue
+        }
+        if ((unwrap (get firstOf tn2)) == mk) {
+          continue
+        }
+        def base:string (RustLower.moduleCamelFor(((join (strsplit mk "::") "_") + ".rs")))
+        def nn:string (base + tn2)
+        def k:int 2
+        while (has taken nn) {
+          nn = ((base + tn2) + (to_string k))
+          k = k + 1
+        }
+        set taken nn true
+        set typeRename ((mk + "|") + tn2) nn
+        set rustNames nn tn2
+        any = true
+      }
+      mi = mi + 1
+    }
+    if (false == any) {
+      return
+    }
+    def saveMod:string curMod
+    mi = 0
+    while (mi < (array_length modRoots)) {
+      curMod = (itemAt modKeys mi)
+      def root:RustNode (itemAt modRoots mi)
+      ; the names this module sees bare: its own types, then its `use`s
+      def bare:[string:string]
+      for root.kids it:RustNode i {
+        if (it.kind == "use") {
+          for it.kids ut:RustNode ui {
+            this.bareFromUse("" ut bare)
+          }
+        }
+      }
+      for root.kids it2:RustNode i2 {
+        if ((it2.kind == "struct") || (it2.kind == "enum") || (it2.kind == "trait")) {
+          def rk:string ((curMod + "|") + it2.name)
+          if (has typeRename rk) {
+            set bare it2.name (unwrap (get typeRename rk))
+          } {
+            if (has bare it2.name) {
+              set bare it2.name it2.name
+            }
+          }
+        }
+      }
+      this.renameIn(root bare true)
+      mi = mi + 1
+    }
+    curMod = saveMod
+  }
+
+  ; `use super::parser::Parser;`, `use a::{Parser as P}`, `use a::*`
+  fn bareFromUse:void (prefix:string u:RustNode bare:[string:string]) {
+    if (u.kind == "use_path") {
+      for u.kids c:RustNode ci {
+        this.bareFromUse((this.fnKey(prefix u.name)) c bare)
+      }
+      return
+    }
+    if (u.kind == "use_group") {
+      for u.kids c2:RustNode ci2 {
+        this.bareFromUse((this.fnKey(prefix u.name)) c2 bare)
+      }
+      return
+    }
+    if (u.kind == "use_name") {
+      def full:string (this.fnKey(prefix u.name))
+      def segs:[string] (strsplit full "::")
+      def local:string (itemAt segs ((array_length segs) - 1))
+      if ((u.value != "") && (u.value != "_")) {
+        local = u.value
+      }
+      def nn:string (this.renamedAt(segs ((array_length segs) - 1)))
+      if (nn != "") {
+        set bare local nn
+      }
+      return
+    }
+    if (u.kind == "use_glob") {
+      def gsegs:[string] (strsplit (this.fnKey(prefix u.name)) "::")
+      push gsegs "*"
+      def m:string (this.typeModOf(gsegs))
+      if (m == "?") {
+        return
+      }
+      def ks:[string] (keys typeRename)
+      for ks rk:string ri {
+        def bar:int (indexOf rk "|")
+        if ((substring rk 0 bar) == m) {
+          set bare (substring rk (bar + 1) (strlen rk)) (unwrap (get typeRename rk))
+        }
+      }
+    }
+  }
+
+  ; the module the segments before the last name, as resolveItem looks
+  fn typeModOf:string (segs:[string]) {
+    def m:string (this.modPath(segs curMod))
+    if (m == "?") {
+      m = (this.modPath(segs (this.crateOf(curMod))))
+    }
+    if (m == "?") {
+      m = (this.modPath(segs ""))
+    }
+    return m
+  }
+
+  ; the new name of segment `at` when the segments before it name the
+  ; module that declares a renamed type of that name; "" otherwise
+  fn renamedAt:string (segs:[string] at:int) {
+    if (at < 1) {
+      return ""
+    }
+    def pre:[string]
+    def i:int 0
+    while (i <= at) {
+      push pre (itemAt segs i)
+      i = i + 1
+    }
+    def m:string (this.typeModOf(pre))
+    if (m == "?") {
+      return ""
+    }
+    def rk:string ((m + "|") + (itemAt segs at))
+    if (has typeRename rk) {
+      return (unwrap (get typeRename rk))
+    }
+    return ""
+  }
+
+  fn renameIn:void (n:RustNode bare:[string:string] top:boolean) {
+    if ((n.kind == "mod") && (false == top)) {
+      ; an inline module is a module root of its own
+      return
+    }
+    if ((n.kind == "struct") || (n.kind == "enum") || (n.kind == "trait")) {
+      def rk:string ((curMod + "|") + n.name)
+      if (has typeRename rk) {
+        n.name = (unwrap (get typeRename rk))
+      }
+    }
+    if (n.kind == "path") {
+      def segs:[string]
+      for n.kids sg:RustNode si {
+        push segs sg.name
+      }
+      def ns:int (array_length segs)
+      if ((ns > 0) && (false == (n.hasMod("::")))) {
+        def s0:string (itemAt segs 0)
+        if (has bare s0) {
+          def k0:RustNode (n.kid(0))
+          k0.name = (unwrap (get bare s0))
+        }
+      }
+      def j:int 1
+      while (j < ns) {
+        def nn:string (this.renamedAt(segs j))
+        if (nn != "") {
+          def kj:RustNode (n.kid(j))
+          kj.name = nn
+        }
+        j = j + 1
+      }
+    }
+    for n.kids c:RustNode ci {
+      if ((c.kind == "mod") && (c.hasMod("inline"))) {
+        continue
+      }
+      this.renameIn(c bare false)
+    }
   }
 
   ; `shapes::round` -> `ShapesRound`, unless a type has that name
@@ -1048,6 +1382,12 @@ class RustLower {
       }
       def next:string (this.fnKey(cur sg))
       if (false == (has modFileOf next)) {
+        ; a module brought in by `use` (`use super::ops;` -> `ops::add`)
+        def ma:string ((curMod + "|") + sg)
+        if ((i == 1) && (has modAlias ma)) {
+          cur = (unwrap (get modAlias ma))
+          continue
+        }
         return "?"
       }
       cur = next
@@ -2351,6 +2691,14 @@ class RustLower {
     if (this.isBytes(t)) {
       return (("(RsBytes.copy(" + code) + "))")
     }
+    if ((k == "named") && (has structs t.name)) {
+      ; a struct without Clone has no rs_clone: only a tuple or collection
+      ; helper that is never called for it (rustc would not let it) reaches here
+      def cs:RsStruct (unwrap (get structs t.name))
+      if ((false == cs.rgr) && (false == (cs.derivesTrait("Clone"))) && (false == (cs.derivesTrait("Copy"))) && (null? (cs.method("clone")))) {
+        return code
+      }
+    }
     if ((k == "named") && ((has structs t.name) || ((array_length t.args) > 0))) {
       return (("(" + code) + ".rs_clone())")
     }
@@ -3338,9 +3686,75 @@ class RustLower {
       return (((("(" + a) + ".rs_eq(") + b) + "))")
     }
     if (t.kind == "tuple") {
-      this.unsupported((new RustNode("none")) "comparing tuples with ==")
+      return (((((("(" + (this.tupleEqHelper(t))) + "(") + a) + " ") + b) + "))")
+    }
+    ; two Options (a and b are plain names here: the helpers bind them)
+    if ((t.kind == "opt") && ((array_length t.args) > 0)) {
+      def inner:string (this.eqCode((("(unwrap " + a) + ")") (("(unwrap " + b) + ")") (t.arg(0))))
+      return (((((((((("(((null? " + a) + ") && (null? ") + b) + ")) || ((!null? ") + a) + ") && ((!null? ") + b) + ") && ") + inner) + ")))")
+    }
+    ; `a == b` of two Vecs: the same length and equal elements, as Rust's
+    ; PartialEq (a target's `==` compares the references, or does not compile)
+    if ((t.kind == "vec") && ((array_length t.args) > 0)) {
+      return (((((("(" + (this.vecEqHelper(t))) + "(") + a) + " ") + b) + "))")
     }
     return (((("(" + a) + " == ") + b) + ")")
+  }
+
+  ; `a == b` of two tuples: field by field.
+  fn tupleEqHelper:string (t:RsType) {
+    def key:string ("eq_" + (this.mangleKey(t)))
+    def name:string ((cloneClass + ".") + key)
+    if (has genNames key) {
+      return name
+    }
+    set genNames key true
+    def rt:string (this.rtype(t))
+    def lines:[string]
+    push lines (((("  sfn " + key) + ":boolean (a:") + rt) + ((" b:" + rt) + ") {"))
+    for t.args ft:RsType fi {
+      def fname:string ("f" + (to_string fi))
+      push lines ((("    def " + (this.declText(("x" + (to_string fi)) ft))) + " a.") + fname)
+      push lines ((("    def " + (this.declText(("y" + (to_string fi)) ft))) + " b.") + fname)
+      push lines (("    if (false == " + (this.eqCode(("x" + (to_string fi)) ("y" + (to_string fi)) ft))) + ") {")
+      push lines "      return false"
+      push lines "    }"
+    }
+    push lines "    return true"
+    push lines "  }"
+    push clonerOut (join lines "\n")
+    return name
+  }
+
+  fn vecEqHelper:string (t:RsType) {
+    def key:string ("eq_" + (this.mangleKey(t)))
+    def name:string ((cloneClass + ".") + key)
+    if (has genNames key) {
+      return name
+    }
+    set genNames key true
+    def rt:string (this.rtype(t))
+    def et:RsType (t.arg(0))
+    def ert:string (this.rtype(et))
+    def lines:[string]
+    push lines (((("  sfn " + key) + ":boolean (a:") + rt) + ((" b:" + rt) + ") {"))
+    push lines "    def n:int (array_length a)"
+    push lines "    if (n != (array_length b)) {"
+    push lines "      return false"
+    push lines "    }"
+    push lines "    def i:int 0"
+    push lines "    while (i < n) {"
+    push lines (("      def " + (this.declText("x" et))) + " (itemAt a i)")
+    push lines (("      def " + (this.declText("y" et))) + " (itemAt b i)")
+    push lines (("      if (false == " + (this.eqCode("x" "y" et))) + ") {")
+    push lines "        return false"
+    push lines "      }"
+    push lines "      i = i + 1"
+    push lines "    }"
+    push lines "    return true"
+    push lines "  }"
+    push clonerOut (join lines "\n")
+    return name
   }
 
   fn emitDebugStruct:string (s:RsStruct cname:string) {
@@ -3351,7 +3765,7 @@ class RustLower {
       for s.fields f:RsField i {
         push parts (this.dbgCode(("this." + f.name) (this.subst(f.ty genericEnv))))
       }
-      push lines (("    return " + (this.concat(((s.name + "(") + "") parts ", " ")"))))
+      push lines (("    return " + (this.concat((((this.rustTypeName(s.name)) + "(") + "") parts ", " ")"))))
     } {
       def parts2:[string]
       def labels:[string]
@@ -3361,9 +3775,9 @@ class RustLower {
         push labels f2.name
       }
       if ((array_length s.fields) == 0) {
-        push lines (("    return " + (this.strLit(s.name))))
+        push lines (("    return " + (this.strLit((this.rustTypeName(s.name))))))
       } {
-        def acc:string (this.strLit(((s.name + " { ") + (itemAt labels 0)) + ": "))
+        def acc:string (this.strLit((((this.rustTypeName(s.name)) + " { ") + (itemAt labels 0)) + ": "))
         def i2:int 0
         while (i2 < (array_length parts2)) {
           if (i2 > 0) {
@@ -6251,6 +6665,20 @@ class RustLower {
       }
       if (key != "") {
         set fnAlias ((curMod + "|") + local) key
+        return
+      }
+      ; `use super::ops;` names a module: `ops::add` then starts there
+      def msegs:[string] (strsplit full "::")
+      push msegs "*"
+      def mk:string (this.modPath(msegs curMod))
+      if (mk == "?") {
+        mk = (this.modPath(msegs (this.crateOf(curMod))))
+      }
+      if (mk == "?") {
+        mk = (this.modPath(msegs ""))
+      }
+      if ((mk != "?") && (mk != curMod) && (local != "self")) {
+        set modAlias ((curMod + "|") + local) mk
       }
       return
     }
@@ -6653,7 +7081,7 @@ class RustLower {
       }
       return (("(!null? " + other) + ")")
     }
-    if ((this.isBytes(t)) && ((op == "==") || (op == "!="))) {
+    if (((this.isBytes(t)) || (t.kind == "tuple") || ((t.kind == "vec") && ((array_length t.args) > 0))) && ((op == "==") || (op == "!="))) {
       def beq:string (this.eqCode(l.code r.code t))
       if (op == "==") {
         return beq
@@ -7046,7 +7474,8 @@ class RustLower {
           ; seen through the receiver's instance, as a `recv.method()` is
           def menv:[string:RsType] (this.methodEnv(rv.ty))
           def ptypes0:[RsType]
-          for (this.paramTypes(mf)) pt0:RsType pti0 {
+          def mfTypes:[RsType] (this.paramTypes(mf))
+          for mfTypes pt0:RsType pti0 {
             push ptypes0 (this.subst(pt0 menv))
           }
           def codes0:[string] (this.lowerArgs(rest ptypes0))
@@ -7149,7 +7578,89 @@ class RustLower {
     }
     if ((full == "Box::new") || (full == "Rc::new") || (full == "Arc::new") || (full == "RefCell::new") || (full == "Cell::new") || (full == "Rc::clone") || (full == "Arc::clone")) {
       def iv:RsExpr (this.lowerExpr((itemAt args 0) expect))
+      ; `Rc::new(RefCell::new(st))`: the object, shared, so `.clone()` of
+      ; it is the same object (Rc's clone), not a copy of the struct
+      if ((full != "Box::new") && (full != "Cell::new") && (iv.ty.kind == "named") && (false == iv.ty.shared)) {
+        def svt:RsType (iv.ty.copy())
+        svt.shared = true
+        def sve:RsExpr (RsExpr.of(iv.code svt))
+        sve.simple = iv.simple
+        return sve
+      }
       return iv
+    }
+    ; `Rc::try_unwrap(rc)`: the object itself (one object, however many
+    ; handles still point at it), so always Ok
+    if ((full == "Rc::try_unwrap") || (full == "Arc::try_unwrap") || (full == "Rc::into_inner") || (full == "Arc::into_inner")) {
+      def tv:RsExpr (this.lowerExpr((itemAt args 0) (RsType.mk("unknown"))))
+      def tt:RsType (tv.ty.copy())
+      tt.shared = false
+      tt.isRef = false
+      if ((full == "Rc::into_inner") || (full == "Arc::into_inner")) {
+        def tot:RsType (RsType.of1("opt" tt))
+        def ton:string (this.tmp("o"))
+        out.line(("def " + (this.declText(ton tot))))
+        out.line(((ton + " = ") + tv.code))
+        return (this.simpleExpr(ton tot))
+      }
+      def trt:RsType (RsType.of2("result" tt tt))
+      def tcls:string (this.resultClass(trt))
+      def tn:string (this.tmp("res"))
+      out.line((((("def " + tn) + ":") + tcls) + ((" (new " + tcls) + ")")))
+      out.line((tn + ".ok = true"))
+      out.line((((tn + ".v = ") + tv.code)))
+      return (this.simpleExpr(tn trt))
+    }
+    ; `u8::from_str_radix(s, 16)`: Ok(n) for an optional sign and digits of
+    ; the radix, nothing else; an unsigned type takes no `-`
+    if ((name == "from_str_radix") && ((array_length args) == 2)) {
+      def fsv:RsExpr (this.lowerExpr((itemAt args 0) (RsType.mk("string"))))
+      def frv:RsExpr (this.lowerExpr((itemAt args 1) (RsType.mk("int"))))
+      def fty:string (this.parentMod(full))
+      ; -1 / -2 for the 64-bit bounds, which the prelude computes (a
+      ; literal that large does not survive every writer)
+      def fmax:string "-1"
+      def fmin:string "-2"
+      if (fty == "u8") {
+        fmax = "255"
+        fmin = "0"
+      }
+      if (fty == "i8") {
+        fmax = "127"
+        fmin = "(0 - 128)"
+      }
+      if (fty == "u16") {
+        fmax = "65535"
+        fmin = "0"
+      }
+      if (fty == "i16") {
+        fmax = "32767"
+        fmin = "(0 - 32768)"
+      }
+      if ((fty == "u32") || (fty == "char")) {
+        fmax = "4294967295"
+        fmin = "0"
+      }
+      if (fty == "i32") {
+        fmax = "2147483647"
+        fmin = "(0 - 2147483648)"
+      }
+      if ((fty == "u64") || (fty == "usize") || (fty == "u128")) {
+        fmin = "0"
+      }
+      def frt:RsType (RsType.of2("result" (RsType.mk("int")) (this.ownedString())))
+      def fcls:string (this.resultClass(frt))
+      def fres:string (this.tmp("res"))
+      def fp:string (this.tmp("p"))
+      out.line((((("def " + fres) + ":") + fcls) + ((" (new " + fcls) + ")")))
+      out.line((((((((((("def " + fp) + "@(optional):int (RsStr.parseRadix(") + fsv.code) + " ") + frv.code) + " ") + fmin) + " ") + fmax) + "))")))
+      out.line((("if (!null? " + fp) + ") {"))
+      out.line((("  " + fres) + ".ok = true"))
+      out.line((((("  " + fres) + ".v = (unwrap ") + fp) + ")"))
+      out.line("} {")
+      out.line((("  " + fres) + ".e = \"invalid digit found in string\""))
+      out.line("}")
+      return (this.simpleExpr(fres frt))
     }
     ; `Rc::ptr_eq(&a, &b)`: the same object, as `==` of two objects is in .rgr
     if ((full == "Rc::ptr_eq") || (full == "Arc::ptr_eq") || (full == "std::ptr::eq") || (full == "ptr::eq")) {
@@ -7291,7 +7802,7 @@ class RustLower {
       return (RsExpr.of((("(rs_byte_len " + s2.code) + ")") (RsType.mk("int"))))
     }
     if ((name == "collect") || (name == "to_vec") || (name == "cloned") || (name == "copied")) {
-      if ((recvN.kind == "method") && ((recvN.name == "split") || (recvN.name == "lines") || (recvN.name == "split_whitespace"))) {
+      if ((recvN.kind == "method") && ((recvN.name == "split") || (recvN.name == "splitn") || (recvN.name == "lines") || (recvN.name == "split_whitespace"))) {
         return (this.lowerExpr(recvN expect))
       }
     }
@@ -7366,7 +7877,7 @@ class RustLower {
           if (name == "clone") {
             return rv
           }
-          if (((name == "borrow") || (name == "borrow_mut")) && (null? (s3.method(name)))) {
+          if (((name == "borrow") || (name == "borrow_mut") || (name == "into_inner")) && (null? (s3.method(name)))) {
             def bt:RsType (t.copy())
             bt.shared = false
             def be:RsExpr (RsExpr.of(rv.code bt))
@@ -7428,7 +7939,7 @@ class RustLower {
       }
       ; `c.borrow().count`, `c.borrow_mut().label = …` on an Rc<RefCell<T>>:
       ; the object itself
-      if (((name == "borrow") || (name == "borrow_mut") || (name == "as_ref") || (name == "as_mut")) && ((array_length args) == 0)) {
+      if (((name == "borrow") || (name == "borrow_mut") || (name == "as_ref") || (name == "as_mut") || (name == "into_inner")) && ((array_length args) == 0)) {
         return rv
       }
       ; `e.borrow().r#box.as_ref().unwrap()`: a .rgr class field is an
@@ -7703,7 +8214,7 @@ class RustLower {
       grown = (((((("(RsBytes.resized(" + v) + " ") + rn.code) + " ") + rx.code) + "))")
     }
     if (grown != "") {
-      if (t.isMutRef && (recvN.kind == "path_expr")) {
+      if (t.isMutRef && (recvN.kind == "path_expr") && (false == (this.isBoxedLocal(recvN)))) {
         this.err(at (("`." + name) + "()` on a `&mut Vec<u8>` parameter: a buffer cannot grow in place, so return the new `Vec<u8>`"))
         return (this.unit())
       }
@@ -7820,6 +8331,12 @@ class RustLower {
           return (this.unit())
         }
       }
+      ; a tuple: field by field, as Rust's derived Ord compares
+      if ((et.kind == "tuple") && (this.tupleOrd(et))) {
+        out.line(((((v + " = (sort ") + v) + " ") + (this.tupleComparator(et))) + ")"))
+        this.writeBack(at v t)
+        return (this.unit())
+      }
       this.unsupported(at "`sort` of a Vec whose elements have no `Ord`: use sort_by or sort_by_key")
       return (this.unit())
     }
@@ -7919,8 +8436,8 @@ class RustLower {
       return (this.charMethod(rv name args at))
     }
     if (name == "len") {
-      this.err(at "`len()` of a String counts bytes: write `.chars().count()` for characters or `.as_bytes().len()` for bytes")
-      return (this.unit())
+      ; bytes, as Rust counts them (string ranges are byte offsets too)
+      return (RsExpr.of((("(rs_byte_len " + c) + ")") it))
     }
     if (name == "is_empty") {
       return (RsExpr.of((("((strlen " + c) + ") == 0)") bt))
@@ -7994,6 +8511,25 @@ class RustLower {
     }
     if (name == "trim_end") {
       return (RsExpr.of((("(trim_right " + c) + ")") st))
+    }
+    ; `s.trim_matches('"')`, `s.trim_end_matches("/")`: a char or a string
+    ; pattern, taken off as many times as it repeats
+    if ((name == "trim_matches") || (name == "trim_start_matches") || (name == "trim_end_matches")) {
+      def tp:RsExpr (this.arg0(args st))
+      def tf:string "trimMatches"
+      if (name == "trim_start_matches") {
+        tf = "trimStartMatches"
+      }
+      if (name == "trim_end_matches") {
+        tf = "trimEndMatches"
+      }
+      return (RsExpr.of((((((("(RsStr." + tf) + "(") + c) + " ") + tp.code) + "))") st))
+    }
+    ; `s.splitn(3, ':')`: at most n parts, the last one the rest
+    if ((name == "splitn") && ((array_length args) == 2)) {
+      def snv:RsExpr (this.lowerExpr((itemAt args 0) it))
+      def ssv:RsExpr (this.lowerExpr((itemAt args 1) st))
+      return (RsExpr.of((((((("(RsStr.splitN(" + c) + " ") + snv.code) + " ") + ssv.code) + "))") (RsType.of1("vec" st))))
     }
     if ((name == "contains") || (name == "starts_with") || (name == "ends_with")) {
       def x2:RsExpr (this.arg0(args st))
@@ -8130,10 +8666,27 @@ class RustLower {
       def ot:RsType (RsType.of1("opt" (RsType.mk("int"))))
       def nm:string (this.tmp("d"))
       def cc:string (this.tmp("cc"))
+      ; `c.to_digit(radix)`: 0-9, then a-z / A-Z as 10.., below the radix
+      def rdx:string "10"
+      if ((array_length args) > 0) {
+        def rv2:RsExpr (this.lowerExpr((itemAt args 0) (RsType.mk("int"))))
+        rdx = (this.bindTemp(rv2 (RsType.mk("int")) "rdx"))
+      }
+      def dv:string (this.tmp("dv"))
       out.line(((("def " + cc) + ":int (rs_char_code ") + c) + ")"))
+      out.line((("def " + dv) + ":int -1"))
       out.line(("def " + (this.declText(nm ot))))
       out.line((((("if ((" + cc) + " >= 48) && (") + cc) + " <= 57)) {"))
-      out.line((((("  " + nm) + " = (") + cc) + " - 48)"))
+      out.line((((("  " + dv) + " = (") + cc) + " - 48)"))
+      out.line("}")
+      out.line((((("if ((" + cc) + " >= 97) && (") + cc) + " <= 122)) {"))
+      out.line((((("  " + dv) + " = (") + cc) + " - 87)"))
+      out.line("}")
+      out.line((((("if ((" + cc) + " >= 65) && (") + cc) + " <= 90)) {"))
+      out.line((((("  " + dv) + " = (") + cc) + " - 55)"))
+      out.line("}")
+      out.line((((("if ((" + dv) + " >= 0) && (") + dv) + ((" < " + rdx) + ")) {")))
+      out.line((((("  " + nm) + " = ") + dv)))
       out.line("}")
       def r:RsExpr (RsExpr.of(nm ot))
       r.simple = true
@@ -8217,6 +8770,44 @@ class RustLower {
     }
     if (name == "reverse") {
       return (RsExpr.of((("(0 - " + c) + ")") t))
+    }
+    ; `a.div_euclid(b)`, `a.rem_euclid(b)`: the remainder is never negative
+    if (((name == "div_euclid") || (name == "rem_euclid")) && ((array_length args) == 1)) {
+      def ea:string (this.bindTemp(rv t "a"))
+      def eb:RsExpr (this.arg0(args t))
+      def ebn:string (this.bindTemp(eb t "b"))
+      def eq:string (this.tmp("q"))
+      def er:string (this.tmp("r"))
+      def zero:string "0"
+      if (t.kind == "double") {
+        zero = "0.0"
+      }
+      out.line((((((("def " + eq) + ":") + (this.rtype(t))) + " (rs_div ") + ea) + ((" " + ebn) + ")")))
+      out.line((((((("def " + er) + ":") + (this.rtype(t))) + " (rs_rem ") + ea) + ((" " + ebn) + ")")))
+      if (t.kind == "double") {
+        out.line((((("" + eq) + " = (rs_trunc ") + eq) + ")"))
+      }
+      out.line((((("if (" + er) + " < ") + zero) + ") {"))
+      out.line((((("  if (" + ebn) + " > ") + zero) + ") {"))
+      out.line((((("    " + er) + " = (") + er) + ((" + " + ebn) + ")")))
+      if (t.kind == "double") {
+        out.line((((("    " + eq) + " = (") + eq) + " - 1.0)"))
+      } {
+        out.line((((("    " + eq) + " = (") + eq) + " - 1)"))
+      }
+      out.line("  } {")
+      out.line((((("    " + er) + " = (") + er) + ((" - " + ebn) + ")")))
+      if (t.kind == "double") {
+        out.line((((("    " + eq) + " = (") + eq) + " + 1.0)"))
+      } {
+        out.line((((("    " + eq) + " = (") + eq) + " + 1)"))
+      }
+      out.line("  }")
+      out.line("}")
+      if (name == "div_euclid") {
+        return (this.simpleExpr(eq t))
+      }
+      return (this.simpleExpr(er t))
     }
     this.unsupported(at (("the number method `" + name) + "`"))
     return (this.unit())
@@ -8703,8 +9294,34 @@ class RustLower {
     }
     if (t.kind == "vec") {
       if (ixN.kind == "range") {
-        this.unsupported(n "slicing a Vec with a range (stage R2)")
-        return (this.unit())
+        ; `&v[a..b]`: a copy of the elements (read through, as a buffer's
+        ; range is); `.to_vec()` / `.iter()` on it read the copy
+        def sv2:string (this.bindTemp(rv t "vec"))
+        def slo:string "0"
+        def shi:string (("(array_length " + sv2) + ")")
+        if (false == ((ixN.kid(0)).isNone())) {
+          def slv:RsExpr (this.lowerExpr((ixN.kid(0)) (RsType.mk("int"))))
+          slo = (this.bindTemp(slv (RsType.mk("int")) "lo"))
+        }
+        if (false == ((ixN.kid(1)).isNone())) {
+          def shv:RsExpr (this.lowerExpr((ixN.kid(1)) (RsType.mk("int"))))
+          shi = shv.code
+          if (ixN.name == "..=") {
+            shi = (("(" + shi) + " + 1)")
+          }
+        }
+        def svt:RsType (RsType.of1("vec" (t.arg(0))))
+        def sd:string (this.tmp("sl"))
+        def sk:string (this.tmp("k"))
+        def she:string (this.tmp("hi"))
+        out.line(("def " + (this.declText(sd svt))))
+        out.line((((("def " + sk) + ":int ") + slo)))
+        out.line((((("def " + she) + ":int ") + shi)))
+        out.line((((("while (" + sk) + " < ") + she) + ") {"))
+        out.line((((("  push " + sd) + " (itemAt ") + sv2) + ((" " + sk) + ")")))
+        out.line((((("  " + sk) + " = (") + sk) + " + 1)"))
+        out.line("}")
+        return (this.simpleExpr(sd svt))
       }
       def v:string (this.bindTemp(rv t "vec"))
       def iv:RsExpr (this.lowerExpr(ixN (RsType.mk("int"))))
@@ -8943,6 +9560,18 @@ class RustLower {
         this.err(n "an empty array needs its element type: annotate the `let`")
       }
       return (RsExpr.of((("([] " + (join codes " ")) + ")") vt2))
+    }
+    if (((strlen rt) > 0) && ((substring rt 0 1) == "[")) {
+      ; `([] _:[int] (...))` does not parse as a nested literal: build the
+      ; outer array with pushes.
+      def an:string (this.tmp("arr"))
+      out.line(((("def " + an) + ":") + (this.rtype(vt2))))
+      for codes c:string ci {
+        out.line(((("push " + an) + " ") + c))
+      }
+      def ra:RsExpr (RsExpr.of(an vt2))
+      ra.simple = true
+      return ra
     }
     return (RsExpr.of((((("([] _:" + rt) + " (") + (join codes " ")) + "))") vt2))
   }
@@ -9868,6 +10497,45 @@ class RustLower {
     out = saveOut
     def rt:string (this.rtype(et))
     return ((((((((("(fn:int (" + an) + ":") + rt) + " ") + bn) + ":") + rt) + ") {\n") + (join lines "\n")) + (("\n" + out.ind) + "})"))
+  }
+
+  ; a tuple of numbers, strings, chars (and tuples of them)
+  fn tupleOrd:boolean (t:RsType) {
+    for t.args a:RsType i {
+      def k:string a.kind
+      if ((k == "tuple") && (this.tupleOrd(a))) {
+        continue
+      }
+      if ((k != "int") && (k != "double") && (k != "string") && (k != "char") && (k != "bool")) {
+        return false
+      }
+    }
+    return true
+  }
+
+  ; `(fn:int (a b) …)` comparing two tuples field by field
+  fn tupleComparator:string (t:RsType) {
+    def rt:string (this.rtype(t))
+    def ind:string out.ind
+    def s:string (((("(fn:int (a:" + rt) + " b:") + rt) + ") {\n")
+    def i:int 0
+    for t.args a:RsType ai {
+      def f:string ("f" + (to_string i))
+      def cc:string ""
+      if (a.kind == "tuple") {
+        cc = (((((("(" + (this.tupleComparator(a))) + " a.") + f) + " b.") + f) + ")")
+      } {
+        if (a.kind == "bool") {
+          cc = (((((((("(? ((? a." + f) + " 1 0) < (? b.") + f) + " 1 0)) -1 (? ((? a.") + f) + " 1 0) > (? b.") + f) + " 1 0)) 1 0))")
+        } {
+          cc = (this.cmpCode(("a." + f) ("b." + f) a))
+        }
+      }
+      s = (((((s + ind) + "  def c") + (to_string i)) + ":int ") + cc) + "\n"
+      s = (((((s + ind) + "  if (c") + (to_string i)) + " != 0) {\n") + ind) + (((("    return c" + (to_string i)) + "\n") + ind) + "  }\n")
+      i = i + 1
+    }
+    return (((s + ind) + "  return 0\n") + (ind + "})"))
   }
 
   fn comparatorFromMethod:string (et:RsType) {
@@ -11458,6 +12126,21 @@ class RustLower {
       return false
     }
     return ((k == "int") || (k == "double") || (k == "bool") || (k == "string") || (k == "char") || (k == "vec") || (k == "map") || (k == "set"))
+  }
+
+  ; a `&mut` parameter held in its RsBox_ (`out_box.v`): growing it stores
+  ; the new value in the box, which the caller reads back
+  fn isBoxedLocal:boolean (pe:RustNode) {
+    def pp:RustNode (pe.kid(0))
+    if ((array_length pp.kids) != 1) {
+      return false
+    }
+    def bl@(optional):RsLocal (scope.lookup((this.lastSeg(pp))))
+    if (null? bl) {
+      return false
+    }
+    def b:RsLocal (unwrap bl)
+    return (endsWith b.rname "_box.v")
   }
 
   fn hasBoxed:boolean (f:RsFn) {

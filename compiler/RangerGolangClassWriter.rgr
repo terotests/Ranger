@@ -1645,8 +1645,9 @@ class RangerGolangClassWriter {
       }
       ctx.unsetInExpr()
       wr.out(")" false)
-      if (has node.methodChain) {
-        for node.methodChain cc:CallChain i {
+      if (!null? node.methodChain) {
+        def mChain:[CallChain] (unwrap node.methodChain)
+        for mChain cc:CallChain i {
           wr.out(("." + cc.methodName) false)
           wr.out("(" false)
           ctx.setInExpr()
@@ -2747,7 +2748,11 @@ class RangerGolangClassWriter {
         }
         written = written + 1
         wr.out((arg.name + " ") false)
-        this.writeTypeDef((unwrap arg.nameNode) ctx wr)
+        if (arg.nameNode.hasFlag("optional")) {
+          wr.out("*GoNullable" false)
+        } {
+          this.writeTypeDef((unwrap arg.nameNode) ctx wr)
+        }
       }
     }
     wr.out(((") *" + goName) + " {") true)
@@ -2786,13 +2791,13 @@ class RangerGolangClassWriter {
             wr.out("" true)
           } {
             def pNameN:CodeNode (unwrap pvar.nameNode)
-            if (pNameN.value_type == RangerNodeType.Array) {
+            if ((pNameN.value_type == RangerNodeType.Array) && (false == (pNameN.hasFlag("optional")))) {
               wr.out((("me." + pvar.compiledName) + " = ") false)
               wr.out("make(" false)
               this.writeTypeDef( (unwrap pvar.nameNode) ctx wr)
               wr.out(",0)" true)
             }
-            if (pNameN.value_type == RangerNodeType.Hash) {
+            if ((pNameN.value_type == RangerNodeType.Hash) && (false == (pNameN.hasFlag("optional")))) {
               wr.out((("me." + pvar.compiledName) + " = ") false)
               wr.out("make(" false)
               this.writeTypeDef((unwrap pvar.nameNode)  ctx wr)
@@ -2835,13 +2840,13 @@ class RangerGolangClassWriter {
         wr.out("" true)
       } {
         def pNameN:CodeNode pvar.nameNode
-        if (pNameN.value_type == RangerNodeType.Array) {
+        if ((pNameN.value_type == RangerNodeType.Array) && (false == (pNameN.hasFlag("optional")))) {
           wr.out((("me." + pvar.compiledName) + " = ") false)
           wr.out("make(" false)
           this.writeTypeDef((unwrap pvar.nameNode) ctx wr)
           wr.out(",0)" true)
         }
-        if (pNameN.value_type == RangerNodeType.Hash) {
+        if ((pNameN.value_type == RangerNodeType.Hash) && (false == (pNameN.hasFlag("optional")))) {
           wr.out((("me." + pvar.compiledName) + " = ") false)
           wr.out("make(" false)
           this.writeTypeDef((unwrap pvar.nameNode) ctx wr)

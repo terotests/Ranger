@@ -14,6 +14,8 @@ class RustReserved {
   sfn build:[string:boolean] () {
     def parts:[string]
     push parts "ArrayList ByteArrayOutputStream Constructor DispatchQueue Double Enum"
+    ; globals of the JavaScript writer's runtime a class would hide
+    push parts "Number Object Array Math JSON Date Error Symbol Promise Set Boolean RegExp Reflect Proxy BigInt Intl Buffer"
     push parts "Err Extends FILE False File Function I Import List M_PI Map None Ok"
     push parts "PrintWriter ProcessBuilder Runtime Self Some String StringBuilder"
     push parts "System T Thread True _ a abs absolute abstract acc acos alignas"

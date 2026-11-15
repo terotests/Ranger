@@ -569,6 +569,14 @@ class RangerCppClassWriter {
         k_name = node.eval_key_type
       }
     }
+    ; an `a@(optional):int` constructor parameter keeps eval_type VRef: resolve
+    ; a primitive type name again (it was written as an optional vector)
+    if (v_type == RangerNodeType.VRef) {
+      def primT:RangerNodeType (TTypes.nameToValue(t_name))
+      if (primT != RangerNodeType.NoType) {
+        v_type = primT
+      }
+    }
 
 
     ; std::function<int (int, int)>
@@ -675,12 +683,28 @@ class RangerCppClassWriter {
         wr.out("bool" false)
       }
       case RangerNodeType.Hash {
+        ; an optional map or array is a std::optional, as every other optional
+        ; value is: the writer reads it with has_value() / value()
+        if( node.hasFlag("optional") ) {
+          wr.addImport("<optional>")
+          wr.out("std::optional<" false)
+        }
         wr.out((((("rg_ordered_map<" + (this.getObjectTypeString(k_name ctx))) + ",") + (this.getObjectTypeString(a_name ctx)))) + ">" , false)
         wr.addImport("<map>")
+        if( node.hasFlag("optional") ) {
+          wr.out(">" false)
+        }
       }
       case RangerNodeType.Array {
+        if( node.hasFlag("optional") ) {
+          wr.addImport("<optional>")
+          wr.out("std::optional<" false)
+        }
         wr.out((("std::vector<" + (this.getObjectTypeString(a_name ctx))) + ">") false)
         wr.addImport("<vector>")
+        if( node.hasFlag("optional") ) {
+          wr.out(">" false)
+        }
       }
       default {
 

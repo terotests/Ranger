@@ -68,13 +68,31 @@ class RangerJavaScriptClassWriter {
       return
     }
 
-    ; the index form, what the template wrote before
+    ; the index form, what the template wrote before. A collection that is
+    ; an expression (`for (this.paramTypes(f)) t ...`) is evaluated once into
+    ; a block-scoped constant: written twice in the loop it ran on every turn,
+    ; twice -- a quadratic loop when the call builds the array
+    def once:boolean coll.expression
+    def listName:string ""
+    if once {
+      ; the block gives each loop its own name
+      listName = "__rg_list"
+      wr.out("{" true)
+      wr.indent(1)
+      wr.out((("const " + listName) + " = ") false)
+      this.jsWriteOperand(coll ctx wr)
+      wr.out(";" true)
+    }
     wr.out("for ( let " false)
     this.jsWriteOperand(idx ctx wr)
     wr.out(" = 0; " false)
     this.jsWriteOperand(idx ctx wr)
     wr.out(" < " false)
-    this.jsWriteOperand(coll ctx wr)
+    if once {
+      wr.out(listName false)
+    } {
+      this.jsWriteOperand(coll ctx wr)
+    }
     wr.out(".length; " false)
     this.jsWriteOperand(idx ctx wr)
     wr.out("++) {" true)
@@ -82,7 +100,11 @@ class RangerJavaScriptClassWriter {
     wr.out("var " false)
     this.jsWriteOperand(item ctx wr)
     wr.out(" = " false)
-    this.jsWriteOperand(coll ctx wr)
+    if once {
+      wr.out(listName false)
+    } {
+      this.jsWriteOperand(coll ctx wr)
+    }
     wr.out("[" false)
     this.jsWriteOperand(idx ctx wr)
     wr.out("];" true)
@@ -91,6 +113,10 @@ class RangerJavaScriptClassWriter {
     this.WalkNode(body sCtx wr)
     wr.indent(-1)
     wr.out("}" true)
+    if once {
+      wr.indent(-1)
+      wr.out("}" true)
+    }
   }
 
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -228,10 +254,9 @@ class RangerJavaScriptClassWriter {
       ctx.unsetInExpr()
       wr.out(")" false)
 
-      if(has node.methodChain) {
-        ; wr.newline()
-        ; wr.indent(1)
-        for node.methodChain cc:CallChain i {
+      if (!null? node.methodChain) {
+        def mChain:[CallChain] (unwrap node.methodChain)
+        for mChain cc:CallChain i {
           wr.out("." + cc.methodName , false)
           wr.out("(" false)
           ctx.setInExpr()
@@ -761,7 +786,9 @@ class RangerJavaScriptClassWriter {
         ctx.unsetInExpr()
         was_set = true
       } {
-        if (nn.value_type == RangerNodeType.Array) {
+        ; an optional array or hash starts as undefined: `null? x` is true
+        ; until it is set, as on every other target
+        if ((nn.value_type == RangerNodeType.Array) && (false == (nn.hasFlag("optional")))) {
           wr.out(("this." + p.compiledName ) , false)
           if(nn.hasFlag("immutable")) {
             wr.out(" = require('immutable').List()" false)
@@ -770,7 +797,7 @@ class RangerJavaScriptClassWriter {
           }
           was_set = true
         }
-        if (nn.value_type == RangerNodeType.Hash) {
+        if ((nn.value_type == RangerNodeType.Hash) && (false == (nn.hasFlag("optional")))) {
           wr.out(("this." + p.compiledName ) , false)
           ; wr.out(" = {}" false)
           if(nn.hasFlag("immutable")) {
@@ -851,14 +878,15 @@ class RangerJavaScriptClassWriter {
         ctx.unsetInExpr()
       } {
         ; the compiler could call the operators here with possibly some parameters ?
-        if (nn.value_type == RangerNodeType.Array) {
+        ; an optional array or map starts as no value (undefined), not empty
+        if ((nn.value_type == RangerNodeType.Array) && (false == (nn.hasFlag("optional")))) {
           if(nn.hasFlag("immutable")) {
             wr.out(" = require('immutable').List()" false)
           } {
             wr.out(" = []" false)
           }          
         }
-        if (nn.value_type == RangerNodeType.Hash) {
+        if ((nn.value_type == RangerNodeType.Hash) && (false == (nn.hasFlag("optional")))) {
           if(nn.hasFlag("immutable")) {
             wr.out(" = require('immutable').Map()" false)
           } {

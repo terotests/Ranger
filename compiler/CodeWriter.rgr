@@ -1372,8 +1372,14 @@ class CodeWriter {
     }
 
     fn writeSlice:void (str:string newLine:boolean) {
+        ; the column follows every write (advanceColumnForString), so it is
+        ; recounted only when the line starts here with its indentation:
+        ; recounting the whole line on every write made long lines quadratic
+        def startsLine:boolean ((strlen currentLine) == 0)
         this.addIndent()
-        this.syncColumnFromCurrentLine()
+        if startsLine {
+            this.syncColumnFromCurrentLine()
+        }
         if ((strlen str) > 0) {
             this.recordCurrentMapping()
         }
