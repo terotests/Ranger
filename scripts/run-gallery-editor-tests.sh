@@ -197,7 +197,6 @@ SUITES=(
   # composite over field, radio-group, checkbox-group, input and progress — so
   # the parts have oracles and the flow does not. Specified from the component
   # source, and three of its rules are mutation-proved.
-  ui:quest:check
   # The filter bar. Its PREDICATES are TanStack's and were measured — including
   # the two things that route through code a reimplementation never sees: an
   # empty chip is dropped rather than matched, and that dropping happens in

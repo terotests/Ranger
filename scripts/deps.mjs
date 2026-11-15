@@ -31,6 +31,11 @@
 //
 // The Word viewer and editor (gallery/docx_viewer) is the whole of
 // terotests/RangerDocx (subdir "."), pinned and fetched the same way.
+//
+// The UI controllers (gallery/ui/src) and their theme (gallery/ui/theme) are
+// terotests/EVGUI's src and theme: EVGUI is their only source. Changing a
+// controller: commit to EVGUI, put the commit in both "sources" entries
+// (ui_src, ui_theme), npm run deps.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -53,6 +58,8 @@ const PLACES = {
   vela: "gallery/vela",
   datagrid: "gallery/datagrid",
   docx_viewer: "gallery/docx_viewer",
+  ui_src: "gallery/ui/src",
+  ui_theme: "gallery/ui/theme",
 };
 // What --from=<checkout> copies: the packages whose repository that
 // checkout is, found by the subdirectories the lock names.
