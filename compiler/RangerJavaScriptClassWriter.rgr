@@ -40,6 +40,73 @@ class RangerJavaScriptClassWriter {
     return ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash))
   }
 
+  ; `@(rare)` on a field that is almost never set, in plain JavaScript: the
+  ; value lives in a side object (`this.__x`) made on the first write, and a
+  ; getter returns the initial value until then. A CodeNode had 99 fields
+  ; and the parser makes about a million of them in a large program; most
+  ; of the fields are never set. Only a field whose initial value is a
+  ; literal qualifies (jsRareDefault): the getter repeats that value, so it
+  ; must not be an object a caller could change.
+  fn jsRareDefault:string (pvar:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if (target_typescript || target_flow) {
+      return ""
+    }
+    if pvar.is_static {
+      return ""
+    }
+    if (null? pvar.nameNode) {
+      return ""
+    }
+    if (null? pvar.node) {
+      return ""
+    }
+    def nn:CodeNode (unwrap pvar.nameNode)
+    if (false == (nn.hasFlag("rare"))) {
+      return ""
+    }
+    if (((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash)) && (false == (nn.hasFlag("optional")))) {
+      return ""
+    }
+    def tw:CodeWriter (new CodeWriter())
+    this.writeVarInitDef((unwrap pvar.node) ctx tw)
+    def txt:string (tw.getCode())
+    def head:string ((("this." + pvar.compiledName)) + " = ")
+    def hl:int (strlen head)
+    if ((strlen txt) <= hl) {
+      return ""
+    }
+    if ((substring txt 0 hl) != head) {
+      return ""
+    }
+    def endAt:int -1
+    def i:int hl
+    def tl:int (strlen txt)
+    while (i < tl) {
+      if ((charAt txt i) == (ccode ";")) {
+        endAt = i
+        break
+      }
+      i = i + 1
+    }
+    if (endAt <= hl) {
+      return ""
+    }
+    def v:string (substring txt hl endAt)
+    if ((v == "undefined") || (v == "true") || (v == "false") || (v == "\"\"")) {
+      return v
+    }
+    def j:int 0
+    def vl:int (strlen v)
+    while (j < vl) {
+      def c:char (charAt v j)
+      if (((c < (ccode "0")) || (c > (ccode "9"))) && (c != (ccode ".")) && (c != (ccode "-"))) {
+        return ""
+      }
+      j = j + 1
+    }
+    return v
+  }
+
   fn jsWriteOperand:void (arg:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     ctx.setInExpr()
     this.WalkNode(arg ctx wr)
@@ -1476,9 +1543,26 @@ class RangerJavaScriptClassWriter {
         }
       }
 
+      def rareNames:[string]
+      def rareDefaults:[string]
+      for cl.variables rvar:RangerAppParamDesc ri {
+        def rd:string (this.jsRareDefault(rvar ctx))
+        if ((strlen rd) > 0) {
+          push rareNames rvar.compiledName
+          push rareDefaults rd
+        }
+      }
+      if ((array_length rareNames) > 0) {
+        wr.out("this.__x = undefined;" true)
+      }
       for cl.variables pvar:RangerAppParamDesc i {
         if pvar.is_static {
           continue _
+        }
+        if ((array_length rareNames) > 0) {
+          if ((indexOf rareNames pvar.compiledName) >= 0) {
+            continue _
+          }
         }
         if (target_typescript == false) {
           if pvar.has_doc {
@@ -1529,6 +1613,29 @@ class RangerJavaScriptClassWriter {
           def s2:string (s1 + " (v) { ")
           def s3:string (s2 + store)
           wr.out((s3 + " = v; }") true)
+        }
+      }
+      if ((array_length rareNames) > 0) {
+        wr.out("__xNew () { return {" true)
+        wr.indent(1)
+        for rareNames rn:string rni {
+          def rdef:string (itemAt rareDefaults rni)
+          wr.out((((rn + ": ") + rdef) + ",") true)
+        }
+        wr.indent(-1)
+        wr.out("}; }" true)
+        for rareNames rn2:string rnj {
+          def rdef2:string (itemAt rareDefaults rnj)
+          def a1:string ("get " + rn2)
+          def a2:string (a1 + " () { const x = this.__x; return x === undefined ? ")
+          def a3:string (a2 + rdef2)
+          def a4:string (a3 + " : x.")
+          def a5:string (a4 + rn2)
+          wr.out((a5 + "; }") true)
+          def b1:string ("set " + rn2)
+          def b2:string (b1 + " (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.")
+          def b3:string (b2 + rn2)
+          wr.out((b3 + " = v; }") true)
         }
       }
     }
