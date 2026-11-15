@@ -211,7 +211,18 @@ class SourceMapBuilder {
           out = out + "\\t"
         }
         default {
-          out = out + piece
+          ; Any other control character must be escaped too, or the map is
+          ; not JSON: a source with a NUL or a form feed in a string literal
+          ; made esbuild reject the whole map.
+          def code:int (charAt value i)
+          if (code < 32) {
+            def hex:string "0123456789abcdef"
+            def hi:int (to_int (code / 16))
+            def lo:int (code - (hi * 16))
+            out = out + "\\u00" + (substring hex hi (hi + 1)) + (substring hex lo (lo + 1))
+          } {
+            out = out + piece
+          }
         }
       }
       i = i + 1
