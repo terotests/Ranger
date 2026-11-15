@@ -6325,7 +6325,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 python ( (e 1) "[" (e 2) ":" (e 3) "].decode(\"utf-8\")" )
                 ; ...and a Uint8Array on JavaScript, where it is neither a
                 ; string nor sliceable with String.substring
-                es6 ( "r_cb_dec.decode(" (e 1) ".subarray(" (e 2) ", " (e 3) "))"
+                es6 ( "r_cb_dec.slice(" (e 1) ", " (e 2) ", " (e 3) ")"
 (create_polyfill "
 // A charbuffer is a buffer of BYTES, so it is a Uint8Array here
 // rather than the string it used to be. One encoder and one decoder for the
@@ -6349,7 +6349,14 @@ const r_cb_enc = { e: null, encode: function (s) {
   }
   return new Uint8Array(out);
 } };
-const r_cb_dec = { d: null, decode: function (b) {
+const r_cb_dec = { d: null, u: null, slice: function (b, a, e) {
+  // Node's Buffer.prototype.utf8Slice decodes a range of any Uint8Array
+  // without making a subarray view, and is ~2.5x faster than TextDecoder
+  // on the short slices a tokenizer takes; other hosts decode the view
+  if (this.u === null) this.u = (typeof Buffer !== 'undefined' && Buffer.prototype && typeof Buffer.prototype.utf8Slice === 'function') ? Buffer.prototype.utf8Slice : false;
+  if (this.u) return this.u.call(b, a, e);
+  return this.decode(b.subarray(a, e));
+}, decode: function (b) {
   if (this.d === null) this.d = typeof TextDecoder !== 'undefined' ? new TextDecoder() : false;
   if (this.d) return this.d.decode(b);
   var s = '';
@@ -6412,7 +6419,14 @@ const r_cb_enc = { e: null, encode: function (s) {
   }
   return new Uint8Array(out);
 } };
-const r_cb_dec = { d: null, decode: function (b) {
+const r_cb_dec = { d: null, u: null, slice: function (b, a, e) {
+  // Node's Buffer.prototype.utf8Slice decodes a range of any Uint8Array
+  // without making a subarray view, and is ~2.5x faster than TextDecoder
+  // on the short slices a tokenizer takes; other hosts decode the view
+  if (this.u === null) this.u = (typeof Buffer !== 'undefined' && Buffer.prototype && typeof Buffer.prototype.utf8Slice === 'function') ? Buffer.prototype.utf8Slice : false;
+  if (this.u) return this.u.call(b, a, e);
+  return this.decode(b.subarray(a, e));
+}, decode: function (b) {
   if (this.d === null) this.d = typeof TextDecoder !== 'undefined' ? new TextDecoder() : false;
   if (this.d) return this.d.decode(b);
   var s = '';
@@ -6474,7 +6488,14 @@ const r_cb_enc = { e: null, encode: function (s) {
   }
   return new Uint8Array(out);
 } };
-const r_cb_dec = { d: null, decode: function (b) {
+const r_cb_dec = { d: null, u: null, slice: function (b, a, e) {
+  // Node's Buffer.prototype.utf8Slice decodes a range of any Uint8Array
+  // without making a subarray view, and is ~2.5x faster than TextDecoder
+  // on the short slices a tokenizer takes; other hosts decode the view
+  if (this.u === null) this.u = (typeof Buffer !== 'undefined' && Buffer.prototype && typeof Buffer.prototype.utf8Slice === 'function') ? Buffer.prototype.utf8Slice : false;
+  if (this.u) return this.u.call(b, a, e);
+  return this.decode(b.subarray(a, e));
+}, decode: function (b) {
   if (this.d === null) this.d = typeof TextDecoder !== 'undefined' ? new TextDecoder() : false;
   if (this.d) return this.d.decode(b);
   var s = '';
@@ -6799,7 +6820,14 @@ const r_cb_enc = { e: null, encode: function (s) {
   }
   return new Uint8Array(out);
 } };
-const r_cb_dec = { d: null, decode: function (b) {
+const r_cb_dec = { d: null, u: null, slice: function (b, a, e) {
+  // Node's Buffer.prototype.utf8Slice decodes a range of any Uint8Array
+  // without making a subarray view, and is ~2.5x faster than TextDecoder
+  // on the short slices a tokenizer takes; other hosts decode the view
+  if (this.u === null) this.u = (typeof Buffer !== 'undefined' && Buffer.prototype && typeof Buffer.prototype.utf8Slice === 'function') ? Buffer.prototype.utf8Slice : false;
+  if (this.u) return this.u.call(b, a, e);
+  return this.decode(b.subarray(a, e));
+}, decode: function (b) {
   if (this.d === null) this.d = typeof TextDecoder !== 'undefined' ? new TextDecoder() : false;
   if (this.d) return this.d.decode(b);
   var s = '';

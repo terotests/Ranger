@@ -10755,7 +10755,7 @@ class RangerLispParser  {
       return;
     }
     const memberNode = new CodeNode(this.code, msp, this.i);
-    memberNode.vref = r_cb_dec.decode(s.subarray(msp, this.i));
+    memberNode.vref = r_cb_dec.slice(s, msp, this.i);
     memberNode.value_type = 11;
     memberNode.is_paren_member = true;
     memberNode.parent = closed;
@@ -11296,8 +11296,8 @@ class RangerLispParser  {
         const new_attr = new CodeNode(this.code, sp, ep);
         new_attr.value_type = 24;
         new_attr.parsed_type = new_attr.value_type;
-        new_attr.vref = r_cb_dec.decode(s.subarray(an_sp, an_ep + 1));
-        new_attr.string_value = r_cb_dec.decode(s.subarray(sp, ep));
+        new_attr.vref = r_cb_dec.slice(s, an_sp, an_ep + 1);
+        new_attr.string_value = r_cb_dec.slice(s, sp, ep);
         cNode.attrs.push(new_attr);
         this.curr_node = new_attr;
         this.paren_cnt = this.paren_cnt + 1;
@@ -11325,8 +11325,8 @@ class RangerLispParser  {
           const new_attr_1 = new CodeNode(this.code, sp, ep);
           new_attr_1.value_type = 24;
           new_attr_1.parsed_type = new_attr_1.value_type;
-          new_attr_1.vref = r_cb_dec.decode(s.subarray(an_sp, an_ep + 1));
-          new_attr_1.string_value = r_cb_dec.decode(s.subarray(sp, ep));
+          new_attr_1.vref = r_cb_dec.slice(s, an_sp, an_ep + 1);
+          new_attr_1.string_value = r_cb_dec.slice(s, sp, ep);
           if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
             const current = this.curr_node;
             current.attrs.push(new_attr_1);
@@ -11423,7 +11423,7 @@ class RangerLispParser  {
         };
         tag_depth = tag_depth + 1;
         ep = this.i;
-        const new_tag = r_cb_dec.decode(s.subarray(sp, ep));
+        const new_tag = r_cb_dec.slice(s, sp, ep);
         if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
           const current = this.curr_node;
           const new_node_2 = new CodeNode(this.code, sp, ep);
@@ -11467,7 +11467,7 @@ class RangerLispParser  {
         ep = this.i;
         if ( ep > sp ) {
           const new_node_3 = new CodeNode(this.code, sp, ep);
-          new_node_3.string_value = r_cb_dec.decode(s.subarray(sp, ep));
+          new_node_3.string_value = r_cb_dec.slice(s, sp, ep);
           new_node_3.value_type = 23;
           new_node_3.parsed_type = new_node_3.value_type;
           this.curr_node.children.push(new_node_3);
@@ -11561,7 +11561,7 @@ class RangerLispParser  {
           const commentNode = new_node;
           commentNode.parsed_type = 12;
           commentNode.value_type = 12;
-          commentNode.string_value = r_cb_dec.decode(s.subarray(sp, this.i));
+          commentNode.string_value = r_cb_dec.slice(s, sp, this.i);
           if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
             const current = this.curr_node;
             if ( current.is_block_node ) {
@@ -11636,11 +11636,19 @@ class RangerLispParser  {
           if ( is_double ) {
             new_num_node.parsed_type = 2;
             new_num_node.value_type = 2;
-            new_num_node.double_value = (isNaN( parseFloat(r_cb_dec.decode(s.subarray(sp, ep))) ) ? undefined : parseFloat(r_cb_dec.decode(s.subarray(sp, ep))));
+            new_num_node.double_value = (isNaN( parseFloat(r_cb_dec.slice(
+              s,
+              sp,
+              ep
+            )) ) ? undefined : parseFloat(r_cb_dec.slice(s, sp, ep)));
           } else {
             new_num_node.parsed_type = 3;
             new_num_node.value_type = 3;
-            new_num_node.int_value = (isNaN( parseInt(r_cb_dec.decode(s.subarray(sp, ep))) ) ? undefined : parseInt(r_cb_dec.decode(s.subarray(sp, ep))));
+            new_num_node.int_value = (isNaN( parseInt(r_cb_dec.slice(
+              s,
+              sp,
+              ep
+            )) ) ? undefined : parseInt(r_cb_dec.slice(s, sp, ep)));
           }
           this.insert_node(new_num_node);
           continue;
@@ -11672,7 +11680,7 @@ class RangerLispParser  {
           if ( this.i < this.__len ) {
             let encoded_str = "";
             if ( must_encode ) {
-              const subs = r_cb_dec.decode(s.subarray(sp, ep));
+              const subs = r_cb_dec.slice(s, sp, ep);
               const str_length = subs.length;
               let ii = 0;
               while (ii < str_length) {
@@ -11724,7 +11732,7 @@ class RangerLispParser  {
             if ( must_encode ) {
               new_str_node.string_value = encoded_str;
             } else {
-              new_str_node.string_value = r_cb_dec.decode(s.subarray(sp, ep));
+              new_str_node.string_value = r_cb_dec.slice(s, sp, ep);
             }
             this.insert_node(new_str_node);
             this.i = 1 + this.i;
@@ -11769,7 +11777,7 @@ class RangerLispParser  {
           ep = this.i;
           if ( this.i < this.__len && ep > sp ) {
             const a_node2 = new CodeNode(this.code, sp, ep);
-            const a_name = r_cb_dec.decode(s.subarray(sp, ep));
+            const a_name = r_cb_dec.slice(s, sp, ep);
             if ( a_name == "noinfix" ) {
               disable_ops_set = true;
             }
@@ -11869,7 +11877,7 @@ class RangerLispParser  {
                   stmt65.parent = blk65;
                   blk65.children.push(stmt65);
                   const tgt65 = new CodeNode(this.code, fp_sp, fp_ep);
-                  tgt65.vref = tmp65 + r_cb_dec.decode(s.subarray(fp_sp, fp_ep));
+                  tgt65.vref = tmp65 + r_cb_dec.slice(s, fp_sp, fp_ep);
                   tgt65.value_type = 11;
                   tgt65.parsed_type = 11;
                   tgt65.ns = tgt65.vref.split(".");
@@ -11931,7 +11939,7 @@ class RangerLispParser  {
               break;
             }
             if ( c == (46) ) {
-              ns_list.push(r_cb_dec.decode(s.subarray(last_ns, this.i)));
+              ns_list.push(r_cb_dec.slice(s, last_ns, this.i));
               last_ns = this.i + 1;
               ns_cnt = 1 + ns_cnt;
             }
@@ -11948,7 +11956,7 @@ class RangerLispParser  {
         if ( vref_had_type_ann ) {
           ep = vref_end;
         }
-        ns_list.push(r_cb_dec.decode(s.subarray(last_ns, ep)));
+        ns_list.push(r_cb_dec.slice(s, last_ns, ep));
         c = s[this.i];
         while ((this.i < this.__len && c <= 32) && false == last_was_newline) {
           this.i = 1 + this.i;
@@ -11972,7 +11980,7 @@ class RangerLispParser  {
             const vann_arr2 = this.parse_raw_annotation();
             vann_arr2.expression = true;
             const new_expr_node_1 = new CodeNode(this.code, sp, vt_ep);
-            new_expr_node_1.vref = r_cb_dec.decode(s.subarray(sp, ep));
+            new_expr_node_1.vref = r_cb_dec.slice(s, sp, ep);
             new_expr_node_1.ns = ns_list;
             new_expr_node_1.expression_value = vann_arr2;
             new_expr_node_1.parsed_type = 20;
@@ -12018,10 +12026,10 @@ class RangerLispParser  {
             vt_ep = this.i;
             if ( hash_sep > 0 ) {
               vt_ep = this.i;
-              const type_name = r_cb_dec.decode(s.subarray(1 + hash_sep, vt_ep));
-              const key_type_name = r_cb_dec.decode(s.subarray(vt_sp, hash_sep));
+              const type_name = r_cb_dec.slice(s, 1 + hash_sep, vt_ep);
+              const key_type_name = r_cb_dec.slice(s, vt_sp, hash_sep);
               const new_hash_node = new CodeNode(this.code, sp, vt_ep);
-              new_hash_node.vref = r_cb_dec.decode(s.subarray(sp, ep));
+              new_hash_node.vref = r_cb_dec.slice(s, sp, ep);
               new_hash_node.ns = ns_list;
               new_hash_node.parsed_type = 7;
               new_hash_node.value_type = 7;
@@ -12043,9 +12051,9 @@ class RangerLispParser  {
               continue;
             } else {
               vt_ep = this.i;
-              const type_name_1 = r_cb_dec.decode(s.subarray(vt_sp, vt_ep));
+              const type_name_1 = r_cb_dec.slice(s, vt_sp, vt_ep);
               const new_arr_node = new CodeNode(this.code, sp, vt_ep);
-              new_arr_node.vref = r_cb_dec.decode(s.subarray(sp, ep));
+              new_arr_node.vref = r_cb_dec.slice(s, sp, ep);
               new_arr_node.ns = ns_list;
               new_arr_node.parsed_type = 6;
               new_arr_node.value_type = 6;
@@ -12078,13 +12086,13 @@ class RangerLispParser  {
           };
           if ( this.i < this.__len ) {
             vt_ep = this.i;
-            const type_name_2 = r_cb_dec.decode(s.subarray(vt_sp, vt_ep));
+            const type_name_2 = r_cb_dec.slice(s, vt_sp, vt_ep);
             const new_ref_node = new CodeNode(this.code, sp, ep);
-            new_ref_node.vref = r_cb_dec.decode(s.subarray(sp, ep));
+            new_ref_node.vref = r_cb_dec.slice(s, sp, ep);
             new_ref_node.ns = ns_list;
             new_ref_node.parsed_type = 11;
             new_ref_node.value_type = 11;
-            new_ref_node.type_name = r_cb_dec.decode(s.subarray(vt_sp, vt_ep));
+            new_ref_node.type_name = r_cb_dec.slice(s, vt_sp, vt_ep);
             const current_7 = this.curr_node;
             new_ref_node.parent = current_7;
             if ( vref_had_type_ann ) {
@@ -12102,7 +12110,7 @@ class RangerLispParser  {
         } else {
           if ( this.i < this.__len && ep > sp ) {
             const new_vref_node = new CodeNode(this.code, sp, ep);
-            new_vref_node.vref = r_cb_dec.decode(s.subarray(sp, ep));
+            new_vref_node.vref = r_cb_dec.slice(s, sp, ep);
             new_vref_node.parsed_type = 11;
             new_vref_node.value_type = 11;
             new_vref_node.ns = ns_list;
@@ -86132,7 +86140,7 @@ class RustLexer  {
     return 0;
   };
   text (a, b) {
-    return r_cb_dec.decode(this.buf.subarray(a, b));
+    return r_cb_dec.slice(this.buf, a, b);
   };
   newToken (kind, a) {
     const t = new RustToken();
@@ -86141,7 +86149,7 @@ class RustLexer  {
     t.end = this.i;
     t.line = this.line;
     t.col = (a - this.line_start) + 1;
-    t.text = r_cb_dec.decode(this.buf.subarray(a, this.i));
+    t.text = r_cb_dec.slice(this.buf, a, this.i);
     this.tokens.push(t);
     return t;
   };
@@ -86507,7 +86515,7 @@ class RustLexer  {
         this.i = this.i + 1;
       };
       t.end = this.i;
-      t.text = r_cb_dec.decode(this.buf.subarray(t.start, this.i));
+      t.text = r_cb_dec.slice(this.buf, t.start, this.i);
     }
     this.markJoint(t);
   };
@@ -105385,7 +105393,14 @@ const r_cb_enc = { e: null, encode: function (s) {
   }
   return new Uint8Array(out);
 } };
-const r_cb_dec = { d: null, decode: function (b) {
+const r_cb_dec = { d: null, u: null, slice: function (b, a, e) {
+  // Node's Buffer.prototype.utf8Slice decodes a range of any Uint8Array
+  // without making a subarray view, and is ~2.5x faster than TextDecoder
+  // on the short slices a tokenizer takes; other hosts decode the view
+  if (this.u === null) this.u = (typeof Buffer !== 'undefined' && Buffer.prototype && typeof Buffer.prototype.utf8Slice === 'function') ? Buffer.prototype.utf8Slice : false;
+  if (this.u) return this.u.call(b, a, e);
+  return this.decode(b.subarray(a, e));
+}, decode: function (b) {
   if (this.d === null) this.d = typeof TextDecoder !== 'undefined' ? new TextDecoder() : false;
   if (this.d) return this.d.decode(b);
   var s = '';
