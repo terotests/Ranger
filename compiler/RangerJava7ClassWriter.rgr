@@ -1414,7 +1414,7 @@ public class RgJson {
   fn getCounters:TypeCounts (ctx:RangerAppWriterContext) {
     def root ( ctx.getRoot() )
     
-    def counters ( root.counters )
+    def counters:TypeCounts ( ctx.rootCounters() )
 
     if( counters.b_counted  == false ) {
       def list (keys root.definedClasses)

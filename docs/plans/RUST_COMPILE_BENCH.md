@@ -151,3 +151,19 @@ gen700 allocates 2.77 GB instead of 2.95 GB (parser 777 → 545 MB) and GC
 time drops ~12 %, but the accessor calls cost about as much, so gen700 is
 unchanged (7.2 s). vbs 1.98 → 1.76 s, com 13.50 → 13.31 s. Output is
 byte-identical.
+
+## Round 4 (2026-11-15): contexts and operator lookup
+
+- `getOperators` (ES6): when no namespace in the chain adds an operator of
+  that name and no context has an operator function, it returns the shared
+  list; it copied it into a new array on each of ~250 000 calls (gen700).
+- A `@(rare)` setter given the initial value on an object with no side
+  object returns without making one: `copy` and `rebuildWithType` copy
+  every field, and made a side object for every copied node.
+- `RangerAppWriterContext.counters` (a `TypeCounts`) is made on first use
+  (root and function contexts only); it was allocated on every fork. 24
+  context fields that are almost never set are `@(rare)` (the class went
+  from 105 constructor fields to 81).
+
+gen700 allocates 2.44 GB (was 2.74 GB), com 12.95 → 12.27 s; output
+byte-identical.
