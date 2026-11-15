@@ -152,4 +152,27 @@ describe("Ranger Compiler - Source Maps", () => {
       `expected mappings on main-body lines, got ${bodyLines.length} total sourced=${sourced.length}`
     ).toBeGreaterThan(0);
   });
+
+  it("maps -nodemodule output written as .cjs", () => {
+    if (!fs.existsSync(OUTPUT_DIR)) {
+      fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+    }
+    const cmd = `node "${path.join(ROOT_DIR, "dist", "rgrc.js")}" -es6 -nodemodule -sourcemap "${FIXTURE}" -d="tests/.output-sourcemap" -o="sourcemap_smoke.cjs"`;
+    const output = execSync(cmd, {
+      cwd: ROOT_DIR,
+      env: {
+        ...process.env,
+        RANGER_LIB: "./compiler/Lang.rgr;./lib/stdops.rgr",
+      },
+      encoding: "utf-8",
+    });
+    expect(output).not.toContain("Compilation FAILED");
+    const js = fs.readFileSync(path.join(OUTPUT_DIR, "sourcemap_smoke.cjs"), "utf-8");
+    expect(js).toContain("//# sourceMappingURL=sourcemap_smoke.cjs.map");
+    const map = JSON.parse(
+      fs.readFileSync(path.join(OUTPUT_DIR, "sourcemap_smoke.cjs.map"), "utf-8")
+    );
+    expect(map.file).toBe("sourcemap_smoke.cjs");
+    expect(map.mappings.length).toBeGreaterThan(0);
+  });
 });

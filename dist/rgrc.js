@@ -9725,6 +9725,12 @@ class CodeFileSystem  {
     if ( fileName.endsWith(".ts") ) {
       return true;
     }
+    if ( fileName.endsWith(".cjs") ) {
+      return true;
+    }
+    if ( fileName.endsWith(".mjs") ) {
+      return true;
+    }
     return false;
   };
   saveTo (path, verbose) {
