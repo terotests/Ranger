@@ -136,10 +136,10 @@ class RangerAppWriterContext {
   def langOperators:CodeNode
   def stdCommands:CodeNode 
   def operators:RangerActiveOperators
-  def op_list:[string:RangerOperatorList]
-  def automatically_unwrapped:[string:boolean]
-  def known_present:[string:boolean]
-  def flow_narrowed:[string:int]
+  def op_list@(lazy):[string:RangerOperatorList]
+  def automatically_unwrapped@(lazy):[string:boolean]
+  def known_present@(lazy):[string:boolean]
+  def flow_narrowed@(lazy):[string:int]
   def auto_unwrap_suppression:int 0
   def reservedWords:CodeNode 
   def intRootCounter:int 1
@@ -150,7 +150,7 @@ class RangerAppWriterContext {
   ; at a time -- a chain that is as deep as the expression is nested. Nine
   ; million hasCompilerFlag calls on one compile.
   def cachedRoot@(optional weak):RangerAppWriterContext
-  def defined_imports:[string]
+  def defined_imports@(lazy):[string]
   ; Guards macro expansion against runaway recursion. Macro expansion is the
   ; one path that re-walks its own output, so an expansion that reaches the
   ; same call site again never terminates; unguarded the compiler hangs with
@@ -161,15 +161,15 @@ class RangerAppWriterContext {
   ; alone: `if ... else` is itself a macro that expands to the three-argument
   ; `if`, so nested if/else is a legitimate re-entry of the same operator and
   ; a name-only key would reject nearly every real program.
-  def active_macros:[string:boolean]
+  def active_macros@(lazy):[string:boolean]
   ; Backstop only. active_macros cannot see a cycle whose expansion keeps
   ; growing new source positions, so a depth ceiling stops the hang even then.
   def macro_expansion_depth:int 0
-  def already_imported:[string:boolean]
+  def already_imported@(lazy):[string:boolean]
   ; `-rust-extern` (RustExtern.rgr): type name -> the crate that owns it
-  def rust_extern_types:[string:string]
+  def rust_extern_types@(lazy):[string:string]
   ; folded root path -> crate, and the crate whose files are being read
-  def rust_extern_roots:[string:string]
+  def rust_extern_roots@(lazy):[string:string]
   def rust_extern_current:string ""
   def fileSystem:CodeFileSystem
   def is_function:boolean false
@@ -181,102 +181,104 @@ class RangerAppWriterContext {
   def is_capturing:boolean false
   def is_catch_block:boolean false
   def is_try_block:boolean false
-  def captured_variables:[string]
+  def captured_variables@(lazy):[string]
   def has_block_exited:boolean false
   def in_expression:boolean false
-  def expr_stack:[boolean]
+  ; expression nesting of this context: a counter, it was a [boolean]
+  ; stack that only ever had its length read
+  def expr_depth:int 0
   def expr_restart:boolean false
   def expr_restart_block:boolean false
   def in_lhs_of_assignment:boolean false  ; True when processing LHS of = assignment (for Rust as_mut vs as_ref)
   def in_method:boolean false
-  def method_stack:[boolean]
-  def typeNames:[string]
-  def typeClasses:[string:RangerTypeClass]
+  def method_stack@(lazy):[boolean]
+  def typeNames@(lazy):[string]
+  def typeClasses@(lazy):[string:RangerTypeClass]
   def currentClassName:string
   def in_class:boolean false
   def in_static_method:boolean false
   def currentClass@(weak):RangerAppClassDesc
   def currentMethod@(weak):RangerAppFunctionDesc
   def thisName:string "this"
-  def definedEnums:[string:RangerAppEnum]
-  def definedInterfaces:[string:RangerAppClassDesc]
-  def definedInterfaceList:[string]
-  def definedClasses:[string:RangerAppClassDesc]
-  def definedClassList:[string]
+  def definedEnums@(lazy):[string:RangerAppEnum]
+  def definedInterfaces@(lazy):[string:RangerAppClassDesc]
+  def definedInterfaceList@(lazy):[string]
+  def definedClasses@(lazy):[string:RangerAppClassDesc]
+  def definedClassList@(lazy):[string]
   ; NEW: list of tasks defined 
-  def definedTasks:[string:RangerAppFunctionDesc]
-  def templateClassNodes@(weak):[string:CodeNode]
-  def templateClassList:[string]
-  def classSignatures:[string:string]
-  def classToSignature:[string:string]
-  def templateClasses:[string:RangerAppClassDesc]
-  def nativeGenerics:[string:boolean]
-  def genericFormUses:[string:[string]]
-  def classStaticWriters@(weak):[string:CodeWriter]
-  def localVariables:[string:RangerAppParamDesc]
-  def localVarNames:[string]
+  def definedTasks@(lazy):[string:RangerAppFunctionDesc]
+  def templateClassNodes@(weak lazy):[string:CodeNode]
+  def templateClassList@(lazy):[string]
+  def classSignatures@(lazy):[string:string]
+  def classToSignature@(lazy):[string:string]
+  def templateClasses@(lazy):[string:RangerAppClassDesc]
+  def nativeGenerics@(lazy):[string:boolean]
+  def genericFormUses@(lazy):[string:[string]]
+  def classStaticWriters@(weak lazy):[string:CodeWriter]
+  def localVariables@(lazy):[string:RangerAppParamDesc]
+  def localVarNames@(lazy):[string]
   
-  def contextFlags:[string:boolean]
-  def settings:[string:string]
-  def compilerFlags:[string:boolean]
-  def compilerSettings:[string:string]
-  def parserErrors:[RangerCompilerMessage]
-  def compilerErrors:[RangerCompilerMessage]
-  def compilerMessages:[RangerCompilerMessage]
-  def compilerLog:[string:RangerCompilerMessage]
-  def todoList:[RangerAppTodo]
-  def definedMacro:[string:boolean]
-  def defCounts:[string:int]
-  def refTransform:[string:string]
-  def staticClassBodies:[CodeNode]
+  def contextFlags@(lazy):[string:boolean]
+  def settings@(lazy):[string:string]
+  def compilerFlags@(lazy):[string:boolean]
+  def compilerSettings@(lazy):[string:string]
+  def parserErrors@(lazy):[RangerCompilerMessage]
+  def compilerErrors@(lazy):[RangerCompilerMessage]
+  def compilerMessages@(lazy):[RangerCompilerMessage]
+  def compilerLog@(lazy):[string:RangerCompilerMessage]
+  def todoList@(lazy):[RangerAppTodo]
+  def definedMacro@(lazy):[string:boolean]
+  def defCounts@(lazy):[string:int]
+  def refTransform@(lazy):[string:string]
+  def staticClassBodies@(lazy):[CodeNode]
 
   ; operators reserved only for the plugin
-  def pluginSpecificOperators:[string:boolean]
+  def pluginSpecificOperators@(lazy):[string:boolean]
 
-  def viewClassBody@(weak):[string:CodeNode]
-  def appPages@(weak):[string:CodeNode]
-  def appServices@(weak):[string:CodeNode]
+  def viewClassBody@(weak lazy):[string:CodeNode]
+  def appPages@(weak lazy):[string:CodeNode]
+  def appServices@(weak lazy):[string:CodeNode]
   
-  def opNs:[string]
+  def opNs@(lazy):[string]
 
   def langFilePath:string ""
-  def libraryPaths:[string]
+  def libraryPaths@(lazy):[string]
   ; how many of libraryPaths were given at the start; the ones after it are
   ; the folders of the files being imported, innermost last
   def libraryPathsBase:int 0
   ; top-level functions (ISSUES.md #104), kept on the root context:
   ; function name -> the module classes that declare it, "|"-separated
-  def moduleFunctions:[string:string]
+  def moduleFunctions@(lazy):[string:string]
   ; source file -> its module class
-  def fileModules:[string:string]
+  def fileModules@(lazy):[string:string]
   def outputPath ""
 
   def counters:TypeCounts (new TypeCounts)
   def parser:RangerFlowParser
   def compiler:LiveCompiler
-  def typedNodes:[string:RangerNodeList]
-  def registered_plugins:[RangerRegisteredPlugin]
+  def typedNodes@(lazy):[string:RangerNodeList]
+  def registered_plugins@(lazy):[RangerRegisteredPlugin]
 
   def operatorFunction:(_:CodeNode (name:string) )
   def lastBlockOp@(weak):CodeNode
 
-  def opFnsList@(weak):[string:CodeNode]
-  def test_compile:[boolean]
+  def opFnsList@(weak lazy):[string:CodeNode]
+  def test_compile@(lazy):[boolean]
 
-  def activeTransaction:[ContextTransaction]
-  def transactions@(weak):[ContextTransaction]
+  def activeTransaction@(lazy):[ContextTransaction]
+  def transactions@(weak lazy):[ContextTransaction]
 
   def env@(weak):InputEnv
 
   ; Rust-specific tracking for ownership/borrowing
-  def rust_moved_vars:[string:boolean]
-  def rust_usage_count:[string:int]
+  def rust_moved_vars@(lazy):[string:boolean]
+  def rust_usage_count@(lazy):[string:int]
   def rust_temp_counter:int 0
   ; Rust: every field name ever reached THROUGH a path anywhere in the
   ; program. Kept here rather than on the writer, because a writer that
   ; mutates a field of its own cannot take `&self` — and the whole point of
   ; the scan is to let writers take `&self`.
-  def rust_path_field_names:[string:boolean]
+  def rust_path_field_names@(lazy):[string:boolean]
   def rust_path_names_ready:boolean false
 
   ; Mark a variable as moved (value has been transferred)
@@ -1731,6 +1733,7 @@ class RangerAppWriterContext {
       push instNode.prop_keys key
       def pv:CodeNode (unwrap (get copyNode.props key))
       set instNode.props key pv
+      instNode.prop_cnt = instNode.prop_cnt + 1
     }
     for copyNode.children ch@(lives):CodeNode i {
       ch.parent = instNode
@@ -2321,7 +2324,7 @@ class RangerAppWriterContext {
     expr_restart_block = true
   }
   fn isInExpression:boolean () {
-    if ((array_length expr_stack) > 0) {
+    if (expr_depth > 0) {
       return true
     }
     if ((!null? parent) && (expr_restart_block == false) && (expr_restart == false )) {
@@ -2330,17 +2333,19 @@ class RangerAppWriterContext {
     return false
   }
   fn expressionLevel:int () {
-    def level:int (array_length expr_stack)
+    def level:int expr_depth
     if ((!null? parent) && (expr_restart == false) && (expr_restart_block == false)) {
       return (level + (parent.expressionLevel()))
     }
     return level
   }
   fn setInExpr:void () {
-    push expr_stack true
+    expr_depth = expr_depth + 1
   }
   fn unsetInExpr:void () {
-    removeLast expr_stack
+    if (expr_depth > 0) {
+      expr_depth = expr_depth - 1
+    }
   }
   ; Rust: Track when we're on LHS of assignment (need as_mut for optionals)
   fn setInLhs:void () {
@@ -2359,11 +2364,12 @@ class RangerAppWriterContext {
     return false
   }
   fn getErrorCount:int () {
-    def cnt:int (array_length compilerErrors)
-    if parent {
-      cnt = cnt + (parent.getErrorCount())
+    ; addError stores every error on the root, so the count is the root's;
+    ; summing the whole parent chain read an empty list on every level
+    if (null? parent) {
+      return (array_length compilerErrors)
     }
-    return cnt
+    return (this.errCnt())
   }
   fn isInStatic:boolean() {
     if in_static_method {

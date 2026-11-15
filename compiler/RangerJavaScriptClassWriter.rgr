@@ -25,6 +25,21 @@ class RangerJavaScriptClassWriter {
   ; es5 is NOT routed here -- `for...of` is ES6 -- so it keeps the `*` template.
   def jsLoops:ForLoopShape (new ForLoopShape())
 
+  ; an array or hash field marked `@(lazy)`, with no initial value, in plain
+  ; JavaScript (TypeScript declares fields with their types)
+  fn jsLazyField:boolean (nn:CodeNode) {
+    if (target_typescript || target_flow) {
+      return false
+    }
+    if (false == (nn.hasFlag("lazy"))) {
+      return false
+    }
+    if (nn.hasFlag("optional") || nn.hasFlag("immutable")) {
+      return false
+    }
+    return ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash))
+  }
+
   fn jsWriteOperand:void (arg:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     ctx.setInExpr()
     this.WalkNode(arg ctx wr)
@@ -786,9 +801,16 @@ class RangerJavaScriptClassWriter {
         ctx.unsetInExpr()
         was_set = true
       } {
+        ; `@(lazy)` on an array or hash field: allocated on first read
+        ; (jsLazyField). Contexts are forked hundreds of thousands of times
+        ; in a large program and most of their tables stay empty.
+        if (this.jsLazyField(nn)) {
+          wr.out((("this.__lz_" + p.compiledName) + " = undefined") , false)
+          was_set = true
+        }
         ; an optional array or hash starts as undefined: `null? x` is true
         ; until it is set, as on every other target
-        if ((nn.value_type == RangerNodeType.Array) && (false == (nn.hasFlag("optional")))) {
+        if ((was_set == false) && (nn.value_type == RangerNodeType.Array) && (false == (nn.hasFlag("optional")))) {
           wr.out(("this." + p.compiledName ) , false)
           if(nn.hasFlag("immutable")) {
             wr.out(" = require('immutable').List()" false)
@@ -797,7 +819,7 @@ class RangerJavaScriptClassWriter {
           }
           was_set = true
         }
-        if ((nn.value_type == RangerNodeType.Hash) && (false == (nn.hasFlag("optional")))) {
+        if ((was_set == false) && (nn.value_type == RangerNodeType.Hash) && (false == (nn.hasFlag("optional")))) {
           wr.out(("this." + p.compiledName ) , false)
           ; wr.out(" = {}" false)
           if(nn.hasFlag("immutable")) {
@@ -1479,6 +1501,36 @@ class RangerJavaScriptClassWriter {
       wr.newline()
       wr.indent(-1)
       wr.out("}" , true)
+      for cl.variables lzVar:RangerAppParamDesc lzi {
+        if lzVar.is_static {
+          continue _
+        }
+        if (null? lzVar.nameNode) {
+          continue _
+        }
+        def lzn:CodeNode (unwrap lzVar.nameNode)
+        if (this.jsLazyField(lzn)) {
+          def store:string ("this.__lz_" + lzVar.compiledName)
+          def empty:string "[]"
+          if (lzn.value_type == RangerNodeType.Hash) {
+            empty = "{}"
+          }
+          def g1:string ("get " + lzVar.compiledName)
+          def g2:string (g1 + " () { if (")
+          def g3:string (g2 + store)
+          def g4:string (g3 + " === undefined) { ")
+          def g5:string (g4 + store)
+          def g6:string (g5 + " = ")
+          def g7:string (g6 + empty)
+          def g8:string (g7 + "; } return ")
+          def g9:string (g8 + store)
+          wr.out((g9 + "; }") true)
+          def s1:string ("set " + lzVar.compiledName)
+          def s2:string (s1 + " (v) { ")
+          def s3:string (s2 + store)
+          wr.out((s3 + " = v; }") true)
+        }
+      }
     }
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)

@@ -77,6 +77,7 @@ operator type:void all {
     }
     forEach node.props {
       set nn.props index (fromLiteral item)
+      nn.prop_cnt = nn.prop_cnt + 1
     }
     nn.prop_keys = (clone node.prop_keys)
     forEach node.comments {
@@ -161,7 +162,7 @@ class CodeNode {
   def type_name:string ""
   def key_type:string ""
   def array_type:string ""
-  def ns:[string]
+  def ns@(lazy):[string]
   def has_vref_annotation:boolean false
   def vref_annotation:CodeNode
   def has_type_annotation:boolean false
@@ -174,17 +175,21 @@ class CodeNode {
   def int_value:int 0
   def boolean_value:boolean false
   def expression_value:CodeNode
-  def props:[string:CodeNode]
-  def prop_keys:[string]
-  def comments:[CodeNode]
+  def props@(lazy):[string:CodeNode]
+  ; Writes to props so far. Lets the property getters skip the lookup
+  ; (and, on JavaScript, skip materialising the lazy props map) on the
+  ; nodes that never had an annotation, which is most of them.
+  def prop_cnt:int 0
+  def prop_keys@(lazy):[string]
+  def comments@(lazy):[CodeNode]
   def children:[CodeNode]
   def parent@(weak):CodeNode
-  def attrs:[CodeNode]
+  def attrs@(lazy):[CodeNode]
   def appGUID:string ""
 
   ; register expressions are expressions that must be moved before this expression
   def register_name:string ""
-  def register_expressions:[CodeNode]
+  def register_expressions@(lazy):[CodeNode]
 
   Constructor (source:SourceCode start:int end:int) {
     sp = start
@@ -716,6 +721,9 @@ class CodeNode {
     return s
   }
   fn hasExpressionProperty:boolean (name:string) {
+    if (prop_cnt == 0) {
+      return false
+    }
     def ann:CodeNode (get props name)
     if (!null? ann) {
       return ann.expression
@@ -730,6 +738,9 @@ class CodeNode {
     return ann
   }
   fn hasIntProperty:boolean (name:string) {
+    if (prop_cnt == 0) {
+      return false
+    }
     def ann:CodeNode (get props name)
     if (!null? ann) {
       def fc:CodeNode (itemAt ann.children 0)
@@ -740,6 +751,9 @@ class CodeNode {
     return false
   }
   fn getIntProperty:int (name:string) {
+    if (prop_cnt == 0) {
+      return 0
+    }
     def ann:CodeNode (get props name)
     if (!null? ann) {
       def fc:CodeNode (itemAt ann.children 0)
@@ -750,6 +764,9 @@ class CodeNode {
     return 0
   }
   fn hasDoubleProperty:boolean (name:string) {
+    if (prop_cnt == 0) {
+      return false
+    }
     def ann:CodeNode (get props name)
     if (!null? ann) {
       if (ann.value_type == RangerNodeType.Double) {
@@ -759,6 +776,9 @@ class CodeNode {
     return false
   }
   fn getDoubleProperty:double (name:string) {
+    if (prop_cnt == 0) {
+      return 0.0
+    }
     def ann:CodeNode (get props name)
     if (!null? ann) {
       if (ann.value_type == RangerNodeType.Double) {
@@ -769,8 +789,12 @@ class CodeNode {
   }
   fn setStringProperty (name:string value:string) {
     set props name (r.value value)
+    prop_cnt = prop_cnt + 1
   }
   fn hasStringProperty:boolean (name:string) {
+    if (prop_cnt == 0) {
+      return false
+    }
     if( false == (has props name) ) {
       return false
     }
@@ -783,6 +807,9 @@ class CodeNode {
     return false
   }
   fn getStringProperty:string (name:string) {
+    if (prop_cnt == 0) {
+      return ""
+    }
     def ann:CodeNode (get props name)
     if (!null? ann) {
       if (ann.value_type == RangerNodeType.String) {
@@ -792,6 +819,9 @@ class CodeNode {
     return ""
   }
   fn hasBooleanProperty:boolean (name:string) {
+    if (prop_cnt == 0) {
+      return false
+    }
     def ann:CodeNode (get props name)
     if (!null? ann) {
       if (ann.value_type == RangerNodeType.Boolean) {
@@ -801,6 +831,9 @@ class CodeNode {
     return false
   }
   fn getBooleanProperty:boolean (name:string) {
+    if (prop_cnt == 0) {
+      return false
+    }
     def ann:CodeNode (get props name)
     if (!null? ann) {
       if (ann.value_type == RangerNodeType.Boolean) {
