@@ -133,16 +133,16 @@ class RangerRegisteredPlugin {
 }
 
 class RangerAppWriterContext {
-  def langOperators:CodeNode
-  def stdCommands:CodeNode 
-  def operators:RangerActiveOperators
+  def langOperators@(rare):CodeNode
+  def stdCommands@(rare):CodeNode 
+  def operators@(rare):RangerActiveOperators
   def op_list@(lazy):[string:RangerOperatorList]
   def automatically_unwrapped@(lazy):[string:boolean]
   def known_present@(lazy):[string:boolean]
   def flow_narrowed@(lazy):[string:int]
   def auto_unwrap_suppression:int 0
-  def reservedWords:CodeNode 
-  def intRootCounter:int 1
+  def reservedWords@(rare):CodeNode 
+  def intRootCounter@(rare):int 1
   def targetLangName:string ""
   def parent:RangerAppWriterContext
   ; The root, cached by fork. Flags, classes, enums and errors live on the
@@ -164,26 +164,26 @@ class RangerAppWriterContext {
   def active_macros@(lazy):[string:boolean]
   ; Backstop only. active_macros cannot see a cycle whose expansion keeps
   ; growing new source positions, so a depth ceiling stops the hang even then.
-  def macro_expansion_depth:int 0
+  def macro_expansion_depth@(rare):int 0
   def already_imported@(lazy):[string:boolean]
   ; `-rust-extern` (RustExtern.rgr): type name -> the crate that owns it
   def rust_extern_types@(lazy):[string:string]
   ; folded root path -> crate, and the crate whose files are being read
   def rust_extern_roots@(lazy):[string:string]
-  def rust_extern_current:string ""
-  def fileSystem:CodeFileSystem
+  def rust_extern_current@(rare):string ""
+  def fileSystem@(rare):CodeFileSystem
   def is_function:boolean false
   def class_level_context:boolean false
   def function_level_context:boolean false
-  def in_main:boolean false
-  def is_block:boolean false
+  def in_main@(rare):boolean false
+  def is_block@(rare):boolean false
   def is_lambda:boolean false
-  def is_capturing:boolean false
-  def is_catch_block:boolean false
-  def is_try_block:boolean false
+  def is_capturing@(rare):boolean false
+  def is_catch_block@(rare):boolean false
+  def is_try_block@(rare):boolean false
   def captured_variables@(lazy):[string]
-  def has_block_exited:boolean false
-  def in_expression:boolean false
+  def has_block_exited@(rare):boolean false
+  def in_expression@(rare):boolean false
   ; expression nesting of this context: a counter, it was a [boolean]
   ; stack that only ever had its length read
   def expr_depth:int 0
@@ -194,12 +194,12 @@ class RangerAppWriterContext {
   def method_stack@(lazy):[boolean]
   def typeNames@(lazy):[string]
   def typeClasses@(lazy):[string:RangerTypeClass]
-  def currentClassName:string
+  def currentClassName@(rare):string
   def in_class:boolean false
   def in_static_method:boolean false
   def currentClass@(weak):RangerAppClassDesc
   def currentMethod@(weak):RangerAppFunctionDesc
-  def thisName:string "this"
+  def thisName@(rare):string "this"
   def definedEnums@(lazy):[string:RangerAppEnum]
   def definedInterfaces@(lazy):[string:RangerAppClassDesc]
   def definedInterfaceList@(lazy):[string]
@@ -241,11 +241,11 @@ class RangerAppWriterContext {
   
   def opNs@(lazy):[string]
 
-  def langFilePath:string ""
+  def langFilePath@(rare):string ""
   def libraryPaths@(lazy):[string]
   ; how many of libraryPaths were given at the start; the ones after it are
   ; the folders of the files being imported, innermost last
-  def libraryPathsBase:int 0
+  def libraryPathsBase@(rare):int 0
   ; top-level functions (ISSUES.md #104), kept on the root context:
   ; function name -> the module classes that declare it, "|"-separated
   def moduleFunctions@(lazy):[string:string]
@@ -253,13 +253,15 @@ class RangerAppWriterContext {
   def fileModules@(lazy):[string:string]
   def outputPath ""
 
-  def counters:TypeCounts (new TypeCounts)
-  def parser:RangerFlowParser
-  def compiler:LiveCompiler
+  ; used on the root and on function contexts only (ownCounters); made on
+  ; first use, it was one allocation per fork
+  def counters@(optional rare):TypeCounts
+  def parser@(rare):RangerFlowParser
+  def compiler@(rare):LiveCompiler
   def typedNodes@(lazy):[string:RangerNodeList]
   def registered_plugins@(lazy):[RangerRegisteredPlugin]
 
-  def operatorFunction:(_:CodeNode (name:string) )
+  def operatorFunction@(rare):(_:CodeNode (name:string) )
   def lastBlockOp@(weak):CodeNode
 
   def opFnsList@(weak lazy):[string:CodeNode]
@@ -268,18 +270,18 @@ class RangerAppWriterContext {
   def activeTransaction@(lazy):[ContextTransaction]
   def transactions@(weak lazy):[ContextTransaction]
 
-  def env@(weak):InputEnv
+  def env@(weak rare):InputEnv
 
   ; Rust-specific tracking for ownership/borrowing
   def rust_moved_vars@(lazy):[string:boolean]
   def rust_usage_count@(lazy):[string:int]
-  def rust_temp_counter:int 0
+  def rust_temp_counter@(rare):int 0
   ; Rust: every field name ever reached THROUGH a path anywhere in the
   ; program. Kept here rather than on the writer, because a writer that
   ; mutates a field of its own cannot take `&self` — and the whole point of
   ; the scan is to let writers take `&self`.
   def rust_path_field_names@(lazy):[string:boolean]
-  def rust_path_names_ready:boolean false
+  def rust_path_names_ready@(rare):boolean false
 
   ; Mark a variable as moved (value has been transferred)
   fn rustMarkMoved (varName:string) {
@@ -695,20 +697,32 @@ class RangerAppWriterContext {
   ; assuming there is a node which defines the type, for example current function
   ; return value or something like that
 
-  fn incLambdaCnt() {
+  fn rootCounters:TypeCounts () {
     def root (this.getRoot())
-    root.counters.interface_cnt = root.counters.interface_cnt + 1
+    return (root.ownCounters())
+  }
+  fn incLambdaCnt() {
+    def cnts:TypeCounts (this.rootCounters())
+    cnts.interface_cnt = cnts.interface_cnt + 1
   }
 
+  fn ownCounters:TypeCounts () {
+    if (null? counters) {
+      counters = (new TypeCounts)
+    }
+    return (unwrap counters)
+  }
   fn createNewRegName:string () {
     def root (this.findFunctionCtx())
-    root.counters.register_cnt = root.counters.register_cnt + 1
-    return ( '__REGx' + root.counters.register_cnt )
+    def cnts:TypeCounts (root.ownCounters())
+    cnts.register_cnt = cnts.register_cnt + 1
+    return ( '__REGx' + cnts.register_cnt )
   }
   fn createNewOpFnName:string () {
     def root (this.findFunctionCtx())
-    root.counters.opfn_cnt = root.counters.opfn_cnt + 1
-    return ( '__tmpOpFn' + root.counters.opfn_cnt )
+    def cnts:TypeCounts (root.ownCounters())
+    cnts.opfn_cnt = cnts.opfn_cnt + 1
+    return ( '__tmpOpFn' + cnts.opfn_cnt )
   }
   
   fn isTryBlock:boolean () {
@@ -959,6 +973,34 @@ class RangerAppWriterContext {
     }
     if(!null? root.operators) {
       def op (unwrap root.operators)
+      ; JavaScript: when no namespace adds an operator of this name and no
+      ; context supplies an operator function, the answer is the shared list
+      ; itself; callers only read it. Copying it cost ~200 MB of allocation
+      ; in a 23k-line program (250 000 calls).
+      if_javascript {
+        def fastOk:boolean true
+        for opNamespace fns:string fi {
+          if fastOk {
+            def nsCand (op.getOperators(fns + "." + name))
+            if ((array_length nsCand) > 0) {
+              fastOk = false
+            }
+          }
+        }
+        if fastOk {
+          def fcc@(weak):RangerAppWriterContext
+          fcc = this
+          while (!null? fcc) {
+            if (!null? fcc.operatorFunction) {
+              fastOk = false
+            }
+            fcc = fcc.parent
+          }
+        }
+        if fastOk {
+          return (op.getOperators(name))
+        }
+      }
       def listOfOps:[CodeNode]
       def handled:[string:boolean]
       for opNamespace ss:string i {

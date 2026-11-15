@@ -1632,9 +1632,13 @@ class RangerJavaScriptClassWriter {
           def a4:string (a3 + " : x.")
           def a5:string (a4 + rn2)
           wr.out((a5 + "; }") true)
+          ; writing the initial value to a node with no side object (copy,
+          ; rebuildWithType copy every field) does not make one
           def b1:string ("set " + rn2)
-          def b2:string (b1 + " (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.")
-          def b3:string (b2 + rn2)
+          def b2:string (b1 + " (v) { let x = this.__x; if (x === undefined) { if (v === ")
+          def b2b:string (b2 + rdef2)
+          def b2c:string (b2b + ") { return; } x = this.__x = this.__xNew(); } x.")
+          def b3:string (b2c + rn2)
           wr.out((b3 + " = v; }") true)
         }
       }
