@@ -1337,8 +1337,15 @@ class RangerLispParser {
               def subs:string (substring s sp ep)
               def str_length:int (strlen subs)
               def ii:int 0
+              ; the text between escapes is copied a run at a time: one
+              ; unit per append built a chain of tiny strings (Lang.rgr's
+              ; polyfills are kilobytes long)
+              def run_sp:int 0
               while (ii < str_length) {def cc:int (charAt subs ii)
                 if (cc == 92 ) {
+                  if (ii > run_sp) {
+                    encoded_str = encoded_str + ((substring subs run_sp ii))
+                  }
                   def next_ch:int (charAt subs (ii + 1))
                   switch (next_ch ) { 
                     case 34 { 
@@ -1372,10 +1379,13 @@ class RangerLispParser {
                     }
                   }
                   ii = ii + 2
+                  run_sp = ii
                 } {
-                  encoded_str = encoded_str + ((substring subs ii (1 + ii)))
                   ii = ii + 1
                 }
+              }
+              if (run_sp < str_length) {
+                encoded_str = encoded_str + ((substring subs run_sp str_length))
               }
             } {
               ; print "string without encoding"

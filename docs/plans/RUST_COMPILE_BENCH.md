@@ -167,3 +167,26 @@ byte-identical.
 
 gen700 allocates 2.44 GB (was 2.74 GB), com 12.95 → 12.27 s; output
 byte-identical.
+
+## Round 5 (2026-11-15): parser strings, more rare fields, variable lookup
+
+- String literals with escapes are decoded by copying the runs between
+  escapes as one substring each; the loop appended one character at a time.
+- 30 more `CodeNode` fields set on at most ~3.5 % of the nodes (vbs) are
+  `@(rare)` (constructor fields 60 → 30): parser allocation on gen700
+  539 → 349 MB, total 2.29 → 2.21 GB.
+- `RangerAppWriterContext.local_var_cnt` counts the variables a context
+  defines; `isVarDefined`, `getVariableDef` and `isLocalToCapture` skip the
+  map lookup (and the lazy map) when it is 0. `isVarDefined` self time on
+  com 388 → 205 ms (6 M calls).
+
+Wall time moves within the ~10 % noise of this VM (vbs 1.69 → 1.67 s best,
+com 11.9 → 12.5 s / 13.2 → 13.1 s); output byte-identical on vbs, uix1,
+gen200, gen700 and com.
+
+Where the time is now (com, 13.4 s): GC ~2.4 s; parsing the Ranger text the
+Rust frontend generates (6.9 MB) ~1.2 s, of which slicing tokens 0.19 s and
+CodeNode allocation 0.18 s; fixed cost per run ~0.3 s, half of it parsing
+Lang.rgr, JSON.rgr, RsPrelude.rgr and stdlib.rgr (≈ 0.17 s) — the case for
+a parsed-tree cache, or for the Rust frontend handing over CodeNodes
+without the text round trip.
