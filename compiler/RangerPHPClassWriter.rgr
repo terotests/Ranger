@@ -370,10 +370,10 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         this.WalkNode(value ctx wr)
         ctx.unsetInExpr()
       } {
-        if (nn.value_type == RangerNodeType.Array) {
+        if ((nn.value_type == RangerNodeType.Array) && (false == (nn.hasFlag("optional")))) {
           wr.out(" = array()" false)
         } {
-          if (nn.value_type == RangerNodeType.Hash) {
+          if ((nn.value_type == RangerNodeType.Hash) && (false == (nn.hasFlag("optional")))) {
             wr.out(" = array()" false)
           } {
             wr.out(" = null" false)
@@ -403,11 +403,15 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         this.WalkNode(value ctx wr)
         ctx.unsetInExpr()
       } {
-        if (nn.value_type == RangerNodeType.Array) {
+        ; an optional array or map starts as null, not empty
+        if ((nn.value_type == RangerNodeType.Array) && (false == (nn.hasFlag("optional")))) {
           wr.out(" = array()" false)
         }
-        if (nn.value_type == RangerNodeType.Hash) {
+        if ((nn.value_type == RangerNodeType.Hash) && (false == (nn.hasFlag("optional")))) {
           wr.out(" = array()" false)
+        }
+        if (((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash)) && (nn.hasFlag("optional"))) {
+          wr.out(" = null" false)
         }
       }
       wr.out(";" false)

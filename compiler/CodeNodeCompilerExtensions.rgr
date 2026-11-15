@@ -89,7 +89,8 @@ extension CodeNode {
   ; hoists the expression into a temporary and rewrites the pair to
   ; `<tmp>.name` before anything else reads the node.
   def is_paren_member false
-  def methodChain:[CallChain]
+  ; optional: an empty array per node cost an allocation on every CodeNode
+  def methodChain@(optional):[CallChain]
 
   def chainTarget:CodeNode
 
@@ -320,7 +321,7 @@ extension CodeNode {
     nullify cp.flow_ctx
     cp.is_part_of_chain = false
     cp.is_paren_member = is_paren_member
-    clear cp.methodChain
+    nullify cp.methodChain
     nullify cp.chainTarget
     cp.tag = ""
 

@@ -1157,10 +1157,9 @@ class RangerGenericClassWriter {
       ctx.unsetInExpr()
       wr.out(")" false)
 
-      if(has node.methodChain) {
-        ; wr.newline()
-        ; wr.indent(1)
-        for node.methodChain cc:CallChain i {
+      if (!null? node.methodChain) {
+        def mChain:[CallChain] (unwrap node.methodChain)
+        for mChain cc:CallChain i {
           wr.out("." + cc.methodName , false)
           wr.out("(" false)
           ctx.setInExpr()

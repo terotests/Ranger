@@ -46,3 +46,49 @@ collection has more to walk. A context allocates about 60 maps and arrays when
 it is forked, a `CodeNode` about 15. Allocating those lazily, or not keeping
 forked contexts reachable from the nodes after type checking, is the next
 step; both touch every target the compiler is written for.
+
+## 2026-11-15: young generation, loops over a call, fewer arrays per node
+
+Three changes, each output byte-identical (the compiler's own two-stage
+self-host compares equal):
+
+- `dist/rgrc.js` starts itself once more with a fixed 128 MB young
+  generation (`scripts/rgrc-launcher.mjs`, added by `npm run compile`).
+  Nearly everything the compiler allocates lives until the end, so with the
+  default 16 MB every scavenge copies it to the old space; on web/com
+  (113k lines) the scavenges took 5 of 18 s. Same compiler, flags off/on:
+  com 18.1 s → 15.2 s, the 700-unit program 9.5 s → 9.0 s. It costs about
+  0.1 s of start-up, so small programs gain nothing. `RGRC_NO_RESPAWN=1`
+  or an explicit `--*-semi-space-size` flag turns it off.
+- The ES6 writer wrote `for (f(x)) item i { … }` as
+  `for (i = 0; i < f(x).length; i++) { item = f(x)[i] … }`: the call ran
+  twice per element, a quadratic loop when it builds the array. It now
+  evaluates the collection once into a block-scoped constant. 154 loops in
+  the compiler itself were written this way.
+- A `CodeNode` allocated 13 arrays and maps; five of them (`methodChain`,
+  `rust_preevaluated_args`, `rg_init_*`) are almost never set and are now
+  optional. An optional array or hash field starts as `undefined` in the
+  ES6 writer (it was `[]`, so `null? x` was never true there).
+
+Min of three runs, `-l=es6`, 4 vCPU container, Node 22, rustc 1.97 (before =
+master 6c388e6, after = this change; com does not compile on master):
+
+| unit | lines | before | after | rustc debug | rustc check |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| gen200 | 6 605 | 3.07 s | 3.03 s | 1.49 s | 0.82 s |
+| gen700 | 23 105 | 9.25 s | 8.44 s | 5.31 s | 2.99 s |
+| uix | 2 755 | 1.17 s | 1.27 s | 0.45 s | 0.24 s |
+| uix1 | 6 177 | 1.92 s | 1.77 s | 0.89 s | 0.48 s |
+| vbs | 10 777 | 1.98 s | 2.09 s | 0.89 s | 0.49 s |
+| core | 11 269 | 2.51 s | 2.56 s | 1.20 s | 0.68 s |
+| com | 113 193 | — | 14.18 s | 12.10 s | 7.40 s |
+
+Runs vary by about 10 % here. Large programs are 5–10 % faster; small ones
+are where they were, because the same change set also made the Rust frontend
+do more (module paths, renaming same-named types, `==` helpers). Ranger is
+still 1.2–2.5× slower than rustc debug.
+
+What a small program spends (vbs, 2.0 s): 0.6 s start-up and parsing
+`Lang.rgr` (520 kB) and the Rust prelude, which every run does again; 0.4 s
+GC; 0.5 s operator matching (`stdParamMatch`). Caching the parsed `Lang.rgr`
+and the lazy contexts above are the next steps.

@@ -123,7 +123,7 @@ class CodeNode {
   
   ; Rust static analysis - for pre-evaluating method args to avoid borrow conflicts
   def rust_needs_preevaluate:boolean false
-  def rust_preevaluated_args:[CodeNode]
+  def rust_preevaluated_args@(optional):[CodeNode]
   def rust_use_tmpvar:string ""   ; If non-empty, use this temp variable instead of evaluating
   def rust_is_tail_return:boolean false  ; last statement of a fn body: emit a tail expression, not `return x;`
 
@@ -145,11 +145,11 @@ class CodeNode {
   ; out. A writer that does not know the shape ignores all three and emits
   ; exactly what it did before. StaticAnalyzer.foldObjectInits decides it.
   def rg_init_fold:boolean false
-  def rg_init_fields:[string]
-  def rg_init_values:[CodeNode]
+  def rg_init_fields@(optional):[string]
+  def rg_init_values@(optional):[CodeNode]
   ; the assignment STATEMENTS the run covers, so a writer that spells the
   ; folded form can disable them once it has written it
-  def rg_init_stmts:[CodeNode]
+  def rg_init_stmts@(optional):[CodeNode]
   def rg_init_covers_all:boolean false
   def rg_init_folded:boolean false
   

@@ -88,7 +88,7 @@
     "check:stack": "node gallery/game_engine/build-support/check-stack-headroom.mjs",
     "deps": "node scripts/deps.mjs",
     "deps:check": "node scripts/deps.mjs --check",
-    "compile": "node dist/rgrc.js -es6 ./compiler/Compiler.rgr -nodecli -d=./dist -o=rgrc.js && npm run compile:fixcrlf && npm run compile:copylibs",
+    "compile": "node dist/rgrc.js -es6 ./compiler/Compiler.rgr -nodecli -d=./dist -o=rgrc.js && npm run compile:fixcrlf && node scripts/rgrc-launcher.mjs dist/rgrc.js && npm run compile:copylibs",
     "compile:copylibs": "cp ./compiler/Lang.rgr ./dist/Lang.rgr && cp ./lib/stdops.rgr ./dist/stdops.rgr",
     "compile:fixcrlf": "sed -i '' 's/\\r$//' dist/rgrc.js || sed -i 's/\\r$//' dist/rgrc.js || true",
     "compile:langserver": "cross-env node dist/rgrc.js -es6 -nodemodule ./compiler/VirtualCompiler.rgr -d=./ranger-vscode-extension/compiler -o=output.js",

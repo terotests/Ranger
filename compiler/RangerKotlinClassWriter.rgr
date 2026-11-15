@@ -978,6 +978,28 @@ class RangerKotlinClassWriter {
     return false
   }
 
+  def kt_legacy_checked:boolean false
+  def kt_has_legacy:boolean false
+
+  fn ktHasLegacyClass:boolean (ctx:RangerAppWriterContext) {
+    if kt_legacy_checked {
+      return kt_has_legacy
+    }
+    kt_legacy_checked = true
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClassList n:string i {
+      def c@(optional):RangerAppClassDesc (get root.definedClasses n)
+      if (!null? c) {
+        def cd:RangerAppClassDesc (unwrap c)
+        if ((false == cd.is_system) && (false == cd.is_interface) && (false == cd.is_trait) && (false == cd.has_doc)) {
+          kt_has_legacy = true
+          return true
+        }
+      }
+    }
+    return false
+  }
+
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
@@ -1025,7 +1047,15 @@ class RangerKotlinClassWriter {
       clDocWr.writeKotlinDocForClass((unwrap cl) ctx wr)
     }
     def ktVis:RangerDocCommentWriter (new RangerDocCommentWriter)
-    wr.out((ktVis.classVisibility((unwrap cl) "" "" "internal ")) false)
+    ; `internal` only when every class is in the API model: an undocumented
+    ; class is public, and a public declaration cannot expose an internal
+    ; type (a Rust `pub(crate)` struct with a doc comment used by module
+    ; functions, which are never documented)
+    def ktInternal:string "internal "
+    if (this.ktHasLegacyClass(ctx)) {
+      ktInternal = ""
+    }
+    wr.out((ktVis.classVisibility((unwrap cl) "" "" ktInternal)) false)
     ; a generic form is declared as the template over its parameters
     def ktDecl:string (this.ktClassRef((unwrap cl) ctx))
     if (cl.is_extended_by_children || (cl.name == "RangerProcessBase")) {

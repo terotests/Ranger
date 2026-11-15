@@ -371,10 +371,10 @@ class RangerPythonClassWriter {
         ; A field with no value still needs one. Without the None branch the
         ; line read `self.one`, which raises AttributeError the first time the
         ; class is constructed. writeVarDef below does the same for locals.
-        if (nn.value_type == RangerNodeType.Array) {
+        if ((nn.value_type == RangerNodeType.Array) && (false == (nn.hasFlag("optional")))) {
           wr.out(" = []" false)
         } {
-          if (nn.value_type == RangerNodeType.Hash) {
+          if ((nn.value_type == RangerNodeType.Hash) && (false == (nn.hasFlag("optional")))) {
             wr.out(" = {}" false)
           } {
             wr.out(" = None" false)
@@ -418,10 +418,10 @@ class RangerPythonClassWriter {
         this.WalkNode(value ctx wr)
         ctx.unsetInExpr()
       } {
-        if (nn.value_type == RangerNodeType.Array) {
+        if ((nn.value_type == RangerNodeType.Array) && (false == (nn.hasFlag("optional")))) {
           wr.out(" = []" false)
         } {
-          if (nn.value_type == RangerNodeType.Hash) {
+          if ((nn.value_type == RangerNodeType.Hash) && (false == (nn.hasFlag("optional")))) {
             wr.out(" = {}" false)
           } {
             wr.out(" = None" false)
