@@ -44,30 +44,30 @@ extension CodeNode {
   def definedTypeClass@(weak):RangerTypeClass    
   def evalTypeClass@(weak):RangerTypeClass    
 
-  def lambda_ctx:RangerAppWriterContext    
+  def lambda_ctx@(rare):RangerAppWriterContext    
   def nsp@(weak):[RangerAppParamDesc]
   def eval_type:RangerNodeType RangerNodeType.NoType
   def eval_type_name:string ""
-  def eval_key_type:string ""
+  def eval_key_type@(rare):string ""
   def eval_array_type:string ""
-  def eval_function@(weak):CodeNode
+  def eval_function@(weak rare):CodeNode
   def flow_done:boolean false
   def ref_change_done:boolean false
-  def eval_type_node:CodeNode
+  def eval_type_node@(rare):CodeNode
     
   def didReturnAtIndex:int -1
   def hasVarDef:boolean false
-  def hasClassDescription:boolean false
-  def hasNewOper:boolean false
+  def hasClassDescription@(rare):boolean false
+  def hasNewOper@(rare):boolean false
   def clDesc@(weak):RangerAppClassDesc
   def hasFnCall:boolean false
   def fnDesc:RangerAppFunctionDesc    
-  def lambdaFnDesc@(weak):RangerAppFunctionDesc
+  def lambdaFnDesc@(weak rare):RangerAppFunctionDesc
   def hasParamDesc:boolean false    
   ; The `doc { … }` tail of a declaration, moved off `children` by
   ; DetachDocBlocks before anything counts children. PLAN_API_DOCS.md §6.1.
-  def has_doc_tail:boolean false
-  def docNode:CodeNode
+  def has_doc_tail@(rare):boolean false
+  def docNode@(rare):CodeNode
   def paramDesc@(weak optional):RangerAppParamDesc
   def ownParamDesc@(optional):RangerAppParamDesc
   ; The context a node was ANALYSED in. Code generation reads it back
@@ -77,7 +77,7 @@ extension CodeNode {
   ; the walker's own context, and a local that shadowed a field of the same name
   ; resolved to the FIELD -- `values_1` came out as `this.values_1`.
   def evalCtx:RangerAppWriterContext
-  def evalState:NodeEvalState
+  def evalState@(rare):NodeEvalState
 
   def operator_node@(weak):CodeNode
   ; see evalCtx above -- same lifetime, same reason
@@ -90,9 +90,9 @@ extension CodeNode {
   ; `<tmp>.name` before anything else reads the node.
   def is_paren_member false
   ; optional: an empty array per node cost an allocation on every CodeNode
-  def methodChain@(optional):[CallChain]
+  def methodChain@(optional rare):[CallChain]
 
-  def chainTarget:CodeNode
+  def chainTarget@(rare):CodeNode
 
   def register_set false
   def reg_compiled_name ""

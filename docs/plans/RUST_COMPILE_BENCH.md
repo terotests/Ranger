@@ -137,3 +137,17 @@ Left out:
 - Getters of lazy fields still allocate on a read: `ns` (70 % of nodes),
   `register_expressions` (read on every node by `WalkNode`) and the parent
   chain walks in `getOperators` / `isVarDefined` / `isEnumDefined` read them.
+
+## Round 3 (2026-11-15): rarely set CodeNode fields in a side object
+
+`@(rare)` on a field (ES6 writer only): the value lives in `this.__x`, an
+object made on the first write by `__xNew()`; until then a getter returns
+the field's initial value. Only fields whose initial value is a literal
+qualify (`jsRareDefault`), so the getter never hands out an object a caller
+could change. 40 `CodeNode` fields that were set on at most 0.5 % of the
+nodes of gen700 and com carry it.
+
+gen700 allocates 2.77 GB instead of 2.95 GB (parser 777 → 545 MB) and GC
+time drops ~12 %, but the accessor calls cost about as much, so gen700 is
+unchanged (7.2 s). vbs 1.98 → 1.76 s, com 13.50 → 13.31 s. Output is
+byte-identical.

@@ -100,20 +100,20 @@ class CodeNode {
   def ep:int 0
   def row 0
   def has_operator:boolean false
-  def disabled_node:boolean false
+  def disabled_node@(rare):boolean false
   def op_index:int 0
   def is_array_literal false
-  def is_system_class:boolean false
+  def is_system_class@(rare):boolean false
   def is_direct_method_call false
-  def mutable_def:boolean false
+  def mutable_def@(rare):boolean false
   def expression:boolean false
   def vref:string ""
   def is_block_node:boolean false
   def infix_operator:boolean false
   def infix_node:CodeNode
   def infix_subnode:boolean false
-  def has_lambda:boolean false
-  def has_lambda_call:boolean false
+  def has_lambda@(rare):boolean false
+  def has_lambda_call@(rare):boolean false
   def has_call false
   ; Set by the parser on a `(` it read as the ARGUMENT LIST of the name in
   ; front of it, as opposed to a grouping paren. A call written bare inside an
@@ -123,10 +123,10 @@ class CodeNode {
   def is_call_args:boolean false
   
   ; Rust static analysis - for pre-evaluating method args to avoid borrow conflicts
-  def rust_needs_preevaluate:boolean false
-  def rust_preevaluated_args@(optional):[CodeNode]
-  def rust_use_tmpvar:string ""   ; If non-empty, use this temp variable instead of evaluating
-  def rust_is_tail_return:boolean false  ; last statement of a fn body: emit a tail expression, not `return x;`
+  def rust_needs_preevaluate@(rare):boolean false
+  def rust_preevaluated_args@(optional rare):[CodeNode]
+  def rust_use_tmpvar@(rare):string ""   ; If non-empty, use this temp variable instead of evaluating
+  def rust_is_tail_return@(rare):boolean false  ; last statement of a fn body: emit a tail expression, not `return x;`
 
   ; --- what the static analysis tells the writers about this node -----------
   ; Two facts, both target-neutral, both written by compiler/StaticAnalysis.rgr
@@ -137,7 +137,7 @@ class CodeNode {
   ; This operand is the LAST use of a local that was built in this function:
   ; the store it feeds owns the value from here on, so a defensive copy of it
   ; is a copy nobody reads. StaticAnalyzer.storeIsLocalMove decides it.
-  def rg_moved_here:boolean false
+  def rg_moved_here@(rare):boolean false
 
   ; This `def` is followed by a run of field assignments that together are one
   ; initialization -- `def line (new CartLine)` and then `line.name = …`. The
@@ -145,36 +145,36 @@ class CodeNode {
   ; assignment statement carries `rg_init_folded` so the block walker leaves it
   ; out. A writer that does not know the shape ignores all three and emits
   ; exactly what it did before. StaticAnalyzer.foldObjectInits decides it.
-  def rg_init_fold:boolean false
-  def rg_init_fields@(optional):[string]
-  def rg_init_values@(optional):[CodeNode]
+  def rg_init_fold@(rare):boolean false
+  def rg_init_fields@(optional rare):[string]
+  def rg_init_values@(optional rare):[CodeNode]
   ; the assignment STATEMENTS the run covers, so a writer that spells the
   ; folded form can disable them once it has written it
-  def rg_init_stmts@(optional):[CodeNode]
-  def rg_init_covers_all:boolean false
-  def rg_init_folded:boolean false
+  def rg_init_stmts@(optional rare):[CodeNode]
+  def rg_init_covers_all@(rare):boolean false
+  def rg_init_folded@(rare):boolean false
   
 ;  def method_type:RangerMethodCallType RangerMethodCallType.NoType
   def operator_pred:int 0
-  def to_the_right:boolean false
-  def right_node:CodeNode
-  def type_type:string ""
+  def to_the_right@(rare):boolean false
+  def right_node@(rare):CodeNode
+  def type_type@(rare):string ""
   def type_name:string ""
-  def key_type:string ""
-  def array_type:string ""
+  def key_type@(rare):string ""
+  def array_type@(rare):string ""
   def ns@(lazy):[string]
   def has_vref_annotation:boolean false
   def vref_annotation:CodeNode
-  def has_type_annotation:boolean false
-  def type_annotation:CodeNode
+  def has_type_annotation@(rare):boolean false
+  def type_annotation@(rare):CodeNode
   def parsed_type:RangerNodeType RangerNodeType.NoType
   def value_type:RangerNodeType RangerNodeType.NoType
-  def ref_type:RangerNodeRefType RangerNodeRefType.NoType
+  def ref_type@(rare):RangerNodeRefType RangerNodeRefType.NoType
   def double_value:double 0.0
   def string_value:string ""
   def int_value:int 0
-  def boolean_value:boolean false
-  def expression_value:CodeNode
+  def boolean_value@(rare):boolean false
+  def expression_value@(rare):CodeNode
   def props@(lazy):[string:CodeNode]
   ; Writes to props so far. Lets the property getters skip the lookup
   ; (and, on JavaScript, skip materialising the lazy props map) on the
@@ -185,10 +185,10 @@ class CodeNode {
   def children:[CodeNode]
   def parent@(weak):CodeNode
   def attrs@(lazy):[CodeNode]
-  def appGUID:string ""
+  def appGUID@(rare):string ""
 
   ; register expressions are expressions that must be moved before this expression
-  def register_name:string ""
+  def register_name@(rare):string ""
   def register_expressions@(lazy):[CodeNode]
 
   Constructor (source:SourceCode start:int end:int) {

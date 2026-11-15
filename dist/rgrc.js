@@ -4665,58 +4665,33 @@ class SourceCode  {
 }
 class CodeNode  {
   constructor(source, start, end) {
+    this.__x = undefined;
     this.code = undefined;
     this.sp = 0;
     this.ep = 0;
     this.row = 0;
     this.has_operator = false;
-    this.disabled_node = false;
     this.op_index = 0;
     this.is_array_literal = false;
-    this.is_system_class = false;
     this.is_direct_method_call = false;
-    this.mutable_def = false;
     this.expression = false;
     this.vref = "";
     this.is_block_node = false;
     this.infix_operator = false;
     this.infix_node = undefined;
     this.infix_subnode = false;
-    this.has_lambda = false;
-    this.has_lambda_call = false;
     this.has_call = false;
     this.is_call_args = false;
-    this.rust_needs_preevaluate = false;
-    this.rust_preevaluated_args = undefined;
-    this.rust_use_tmpvar = "";
-    this.rust_is_tail_return = false;
-    this.rg_moved_here = false;
-    this.rg_init_fold = false;
-    this.rg_init_fields = undefined;
-    this.rg_init_values = undefined;
-    this.rg_init_stmts = undefined;
-    this.rg_init_covers_all = false;
-    this.rg_init_folded = false;
     this.operator_pred = 0;
-    this.to_the_right = false;
-    this.right_node = undefined;
-    this.type_type = "";
     this.type_name = "";
-    this.key_type = "";
-    this.array_type = "";
     this.__lz_ns = undefined;
     this.has_vref_annotation = false;
     this.vref_annotation = undefined;
-    this.has_type_annotation = false;
-    this.type_annotation = undefined;
     this.parsed_type = 0;
     this.value_type = 0;
-    this.ref_type = 0;
     this.double_value = 0.0;
     this.string_value = "";
     this.int_value = 0;
-    this.boolean_value = false;
-    this.expression_value = undefined;
     this.__lz_props = undefined;
     this.prop_cnt = 0;
     this.__lz_prop_keys = undefined;
@@ -4724,42 +4699,28 @@ class CodeNode  {
     this.children = [];
     this.parent = undefined;
     this.__lz_attrs = undefined;
-    this.appGUID = "";
-    this.register_name = "";
     this.__lz_register_expressions = undefined;
     this.definedTypeClass = undefined;
     this.evalTypeClass = undefined;
-    this.lambda_ctx = undefined;
     this.nsp = [];
     this.eval_type = 0;
     this.eval_type_name = "";
-    this.eval_key_type = "";
     this.eval_array_type = "";
-    this.eval_function = undefined;
     this.flow_done = false;
     this.ref_change_done = false;
-    this.eval_type_node = undefined;
     this.didReturnAtIndex = -1;
     this.hasVarDef = false;
-    this.hasClassDescription = false;
-    this.hasNewOper = false;
     this.clDesc = undefined;
     this.hasFnCall = false;
     this.fnDesc = undefined;
-    this.lambdaFnDesc = undefined;
     this.hasParamDesc = false;
-    this.has_doc_tail = false;
-    this.docNode = undefined;
     this.paramDesc = undefined;
     this.ownParamDesc = undefined;
     this.evalCtx = undefined;
-    this.evalState = undefined;
     this.operator_node = undefined;
     this.flow_ctx = undefined;
     this.is_part_of_chain = false;
     this.is_paren_member = false;
-    this.methodChain = undefined;
-    this.chainTarget = undefined;
     this.register_set = false;
     this.reg_compiled_name = "";
     this.tag = "";
@@ -4780,6 +4741,128 @@ class CodeNode  {
   set attrs (v) { this.__lz_attrs = v; }
   get register_expressions () { if (this.__lz_register_expressions === undefined) { this.__lz_register_expressions = []; } return this.__lz_register_expressions; }
   set register_expressions (v) { this.__lz_register_expressions = v; }
+  __xNew () { return {
+    disabled_node: false,
+    is_system_class: false,
+    mutable_def: false,
+    has_lambda: false,
+    has_lambda_call: false,
+    rust_needs_preevaluate: false,
+    rust_preevaluated_args: undefined,
+    rust_use_tmpvar: "",
+    rust_is_tail_return: false,
+    rg_moved_here: false,
+    rg_init_fold: false,
+    rg_init_fields: undefined,
+    rg_init_values: undefined,
+    rg_init_stmts: undefined,
+    rg_init_covers_all: false,
+    rg_init_folded: false,
+    to_the_right: false,
+    right_node: undefined,
+    type_type: "",
+    key_type: "",
+    array_type: "",
+    has_type_annotation: false,
+    type_annotation: undefined,
+    ref_type: 0,
+    boolean_value: false,
+    expression_value: undefined,
+    appGUID: "",
+    register_name: "",
+    lambda_ctx: undefined,
+    eval_key_type: "",
+    eval_function: undefined,
+    eval_type_node: undefined,
+    hasClassDescription: false,
+    hasNewOper: false,
+    lambdaFnDesc: undefined,
+    has_doc_tail: false,
+    docNode: undefined,
+    evalState: undefined,
+    methodChain: undefined,
+    chainTarget: undefined,
+  }; }
+  get disabled_node () { const x = this.__x; return x === undefined ? false : x.disabled_node; }
+  set disabled_node (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.disabled_node = v; }
+  get is_system_class () { const x = this.__x; return x === undefined ? false : x.is_system_class; }
+  set is_system_class (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.is_system_class = v; }
+  get mutable_def () { const x = this.__x; return x === undefined ? false : x.mutable_def; }
+  set mutable_def (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.mutable_def = v; }
+  get has_lambda () { const x = this.__x; return x === undefined ? false : x.has_lambda; }
+  set has_lambda (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.has_lambda = v; }
+  get has_lambda_call () { const x = this.__x; return x === undefined ? false : x.has_lambda_call; }
+  set has_lambda_call (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.has_lambda_call = v; }
+  get rust_needs_preevaluate () { const x = this.__x; return x === undefined ? false : x.rust_needs_preevaluate; }
+  set rust_needs_preevaluate (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.rust_needs_preevaluate = v; }
+  get rust_preevaluated_args () { const x = this.__x; return x === undefined ? undefined : x.rust_preevaluated_args; }
+  set rust_preevaluated_args (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.rust_preevaluated_args = v; }
+  get rust_use_tmpvar () { const x = this.__x; return x === undefined ? "" : x.rust_use_tmpvar; }
+  set rust_use_tmpvar (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.rust_use_tmpvar = v; }
+  get rust_is_tail_return () { const x = this.__x; return x === undefined ? false : x.rust_is_tail_return; }
+  set rust_is_tail_return (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.rust_is_tail_return = v; }
+  get rg_moved_here () { const x = this.__x; return x === undefined ? false : x.rg_moved_here; }
+  set rg_moved_here (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.rg_moved_here = v; }
+  get rg_init_fold () { const x = this.__x; return x === undefined ? false : x.rg_init_fold; }
+  set rg_init_fold (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.rg_init_fold = v; }
+  get rg_init_fields () { const x = this.__x; return x === undefined ? undefined : x.rg_init_fields; }
+  set rg_init_fields (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.rg_init_fields = v; }
+  get rg_init_values () { const x = this.__x; return x === undefined ? undefined : x.rg_init_values; }
+  set rg_init_values (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.rg_init_values = v; }
+  get rg_init_stmts () { const x = this.__x; return x === undefined ? undefined : x.rg_init_stmts; }
+  set rg_init_stmts (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.rg_init_stmts = v; }
+  get rg_init_covers_all () { const x = this.__x; return x === undefined ? false : x.rg_init_covers_all; }
+  set rg_init_covers_all (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.rg_init_covers_all = v; }
+  get rg_init_folded () { const x = this.__x; return x === undefined ? false : x.rg_init_folded; }
+  set rg_init_folded (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.rg_init_folded = v; }
+  get to_the_right () { const x = this.__x; return x === undefined ? false : x.to_the_right; }
+  set to_the_right (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.to_the_right = v; }
+  get right_node () { const x = this.__x; return x === undefined ? undefined : x.right_node; }
+  set right_node (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.right_node = v; }
+  get type_type () { const x = this.__x; return x === undefined ? "" : x.type_type; }
+  set type_type (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.type_type = v; }
+  get key_type () { const x = this.__x; return x === undefined ? "" : x.key_type; }
+  set key_type (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.key_type = v; }
+  get array_type () { const x = this.__x; return x === undefined ? "" : x.array_type; }
+  set array_type (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.array_type = v; }
+  get has_type_annotation () { const x = this.__x; return x === undefined ? false : x.has_type_annotation; }
+  set has_type_annotation (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.has_type_annotation = v; }
+  get type_annotation () { const x = this.__x; return x === undefined ? undefined : x.type_annotation; }
+  set type_annotation (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.type_annotation = v; }
+  get ref_type () { const x = this.__x; return x === undefined ? 0 : x.ref_type; }
+  set ref_type (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.ref_type = v; }
+  get boolean_value () { const x = this.__x; return x === undefined ? false : x.boolean_value; }
+  set boolean_value (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.boolean_value = v; }
+  get expression_value () { const x = this.__x; return x === undefined ? undefined : x.expression_value; }
+  set expression_value (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.expression_value = v; }
+  get appGUID () { const x = this.__x; return x === undefined ? "" : x.appGUID; }
+  set appGUID (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.appGUID = v; }
+  get register_name () { const x = this.__x; return x === undefined ? "" : x.register_name; }
+  set register_name (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.register_name = v; }
+  get lambda_ctx () { const x = this.__x; return x === undefined ? undefined : x.lambda_ctx; }
+  set lambda_ctx (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.lambda_ctx = v; }
+  get eval_key_type () { const x = this.__x; return x === undefined ? "" : x.eval_key_type; }
+  set eval_key_type (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.eval_key_type = v; }
+  get eval_function () { const x = this.__x; return x === undefined ? undefined : x.eval_function; }
+  set eval_function (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.eval_function = v; }
+  get eval_type_node () { const x = this.__x; return x === undefined ? undefined : x.eval_type_node; }
+  set eval_type_node (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.eval_type_node = v; }
+  get hasClassDescription () { const x = this.__x; return x === undefined ? false : x.hasClassDescription; }
+  set hasClassDescription (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.hasClassDescription = v; }
+  get hasNewOper () { const x = this.__x; return x === undefined ? false : x.hasNewOper; }
+  set hasNewOper (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.hasNewOper = v; }
+  get lambdaFnDesc () { const x = this.__x; return x === undefined ? undefined : x.lambdaFnDesc; }
+  set lambdaFnDesc (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.lambdaFnDesc = v; }
+  get has_doc_tail () { const x = this.__x; return x === undefined ? false : x.has_doc_tail; }
+  set has_doc_tail (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.has_doc_tail = v; }
+  get docNode () { const x = this.__x; return x === undefined ? undefined : x.docNode; }
+  set docNode (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.docNode = v; }
+  get evalState () { const x = this.__x; return x === undefined ? undefined : x.evalState; }
+  set evalState (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.evalState = v; }
+  get methodChain () { const x = this.__x; return x === undefined ? undefined : x.methodChain; }
+  set methodChain (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.methodChain = v; }
+  get chainTarget () { const x = this.__x; return x === undefined ? undefined : x.chainTarget; }
+  set chainTarget (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.chainTarget = v; }
   IsOptional () {
     const node = this;
     if ( node.hasFlag("optional") ) {
@@ -57118,6 +57201,65 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     }
     return nn.value_type == 6 || nn.value_type == 7;
   };
+  jsRareDefault (pvar, ctx) {
+    if ( this.target_typescript || this.target_flow ) {
+      return "";
+    }
+    if ( pvar.is_static ) {
+      return "";
+    }
+    if ( (pvar.nameNode == null) ) {
+      return "";
+    }
+    if ( (pvar.node == null) ) {
+      return "";
+    }
+    const nn = pvar.nameNode;
+    if ( false == nn.hasFlag("rare") ) {
+      return "";
+    }
+    if ( (nn.value_type == 6 || nn.value_type == 7) && false == nn.hasFlag("optional") ) {
+      return "";
+    }
+    const tw = new CodeWriter();
+    this.writeVarInitDef(pvar.node, ctx, tw);
+    const txt = tw.getCode();
+    const head = ("this." + pvar.compiledName) + " = ";
+    const hl = head.length;
+    if ( txt.length <= hl ) {
+      return "";
+    }
+    if ( txt.substring(0, hl ) != head ) {
+      return "";
+    }
+    let endAt = -1;
+    let i = hl;
+    const tl = txt.length;
+    while (i < tl) {
+      if ( txt.charCodeAt(i ) == (59) ) {
+        endAt = i;
+        break;
+      }
+      i = i + 1;
+    };
+    if ( endAt <= hl ) {
+      return "";
+    }
+    const v = txt.substring(hl, endAt );
+    if ( ((v == "undefined" || v == "true") || v == "false") || v == "\"\"" ) {
+      return v;
+    }
+    let j = 0;
+    const vl = v.length;
+    while (j < vl) {
+      const c = v.charCodeAt(j );
+      if ( ((c < (48) || c > (57)) && c != (46)) && c != (45) ) {
+        return "";
+      }
+      j = j + 1;
+    };
+    return v;
+  };
   jsWriteOperand (arg, ctx, wr) {
     ctx.setInExpr();
     this.WalkNode(arg, ctx, wr);
@@ -58392,10 +58534,28 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
           wr.out(("this.__rg_kind = \"" + cl.name) + "\";", true);
         }
       }
+      let rareNames = [];
+      let rareDefaults = [];
+      // Loop start
+      for ( const rvar of cl.variables) {
+        const rd = this.jsRareDefault(rvar, ctx);
+        if ( rd.length > 0 ) {
+          rareNames.push(rvar.compiledName);
+          rareDefaults.push(rd);
+        }
+      }
+      if ( rareNames.length > 0 ) {
+        wr.out("this.__x = undefined;", true);
+      }
       // Loop start
       for ( const pvar_1 of cl.variables) {
         if ( pvar_1.is_static ) {
           continue;
+        }
+        if ( rareNames.length > 0 ) {
+          if ( rareNames.indexOf(pvar_1.compiledName) >= 0 ) {
+            continue;
+          }
         }
         if ( this.target_typescript == false ) {
           if ( pvar_1.has_doc ) {
@@ -58447,6 +58607,33 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
           const s2 = s1 + " (v) { ";
           const s3 = s2 + store;
           wr.out(s3 + " = v; }", true);
+        }
+      }
+      if ( rareNames.length > 0 ) {
+        wr.out("__xNew () { return {", true);
+        wr.indent(1);
+        // Loop start
+        for ( let rni = 0; rni < rareNames.length; rni++) {
+          var rn = rareNames[rni];
+          const rdef = rareDefaults[rni];
+          wr.out(((rn + ": ") + rdef) + ",", true);
+        }
+        wr.indent(-1);
+        wr.out("}; }", true);
+        // Loop start
+        for ( let rnj = 0; rnj < rareNames.length; rnj++) {
+          var rn2 = rareNames[rnj];
+          const rdef2 = rareDefaults[rnj];
+          const a1 = "get " + rn2;
+          const a2 = a1 + " () { const x = this.__x; return x === undefined ? ";
+          const a3 = a2 + rdef2;
+          const a4 = a3 + " : x.";
+          const a5 = a4 + rn2;
+          wr.out(a5 + "; }", true);
+          const b1 = "set " + rn2;
+          const b2 = b1 + " (v) { let x = this.__x; if (x === undefined) { x = this.__x = this.__xNew(); } x.";
+          const b3 = b2 + rn2;
+          wr.out(b3 + " = v; }", true);
         }
       }
     }
