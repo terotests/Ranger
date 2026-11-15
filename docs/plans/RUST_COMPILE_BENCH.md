@@ -92,3 +92,48 @@ What a small program spends (vbs, 2.0 s): 0.6 s start-up and parsing
 `Lang.rgr` (520 kB) and the Rust prelude, which every run does again; 0.4 s
 GC; 0.5 s operator matching (`stdParamMatch`). Caching the parsed `Lang.rgr`
 and the lazy contexts above are the next steps.
+
+## Round 2 (2026-11-15): fewer allocations per context and node
+
+An allocation-sampling profile of the 700-unit program showed 3.0 GB
+allocated for an 8 s run, and GC took 20 % of the time. Changes:
+
+- `@(lazy)` on an array or hash field (ES6 writer only; TypeScript, Flow and
+  the other targets ignore it and stay eager): the constructor stores
+  `undefined` in `__lz_<name>` and a getter allocates the table on first
+  read. All 60 tables of `RangerAppWriterContext` (forked hundreds of
+  thousands of times; most forks never touch them) and six of `CodeNode`
+  (`ns`, `props`, `prop_keys`, `comments`, `attrs`,
+  `register_expressions`) use it.
+- `CodeNode.prop_cnt` counts writes to `props`; the `get*Property` /
+  `has*Property` getters return the default without the lookup when it is
+  0. `getStringProperty` alone was asked on 540 000 nodes with no props.
+- `RangerAppWriterContext.expr_stack` (a `[boolean]` of which only the
+  length was read) is now the counter `expr_depth`; `getErrorCount` reads
+  the root's list (`addError` stores every error there) instead of summing
+  the whole parent chain.
+- The launcher passes `NODE_COMPILE_CACHE` (in the temp dir) to the child,
+  saving about 0.1 s of script compilation on the child's start.
+
+Min of three runs, `-l=es6`, same container; before = master a520c5ff8.
+Output is byte-identical:
+
+| unit | before | after |
+| --- | ---: | ---: |
+| gen200 | 3.30 s | 3.16 s |
+| gen700 | 9.56 s | 8.22 s |
+| uix | 1.31 s | 1.26 s |
+| uix1 | 1.91 s | 1.91 s |
+| vbs | 2.26 s | 1.85 s |
+| core | 2.61 s | 2.40 s |
+| com | 15.28 s | 13.51 s |
+
+Left out:
+- A `CodeNode` has 99 fields (~800 bytes without pointer compression), and
+  the parser makes ~1 M of them on gen700: 780 MB of the 3 GB. 45 fields are
+  never set on these inputs. Putting defaults on the prototype would bring
+  back the many-hidden-classes problem the ES6 writer fixed earlier; moving
+  rare fields to a side object is a ~1 000-site refactor, not done.
+- Getters of lazy fields still allocate on a read: `ns` (70 % of nodes),
+  `register_expressions` (read on every node by `WalkNode`) and the parent
+  chain walks in `getOperators` / `isVarDefined` / `isEnumDefined` read them.

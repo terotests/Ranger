@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // rgrc-launcher: one more start with a 128 MB young generation (scripts/rgrc-launcher.mjs)
 if (typeof require === "function" && typeof module === "object" && require.main === module && !process.env.RGRC_NO_RESPAWN && !process.execArgv.some((a) => a.indexOf("semi-space") >= 0)) {
-  const r = require("child_process").spawnSync(process.execPath, ["--min-semi-space-size=128", "--max-semi-space-size=128", ...process.execArgv, __filename, ...process.argv.slice(2)], { stdio: "inherit", env: Object.assign({}, process.env, { RGRC_NO_RESPAWN: "1" }) });
+  const env = Object.assign({}, process.env, { RGRC_NO_RESPAWN: "1" });
+  if (!env.NODE_COMPILE_CACHE && !env.NODE_DISABLE_COMPILE_CACHE) env.NODE_COMPILE_CACHE = require("path").join(require("os").tmpdir(), "ranger-compile-cache");
+  const r = require("child_process").spawnSync(process.execPath, ["--min-semi-space-size=128", "--max-semi-space-size=128", ...process.execArgv, __filename, ...process.argv.slice(2)], { stdio: "inherit", env });
   if (r.error) throw r.error;
   process.exit(r.status === null ? 1 : r.status);
 }
@@ -4702,7 +4704,7 @@ class CodeNode  {
     this.type_name = "";
     this.key_type = "";
     this.array_type = "";
-    this.ns = [];
+    this.__lz_ns = undefined;
     this.has_vref_annotation = false;
     this.vref_annotation = undefined;
     this.has_type_annotation = false;
@@ -4715,15 +4717,16 @@ class CodeNode  {
     this.int_value = 0;
     this.boolean_value = false;
     this.expression_value = undefined;
-    this.props = {};
-    this.prop_keys = [];
-    this.comments = [];
+    this.__lz_props = undefined;
+    this.prop_cnt = 0;
+    this.__lz_prop_keys = undefined;
+    this.__lz_comments = undefined;
     this.children = [];
     this.parent = undefined;
-    this.attrs = [];
+    this.__lz_attrs = undefined;
     this.appGUID = "";
     this.register_name = "";
-    this.register_expressions = [];
+    this.__lz_register_expressions = undefined;
     this.definedTypeClass = undefined;
     this.evalTypeClass = undefined;
     this.lambda_ctx = undefined;
@@ -4765,6 +4768,18 @@ class CodeNode  {
     this.ep = end;
     this.code = source;
   }
+  get ns () { if (this.__lz_ns === undefined) { this.__lz_ns = []; } return this.__lz_ns; }
+  set ns (v) { this.__lz_ns = v; }
+  get props () { if (this.__lz_props === undefined) { this.__lz_props = {}; } return this.__lz_props; }
+  set props (v) { this.__lz_props = v; }
+  get prop_keys () { if (this.__lz_prop_keys === undefined) { this.__lz_prop_keys = []; } return this.__lz_prop_keys; }
+  set prop_keys (v) { this.__lz_prop_keys = v; }
+  get comments () { if (this.__lz_comments === undefined) { this.__lz_comments = []; } return this.__lz_comments; }
+  set comments (v) { this.__lz_comments = v; }
+  get attrs () { if (this.__lz_attrs === undefined) { this.__lz_attrs = []; } return this.__lz_attrs; }
+  set attrs (v) { this.__lz_attrs = v; }
+  get register_expressions () { if (this.__lz_register_expressions === undefined) { this.__lz_register_expressions = []; } return this.__lz_register_expressions; }
+  set register_expressions (v) { this.__lz_register_expressions = v; }
   IsOptional () {
     const node = this;
     if ( node.hasFlag("optional") ) {
@@ -5144,6 +5159,9 @@ class CodeNode  {
     return s;
   };
   hasExpressionProperty (name) {
+    if ( this.prop_cnt == 0 ) {
+      return false;
+    }
     const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       return ann.expression;
@@ -5158,6 +5176,9 @@ class CodeNode  {
     return ann;
   };
   hasIntProperty (name) {
+    if ( this.prop_cnt == 0 ) {
+      return false;
+    }
     const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       const fc = ann.children[0];
@@ -5168,6 +5189,9 @@ class CodeNode  {
     return false;
   };
   getIntProperty (name) {
+    if ( this.prop_cnt == 0 ) {
+      return 0;
+    }
     const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       const fc = ann.children[0];
@@ -5178,6 +5202,9 @@ class CodeNode  {
     return 0;
   };
   hasDoubleProperty (name) {
+    if ( this.prop_cnt == 0 ) {
+      return false;
+    }
     const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       if ( ann.value_type == 2 ) {
@@ -5187,6 +5214,9 @@ class CodeNode  {
     return false;
   };
   getDoubleProperty (name) {
+    if ( this.prop_cnt == 0 ) {
+      return 0.0;
+    }
     const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       if ( ann.value_type == 2 ) {
@@ -5197,8 +5227,12 @@ class CodeNode  {
   };
   setStringProperty (name, value) {
     this.props[name] = CodeNode.newStr(value);
+    this.prop_cnt = this.prop_cnt + 1;
   };
   hasStringProperty (name) {
+    if ( this.prop_cnt == 0 ) {
+      return false;
+    }
     if ( false == ( typeof(this.props[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.props, name) ) ) {
       return false;
     }
@@ -5211,6 +5245,9 @@ class CodeNode  {
     return false;
   };
   getStringProperty (name) {
+    if ( this.prop_cnt == 0 ) {
+      return "";
+    }
     const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       if ( ann.value_type == 4 ) {
@@ -5220,6 +5257,9 @@ class CodeNode  {
     return "";
   };
   hasBooleanProperty (name) {
+    if ( this.prop_cnt == 0 ) {
+      return false;
+    }
     const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       if ( ann.value_type == 5 ) {
@@ -5229,6 +5269,9 @@ class CodeNode  {
     return false;
   };
   getBooleanProperty (name) {
+    if ( this.prop_cnt == 0 ) {
+      return false;
+    }
     const ann = ( Object.prototype.hasOwnProperty.call(this.props, name) ? this.props[name] : undefined );
     if ( (typeof(ann) !== "undefined" && ann != null )  ) {
       if ( ann.value_type == 5 ) {
@@ -5708,16 +5751,19 @@ class CodeNode  {
         }
         break;
     };
-    // Loop start
-    for ( const key of this.prop_keys) {
-      newNode.prop_keys.push(key);
-      const oldpOpt = ( Object.prototype.hasOwnProperty.call(this.props, key) ? this.props[key] : undefined );
-      if ( (oldpOpt == null) ) {
-        continue;
+    if ( this.prop_cnt > 0 ) {
+      // Loop start
+      for ( const key of this.prop_keys) {
+        newNode.prop_keys.push(key);
+        const oldpOpt = ( Object.prototype.hasOwnProperty.call(this.props, key) ? this.props[key] : undefined );
+        if ( (oldpOpt == null) ) {
+          continue;
+        }
+        const oldp = oldpOpt;
+        const np = oldp.cloneWithType(match, changeVref);
+        newNode.props[key] = np;
+        newNode.prop_cnt = newNode.prop_cnt + 1;
       }
-      const oldp = oldpOpt;
-      const np = oldp.cloneWithType(match, changeVref);
-      newNode.props[key] = np;
     }
     // Loop start
     for ( const ch of this.children) {
@@ -5843,16 +5889,19 @@ class CodeNode  {
         }
         break;
     };
-    // Loop start
-    for ( const key of this.prop_keys) {
-      newNode.prop_keys.push(key);
-      const oldpOpt = ( Object.prototype.hasOwnProperty.call(this.props, key) ? this.props[key] : undefined );
-      if ( (oldpOpt == null) ) {
-        continue;
+    if ( this.prop_cnt > 0 ) {
+      // Loop start
+      for ( const key of this.prop_keys) {
+        newNode.prop_keys.push(key);
+        const oldpOpt = ( Object.prototype.hasOwnProperty.call(this.props, key) ? this.props[key] : undefined );
+        if ( (oldpOpt == null) ) {
+          continue;
+        }
+        const oldp = oldpOpt;
+        const np = oldp.rebuildWithType(match, changeVref);
+        newNode.props[key] = np;
+        newNode.prop_cnt = newNode.prop_cnt + 1;
       }
-      const oldp = oldpOpt;
-      const np = oldp.rebuildWithType(match, changeVref);
-      newNode.props[key] = np;
     }
     if ( this.is_array_literal ) {
       const elemT = match.getTypeName(this.eval_array_type);
@@ -6665,22 +6714,22 @@ class RangerAppWriterContext  {
     this.langOperators = undefined;
     this.stdCommands = undefined;
     this.operators = undefined;
-    this.op_list = {};
-    this.automatically_unwrapped = {};
-    this.known_present = {};
-    this.flow_narrowed = {};
+    this.__lz_op_list = undefined;
+    this.__lz_automatically_unwrapped = undefined;
+    this.__lz_known_present = undefined;
+    this.__lz_flow_narrowed = undefined;
     this.auto_unwrap_suppression = 0;
     this.reservedWords = undefined;
     this.intRootCounter = 1;     /* note: unused */
     this.targetLangName = "";
     this.parent = undefined;
     this.cachedRoot = undefined;
-    this.defined_imports = [];     /* note: unused */
-    this.active_macros = {};
+    this.__lz_defined_imports = undefined;     /* note: unused */
+    this.__lz_active_macros = undefined;
     this.macro_expansion_depth = 0;
-    this.already_imported = {};
-    this.rust_extern_types = {};
-    this.rust_extern_roots = {};
+    this.__lz_already_imported = undefined;
+    this.__lz_rust_extern_types = undefined;
+    this.__lz_rust_extern_roots = undefined;
     this.rust_extern_current = "";
     this.fileSystem = undefined;
     this.is_function = false;
@@ -6692,82 +6741,200 @@ class RangerAppWriterContext  {
     this.is_capturing = false;
     this.is_catch_block = false;
     this.is_try_block = false;
-    this.captured_variables = [];
+    this.__lz_captured_variables = undefined;
     this.has_block_exited = false;     /* note: unused */
     this.in_expression = false;     /* note: unused */
-    this.expr_stack = [];
+    this.expr_depth = 0;
     this.expr_restart = false;
     this.expr_restart_block = false;
     this.in_lhs_of_assignment = false;
     this.in_method = false;
-    this.method_stack = [];
-    this.typeNames = [];     /* note: unused */
-    this.typeClasses = {};
+    this.__lz_method_stack = undefined;
+    this.__lz_typeNames = undefined;     /* note: unused */
+    this.__lz_typeClasses = undefined;
     this.currentClassName = undefined;     /* note: unused */
     this.in_class = false;
     this.in_static_method = false;
     this.currentClass = undefined;
     this.currentMethod = undefined;
     this.thisName = "this";
-    this.definedEnums = {};
-    this.definedInterfaces = {};     /* note: unused */
-    this.definedInterfaceList = [];     /* note: unused */
-    this.definedClasses = {};
-    this.definedClassList = [];
-    this.definedTasks = {};     /* note: unused */
-    this.templateClassNodes = {};
-    this.templateClassList = [];
-    this.classSignatures = {};
-    this.classToSignature = {};
-    this.templateClasses = {};     /* note: unused */
-    this.nativeGenerics = {};
-    this.genericFormUses = {};
-    this.classStaticWriters = {};
-    this.localVariables = {};
-    this.localVarNames = [];
-    this.contextFlags = {};
-    this.settings = {};
-    this.compilerFlags = {};
-    this.compilerSettings = {};
-    this.parserErrors = [];
-    this.compilerErrors = [];
-    this.compilerMessages = [];
-    this.compilerLog = {};     /* note: unused */
-    this.todoList = [];
-    this.definedMacro = {};     /* note: unused */
-    this.defCounts = {};
-    this.refTransform = {};
-    this.staticClassBodies = [];
-    this.pluginSpecificOperators = {};
-    this.viewClassBody = {};
-    this.appPages = {};
-    this.appServices = {};
-    this.opNs = [];
+    this.__lz_definedEnums = undefined;
+    this.__lz_definedInterfaces = undefined;     /* note: unused */
+    this.__lz_definedInterfaceList = undefined;     /* note: unused */
+    this.__lz_definedClasses = undefined;
+    this.__lz_definedClassList = undefined;
+    this.__lz_definedTasks = undefined;     /* note: unused */
+    this.__lz_templateClassNodes = undefined;
+    this.__lz_templateClassList = undefined;
+    this.__lz_classSignatures = undefined;
+    this.__lz_classToSignature = undefined;
+    this.__lz_templateClasses = undefined;     /* note: unused */
+    this.__lz_nativeGenerics = undefined;
+    this.__lz_genericFormUses = undefined;
+    this.__lz_classStaticWriters = undefined;
+    this.__lz_localVariables = undefined;
+    this.__lz_localVarNames = undefined;
+    this.__lz_contextFlags = undefined;
+    this.__lz_settings = undefined;
+    this.__lz_compilerFlags = undefined;
+    this.__lz_compilerSettings = undefined;
+    this.__lz_parserErrors = undefined;
+    this.__lz_compilerErrors = undefined;
+    this.__lz_compilerMessages = undefined;
+    this.__lz_compilerLog = undefined;     /* note: unused */
+    this.__lz_todoList = undefined;
+    this.__lz_definedMacro = undefined;     /* note: unused */
+    this.__lz_defCounts = undefined;
+    this.__lz_refTransform = undefined;
+    this.__lz_staticClassBodies = undefined;
+    this.__lz_pluginSpecificOperators = undefined;
+    this.__lz_viewClassBody = undefined;
+    this.__lz_appPages = undefined;
+    this.__lz_appServices = undefined;
+    this.__lz_opNs = undefined;
     this.langFilePath = "";     /* note: unused */
-    this.libraryPaths = [];
+    this.__lz_libraryPaths = undefined;
     this.libraryPathsBase = 0;
-    this.moduleFunctions = {};
-    this.fileModules = {};
+    this.__lz_moduleFunctions = undefined;
+    this.__lz_fileModules = undefined;
     this.outputPath = "";     /* note: unused */
     this.counters = new TypeCounts();
     this.parser = undefined;
     this.compiler = undefined;
-    this.typedNodes = {};
-    this.registered_plugins = [];
+    this.__lz_typedNodes = undefined;
+    this.__lz_registered_plugins = undefined;
     this.operatorFunction = undefined;
     this.lastBlockOp = undefined;
-    this.opFnsList = {};
-    this.test_compile = [];
-    this.activeTransaction = [];
-    this.transactions = [];
+    this.__lz_opFnsList = undefined;
+    this.__lz_test_compile = undefined;
+    this.__lz_activeTransaction = undefined;
+    this.__lz_transactions = undefined;
     this.env = undefined;
-    this.rust_moved_vars = {};
-    this.rust_usage_count = {};
+    this.__lz_rust_moved_vars = undefined;
+    this.__lz_rust_usage_count = undefined;
     this.rust_temp_counter = 0;
-    this.rust_path_field_names = {};
+    this.__lz_rust_path_field_names = undefined;
     this.rust_path_names_ready = false;
     this.rootFile = "--not-defined--";
   }
+  get op_list () { if (this.__lz_op_list === undefined) { this.__lz_op_list = {}; } return this.__lz_op_list; }
+  set op_list (v) { this.__lz_op_list = v; }
+  get automatically_unwrapped () { if (this.__lz_automatically_unwrapped === undefined) { this.__lz_automatically_unwrapped = {}; } return this.__lz_automatically_unwrapped; }
+  set automatically_unwrapped (v) { this.__lz_automatically_unwrapped = v; }
+  get known_present () { if (this.__lz_known_present === undefined) { this.__lz_known_present = {}; } return this.__lz_known_present; }
+  set known_present (v) { this.__lz_known_present = v; }
+  get flow_narrowed () { if (this.__lz_flow_narrowed === undefined) { this.__lz_flow_narrowed = {}; } return this.__lz_flow_narrowed; }
+  set flow_narrowed (v) { this.__lz_flow_narrowed = v; }
+  get defined_imports () { if (this.__lz_defined_imports === undefined) { this.__lz_defined_imports = []; } return this.__lz_defined_imports; }
+  set defined_imports (v) { this.__lz_defined_imports = v; }
+  get active_macros () { if (this.__lz_active_macros === undefined) { this.__lz_active_macros = {}; } return this.__lz_active_macros; }
+  set active_macros (v) { this.__lz_active_macros = v; }
+  get already_imported () { if (this.__lz_already_imported === undefined) { this.__lz_already_imported = {}; } return this.__lz_already_imported; }
+  set already_imported (v) { this.__lz_already_imported = v; }
+  get rust_extern_types () { if (this.__lz_rust_extern_types === undefined) { this.__lz_rust_extern_types = {}; } return this.__lz_rust_extern_types; }
+  set rust_extern_types (v) { this.__lz_rust_extern_types = v; }
+  get rust_extern_roots () { if (this.__lz_rust_extern_roots === undefined) { this.__lz_rust_extern_roots = {}; } return this.__lz_rust_extern_roots; }
+  set rust_extern_roots (v) { this.__lz_rust_extern_roots = v; }
+  get captured_variables () { if (this.__lz_captured_variables === undefined) { this.__lz_captured_variables = []; } return this.__lz_captured_variables; }
+  set captured_variables (v) { this.__lz_captured_variables = v; }
+  get method_stack () { if (this.__lz_method_stack === undefined) { this.__lz_method_stack = []; } return this.__lz_method_stack; }
+  set method_stack (v) { this.__lz_method_stack = v; }
+  get typeNames () { if (this.__lz_typeNames === undefined) { this.__lz_typeNames = []; } return this.__lz_typeNames; }
+  set typeNames (v) { this.__lz_typeNames = v; }
+  get typeClasses () { if (this.__lz_typeClasses === undefined) { this.__lz_typeClasses = {}; } return this.__lz_typeClasses; }
+  set typeClasses (v) { this.__lz_typeClasses = v; }
+  get definedEnums () { if (this.__lz_definedEnums === undefined) { this.__lz_definedEnums = {}; } return this.__lz_definedEnums; }
+  set definedEnums (v) { this.__lz_definedEnums = v; }
+  get definedInterfaces () { if (this.__lz_definedInterfaces === undefined) { this.__lz_definedInterfaces = {}; } return this.__lz_definedInterfaces; }
+  set definedInterfaces (v) { this.__lz_definedInterfaces = v; }
+  get definedInterfaceList () { if (this.__lz_definedInterfaceList === undefined) { this.__lz_definedInterfaceList = []; } return this.__lz_definedInterfaceList; }
+  set definedInterfaceList (v) { this.__lz_definedInterfaceList = v; }
+  get definedClasses () { if (this.__lz_definedClasses === undefined) { this.__lz_definedClasses = {}; } return this.__lz_definedClasses; }
+  set definedClasses (v) { this.__lz_definedClasses = v; }
+  get definedClassList () { if (this.__lz_definedClassList === undefined) { this.__lz_definedClassList = []; } return this.__lz_definedClassList; }
+  set definedClassList (v) { this.__lz_definedClassList = v; }
+  get definedTasks () { if (this.__lz_definedTasks === undefined) { this.__lz_definedTasks = {}; } return this.__lz_definedTasks; }
+  set definedTasks (v) { this.__lz_definedTasks = v; }
+  get templateClassNodes () { if (this.__lz_templateClassNodes === undefined) { this.__lz_templateClassNodes = {}; } return this.__lz_templateClassNodes; }
+  set templateClassNodes (v) { this.__lz_templateClassNodes = v; }
+  get templateClassList () { if (this.__lz_templateClassList === undefined) { this.__lz_templateClassList = []; } return this.__lz_templateClassList; }
+  set templateClassList (v) { this.__lz_templateClassList = v; }
+  get classSignatures () { if (this.__lz_classSignatures === undefined) { this.__lz_classSignatures = {}; } return this.__lz_classSignatures; }
+  set classSignatures (v) { this.__lz_classSignatures = v; }
+  get classToSignature () { if (this.__lz_classToSignature === undefined) { this.__lz_classToSignature = {}; } return this.__lz_classToSignature; }
+  set classToSignature (v) { this.__lz_classToSignature = v; }
+  get templateClasses () { if (this.__lz_templateClasses === undefined) { this.__lz_templateClasses = {}; } return this.__lz_templateClasses; }
+  set templateClasses (v) { this.__lz_templateClasses = v; }
+  get nativeGenerics () { if (this.__lz_nativeGenerics === undefined) { this.__lz_nativeGenerics = {}; } return this.__lz_nativeGenerics; }
+  set nativeGenerics (v) { this.__lz_nativeGenerics = v; }
+  get genericFormUses () { if (this.__lz_genericFormUses === undefined) { this.__lz_genericFormUses = {}; } return this.__lz_genericFormUses; }
+  set genericFormUses (v) { this.__lz_genericFormUses = v; }
+  get classStaticWriters () { if (this.__lz_classStaticWriters === undefined) { this.__lz_classStaticWriters = {}; } return this.__lz_classStaticWriters; }
+  set classStaticWriters (v) { this.__lz_classStaticWriters = v; }
+  get localVariables () { if (this.__lz_localVariables === undefined) { this.__lz_localVariables = {}; } return this.__lz_localVariables; }
+  set localVariables (v) { this.__lz_localVariables = v; }
+  get localVarNames () { if (this.__lz_localVarNames === undefined) { this.__lz_localVarNames = []; } return this.__lz_localVarNames; }
+  set localVarNames (v) { this.__lz_localVarNames = v; }
+  get contextFlags () { if (this.__lz_contextFlags === undefined) { this.__lz_contextFlags = {}; } return this.__lz_contextFlags; }
+  set contextFlags (v) { this.__lz_contextFlags = v; }
+  get settings () { if (this.__lz_settings === undefined) { this.__lz_settings = {}; } return this.__lz_settings; }
+  set settings (v) { this.__lz_settings = v; }
+  get compilerFlags () { if (this.__lz_compilerFlags === undefined) { this.__lz_compilerFlags = {}; } return this.__lz_compilerFlags; }
+  set compilerFlags (v) { this.__lz_compilerFlags = v; }
+  get compilerSettings () { if (this.__lz_compilerSettings === undefined) { this.__lz_compilerSettings = {}; } return this.__lz_compilerSettings; }
+  set compilerSettings (v) { this.__lz_compilerSettings = v; }
+  get parserErrors () { if (this.__lz_parserErrors === undefined) { this.__lz_parserErrors = []; } return this.__lz_parserErrors; }
+  set parserErrors (v) { this.__lz_parserErrors = v; }
+  get compilerErrors () { if (this.__lz_compilerErrors === undefined) { this.__lz_compilerErrors = []; } return this.__lz_compilerErrors; }
+  set compilerErrors (v) { this.__lz_compilerErrors = v; }
+  get compilerMessages () { if (this.__lz_compilerMessages === undefined) { this.__lz_compilerMessages = []; } return this.__lz_compilerMessages; }
+  set compilerMessages (v) { this.__lz_compilerMessages = v; }
+  get compilerLog () { if (this.__lz_compilerLog === undefined) { this.__lz_compilerLog = {}; } return this.__lz_compilerLog; }
+  set compilerLog (v) { this.__lz_compilerLog = v; }
+  get todoList () { if (this.__lz_todoList === undefined) { this.__lz_todoList = []; } return this.__lz_todoList; }
+  set todoList (v) { this.__lz_todoList = v; }
+  get definedMacro () { if (this.__lz_definedMacro === undefined) { this.__lz_definedMacro = {}; } return this.__lz_definedMacro; }
+  set definedMacro (v) { this.__lz_definedMacro = v; }
+  get defCounts () { if (this.__lz_defCounts === undefined) { this.__lz_defCounts = {}; } return this.__lz_defCounts; }
+  set defCounts (v) { this.__lz_defCounts = v; }
+  get refTransform () { if (this.__lz_refTransform === undefined) { this.__lz_refTransform = {}; } return this.__lz_refTransform; }
+  set refTransform (v) { this.__lz_refTransform = v; }
+  get staticClassBodies () { if (this.__lz_staticClassBodies === undefined) { this.__lz_staticClassBodies = []; } return this.__lz_staticClassBodies; }
+  set staticClassBodies (v) { this.__lz_staticClassBodies = v; }
+  get pluginSpecificOperators () { if (this.__lz_pluginSpecificOperators === undefined) { this.__lz_pluginSpecificOperators = {}; } return this.__lz_pluginSpecificOperators; }
+  set pluginSpecificOperators (v) { this.__lz_pluginSpecificOperators = v; }
+  get viewClassBody () { if (this.__lz_viewClassBody === undefined) { this.__lz_viewClassBody = {}; } return this.__lz_viewClassBody; }
+  set viewClassBody (v) { this.__lz_viewClassBody = v; }
+  get appPages () { if (this.__lz_appPages === undefined) { this.__lz_appPages = {}; } return this.__lz_appPages; }
+  set appPages (v) { this.__lz_appPages = v; }
+  get appServices () { if (this.__lz_appServices === undefined) { this.__lz_appServices = {}; } return this.__lz_appServices; }
+  set appServices (v) { this.__lz_appServices = v; }
+  get opNs () { if (this.__lz_opNs === undefined) { this.__lz_opNs = []; } return this.__lz_opNs; }
+  set opNs (v) { this.__lz_opNs = v; }
+  get libraryPaths () { if (this.__lz_libraryPaths === undefined) { this.__lz_libraryPaths = []; } return this.__lz_libraryPaths; }
+  set libraryPaths (v) { this.__lz_libraryPaths = v; }
+  get moduleFunctions () { if (this.__lz_moduleFunctions === undefined) { this.__lz_moduleFunctions = {}; } return this.__lz_moduleFunctions; }
+  set moduleFunctions (v) { this.__lz_moduleFunctions = v; }
+  get fileModules () { if (this.__lz_fileModules === undefined) { this.__lz_fileModules = {}; } return this.__lz_fileModules; }
+  set fileModules (v) { this.__lz_fileModules = v; }
+  get typedNodes () { if (this.__lz_typedNodes === undefined) { this.__lz_typedNodes = {}; } return this.__lz_typedNodes; }
+  set typedNodes (v) { this.__lz_typedNodes = v; }
+  get registered_plugins () { if (this.__lz_registered_plugins === undefined) { this.__lz_registered_plugins = []; } return this.__lz_registered_plugins; }
+  set registered_plugins (v) { this.__lz_registered_plugins = v; }
+  get opFnsList () { if (this.__lz_opFnsList === undefined) { this.__lz_opFnsList = {}; } return this.__lz_opFnsList; }
+  set opFnsList (v) { this.__lz_opFnsList = v; }
+  get test_compile () { if (this.__lz_test_compile === undefined) { this.__lz_test_compile = []; } return this.__lz_test_compile; }
+  set test_compile (v) { this.__lz_test_compile = v; }
+  get activeTransaction () { if (this.__lz_activeTransaction === undefined) { this.__lz_activeTransaction = []; } return this.__lz_activeTransaction; }
+  set activeTransaction (v) { this.__lz_activeTransaction = v; }
+  get transactions () { if (this.__lz_transactions === undefined) { this.__lz_transactions = []; } return this.__lz_transactions; }
+  set transactions (v) { this.__lz_transactions = v; }
+  get rust_moved_vars () { if (this.__lz_rust_moved_vars === undefined) { this.__lz_rust_moved_vars = {}; } return this.__lz_rust_moved_vars; }
+  set rust_moved_vars (v) { this.__lz_rust_moved_vars = v; }
+  get rust_usage_count () { if (this.__lz_rust_usage_count === undefined) { this.__lz_rust_usage_count = {}; } return this.__lz_rust_usage_count; }
+  set rust_usage_count (v) { this.__lz_rust_usage_count = v; }
+  get rust_path_field_names () { if (this.__lz_rust_path_field_names === undefined) { this.__lz_rust_path_field_names = {}; } return this.__lz_rust_path_field_names; }
+  set rust_path_field_names (v) { this.__lz_rust_path_field_names = v; }
   rustMarkMoved (varName) {
     this.rust_moved_vars[varName] = true;
   };
@@ -8016,6 +8183,7 @@ class RangerAppWriterContext  {
       instNode.prop_keys.push(key);
       const pv = ( Object.prototype.hasOwnProperty.call(copyNode.props, key) ? copyNode.props[key] : undefined );
       instNode.props[key] = pv;
+      instNode.prop_cnt = instNode.prop_cnt + 1;
     }
     // Loop start
     for ( const ch of copyNode.children) {
@@ -8561,7 +8729,7 @@ class RangerAppWriterContext  {
     this.expr_restart_block = true;
   };
   isInExpression () {
-    if ( this.expr_stack.length > 0 ) {
+    if ( this.expr_depth > 0 ) {
       return true;
     }
     if ( (((typeof(this.parent) !== "undefined" && this.parent != null ) ) && this.expr_restart_block == false) && this.expr_restart == false ) {
@@ -8570,17 +8738,19 @@ class RangerAppWriterContext  {
     return false;
   };
   expressionLevel () {
-    const level = this.expr_stack.length;
+    const level = this.expr_depth;
     if ( (((typeof(this.parent) !== "undefined" && this.parent != null ) ) && this.expr_restart == false) && this.expr_restart_block == false ) {
       return level + this.parent.expressionLevel();
     }
     return level;
   };
   setInExpr () {
-    this.expr_stack.push(true);
+    this.expr_depth = this.expr_depth + 1;
   };
   unsetInExpr () {
-    this.expr_stack.pop();
+    if ( this.expr_depth > 0 ) {
+      this.expr_depth = this.expr_depth - 1;
+    }
   };
   setInLhs () {
     this.in_lhs_of_assignment = true;
@@ -8598,11 +8768,10 @@ class RangerAppWriterContext  {
     return false;
   };
   getErrorCount () {
-    let cnt = this.compilerErrors.length;
-    if ( typeof(this.parent) != "undefined" ) {
-      cnt = cnt + this.parent.getErrorCount();
+    if ( (this.parent == null) ) {
+      return this.compilerErrors.length;
     }
-    return cnt;
+    return this.errCnt();
   };
   isInStatic () {
     if ( this.in_static_method ) {
@@ -11453,6 +11622,7 @@ class RangerLispParser  {
                 current_2.props[a_name] = a_node2;
               }
               current_2.prop_keys.push(a_name);
+              current_2.prop_cnt = current_2.prop_cnt + 1;
             }
             continue;
           }
@@ -56936,6 +57106,18 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     this.tsEnums = new EnumNativeAnalysis();
     this.ts_enums_written = false;
   }
+  jsLazyField (nn) {
+    if ( this.target_typescript || this.target_flow ) {
+      return false;
+    }
+    if ( false == nn.hasFlag("lazy") ) {
+      return false;
+    }
+    if ( nn.hasFlag("optional") || nn.hasFlag("immutable") ) {
+      return false;
+    }
+    return nn.value_type == 6 || nn.value_type == 7;
+  };
   jsWriteOperand (arg, ctx, wr) {
     ctx.setInExpr();
     this.WalkNode(arg, ctx, wr);
@@ -57620,7 +57802,11 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         ctx.unsetInExpr();
         was_set = true;
       } else {
-        if ( nn.value_type == 6 && false == nn.hasFlag("optional") ) {
+        if ( this.jsLazyField(nn) ) {
+          wr.out(("this.__lz_" + p.compiledName) + " = undefined", false);
+          was_set = true;
+        }
+        if ( (was_set == false && nn.value_type == 6) && false == nn.hasFlag("optional") ) {
           wr.out("this." + p.compiledName, false);
           if ( nn.hasFlag("immutable") ) {
             wr.out(" = require('immutable').List()", false);
@@ -57629,7 +57815,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
           }
           was_set = true;
         }
-        if ( nn.value_type == 7 && false == nn.hasFlag("optional") ) {
+        if ( (was_set == false && nn.value_type == 7) && false == nn.hasFlag("optional") ) {
           wr.out("this." + p.compiledName, false);
           if ( nn.hasFlag("immutable") ) {
             wr.out(" = require('immutable').Map()", false);
@@ -58232,6 +58418,37 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       wr.newline();
       wr.indent(-1);
       wr.out("}", true);
+      // Loop start
+      for ( const lzVar of cl.variables) {
+        if ( lzVar.is_static ) {
+          continue;
+        }
+        if ( (lzVar.nameNode == null) ) {
+          continue;
+        }
+        const lzn = lzVar.nameNode;
+        if ( this.jsLazyField(lzn) ) {
+          const store = "this.__lz_" + lzVar.compiledName;
+          let empty = "[]";
+          if ( lzn.value_type == 7 ) {
+            empty = "{}";
+          }
+          const g1 = "get " + lzVar.compiledName;
+          const g2 = g1 + " () { if (";
+          const g3 = g2 + store;
+          const g4 = g3 + " === undefined) { ";
+          const g5 = g4 + store;
+          const g6 = g5 + " = ";
+          const g7 = g6 + empty;
+          const g8 = g7 + "; } return ";
+          const g9 = g8 + store;
+          wr.out(g9 + "; }", true);
+          const s1 = "set " + lzVar.compiledName;
+          const s2 = s1 + " (v) { ";
+          const s3 = s2 + store;
+          wr.out(s3 + " = v; }", true);
+        }
+      }
     }
     // Loop start
     for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {

@@ -1466,6 +1466,7 @@ class RangerLispParser {
                 set current.props a_name a_node2
               }
               push current.prop_keys a_name
+              current.prop_cnt = current.prop_cnt + 1
             }
             continue 
           }

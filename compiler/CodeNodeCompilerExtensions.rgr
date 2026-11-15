@@ -596,15 +596,18 @@ extension CodeNode {
         }
       }
     }
-    for prop_keys key:string i {
-      push newNode.prop_keys key
-      def oldpOpt@(optional):CodeNode (get props key)
-      if (null? oldpOpt) {
-        continue
+    if (prop_cnt > 0) {
+      for prop_keys key:string i {
+        push newNode.prop_keys key
+        def oldpOpt@(optional):CodeNode (get props key)
+        if (null? oldpOpt) {
+          continue
+        }
+        def oldp:CodeNode (unwrap oldpOpt)
+        def np:CodeNode (oldp.cloneWithType(match changeVref))
+        set newNode.props key np
+        newNode.prop_cnt = newNode.prop_cnt + 1
       }
-      def oldp:CodeNode (unwrap oldpOpt)
-      def np:CodeNode (oldp.cloneWithType(match changeVref))
-      set newNode.props key np
     }
     for children ch:CodeNode i {
       def newCh:CodeNode (ch.cloneWithType(match changeVref))
@@ -745,15 +748,18 @@ extension CodeNode {
         }
       }
     }
-    for prop_keys key:string i {
-      push newNode.prop_keys key
-      def oldpOpt@(optional):CodeNode (get props key)
-      if (null? oldpOpt) {
-        continue
+    if (prop_cnt > 0) {
+      for prop_keys key:string i {
+        push newNode.prop_keys key
+        def oldpOpt@(optional):CodeNode (get props key)
+        if (null? oldpOpt) {
+          continue
+        }
+        def oldp:CodeNode (unwrap oldpOpt)
+        def np:CodeNode (oldp.rebuildWithType(match changeVref))
+        set newNode.props key np
+        newNode.prop_cnt = newNode.prop_cnt + 1
       }
-      def oldp:CodeNode (unwrap oldpOpt)
-      def np:CodeNode (oldp.rebuildWithType(match changeVref))
-      set newNode.props key np
     }
     ; A walked array literal holds its elements as its children and only the
     ; is_array_literal mark says what they are; a plain copy would be a bare
