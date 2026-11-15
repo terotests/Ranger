@@ -98,29 +98,29 @@ class CodeNode {
   def code:SourceCode
   def sp:int 0
   def ep:int 0
-  def row 0
+  def row@(rare) 0
   def has_operator:boolean false
   def disabled_node@(rare):boolean false
   def op_index:int 0
-  def is_array_literal false
+  def is_array_literal@(rare) false
   def is_system_class@(rare):boolean false
-  def is_direct_method_call false
+  def is_direct_method_call@(rare) false
   def mutable_def@(rare):boolean false
   def expression:boolean false
   def vref:string ""
-  def is_block_node:boolean false
-  def infix_operator:boolean false
-  def infix_node:CodeNode
-  def infix_subnode:boolean false
+  def is_block_node@(rare):boolean false
+  def infix_operator@(rare):boolean false
+  def infix_node@(rare):CodeNode
+  def infix_subnode@(rare):boolean false
   def has_lambda@(rare):boolean false
   def has_lambda_call@(rare):boolean false
-  def has_call false
+  def has_call@(rare) false
   ; Set by the parser on a `(` it read as the ARGUMENT LIST of the name in
   ; front of it, as opposed to a grouping paren. A call written bare inside an
   ; argument list -- `a.add(a.value())` -- has its own name at index 0, where
   ; the fold otherwise leaves it alone, and the arguments would come out as
   ; two of them instead of one.
-  def is_call_args:boolean false
+  def is_call_args@(rare):boolean false
   
   ; Rust static analysis - for pre-evaluating method args to avoid borrow conflicts
   def rust_needs_preevaluate@(rare):boolean false
@@ -155,22 +155,22 @@ class CodeNode {
   def rg_init_folded@(rare):boolean false
   
 ;  def method_type:RangerMethodCallType RangerMethodCallType.NoType
-  def operator_pred:int 0
+  def operator_pred@(rare):int 0
   def to_the_right@(rare):boolean false
   def right_node@(rare):CodeNode
   def type_type@(rare):string ""
-  def type_name:string ""
+  def type_name@(rare):string ""
   def key_type@(rare):string ""
   def array_type@(rare):string ""
   def ns@(lazy):[string]
-  def has_vref_annotation:boolean false
-  def vref_annotation:CodeNode
+  def has_vref_annotation@(rare):boolean false
+  def vref_annotation@(rare):CodeNode
   def has_type_annotation@(rare):boolean false
   def type_annotation@(rare):CodeNode
   def parsed_type:RangerNodeType RangerNodeType.NoType
   def value_type:RangerNodeType RangerNodeType.NoType
   def ref_type@(rare):RangerNodeRefType RangerNodeRefType.NoType
-  def double_value:double 0.0
+  def double_value@(rare):double 0.0
   def string_value:string ""
   def int_value:int 0
   def boolean_value@(rare):boolean false
@@ -179,7 +179,7 @@ class CodeNode {
   ; Writes to props so far. Lets the property getters skip the lookup
   ; (and, on JavaScript, skip materialising the lazy props map) on the
   ; nodes that never had an annotation, which is most of them.
-  def prop_cnt:int 0
+  def prop_cnt@(rare):int 0
   def prop_keys@(lazy):[string]
   def comments@(lazy):[CodeNode]
   def children:[CodeNode]

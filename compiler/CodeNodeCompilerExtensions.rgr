@@ -41,7 +41,7 @@ extension CodeNode {
 
   ; the evaluated type class...
   ; 
-  def definedTypeClass@(weak):RangerTypeClass    
+  def definedTypeClass@(weak rare):RangerTypeClass    
   def evalTypeClass@(weak):RangerTypeClass    
 
   def lambda_ctx@(rare):RangerAppWriterContext    
@@ -49,19 +49,19 @@ extension CodeNode {
   def eval_type:RangerNodeType RangerNodeType.NoType
   def eval_type_name:string ""
   def eval_key_type@(rare):string ""
-  def eval_array_type:string ""
+  def eval_array_type@(rare):string ""
   def eval_function@(weak rare):CodeNode
   def flow_done:boolean false
-  def ref_change_done:boolean false
+  def ref_change_done@(rare):boolean false
   def eval_type_node@(rare):CodeNode
     
-  def didReturnAtIndex:int -1
-  def hasVarDef:boolean false
+  def didReturnAtIndex@(rare):int -1
+  def hasVarDef@(rare):boolean false
   def hasClassDescription@(rare):boolean false
   def hasNewOper@(rare):boolean false
-  def clDesc@(weak):RangerAppClassDesc
-  def hasFnCall:boolean false
-  def fnDesc:RangerAppFunctionDesc    
+  def clDesc@(weak rare):RangerAppClassDesc
+  def hasFnCall@(rare):boolean false
+  def fnDesc@(rare):RangerAppFunctionDesc    
   def lambdaFnDesc@(weak rare):RangerAppFunctionDesc
   def hasParamDesc:boolean false    
   ; The `doc { … }` tail of a declaration, moved off `children` by
@@ -76,30 +76,30 @@ extension CodeNode {
   ; on C++ it had already expired by code generation, the writer fell back to
   ; the walker's own context, and a local that shadowed a field of the same name
   ; resolved to the FIELD -- `values_1` came out as `this.values_1`.
-  def evalCtx:RangerAppWriterContext
+  def evalCtx@(rare):RangerAppWriterContext
   def evalState@(rare):NodeEvalState
 
   def operator_node@(weak):CodeNode
   ; see evalCtx above -- same lifetime, same reason
   def flow_ctx:RangerAppWriterContext
 
-  def is_part_of_chain false
+  def is_part_of_chain@(rare) false
   ; A `.name` the reader attached to the parenthesised expression it follows
   ; -- `(unwrap x).name` -- as that expression's LAST child. The flow parser
   ; hoists the expression into a temporary and rewrites the pair to
   ; `<tmp>.name` before anything else reads the node.
-  def is_paren_member false
+  def is_paren_member@(rare) false
   ; optional: an empty array per node cost an allocation on every CodeNode
   def methodChain@(optional rare):[CallChain]
 
   def chainTarget@(rare):CodeNode
 
-  def register_set false
-  def reg_compiled_name ""
+  def register_set@(rare) false
+  def reg_compiled_name@(rare) ""
 
   ; tag for debugging the nodes if necessary...
-  def tag ""
-  def matched_type ""
+  def tag@(rare) ""
+  def matched_type@(rare) ""
 
   fn isParsedAsPrimitive:boolean () {
     return (TTypes.isPrimitive(parsed_type))
