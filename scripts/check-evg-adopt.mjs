@@ -28,6 +28,10 @@ const FILE = path.join(ROOT, "lib/evg/EVGElement.rgr");
 // Structure and in-flight state, which adoptFrom must NOT copy. Each is a
 // decision with a reason, so the reason lives here rather than in a bare list.
 const EXPECTED_SKIPS = {
+  // Per-pass layout bookkeeping (evg #127, #126): both compare against the
+  // current pass number, so a copied value is wrong in the next pass anyway.
+  laidPass: "derived — the layout pass that laid the box out last, another number in the next pass",
+  icMark: "derived — the mark of the layout pass's last implicitColumns answer, void in the next pass",
   parent: "structure — a back-reference the reconciler owns",
   children: "structure — EVGReconcile decides the child list",
   transitions: "the in-flight animations, which are the reason the element is kept",
