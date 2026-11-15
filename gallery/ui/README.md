@@ -6,6 +6,12 @@ against real [Radix](https://www.radix-ui.com/) components running in a browser.
 
 **License: AGPL-3.0-or-later** (Gallery).
 
+**Source:** the controllers (`src/`) and their theme (`theme/`) come from
+[terotests/EVGUI](https://github.com/terotests/EVGUI) at the commit
+`ranger.json` pins under "sources" (`ui_src`, `ui_theme`); `npm run deps`
+puts them here. Change them in EVGUI. This directory keeps the harness, the
+oracles, the demos and the host ports.
+
 ## Why this exists
 
 The pptx chrome is 5 800 lines of hand-built widgets inside one class. Making

@@ -876,7 +876,6 @@
     "ui:pointer:oracle": "node gallery/ui/conformance/oracle/pointer_oracle.mjs",
     "ui:progress:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/progress_check.mjs",
     "ui:progress:oracle": "node gallery/ui/conformance/oracle/progress_oracle.mjs",
-    "ui:quest:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/questionnaire_check.mjs",
     "ui:report": "npm run ui:build && node gallery/ui/conformance/report.mjs",
     "ui:report:baseline": "npm run ui:build && node gallery/ui/conformance/report.mjs --update-baseline",
     "ui:scroller:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/scroller_check.mjs",

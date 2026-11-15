@@ -247,6 +247,8 @@ gallery/evgsheets/
 /gallery/vela/
 /gallery/datagrid/
 /gallery/docx_viewer/
+/gallery/ui/src/
+/gallery/ui/theme/
 /gallery/*.previous/
 
 # Moved out of Ranger, cloned here to build what imports them:
