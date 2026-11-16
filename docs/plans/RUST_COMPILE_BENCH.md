@@ -190,3 +190,28 @@ CodeNode allocation 0.18 s; fixed cost per run ~0.3 s, half of it parsing
 Lang.rgr, JSON.rgr, RsPrelude.rgr and stdlib.rgr (≈ 0.17 s) — the case for
 a parsed-tree cache, or for the Rust frontend handing over CodeNodes
 without the text round trip.
+
+## Round 6 (2026-11-15): parse cache for large .rgr files (ES6 / Node)
+
+`RangerLispParser.parse` on the ES6 host keeps the parsed tree of each .rgr
+file of at least 20 000 bytes in `os.tmpdir()/ranger-parse-cache`, keyed by
+SHA-1 of the compiler file's size and mtime, the operator setting and the
+text. The next run with the same text and compiler reads the tree back
+(an Int32 array for the fields the parser sets on most nodes, JSON for the
+strings and the rare fields) instead of parsing. Any value the encoder does
+not know, an I/O error or a parse error means no cache file; only the
+outermost `parse()` reads or writes; the directory is pruned to 150 files
+when it passes 200. `RGRC_NO_PARSE_CACHE=1` turns it off. Other targets
+parse as before.
+
+Lang.rgr, JSON.rgr, RsPrelude.rgr and stdlib.rgr took ~170 ms to parse per
+run, they now load in ~55 ms. Best of 4, same VM: hello world 0.52 → 0.44 s,
+uix1 1.47 → 1.42 s, gen200 2.45 → 2.30 s, vbs 1.55 → 1.53 s; the compiler
+compiling itself 5.7 → 4.4 s (its own sources are cached too). Output
+byte-identical with and without the cache (tiny, vbs, uix1, gen200, gen700,
+com and the compiler itself).
+
+The Rust frontend still produces Ranger text that is parsed every run
+(6.9 MB on com, ~1.2 s): the lowering (compiler/frontend/rust/lower, 13 500
+lines) builds strings throughout, so handing over CodeNodes directly is a
+rewrite of that layer and is not started.
