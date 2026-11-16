@@ -10659,6 +10659,8 @@ class RangerLispParser  {
     this.rootNode = undefined;
     this.curr_node = undefined;
     this.had_error = false;
+    this.parse_depth = 0;
+    this.cache_file = "";     /* note: unused */
     this.disableOperators = false;
     this.recv_tmp_count = 0;
     this.last_call_group = undefined;
@@ -11542,8 +11544,16 @@ class RangerLispParser  {
     };
   };
   parse (disable_ops) {
+    if ( this.parse_depth == 0 && rg_parse_cache.load(this, disable_ops, CodeNode) ) {
+      return;
+    }
+    this.parse_depth = this.parse_depth + 1;
     const srcBuf = this.buff;
     this.parseBuf(srcBuf, disable_ops);
+    this.parse_depth = this.parse_depth - 1;
+    if ( this.parse_depth == 0 ) {
+      rg_parse_cache.store(this, CodeNode);
+    }
   };
   parseBuf (s, disable_ops) {
     let c = s[0];
@@ -105497,6 +105507,169 @@ function r_char_length(s) {
     }
     return n;
 }
+
+
+// The parsed tree of a large .rgr file (Lang.rgr, the libraries) is kept on
+// disk between runs: on Node, parse() of the same text by the same compiler
+// build reads it back instead of parsing again. Keyed by a hash of the
+// compiler file's size and time, the operator setting and the text; anything
+// unexpected (another host, an unknown field value, an I/O error) parses as
+// before. RGRC_NO_PARSE_CACHE=1 turns it off.
+const rg_parse_cache = { dir: null, stamp: null, off: false,
+  FAST: { sp: 1, ep: 1, parsed_type: 1, value_type: 1, parent: 1, __lz_ns: 1, vref: 1, expression: 1, children: 1, string_value: 1, int_value: 1 },
+  init: function () {
+    if (this.dir !== null || this.off) return !this.off;
+    try {
+      if (typeof require !== 'function' || typeof process === 'undefined' || typeof __filename !== 'string' || process.env.RGRC_NO_PARSE_CACHE) { this.off = true; return false; }
+      const fs = require('fs'), path = require('path'), os = require('os');
+      const st = fs.statSync(__filename);
+      this.stamp = 'v2:' + st.size + ':' + st.mtimeMs;
+      this.dir = path.join(os.tmpdir(), 'ranger-parse-cache');
+      return true;
+    } catch (e) { this.off = true; return false; }
+  },
+  usable: function (p) {
+    const f = p.code.filename;
+    return p.__len >= 20000 && p.parents.length === 1 && typeof f === 'string' && f.endsWith('.rgr') && this.init();
+  },
+  file: function (p, dis) {
+    const h = require('crypto').createHash('sha1');
+    h.update(this.stamp); h.update(dis ? ':1:' : ':0:'); h.update(p.source_text);
+    return require('path').join(this.dir, h.digest('hex'));
+  },
+  load: function (p, dis, CodeNode) {
+    if (!this.usable(p)) return false;
+    try {
+      const fs = require('fs');
+      const fname = this.file(p, dis); p.cache_file = fname;
+      if (!fs.existsSync(fname)) return false;
+      let b = fs.readFileSync(fname);
+      if (b.length < 12 || b.readInt32LE(0) !== 0x52504331) return false;
+      const ni = b.readInt32LE(4), jl = b.readInt32LE(8);
+      if (b.length !== 12 + ni * 4 + jl) return false;
+      if ((b.byteOffset & 3) !== 0) { b = Buffer.from(b); }
+      const I = new Int32Array(b.buffer, b.byteOffset + 12, ni);
+      const d = JSON.parse(b.toString('utf8', 12 + ni * 4, 12 + ni * 4 + jl));
+      const root = this.decode(d, I, p.code, CodeNode);
+      p.rootNode = root; p.curr_node = root; p.i = p.__len; p.parents.length = 0; p.parents.push(root);
+      p.cache_file = '';
+      return true;
+    } catch (e) { return false; }
+  },
+  store: function (p, CodeNode) {
+    const fname = p.cache_file; p.cache_file = '';
+    if (fname === '' || p.had_error) return;
+    try {
+      const enc = this.encode(p.rootNode, p.code, CodeNode);
+      if (enc === null) return;
+      const fs = require('fs');
+      const json = Buffer.from(JSON.stringify(enc.d), 'utf8');
+      const head = Buffer.alloc(12); head.writeInt32LE(0x52504331, 0); head.writeInt32LE(enc.I.length, 4); head.writeInt32LE(json.length, 8);
+      const ints = Buffer.from(new Int32Array(enc.I).buffer);
+      fs.mkdirSync(this.dir, { recursive: true });
+      const tmp = fname + '.' + process.pid + '.tmp';
+      fs.writeFileSync(tmp, Buffer.concat([head, ints, json]));
+      fs.renameSync(tmp, fname);
+      this.prune(fs);
+    } catch (e) { }
+  },
+  prune: function (fs) {
+    const path = require('path');
+    const names = fs.readdirSync(this.dir);
+    if (names.length <= 200) return;
+    const all = names.map((n) => { const f = path.join(this.dir, n); try { return [f, fs.statSync(f).mtimeMs]; } catch (e) { return [f, 0]; } });
+    all.sort((a, b) => a[1] - b[1]);
+    for (let k = 0; k < all.length - 150; k++) { try { fs.unlinkSync(all[k][0]); } catch (e) { } }
+  },
+  encode: function (root, code, CodeNode) {
+    const FAST = this.FAST;
+    const def = new CodeNode(code, 0, 0);
+    const idx = new Map(); const list = [root]; idx.set(root, 0);
+    const reach = (v) => { let i = idx.get(v); if (i === undefined) { i = list.length; idx.set(v, i); list.push(v); } return i; };
+    const strs = [], sidx = new Map();
+    const S = (s) => { if (s === '') return 0; let i = sidx.get(s); if (i === undefined) { i = strs.length + 1; sidx.set(s, i); strs.push(s); } return i; };
+    const enc = (v) => {
+      if (v === null) return { z: 1 }; if (v === undefined) return { u: 1 };
+      const t = typeof v;
+      if (t === 'string' || t === 'boolean') return v;
+      if (t === 'number') { if (!isFinite(v) || Object.is(v, -0)) throw 0; return v; }
+      if (t !== 'object') throw 0;
+      if (v instanceof CodeNode) return { n: reach(v) };
+      if (v === code) return { c: 1 };
+      if (Array.isArray(v)) return { a: v.map(enc) };
+      if (Object.getPrototypeOf(v) === Object.prototype) { const o = {}; for (const k of Object.keys(v)) o[k] = enc(v[k]); return { o: o }; }
+      throw 0;
+    };
+    const I = []; const extra = {};
+    const int32 = (v) => { if (typeof v !== 'number' || (v | 0) !== v) throw 0; return v; };
+    try {
+      for (let i = 0; i < list.length; i++) {
+        const n = list[i];
+        const ch = n.children; for (const c of ch) { if (!(c instanceof CodeNode)) throw 0; reach(c); }
+        const par = n.parent; let pi = 0;
+        if (par !== undefined) { if (!(par instanceof CodeNode)) throw 0; pi = reach(par) + 1; }
+        const ns = n.__lz_ns; const iv = n.int_value;
+        if (typeof n.expression !== 'boolean' || typeof n.vref !== 'string' || typeof n.string_value !== 'string') throw 0;
+        const flags = (n.expression ? 1 : 0) | (iv !== 0 ? 2 : 0) | (ns !== undefined && ns.length > 0 ? 4 : 0);
+        I.push(
+          int32(n.sp),
+          int32(n.ep),
+          int32(n.parsed_type),
+          int32(n.value_type),
+          flags,
+          pi,
+          S(n.vref),
+          S(n.string_value)
+        );
+        if (flags & 2) I.push(int32(iv));
+        if (flags & 4) { I.push(ns.length); for (const x of ns) { if (typeof x !== 'string') throw 0; I.push(S(x)); } }
+        I.push(ch.length); for (const c of ch) I.push(idx.get(c));
+        let r = null;
+        for (const k of Object.keys(n)) {
+          if (FAST[k] === 1) continue;
+          if (k === '__x') {
+            const x = n.__x;
+            if (x !== undefined) { for (const kk of Object.keys(x)) { const v = x[kk]; if (v === def[kk]) continue; (r || (r = {}))[kk] = enc(v); } }
+            continue;
+          }
+          const v = n[k], d = def[k];
+          if (v === d) continue;
+          if (Array.isArray(v) && Array.isArray(d) && v.length === 0 && d.length === 0) continue;
+          (r || (r = {}))[k] = enc(v);
+        }
+        if (r) extra[i] = r;
+      }
+    } catch (e) { return null; }
+    return { I: I, d: { n: list.length, s: strs, x: extra } };
+  },
+  decode: function (d, I, code, CodeNode) {
+    const N = d.n, nodes = new Array(N);
+    for (let i = 0; i < N; i++) nodes[i] = new CodeNode(code, 0, 0);
+    const strs = d.s; let p = 0;
+    for (let i = 0; i < N; i++) {
+      const n = nodes[i];
+      n.sp = I[p]; n.ep = I[p + 1]; n.parsed_type = I[p + 2]; n.value_type = I[p + 3];
+      const f = I[p + 4], pi = I[p + 5], vs = I[p + 6], ss = I[p + 7]; p += 8;
+      if (f & 1) n.expression = true;
+      if (pi) n.parent = nodes[pi - 1];
+      if (vs) n.vref = strs[vs - 1];
+      if (ss) n.string_value = strs[ss - 1];
+      if (f & 2) n.int_value = I[p++];
+      if (f & 4) { const c = I[p++]; const a = new Array(c); for (let k = 0; k < c; k++) { const si = I[p++]; a[k] = si === 0 ? '' : strs[si - 1]; } n.__lz_ns = a; }
+      const cc = I[p++];
+      if (cc) { const ch = n.children; for (let k = 0; k < cc; k++) ch.push(nodes[I[p++]]); }
+    }
+    const dec = (v) => {
+      if (v === null || typeof v !== 'object') return v;
+      if (v.n !== undefined) return nodes[v.n]; if (v.z) return null; if (v.u) return undefined; if (v.c) return code;
+      if (v.a) return v.a.map(dec);
+      const o = {}; for (const k of Object.keys(v.o)) o[k] = dec(v.o[k]); return o;
+    };
+    const X = d.x;
+    for (const k of Object.keys(X)) { const n = nodes[+k], r = X[k]; for (const kk of Object.keys(r)) n[kk] = dec(r[kk]); }
+    return nodes[0];
+  }
+};
 
 
 // Running another command line program.  spawnSync resolves a bare name on
