@@ -91065,6 +91065,22 @@ class RsRgrScan  {
     }
     return RsType.mk("unknown");
   };
+  isClassType (t) {
+    if ( t.length == 0 ) {
+      return false;
+    }
+    const c = t.charCodeAt(0 );
+    if ( c < 65 || c > 90 ) {
+      return false;
+    }
+    // Loop start
+    for ( const cg of this.curGenerics) {
+      if ( cg == t ) {
+        return false;
+      }
+    }
+    return true;
+  };
   withOpt (t, opt) {
     if ( opt == "yes" ) {
       return RsType.of1("opt", t);
@@ -91107,7 +91123,13 @@ class RsRgrScan  {
       const nt = this.nameType(decl);
       const f = new RsField();
       f.name = nt[0];
-      f.ty = this.withOpt(this.rsType(nt[1]), nt[2]);
+      const body = line.substring(4, line.length ).trim();
+      const after = this.stripComment(body.substring(decl.length, body.length )).trim();
+      let opt = nt[2];
+      if ( after.length == 0 && this.isClassType(nt[1]) ) {
+        opt = "yes";
+      }
+      f.ty = this.withOpt(this.rsType(nt[1]), opt);
       c.fields.push(f);
       return;
     }
@@ -98658,6 +98680,15 @@ class RustLower  {
     const v = this.lowerExprCopy(args[0], t);
     return this.coerce(v, t, args[0]);
   };
+  arg0Ref (args, t) {
+    if ( args.length == 0 ) {
+      return this.unit();
+    }
+    const rt = t.copy();
+    rt.isRef = true;
+    const v = this.lowerExprCopy(args[0], rt);
+    return this.coerce(v, t, args[0]);
+  };
   stdMethod (rv, name, args, at, expect) {
     const t = rv.ty;
     const k = t.kind;
@@ -99130,6 +99161,12 @@ class RustLower  {
     }
     if ( name == "to_lowercase" ) {
       return RsExpr.of((("(rs_lower " + c) + ")"), st);
+    }
+    if ( name == "to_ascii_lowercase" ) {
+      return RsExpr.of((("(RsChar.asciiCaseStr(" + c) + " false))"), st);
+    }
+    if ( name == "to_ascii_uppercase" ) {
+      return RsExpr.of((("(RsChar.asciiCaseStr(" + c) + " true))"), st);
     }
     if ( name == "trim" ) {
       return RsExpr.of((("(trim " + c) + ")"), st);
@@ -99764,11 +99801,11 @@ class RustLower  {
       return this.unit();
     }
     if ( name == "contains_key" || name == "contains" ) {
-      const k2 = this.arg0(args, kt);
+      const k2 = this.arg0Ref(args, kt);
       return RsExpr.of((((("(has " + this.mapR(m, t)) + " ") + k2.code) + ")"), RsType.mk("bool"));
     }
     if ( name == "get" ) {
-      const k3 = this.arg0(args, kt);
+      const k3 = this.arg0Ref(args, kt);
       const ot = RsType.of1("opt", vt);
       const nm = this.tmp("g");
       this.out.line(((((("def " + this.declText(nm, ot)) + " (get ") + this.mapR(m, t)) + " ") + k3.code) + ")");
@@ -99777,7 +99814,7 @@ class RustLower  {
       return r;
     }
     if ( name == "remove" ) {
-      const k4 = this.arg0(args, kt);
+      const k4 = this.arg0Ref(args, kt);
       if ( t.name == "ordered" ) {
         this.out.line(((m + ".del(") + k4.code) + ")");
       } else {

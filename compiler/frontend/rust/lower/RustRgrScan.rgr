@@ -367,6 +367,23 @@ class RsRgrScan {
     return (RsType.mk("unknown"))
   }
 
+  ; a class (not a primitive, an array, a map or a generic parameter)
+  fn isClassType:boolean (t:string) {
+    if ((strlen t) == 0) {
+      return false
+    }
+    def c:int (charAt t 0)
+    if ((c < 65) || (c > 90)) {
+      return false
+    }
+    for curGenerics cg:string cgi {
+      if (cg == t) {
+        return false
+      }
+    }
+    return true
+  }
+
   fn withOpt:RsType (t:RsType opt:string) {
     if (opt == "yes") {
       return (RsType.of1("opt" t))
@@ -411,7 +428,16 @@ class RsRgrScan {
       def nt:[string] (this.nameType(decl))
       def f:RsField (new RsField())
       f.name = (itemAt nt 0)
-      f.ty = (this.withOpt((this.rsType((itemAt nt 1))) (itemAt nt 2)))
+      ; a class field declared without a value is optional, as Ranger reads
+      ; it (FlowCollect: is_optional) and as the Rust backend writes it
+      ; (`Option<Rc<RefCell<T>>>`): `def fillColor:EVGColor`
+      def body:string (trim (substring line 4 (strlen line)))
+      def after:string (trim (this.stripComment((substring body (strlen decl) (strlen body)))))
+      def opt:string (itemAt nt 2)
+      if (((strlen after) == 0) && (this.isClassType((itemAt nt 1)))) {
+        opt = "yes"
+      }
+      f.ty = (this.withOpt((this.rsType((itemAt nt 1))) opt))
       push c.fields f
       return
     }

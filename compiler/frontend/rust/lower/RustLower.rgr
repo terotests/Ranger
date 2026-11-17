@@ -8080,6 +8080,18 @@ class RustLower {
     return (this.coerce(v t (itemAt args 0)))
   }
 
+  ; the first argument of a call that borrows it (`map.get(k)`,
+  ; `contains_key`, `remove`: `&Q`), which moves nothing
+  fn arg0Ref:RsExpr (args:[RustNode] t:RsType) {
+    if ((array_length args) == 0) {
+      return (this.unit())
+    }
+    def rt:RsType (t.copy())
+    rt.isRef = true
+    def v:RsExpr (this.lowerExprCopy((itemAt args 0) rt))
+    return (this.coerce(v t (itemAt args 0)))
+  }
+
   fn stdMethod:RsExpr (rv:RsExpr name:string args:[RustNode] at:RustNode expect:RsType) {
     def t:RsType rv.ty
     def k:string t.kind
@@ -8568,6 +8580,12 @@ class RustLower {
     }
     if (name == "to_lowercase") {
       return (RsExpr.of((("(rs_lower " + c) + ")") st))
+    }
+    if (name == "to_ascii_lowercase") {
+      return (RsExpr.of((("(RsChar.asciiCaseStr(" + c) + " false))") st))
+    }
+    if (name == "to_ascii_uppercase") {
+      return (RsExpr.of((("(RsChar.asciiCaseStr(" + c) + " true))") st))
     }
     if (name == "trim") {
       return (RsExpr.of((("(trim " + c) + ")") st))
@@ -9226,11 +9244,11 @@ class RustLower {
       return (this.unit())
     }
     if ((name == "contains_key") || (name == "contains")) {
-      def k2:RsExpr (this.arg0(args kt))
+      def k2:RsExpr (this.arg0Ref(args kt))
       return (RsExpr.of((((("(has " + (this.mapR(m t))) + " ") + k2.code) + ")") (RsType.mk("bool"))))
     }
     if (name == "get") {
-      def k3:RsExpr (this.arg0(args kt))
+      def k3:RsExpr (this.arg0Ref(args kt))
       def ot:RsType (RsType.of1("opt" vt))
       def nm:string (this.tmp("g"))
       out.line(((((("def " + (this.declText(nm ot))) + " (get ") + (this.mapR(m t))) + " ") + k3.code) + ")"))
@@ -9239,7 +9257,7 @@ class RustLower {
       return r
     }
     if (name == "remove") {
-      def k4:RsExpr (this.arg0(args kt))
+      def k4:RsExpr (this.arg0Ref(args kt))
       if (t.name == "ordered") {
         out.line((((m + ".del(") + k4.code) + ")"))
       } {
