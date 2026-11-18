@@ -46,4 +46,9 @@ fn main() {
     // .clone() of the field copies the handle: the same object
     let again = t.borrow().latest.clone();
     println!("again {}", again.unwrap().borrow().count);
+    // a class field declared without a value is an Option on both sides
+    let kept = t.borrow().latest.clone();
+    if let Some(l) = kept {
+        println!("some {}", l.borrow().count);
+    }
 }

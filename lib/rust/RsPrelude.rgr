@@ -2218,6 +2218,34 @@ class RsChar {
     return c
   }
 
+  ; `s.to_ascii_lowercase()` / `s.to_ascii_uppercase()` on a String: only
+  ; A-Z (a-z) change, everything else is kept as it is
+  sfn asciiCaseStr:string (s:string upper:boolean) {
+    def n:int (strlen s)
+    def out:string ""
+    def from:int 0
+    def i:int 0
+    while (i < n) {
+      def c:int (charAt s i)
+      def hit:boolean false
+      if (upper) {
+        hit = ((c >= 97) && (c <= 122))
+      } {
+        hit = ((c >= 65) && (c <= 90))
+      }
+      if hit {
+        def d:int (c + 32)
+        if upper {
+          d = (c - 32)
+        }
+        out = ((out + (substring s from i)) + (strfromcode d))
+        from = (i + 1)
+      }
+      i = (i + 1)
+    }
+    return (out + (substring s from n))
+  }
+
   sfn isAsciiSpace:boolean (c:string) {
     def k:int (rs_char_code c)
     return ((k == 32) || (k == 9) || (k == 10) || (k == 12) || (k == 13))
