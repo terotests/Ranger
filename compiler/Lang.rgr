@@ -1613,6 +1613,7 @@ inline std::optional<std::string> r_cpp_env_var(const std::string& name) {
         ; ---------------------------------------------------------------------
         run_process_result    cmdRunProcess:[string] (program:string args:[string] cwd:string capture:boolean env:[string]) @doc("run a command line program and answer ([exit code, stdout, stderr]); capture=false streams its output to this program instead") {
             templates {
+                llvm ( "(run_process_result " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
                 ranger ( "(run_process_result " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
                 ts ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")"
 (create_polyfill '
@@ -6556,6 +6557,7 @@ const r_cb_dec = { d: null, u: null, slice: function (b, a, e) {
         ; docs/plans/PLAN_STRING_INDEXING.md 2.2.
         to_chars   cmdToChars:[int]   ( text:string ) {
             templates {
+                llvm ( "(to_chars " (e 1) ")" )
                 ranger ( "(to_chars " (e 1) ")" )
                 ; Array.from walks a string by code point, not by code unit,
                 ; which is exactly the difference this operator exists for
@@ -6700,6 +6702,7 @@ static std::vector<int> r_to_chars(const std::string & s) {
         ; docs/plans/PLAN_STRING_INDEXING.md 3.3.
         char_length   cmdCharLength:int   ( text:string ) {
             templates {
+                llvm ( "(char_length " (e 1) ")" )
                 ranger ( "(char_length " (e 1) ")" )
                 ; a Python str IS a sequence of code points
                 python ( "len(" (e 1) ")" )
@@ -6974,6 +6977,7 @@ function r_buf_slice($buf, $start, $end) {
         ; Convert string to buffer (UTF-8 encoded)
         buffer_from_string  cmdBufferFromString:buffer  ( str:string ) {
             templates {
+                llvm ( "(buffer_from_string " (e 1) ")" )
                 ranger ( "(buffer_from_string " (e 1) ")" )
                 es6 ( "(function(s){ var b = new ArrayBuffer(s.length); var v = new Uint8Array(b); for(var i=0;i<s.length;i++)v[i]=s.charCodeAt(i); return Object.assign(b, { _view: new DataView(b) }); })(" (e 1) ")" )
                 go ( "[]byte(" (e 1) ")" )
@@ -7161,6 +7165,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
         ; Copy bytes from source buffer to destination buffer
         buffer_copy     cmdBufferCopy:void       ( dest@(mutates):buffer destOffset:int src:buffer srcOffset:int length:int ) {
             templates {
+                llvm ( "(buffer_copy " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
                 ranger ( "(buffer_copy " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
                 es6 ( "(function(d,dOff,s,sOff,len){ var dv = new Uint8Array(d); var sv = new Uint8Array(s); for(var i=0;i<len;i++) dv[dOff+i]=sv[sOff+i]; })(" (e 1) "," (e 2) "," (e 3) "," (e 4) "," (e 5) ")" )
                 dart ( (e 1) ".setRange(" (e 2) ", " (e 2) " + " (e 5) ", " (e 3) ", " (e 4) ");" )

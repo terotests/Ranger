@@ -199,6 +199,39 @@ void ranger_buffer_write_file(const char *path, const char *filename,
   fclose(f);
 }
 
+/* `buffer_from_string s` -- the bytes of the text (UTF-8), as a new buffer. */
+int64_t ranger_buffer_from_string(const char *text) {
+  int32_t n = (text == NULL) ? 0 : (int32_t)strlen(text);
+  int64_t h = ranger_buffer_alloc(n);
+  RtByteBuffer *d = byte_buf(h);
+  if (d != NULL && n > 0) {
+    memcpy(d->data, text, (size_t)n);
+  }
+  return h;
+}
+
+/* `buffer_copy dest destOffset src srcOffset length` -- memmove semantics, so
+ * a copy within one buffer is right too; a range outside either buffer is
+ * clipped rather than written past the end. */
+void ranger_buffer_copy(int64_t dest, int32_t dest_off, int64_t src,
+                        int32_t src_off, int32_t length) {
+  RtByteBuffer *d = byte_buf(dest);
+  RtByteBuffer *s = byte_buf(src);
+  if (d == NULL || s == NULL || length <= 0 || dest_off < 0 || src_off < 0) {
+    return;
+  }
+  if (src_off + length > s->len) {
+    length = s->len - src_off;
+  }
+  if (dest_off + length > d->len) {
+    length = d->len - dest_off;
+  }
+  if (length <= 0) {
+    return;
+  }
+  memmove(d->data + dest_off, s->data + src_off, (size_t)length);
+}
+
 int64_t ranger_int_buffer_alloc(int32_t size) {
   RtIntBuffer *d;
   if (size < 0) {

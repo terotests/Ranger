@@ -59622,6 +59622,12 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
 }
 class LowIRUtil  {
 }
+LowIRUtil.ssaParamName = function(name) {
+  if ( name == "entry" ) {
+    return "entry.p";
+  }
+  return name;
+};
 LowIRUtil.typeFromRanger = function(typeName) {
   switch (typeName ) { 
     case "int" : 
@@ -61741,6 +61747,7 @@ class LowIRLowerContext  {
     this.ptrType = "i32";
     this.slots = {};
     this.paramNames = [];
+    this.optionalStringLocals = [];
     this.capturedNames = [];
     this.shadowStack = [];
     this.shadowCounter = 0;
@@ -61976,6 +61983,17 @@ class LowIRBuilderPass  {
       }
     }
     return v;
+  };
+  emitStrdupOptExpr (strPtr, lctx) {
+    if ( this.wasmStrEnabled(lctx) ) {
+      return this.emitStrdupExpr(strPtr, lctx);
+    }
+    let ps = [];
+    ps.push("i8*");
+    this.ensureExternDecl("ranger_strdup_opt", "i8*", ps, false);
+    let dupArgs = [];
+    dupArgs.push(strPtr);
+    return lctx.builder.emitCall("ranger_strdup_opt", "i8*", dupArgs, ps);
   };
   emitStrdupExpr (strPtr, lctx) {
     let dupArgs = [];
@@ -62281,6 +62299,97 @@ class LowIRBuilderPass  {
     lctx.builder.emitCall("ranger_buffer_fill", "void", args, argTypes);
     return "";
   };
+  lowerCharLength (node, lctx) {
+    const s = this.lowerExpr(node.getSecond(), lctx);
+    let ps = [];
+    ps.push("i8*");
+    this.ensureExternDecl("ranger_char_length", "i32", ps, false);
+    let args = [];
+    let argTypes = [];
+    args.push(s);
+    argTypes.push("i8*");
+    return lctx.builder.emitCall("ranger_char_length", "i32", args, argTypes);
+  };
+  lowerToChars (node, lctx) {
+    const s = this.lowerExpr(node.getSecond(), lctx);
+    let ps = [];
+    ps.push("i8*");
+    this.ensureExternDecl("ranger_to_chars", lctx.ptrType, ps, false);
+    let args = [];
+    let argTypes = [];
+    args.push(s);
+    argTypes.push("i8*");
+    return lctx.builder.emitCall(
+      "ranger_to_chars",
+      lctx.ptrType,
+      args,
+      argTypes
+    );
+  };
+  lowerBufferFromString (node, lctx) {
+    const s = this.lowerExpr(node.getSecond(), lctx);
+    let ps = [];
+    ps.push("i8*");
+    this.ensureExternDecl("ranger_buffer_from_string", lctx.ptrType, ps, false);
+    let args = [];
+    let argTypes = [];
+    args.push(s);
+    argTypes.push("i8*");
+    return lctx.builder.emitCall(
+      "ranger_buffer_from_string",
+      lctx.ptrType,
+      args,
+      argTypes
+    );
+  };
+  lowerBufferCopy (node, lctx) {
+    const dest = this.lowerExpr(node.getSecond(), lctx);
+    const destOff = this.lowerExpr(node.getThird(), lctx);
+    const src = this.lowerExpr(node.children[3], lctx);
+    const srcOff = this.lowerExpr(node.children[4], lctx);
+    const __len = this.lowerExpr(node.children[5], lctx);
+    let ps = [];
+    ps.push(lctx.ptrType);
+    ps.push("i32");
+    ps.push(lctx.ptrType);
+    ps.push("i32");
+    ps.push("i32");
+    this.ensureExternDecl("ranger_buffer_copy", "void", ps, false);
+    let args = [];
+    args.push(dest);
+    args.push(destOff);
+    args.push(src);
+    args.push(srcOff);
+    args.push(__len);
+    lctx.builder.emitCall("ranger_buffer_copy", "void", args, ps);
+    return "";
+  };
+  lowerRunProcessResult (node, lctx) {
+    const prog = this.lowerExpr(node.getSecond(), lctx);
+    const pargs = this.lowerExpr(node.getThird(), lctx);
+    const cwd = this.lowerExpr(node.children[3], lctx);
+    const cap = lctx.builder.emitZextI1ToI32(this.lowerExpr(node.children[4], lctx));
+    const env = this.lowerExpr(node.children[5], lctx);
+    let ps = [];
+    ps.push("i8*");
+    ps.push(lctx.ptrType);
+    ps.push("i8*");
+    ps.push("i32");
+    ps.push(lctx.ptrType);
+    this.ensureExternDecl("ranger_run_process_result", lctx.ptrType, ps, false);
+    let args = [];
+    args.push(prog);
+    args.push(pargs);
+    args.push(cwd);
+    args.push(cap);
+    args.push(env);
+    return lctx.builder.emitCall(
+      "ranger_run_process_result",
+      lctx.ptrType,
+      args,
+      ps
+    );
+  };
   lowerBufferReadFile (node, lctx) {
     const pathNode = node.getSecond();
     const fileNode = node.getThird();
@@ -62528,7 +62637,7 @@ class LowIRBuilderPass  {
   lowerPtrIsNull (ptr, lctx) {
     const builder = lctx.builder;
     const vt = builder.emittedType(ptr);
-    if ( vt == "i32" || vt == "i1" ) {
+    if ( (vt == "i32" || vt == "i1") || vt == "i64" ) {
       const zeroI = builder.emitConst(vt, "0");
       return builder.emitIcmpTyped("eq", vt, ptr, zeroI);
     }
@@ -62543,7 +62652,7 @@ class LowIRBuilderPass  {
   lowerPtrIsNotNull (ptr, lctx) {
     const builder = lctx.builder;
     const vt = builder.emittedType(ptr);
-    if ( vt == "i32" || vt == "i1" ) {
+    if ( (vt == "i32" || vt == "i1") || vt == "i64" ) {
       const zeroI = builder.emitConst(vt, "0");
       return builder.emitIcmpTyped("ne", vt, ptr, zeroI);
     }
@@ -63401,6 +63510,10 @@ class LowIRBuilderPass  {
     return false;
   };
   strKeyPtr (keyNode, key, lctx) {
+    const ket = lctx.builder.emittedType(key);
+    if ( ket == "i8*" ) {
+      return key;
+    }
     if ( keyNode.value_type == 11 ) {
       if ( ( typeof(lctx.slotTypes[keyNode.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, keyNode.vref) ) ) {
         const kst = ( Object.prototype.hasOwnProperty.call(lctx.slotTypes, keyNode.vref) ? lctx.slotTypes[keyNode.vref] : undefined );
@@ -63578,7 +63691,11 @@ class LowIRBuilderPass  {
     const head = valNode.getFirst();
     if ( head.vref == "unwrap" ) {
       if ( valNode.children.length > 1 ) {
-        return this.isBorrowedArrayExpr(valNode.getSecond());
+        const uw = valNode.getSecond();
+        if ( uw.value_type == 11 ) {
+          return true;
+        }
+        return this.isBorrowedArrayExpr(uw);
       }
       return false;
     }
@@ -66214,7 +66331,7 @@ class LowIRBuilderPass  {
       if ( opName == "shell_arg" ) {
         return this.lowerShellArg(node, lctx);
       }
-      if ( opName == "read_file" ) {
+      if ( opName == "read_file" || opName == "read_file_sync" ) {
         return this.lowerReadFile(node, lctx);
       }
       if ( opName == "buffer_alloc" ) {
@@ -66228,6 +66345,21 @@ class LowIRBuilderPass  {
       }
       if ( opName == "buffer_fill" ) {
         return this.lowerBufferFill(node, lctx);
+      }
+      if ( opName == "char_length" ) {
+        return this.lowerCharLength(node, lctx);
+      }
+      if ( opName == "to_chars" ) {
+        return this.lowerToChars(node, lctx);
+      }
+      if ( opName == "buffer_from_string" ) {
+        return this.lowerBufferFromString(node, lctx);
+      }
+      if ( opName == "buffer_copy" ) {
+        return this.lowerBufferCopy(node, lctx);
+      }
+      if ( opName == "run_process_result" ) {
+        return this.lowerRunProcessResult(node, lctx);
       }
       if ( opName == "buffer_set" ) {
         return this.lowerBufferSet(node, lctx);
@@ -66480,6 +66612,9 @@ class LowIRBuilderPass  {
     if ( op == "read_file" ) {
       return true;
     }
+    if ( op == "read_file_sync" ) {
+      return true;
+    }
     if ( op == "buffer_to_string" ) {
       return true;
     }
@@ -66640,6 +66775,9 @@ class LowIRBuilderPass  {
         return true;
       }
       if ( rOp == "read_file" ) {
+        return true;
+      }
+      if ( rOp == "read_file_sync" ) {
         return true;
       }
       if ( rOp == "shell_arg" ) {
@@ -66853,11 +66991,15 @@ class LowIRBuilderPass  {
       builder.terminateBrIf(a, endL, rhsL);
     }
     builder.startBlock(rhsL);
+    const strMark = lctx.pendingStringTemps.length;
+    const objMark = lctx.pendingObjectTemps.length;
     const b = this.lowerCondOperand(node.getThird(), lctx);
     builder.emitStore("i1", b, slot);
     if ( (typeof(builder.currentBlock) !== "undefined" && builder.currentBlock != null )  ) {
       const rb = builder.currentBlock;
       if ( rb.termKind == "" ) {
+        this.flushStringTempsFrom(strMark, lctx);
+        this.flushObjectTempsFrom(objMark, lctx);
         builder.terminateBr(endL);
       }
     }
@@ -67648,6 +67790,11 @@ class LowIRBuilderPass  {
   lowerVarDefBody (node, lctx) {
     const nameNode = node.getSecond();
     const varName = nameNode.vref;
+    if ( nameNode.hasFlag("optional") ) {
+      if ( lctx.optionalStringLocals.indexOf(varName) < 0 ) {
+        lctx.optionalStringLocals.push(varName);
+      }
+    }
     let valNode;
     const cnt = node.children.length;
     if ( cnt > 2 ) {
@@ -68887,6 +69034,8 @@ class LowIRBuilderPass  {
     let emptyOwned = [];
     let emptyParamNames = [];
     lctx.paramNames = emptyParamNames;
+    let emptyOptStr = [];
+    lctx.optionalStringLocals = emptyOptStr;
     let emptyCaptured = [];
     lctx.capturedNames = emptyCaptured;
     lctx.ownedObjectLocals = emptyOwned;
@@ -71320,6 +71469,8 @@ class LowIRBuilderPass  {
     let emptyOwned = [];
     let emptyParamNames = [];
     lctx.paramNames = emptyParamNames;
+    let emptyOptStr = [];
+    lctx.optionalStringLocals = emptyOptStr;
     let emptyCaptured = [];
     lctx.capturedNames = emptyCaptured;
     lctx.ownedObjectLocals = emptyOwned;
@@ -71387,6 +71538,7 @@ class LowIRBuilderPass  {
       if ( lp.name.length == 0 ) {
         lp.name = p.name;
       }
+      lp.name = LowIRUtil.ssaParamName(lp.name);
       const pn = p.nameNode;
       const paramTypeName = this.varTypeName(pn);
       lp.irType = this.llvmTypeForRanger(paramTypeName, lctx.ptrType);
@@ -71445,7 +71597,7 @@ class LowIRBuilderPass  {
       if ( this.isLambdaTypeNode(pn_1) ) {
         pType = lctx.ptrType;
       }
-      const paramVal = "%" + lpName;
+      const paramVal = "%" + LowIRUtil.ssaParamName(lpName);
       lctx.paramNames.push(lpName);
       this.bindSlot(p_1.name, pType, paramVal, lctx);
       if ( this.isStringKeyMapTypeNode(pn_1) ) {
@@ -71630,6 +71782,8 @@ class LowIRBuilderPass  {
     let emptyOwned = [];
     let emptyParamNames = [];
     lctx.paramNames = emptyParamNames;
+    let emptyOptStr = [];
+    lctx.optionalStringLocals = emptyOptStr;
     let emptyCaptured = [];
     lctx.capturedNames = emptyCaptured;
     lctx.ownedObjectLocals = emptyOwned;
@@ -71665,13 +71819,13 @@ class LowIRBuilderPass  {
     for ( let i = 0; i < lam.params.length; i++) {
       var p = lam.params[i];
       const lp = new LowIRParam();
-      lp.name = p.name;
+      lp.name = LowIRUtil.ssaParamName(p.name);
       const pn = p.nameNode;
       const paramTypeName = this.varTypeName(pn);
       lp.irType = this.llvmTypeForRanger(paramTypeName, lctx.ptrType);
       params.push(lp);
       lctx.paramNames.push(p.name);
-      this.bindSlot(p.name, lp.irType, "%" + p.name, lctx);
+      this.bindSlot(p.name, lp.irType, "%" + lp.name, lctx);
       if ( this.isObjectTypeName(paramTypeName) ) {
         lctx.objectSlots[p.name] = paramTypeName;
       }
@@ -72222,12 +72376,18 @@ class LowIRBuilderPass  {
     }
     lctx.builder.emitCall(relFn, "void", args, argTypes);
   };
+  emitLocalStrCopy (varName, strPtr, lctx) {
+    if ( lctx.optionalStringLocals.indexOf(varName) >= 0 ) {
+      return this.emitStrdupOptExpr(strPtr, lctx);
+    }
+    return this.emitStrdupExpr(strPtr, lctx);
+  };
   emitOwnedStringInit (varName, valNode, strPtr, lctx) {
     if ( this.isCapturedName(varName, lctx) ) {
       return this.emitStrdupExpr(strPtr, lctx);
     }
     if ( this.wasmStrEnabled(lctx) == false ) {
-      const libcOwned = this.emitStrdupExpr(strPtr, lctx);
+      const libcOwned = this.emitLocalStrCopy(varName, strPtr, lctx);
       if ( this.strRcEnabled(lctx) ) {
         if ( this.isOwnedStringLocal(varName, lctx) == false ) {
           lctx.ownedStringLocals.push(varName);
@@ -72251,7 +72411,7 @@ class LowIRBuilderPass  {
       return this.emitStrdupExpr(strPtr, lctx);
     }
     if ( this.wasmStrEnabled(lctx) == false ) {
-      const libcNew = this.emitStrdupExpr(strPtr, lctx);
+      const libcNew = this.emitLocalStrCopy(varName, strPtr, lctx);
       if ( this.strRcEnabled(lctx) ) {
         if ( this.isOwnedStringLocal(varName, lctx) ) {
           this.releaseOwnedString(varName, lctx);

@@ -151,6 +151,13 @@ extension LowIRBuilderPass {
     lctx.builder.emitCall(relFn "void" args argTypes)
   }
 
+  fn emitLocalStrCopy:string (varName:string strPtr:string lctx:LowIRLowerContext) {
+    if ((indexOf lctx.optionalStringLocals varName) >= 0) {
+      return (this.emitStrdupOptExpr(strPtr lctx))
+    }
+    return (this.emitStrdupExpr(strPtr lctx))
+  }
+
   fn emitOwnedStringInit:string (varName:string valNode:CodeNode strPtr:string lctx:LowIRLowerContext) {
     if (this.isCapturedName(varName lctx)) {
       return (this.emitStrdupExpr(strPtr lctx))
@@ -160,7 +167,7 @@ extension LowIRBuilderPass {
       ; or another local -- and record the local so scope exit frees that copy.
       ; Storing a string into a field dups it again (emitFieldStoreOnEx) and a
       ; returned local is marked escaped, so this copy is genuinely the local's.
-      def libcOwned (this.emitStrdupExpr(strPtr lctx))
+      def libcOwned (this.emitLocalStrCopy(varName strPtr lctx))
       if (this.strRcEnabled(lctx)) {
         if (this.isOwnedStringLocal(varName lctx) == false) {
           push lctx.ownedStringLocals varName
@@ -195,7 +202,7 @@ extension LowIRBuilderPass {
     if (this.wasmStrEnabled(lctx) == false) {
       ; Copy FIRST, then free what the slot held. The other order breaks `s = s`
       ; and any assignment whose right-hand side still reads the old buffer.
-      def libcNew (this.emitStrdupExpr(strPtr lctx))
+      def libcNew (this.emitLocalStrCopy(varName strPtr lctx))
       if (this.strRcEnabled(lctx)) {
         if (this.isOwnedStringLocal(varName lctx)) {
           this.releaseOwnedString(varName lctx)

@@ -33,6 +33,33 @@ and 4.0.2 were published from this list without headings of their own.
 - **`rgrc` reports its own version.** The banner said v3.5.1.
 - `scripts/rust-selfhost-run.sh` compares with a fresh Node build of the
   compiler instead of `dist/rgrc.js`, which carries the launcher block.
+- **The compiler compiles for Rust again** (28 rustc errors -> 0; the
+  Rust-built compiler's output is byte-identical to Node's). Optional
+  collection fields start as `None` and are assigned `Some(..)`; an unwrapped
+  optional object field of an extended class gives back the value instead of
+  its `RefCell`; an optional local reached through a path is unwrapped; a
+  local holding a re-entrant trait object gets its `Rc<RefCell<..>>` wrap.
+  Test: tests/rust-selfhost-shapes.test.ts.
+- **The Go build of the compiler writes Rust again.** `r_get_` left
+  `value` unset on a missing key (interface conversion panic), and an
+  optional filled from a call returning nil was marked present (nil deref).
+- **Generated code iterates enums in declaration order on every target**
+  (`definedEnumOrder`, `RangerAppEnum.order`), not hash-key order.
+- **Java: no `return` after an endless loop.** javac rejected the Java build
+  of the compiler with "unreachable statement".
+- **The compiler compiles for LLVM again** (162 compiler errors -> 0, IR
+  passes `opt -passes=verify`). New lowerings and C runtime for
+  `char_length`, `to_chars`, `buffer_copy`, `buffer_from_string`,
+  `run_process_result`; `read_file_sync` lowers like `read_file` (it became
+  the constant 0); temps made in the right operand of `&&`/`||` are released
+  on that path (they were released where they did not dominate); `!null?` of
+  an optional array field; a map key read through a call result; a
+  parameter named `entry` no longer collides with the entry block. Two
+  runtime faults the native compiler hit: an `@(optional)` string local
+  copied a null into "" (`ranger_strdup_opt` keeps it null), and
+  `def xs:[T] (unwrap field)` released the field's array at scope end. The
+  LLVM-built compiler's output is byte-identical to Node's and reaches the
+  fixed point (`scripts/selfhost-llvm.sh round`).
 
 ### Added
 

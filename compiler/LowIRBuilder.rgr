@@ -16,6 +16,10 @@ class LowIRLowerContext {
   ; know -- an unknown name used to be emitted verbatim, which is a value
   ; nothing defines.
   def paramNames:[string]
+  ; String locals declared @(optional). Their copy keeps a null as null; the
+  ; plain copy turns it into "", so `!null?` answered true for a missing
+  ; map entry (the native compiler rejected every run with "-format=").
+  def optionalStringLocals:[string]
   ; Names bound from a CLOSURE ENVIRONMENT. The closure record owns these (its
   ; typedesc frees them when the record is released), so the body must neither
   ; release them at scope end nor claim ownership when it assigns to one.
@@ -371,6 +375,18 @@ class LowIRBuilderPass {
     return v
   }
 
+  fn emitStrdupOptExpr:string (strPtr:string lctx:LowIRLowerContext) {
+    if (this.wasmStrEnabled(lctx)) {
+      return (this.emitStrdupExpr(strPtr lctx))
+    }
+    def ps:[string]
+    push ps "i8*"
+    this.ensureExternDecl("ranger_strdup_opt" "i8*" ps false)
+    def dupArgs:[string]
+    push dupArgs strPtr
+    return (lctx.builder.emitCall("ranger_strdup_opt" "i8*" dupArgs ps))
+  }
+
   fn emitStrdupExpr:string (strPtr:string lctx:LowIRLowerContext) {
     def dupArgs:[string]
     def dupArgTypes:[string]
@@ -709,6 +725,90 @@ class LowIRBuilderPass {
     return ""
   }
 
+  ; The compiler's own sources use these five; without a lowering each one
+  ; failed to match an llvm template and the self-host build stopped there.
+  ; The C side lives in runtime/ranger_rt.c and runtime/ranger_buffer.c.
+  fn lowerCharLength:string (node:CodeNode lctx:LowIRLowerContext) {
+    def s (this.lowerExpr((node.getSecond()) lctx))
+    def ps:[string]
+    push ps "i8*"
+    this.ensureExternDecl("ranger_char_length" "i32" ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args s
+    push argTypes "i8*"
+    return (lctx.builder.emitCall("ranger_char_length" "i32" args argTypes))
+  }
+
+  fn lowerToChars:string (node:CodeNode lctx:LowIRLowerContext) {
+    def s (this.lowerExpr((node.getSecond()) lctx))
+    def ps:[string]
+    push ps "i8*"
+    this.ensureExternDecl("ranger_to_chars" lctx.ptrType ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args s
+    push argTypes "i8*"
+    return (lctx.builder.emitCall("ranger_to_chars" lctx.ptrType args argTypes))
+  }
+
+  fn lowerBufferFromString:string (node:CodeNode lctx:LowIRLowerContext) {
+    def s (this.lowerExpr((node.getSecond()) lctx))
+    def ps:[string]
+    push ps "i8*"
+    this.ensureExternDecl("ranger_buffer_from_string" lctx.ptrType ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args s
+    push argTypes "i8*"
+    return (lctx.builder.emitCall("ranger_buffer_from_string" lctx.ptrType args argTypes))
+  }
+
+  fn lowerBufferCopy:string (node:CodeNode lctx:LowIRLowerContext) {
+    def dest (this.lowerExpr((node.getSecond()) lctx))
+    def destOff (this.lowerExpr((node.getThird()) lctx))
+    def src (this.lowerExpr((itemAt node.children 3) lctx))
+    def srcOff (this.lowerExpr((itemAt node.children 4) lctx))
+    def len (this.lowerExpr((itemAt node.children 5) lctx))
+    def ps:[string]
+    push ps lctx.ptrType
+    push ps "i32"
+    push ps lctx.ptrType
+    push ps "i32"
+    push ps "i32"
+    this.ensureExternDecl("ranger_buffer_copy" "void" ps false)
+    def args:[string]
+    push args dest
+    push args destOff
+    push args src
+    push args srcOff
+    push args len
+    lctx.builder.emitCall("ranger_buffer_copy" "void" args ps)
+    return ""
+  }
+
+  fn lowerRunProcessResult:string (node:CodeNode lctx:LowIRLowerContext) {
+    def prog (this.lowerExpr((node.getSecond()) lctx))
+    def pargs (this.lowerExpr((node.getThird()) lctx))
+    def cwd (this.lowerExpr((itemAt node.children 3) lctx))
+    def cap (lctx.builder.emitZextI1ToI32((this.lowerExpr((itemAt node.children 4) lctx))))
+    def env (this.lowerExpr((itemAt node.children 5) lctx))
+    def ps:[string]
+    push ps "i8*"
+    push ps lctx.ptrType
+    push ps "i8*"
+    push ps "i32"
+    push ps lctx.ptrType
+    this.ensureExternDecl("ranger_run_process_result" lctx.ptrType ps false)
+    def args:[string]
+    push args prog
+    push args pargs
+    push args cwd
+    push args cap
+    push args env
+    return (lctx.builder.emitCall("ranger_run_process_result" lctx.ptrType args ps))
+  }
+
   fn lowerBufferReadFile:string (node:CodeNode lctx:LowIRLowerContext) {
     def pathNode (node.getSecond())
     def fileNode (node.getThird())
@@ -957,7 +1057,8 @@ class LowIRBuilderPass {
   fn lowerPtrIsNull:string (ptr:string lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def vt:string (builder.emittedType(ptr))
-    if ((vt == "i32") || (vt == "i1")) {
+    ; An optional array field loads as its i64 descriptor handle.
+    if ((vt == "i32") || (vt == "i1") || (vt == "i64")) {
       def zeroI (builder.emitConst(vt "0"))
       return (builder.emitIcmpTyped("eq" vt ptr zeroI))
     }
@@ -977,7 +1078,8 @@ class LowIRBuilderPass {
   fn lowerPtrIsNotNull:string (ptr:string lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def vt:string (builder.emittedType(ptr))
-    if ((vt == "i32") || (vt == "i1")) {
+    ; An optional array field loads as its i64 descriptor handle.
+    if ((vt == "i32") || (vt == "i1") || (vt == "i64")) {
       def zeroI (builder.emitConst(vt "0"))
       return (builder.emitIcmpTyped("ne" vt ptr zeroI))
     }
@@ -2005,6 +2107,12 @@ class LowIRBuilderPass {
     ; Decide on the SLOT, not the declaration. A `for xs kk:string` loop
     ; variable is declared string but bound into a pointer-sized integer slot,
     ; so the declaration says i8* while the value in hand is i64.
+    ; A type the builder recorded for the value settles it first: a field read
+    ; through a call result is already converted to i8*.
+    def ket:string (lctx.builder.emittedType(key))
+    if (ket == "i8*") {
+      return key
+    }
     if (keyNode.value_type == RangerNodeType.VRef) {
       if (has lctx.slotTypes keyNode.vref) {
         def kst (unwrap (get lctx.slotTypes keyNode.vref))
@@ -2203,7 +2311,13 @@ class LowIRBuilderPass {
     def head:CodeNode (valNode.getFirst())
     if (head.vref == "unwrap") {
       if ((array_length valNode.children) > 1) {
-        return (this.isBorrowedArrayExpr((valNode.getSecond())))
+        ; `unwrap node.methodChain`: the name (a field or a local) still
+        ; holds the array, as it does without the unwrap.
+        def uw:CodeNode (valNode.getSecond())
+        if (uw.value_type == RangerNodeType.VRef) {
+          return true
+        }
+        return (this.isBorrowedArrayExpr(uw))
       }
       return false
     }

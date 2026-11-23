@@ -3,6 +3,7 @@
  * Terminal I/O, CLI args, and small file/string helpers.
  */
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <sys/time.h>
 #include <stdint.h>
 #include <fcntl.h>
@@ -226,6 +227,15 @@ char *ranger_strdup(const char *text) {
   memcpy(copy, text, n + 1);
   return copy;
 }
+
+/* The copy an @(optional) string local takes: an absent value stays absent. */
+char *ranger_strdup_opt(const char *text) {
+  if (text == NULL) {
+    return NULL;
+  }
+  return ranger_strdup(text);
+}
+
 
 /* strfromcode: encode a Unicode codepoint as a heap-allocated UTF-8 string. */
 char *ranger_str_fromcode(int code) {
@@ -1789,6 +1799,228 @@ char *ranger_sha256_hex(const char *text) {
   }
   out[64] = '\0';
   return out;
+}
+
+/* `char_length s` -- Unicode code points in UTF-8 text: every byte that is
+ * not a continuation byte (10xxxxxx) starts one. */
+int ranger_char_length(const char *text) {
+  int n = 0;
+  const unsigned char *p = (const unsigned char *)text;
+  if (p == NULL) {
+    return 0;
+  }
+  while (*p) {
+    if ((*p & 0xC0) != 0x80) {
+      n++;
+    }
+    p++;
+  }
+  return n;
+}
+
+/* `to_chars s` -- the code points of UTF-8 text, as an [int] (the same
+ * ptr-array strsplit builds, with plain elements: owned = 0). A malformed
+ * sequence gives its lead byte, as the other hosts' decoders would give a
+ * replacement. */
+int64_t ranger_to_chars(const char *text) {
+  RtSplitDesc *d = (RtSplitDesc *)calloc(1, sizeof(RtSplitDesc));
+  const unsigned char *p = (const unsigned char *)text;
+  if (d == NULL) {
+    return 0;
+  }
+  d->owned = 0;
+  d->rc = 1;
+  if (p == NULL) {
+    return (int64_t)(intptr_t)d;
+  }
+  while (*p) {
+    int64_t cp = *p;
+    int extra = 0;
+    if (*p >= 0xF0) { cp = *p & 0x07; extra = 3; }
+    else if (*p >= 0xE0) { cp = *p & 0x0F; extra = 2; }
+    else if (*p >= 0xC0) { cp = *p & 0x1F; extra = 1; }
+    {
+      int k;
+      int ok = 1;
+      for (k = 1; k <= extra; k++) {
+        if ((p[k] & 0xC0) != 0x80) {
+          ok = 0;
+          break;
+        }
+      }
+      if (ok) {
+        for (k = 1; k <= extra; k++) {
+          cp = (cp << 6) | (p[k] & 0x3F);
+        }
+        p += extra + 1;
+      } else {
+        cp = *p;
+        p += 1;
+      }
+    }
+    rt_split_push(d, (char *)(intptr_t)cp);
+  }
+  return (int64_t)(intptr_t)d;
+}
+
+/* Read all of fd into a new NUL-terminated string. */
+static char *rt_read_all_fd(int fd) {
+  size_t cap = 4096, len = 0;
+  char *buf = (char *)malloc(cap);
+  if (buf == NULL) {
+    return ranger_strdup("");
+  }
+  for (;;) {
+    ssize_t r;
+    if (len + 1 >= cap) {
+      char *nb = (char *)realloc(buf, cap * 2);
+      if (nb == NULL) {
+        break;
+      }
+      buf = nb;
+      cap *= 2;
+    }
+    r = read(fd, buf + len, cap - len - 1);
+    if (r <= 0) {
+      break;
+    }
+    len += (size_t)r;
+  }
+  buf[len] = '\0';
+  return buf;
+}
+
+/* `run_process_result program args cwd capture env` -- [exit code, stdout,
+ * stderr] as strings, the same answer the other hosts give. The argument
+ * vector goes to execvp as it is: nothing is re-read by a shell. `env` holds
+ * NAME=VALUE pairs added to this process's environment. */
+int64_t ranger_run_process_result(const char *program, int64_t args_desc,
+                                  const char *cwd, int capture,
+                                  int64_t env_desc) {
+  RtSplitDesc *res = (RtSplitDesc *)calloc(1, sizeof(RtSplitDesc));
+  RtSplitDesc *a = (RtSplitDesc *)(intptr_t)args_desc;
+  RtSplitDesc *e = (RtSplitDesc *)(intptr_t)env_desc;
+  int outp[2] = {-1, -1}, errp[2] = {-1, -1};
+  int32_t argc = (a == NULL) ? 0 : a->len;
+  char **argv;
+  pid_t pid;
+  int status = 0;
+  char codebuf[32];
+  char *out = NULL, *err = NULL;
+  int32_t i;
+  if (res == NULL) {
+    return 0;
+  }
+  res->owned = 2;
+  res->rc = 1;
+  argv = (char **)calloc((size_t)argc + 2, sizeof(char *));
+  if (argv == NULL || program == NULL) {
+    rt_split_push(res, ranger_strdup("-1"));
+    rt_split_push(res, ranger_strdup(""));
+    rt_split_push(res, ranger_strdup("cannot start the program"));
+    free(argv);
+    return (int64_t)(intptr_t)res;
+  }
+  argv[0] = (char *)program;
+  for (i = 0; i < argc; i++) {
+    argv[i + 1] = (char *)(intptr_t)((int64_t *)(intptr_t)a->data)[i];
+  }
+  argv[argc + 1] = NULL;
+  if (capture) {
+    if (pipe(outp) != 0 || pipe(errp) != 0) {
+      capture = 0;
+    }
+  }
+  fflush(stdout);
+  fflush(stderr);
+  pid = fork();
+  if (pid == 0) {
+    if (cwd != NULL && cwd[0] != '\0') {
+      if (chdir(cwd) != 0) {
+        _exit(127);
+      }
+    }
+    if (e != NULL) {
+      for (i = 0; i < e->len; i++) {
+        const char *kv = (const char *)(intptr_t)((int64_t *)(intptr_t)e->data)[i];
+        const char *eq = (kv == NULL) ? NULL : strchr(kv, '=');
+        if (eq != NULL && eq != kv) {
+          char name[1024];
+          size_t nl = (size_t)(eq - kv);
+          if (nl < sizeof(name)) {
+            memcpy(name, kv, nl);
+            name[nl] = '\0';
+            setenv(name, eq + 1, 1);
+          }
+        }
+      }
+    }
+    if (capture) {
+      dup2(outp[1], 1);
+      dup2(errp[1], 2);
+      close(outp[0]);
+      close(errp[0]);
+      close(outp[1]);
+      close(errp[1]);
+    }
+    execvp(program, argv);
+    fprintf(stderr, "cannot run %s\n", program);
+    _exit(127);
+  }
+  free(argv);
+  if (pid < 0) {
+    rt_split_push(res, ranger_strdup("-1"));
+    rt_split_push(res, ranger_strdup(""));
+    rt_split_push(res, ranger_strdup("fork failed"));
+    return (int64_t)(intptr_t)res;
+  }
+  if (capture) {
+    close(outp[1]);
+    close(errp[1]);
+    /* stderr is read after stdout: a child that fills the stderr pipe while
+     * stdout is still open would wait forever, so stderr goes to a thread-free
+     * fallback -- read stdout first only when it is the bigger stream is not
+     * knowable, so both are drained alternately with poll-free nonblocking
+     * reads below. */
+    {
+      size_t ocap = 4096, olen = 0, ecap = 4096, elen = 0;
+      int oopen = 1, eopen = 1;
+      out = (char *)malloc(ocap);
+      err = (char *)malloc(ecap);
+      fcntl(outp[0], F_SETFL, O_NONBLOCK);
+      fcntl(errp[0], F_SETFL, O_NONBLOCK);
+      while ((oopen || eopen) && out != NULL && err != NULL) {
+        int progress = 0;
+        if (oopen) {
+          ssize_t r;
+          if (olen + 1 >= ocap) { char *nb = (char *)realloc(out, ocap * 2); if (nb == NULL) break; out = nb; ocap *= 2; }
+          r = read(outp[0], out + olen, ocap - olen - 1);
+          if (r > 0) { olen += (size_t)r; progress = 1; }
+          else if (r == 0) { oopen = 0; }
+        }
+        if (eopen) {
+          ssize_t r;
+          if (elen + 1 >= ecap) { char *nb = (char *)realloc(err, ecap * 2); if (nb == NULL) break; err = nb; ecap *= 2; }
+          r = read(errp[0], err + elen, ecap - elen - 1);
+          if (r > 0) { elen += (size_t)r; progress = 1; }
+          else if (r == 0) { eopen = 0; }
+        }
+        if (!progress && (oopen || eopen)) {
+          usleep(1000);
+        }
+      }
+      if (out != NULL) out[olen] = '\0';
+      if (err != NULL) err[elen] = '\0';
+    }
+    close(outp[0]);
+    close(errp[0]);
+  }
+  waitpid(pid, &status, 0);
+  snprintf(codebuf, sizeof(codebuf), "%d", WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+  rt_split_push(res, ranger_strdup(codebuf));
+  rt_split_push(res, out != NULL ? out : ranger_strdup(""));
+  rt_split_push(res, err != NULL ? err : ranger_strdup(""));
+  return (int64_t)(intptr_t)res;
 }
 
 /* `join xs sep` over the ptr-array of strings strsplit also produces. */

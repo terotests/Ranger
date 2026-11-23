@@ -231,6 +231,45 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     expect(ll).not.toContain("call i32 @realloc");
   });
 
+  // The shapes the compiler's own sources hit on LLVM: an optional string
+  // from a missing map key, an optional array field unwrapped into a local
+  // (released the field's array), char_length / to_chars / buffer_copy /
+  // buffer_from_string / read_file_sync, a string temp in the right operand
+  // of &&, and a parameter named `entry`.
+  it("native binary runs the self-host shapes", () => {
+    if (!isLlvmAvailable()) {
+      return;
+    }
+    const outDir = path.join(__dirname, ".output-llvm-selfhost-shapes");
+    fs.mkdirSync(outDir, { recursive: true });
+    const result = compileRangerWithFlags(
+      `${FIXTURES}/llvm_selfhost_shapes.rgr`,
+      "llvm",
+      outDir,
+      [`-target=${nativeTarget()}`]
+    );
+    expect(result.success, result.error || result.output).toBe(true);
+    const llPath = path.join(outDir, "llvm_selfhost_shapes.ll");
+    expectValidIr(llPath);
+    const binPath = path.join(outDir, "selfhost_shapes");
+    const bufC = path.join(ROOT, "runtime", "ranger_buffer.c");
+    execSync(
+      `clang "${llPath}" ${RUNTIME_C} "${bufC}" -o "${binPath}" -lm -Wno-override-module`,
+      { stdio: "pipe" }
+    );
+    const out = execSync(`"${binPath}"`, { encoding: "utf-8" });
+    expect(out.trim().split("\n")).toEqual([
+      "format absent",
+      "walk 3",
+      "walk again 3",
+      "chars 3",
+      "codes 3 228",
+      "copy 101 108",
+      "trimmed",
+      "no file",
+    ]);
+  });
+
   it("native dynamic collections binary returns 50 after push loop", () => {
     if (!isLlvmAvailable()) {
       return;
