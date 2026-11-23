@@ -4359,6 +4359,8 @@ inline bool rg_opt_bool(const std::optional<bool> & b) { return b.value(); }
                 ranger ( nl "return " (e 1) nl ) 
                 scala( (custom _ ) )
                 rust ( (custom _) )
+                ; the Java writer drops a return javac calls unreachable
+                java7 ( (custom _) )
                 go ( (custom _) )
                 swift3 ( (custom _) )
                 swift6 ( (custom _) )
@@ -4370,6 +4372,7 @@ inline bool rg_opt_bool(const std::optional<bool> & b) { return b.value(); }
             templates {
                 cpp ( (custom _ ) )
                 scala ( (custon _) )
+                java7 ( (custom _) )
                 ranger ( nl "return" nl ) 
                 go ( (custom _) )
                 * ( "return;" )

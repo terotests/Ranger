@@ -28454,6 +28454,9 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       return;
     }
     if ( cmd == "return" ) {
+      if ( this.javaFollowsEndlessLoop(node) ) {
+        return;
+      }
       wr.newline();
       if ( node.children.length > 1 ) {
         const value = node.getSecond();
@@ -28466,6 +28469,48 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
         wr.out("return;", true);
       }
     }
+  };
+  javaHasBreak (node) {
+    if ( node.expression == false && node.vref == "break" ) {
+      return true;
+    }
+    // Loop start
+    for ( const ch of node.children) {
+      if ( this.javaHasBreak(ch) ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  javaFollowsEndlessLoop (node) {
+    if ( (node.parent == null) ) {
+      return false;
+    }
+    const par = node.parent;
+    const idx = par.children.indexOf(node);
+    if ( idx < 1 ) {
+      return false;
+    }
+    const prev = par.children[(idx - 1)];
+    if ( prev.children.length < 3 ) {
+      return false;
+    }
+    const head = prev.getFirst();
+    if ( head.vref != "while" ) {
+      return false;
+    }
+    const cond = prev.getSecond();
+    let isTrue = false;
+    if ( cond.value_type == 5 && cond.boolean_value ) {
+      isTrue = true;
+    }
+    if ( cond.expression == false && cond.vref == "true" ) {
+      isTrue = true;
+    }
+    if ( isTrue == false ) {
+      return false;
+    }
+    return this.javaHasBreak(prev.getThird()) == false;
   };
   buildLambdaSignature (node) {
     const exp = node;
