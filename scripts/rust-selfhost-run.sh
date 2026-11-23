@@ -42,9 +42,13 @@ if grep -q "panicked" "$OUT/run.log"; then
 fi
 
 echo "==> and answers what the node host answers"
-if ! diff -q ./tmp/rust-selfhost-out/output.js ./dist/rgrc.js > /dev/null; then
-  echo "FAIL: output differs from dist/rgrc.js"
-  diff ./tmp/rust-selfhost-out/output.js ./dist/rgrc.js | head -20
+# not dist/rgrc.js itself: `npm run compile` puts the rgrc-launcher block on
+# top of it, which no compiler writes
+node dist/rgrc.js -l=es6 ./compiler/Compiler.rgr -nodecli \
+  -d=./tmp/rust-selfhost-ref -o=output.js > /dev/null 2>&1
+if ! diff -q ./tmp/rust-selfhost-out/output.js ./tmp/rust-selfhost-ref/output.js > /dev/null; then
+  echo "FAIL: output differs from the node host's"
+  diff ./tmp/rust-selfhost-out/output.js ./tmp/rust-selfhost-ref/output.js | head -20
   exit 1
 fi
 echo "OK: byte-identical to the node-hosted compiler's own output"

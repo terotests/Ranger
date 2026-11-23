@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-11-23
+
+Everything below up to 3.5.1 has collected since that release; 4.0.0, 4.0.1
+and 4.0.2 were published from this list without headings of their own.
+
+### Fixed
+
+- **The documentation site builds again.** The parse cache (#1330) keyed a
+  tree on `disable_ops` being true or false, but `parse()` called from
+  JavaScript with no argument passes `undefined`, which the parser reads as a
+  third setting (operators off). `docs:extract` parses Lang.rgr that way and
+  left a tree without operators under the "false" key, so every example
+  `docs:examples` compiled in the same process failed ("22 example(s) compile
+  for no target") and the Pages deploy failed from 2026-11-16 on. The cache now
+  skips any call whose setting is not a boolean (cache stamp v3).
+- **`keys` of a map on Go returns the keys sorted.** It returned
+  `reflect.MapKeys` order, which Go randomises on every call, and a
+  `for (keys m)` loop evaluates the keys again on each pass, so the loop saw
+  some keys twice and missed others. The Go build of the compiler wrote its
+  own enums that way (duplicated members, missing enums). Enums are also
+  written in declaration order now (`RangerAppEnum.order`,
+  `definedEnumOrder`), so the Go build asked for Go gives back the source it
+  was built from again.
+- **`rgrc` reports its own version.** The banner said v3.5.1.
+- `scripts/rust-selfhost-run.sh` compares with a fresh Node build of the
+  compiler instead of `dist/rgrc.js`, which carries the launcher block.
+
 ### Added
 
 - **Linear string appends on Rust for `.rgr` code.** `s = s + a + b` on a

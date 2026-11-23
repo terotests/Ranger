@@ -7933,8 +7933,9 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                         "strkeys := make([]string, len(keys))" nl
                         "for i := 0; i < len(keys); i++ {" nl I
                           "strkeys[i] = keys[i].String()" nl i "}" nl
+                        "sort.Strings(strkeys)" nl
                         "return strkeys" nl i "})()"
-                    (imp "reflect"))
+                    (imp "reflect") (imp "sort"))
             }
         } 
 

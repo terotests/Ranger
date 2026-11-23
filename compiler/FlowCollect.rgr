@@ -848,6 +848,9 @@ extension RangerFlowParser {
         def fc (item.getFirst())
         new_enum.add(fc.vref)
       }
+      if ((has ctx.definedEnums fNameNode.vref) == false) {
+        push ctx.definedEnumOrder fNameNode.vref
+      }
       set ctx.definedEnums fNameNode.vref new_enum
       find_more = false
     }
@@ -862,7 +865,10 @@ extension RangerFlowParser {
       for enumList.children item:CodeNode i {
         new_enum.add(item.vref)
       }
-      set ctx.definedEnums fNameNode.vref new_enum      
+      if ((has ctx.definedEnums fNameNode.vref) == false) {
+        push ctx.definedEnumOrder fNameNode.vref
+      }
+      set ctx.definedEnums fNameNode.vref new_enum
       find_more = false
     }
     if (node.isFirstVref("trait")) {

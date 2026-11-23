@@ -50,14 +50,15 @@ class RangerGolangClassWriter {
     }
     go_enums_written = true
     def enumRoot:RangerAppWriterContext (ctx.getRoot())
-    for (keys enumRoot.definedEnums) gen:string gei {
-      if (this.goEnumIsNative(gen ctx)) {
+    ; declaration order, not map order: the same file on every host
+    for enumRoot.definedEnumOrder gen:string gei {
+      if ((has enumRoot.definedEnums gen) && (this.goEnumIsNative(gen ctx))) {
         def geDef:RangerAppEnum (unwrap (get enumRoot.definedEnums gen))
         wr.out("" true)
         wr.out(("type " + gen + " int64") true)
         wr.out("const (" true)
         wr.indent(1)
-        for (keys geDef.values) gmn:string gmi {
+        for geDef.order gmn:string gmi {
           def gmv:int (unwrap (get geDef.values gmn))
           wr.out(((this.goEnumMemberName(gen gmn ctx)) + " " + gen + " = " + (to_string gmv)) true)
         }

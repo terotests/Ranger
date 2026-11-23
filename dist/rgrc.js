@@ -6803,10 +6803,15 @@ class RangerAppEnum  {
     this.name = "";     /* note: unused */
     this.cnt = 0;
     this.values = {};
+    this.order = [];
     this.node = undefined;     /* note: unused */
   }
   add (n) {
     const nextVal = this.cnt;
+    if ( ( typeof(this.values[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.values, n) ) ) {
+      return;
+    }
+    this.order.push(n);
     this.values[n] = nextVal;
     this.cnt = this.cnt + 1;
   };
@@ -6887,6 +6892,7 @@ class RangerAppWriterContext  {
     this.currentMethod = undefined;
     this.thisName = "this";
     this.__lz_definedEnums = undefined;
+    this.__lz_definedEnumOrder = undefined;
     this.__lz_definedInterfaces = undefined;     /* note: unused */
     this.__lz_definedInterfaceList = undefined;     /* note: unused */
     this.__lz_definedClasses = undefined;
@@ -6965,6 +6971,8 @@ class RangerAppWriterContext  {
   set typeClasses (v) { this.__lz_typeClasses = v; }
   get definedEnums () { if (this.__lz_definedEnums === undefined) { this.__lz_definedEnums = {}; } return this.__lz_definedEnums; }
   set definedEnums (v) { this.__lz_definedEnums = v; }
+  get definedEnumOrder () { if (this.__lz_definedEnumOrder === undefined) { this.__lz_definedEnumOrder = []; } return this.__lz_definedEnumOrder; }
+  set definedEnumOrder (v) { this.__lz_definedEnumOrder = v; }
   get definedInterfaces () { if (this.__lz_definedInterfaces === undefined) { this.__lz_definedInterfaces = {}; } return this.__lz_definedInterfaces; }
   set definedInterfaces (v) { this.__lz_definedInterfaces = v; }
   get definedInterfaceList () { if (this.__lz_definedInterfaceList === undefined) { this.__lz_definedInterfaceList = []; } return this.__lz_definedInterfaceList; }
@@ -23522,6 +23530,9 @@ class RangerFlowParser  {
         const fc_1 = item.getFirst();
         new_enum.add(fc_1.vref);
       }
+      if ( ( typeof(ctx.definedEnums[fNameNode.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.definedEnums, fNameNode.vref) ) == false ) {
+        ctx.definedEnumOrder.push(fNameNode.vref);
+      }
       ctx.definedEnums[fNameNode.vref] = new_enum;
       find_more = false;
     }
@@ -23536,6 +23547,9 @@ class RangerFlowParser  {
       // Loop start
       for ( const item_1 of enumList_1.children) {
         new_enum_1.add(item_1.vref);
+      }
+      if ( ( typeof(ctx.definedEnums[fNameNode_1.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.definedEnums, fNameNode_1.vref) ) == false ) {
+        ctx.definedEnumOrder.push(fNameNode_1.vref);
       }
       ctx.definedEnums[fNameNode_1.vref] = new_enum_1;
       find_more = false;
@@ -52426,32 +52440,26 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     this.go_enums_written = true;
     const enumRoot = ctx.getRoot();
     // Loop start
-    {
-      const __rg_list = Object.keys(enumRoot.definedEnums);
-      for ( let gei = 0; gei < __rg_list.length; gei++) {
-        var gen = __rg_list[gei];
-        if ( this.goEnumIsNative(gen, ctx) ) {
-          const geDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, gen) ? enumRoot.definedEnums[gen] : undefined );
-          wr.out("", true);
-          wr.out(("type " + gen) + " int64", true);
-          wr.out("const (", true);
-          wr.indent(1);
-          // Loop start
-          {
-            const __rg_list = Object.keys(geDef.values);
-            for ( let gmi = 0; gmi < __rg_list.length; gmi++) {
-              var gmn = __rg_list[gmi];
-              const gmv = ( Object.prototype.hasOwnProperty.call(geDef.values, gmn) ? geDef.values[gmn] : undefined );
-              wr.out((((this.goEnumMemberName(
-                gen,
-                gmn,
-                ctx
-              ) + " ") + gen) + " = ") + ((gmv).toString()), true);
-            }
-          }
-          wr.indent(-1);
-          wr.out(")", true);
+    for ( let gei = 0; gei < enumRoot.definedEnumOrder.length; gei++) {
+      var gen = enumRoot.definedEnumOrder[gei];
+      if ( ( typeof(enumRoot.definedEnums[gen] ) != "undefined" && Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, gen) ) && this.goEnumIsNative(gen, ctx) ) {
+        const geDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, gen) ? enumRoot.definedEnums[gen] : undefined );
+        wr.out("", true);
+        wr.out(("type " + gen) + " int64", true);
+        wr.out("const (", true);
+        wr.indent(1);
+        // Loop start
+        for ( let gmi = 0; gmi < geDef.order.length; gmi++) {
+          var gmn = geDef.order[gmi];
+          const gmv = ( Object.prototype.hasOwnProperty.call(geDef.values, gmn) ? geDef.values[gmn] : undefined );
+          wr.out((((this.goEnumMemberName(
+            gen,
+            gmn,
+            ctx
+          ) + " ") + gen) + " = ") + ((gmv).toString()), true);
         }
+        wr.indent(-1);
+        wr.out(")", true);
       }
     }
   };
@@ -76127,7 +76135,7 @@ class CLIConsole  {
     this.inputFile = "";
     this.outputFile = "";
     this.targetLanguage = "";
-    this.compilerVersion = "3.5.1";
+    this.compilerVersion = "4.1.0";
     this.useColors = ((typeof process !== "undefined" && process.stdout && process.stdout.isTTY) || false);
     this.startTime = Date.now();
   }
@@ -105560,7 +105568,7 @@ const rg_parse_cache = { dir: null, stamp: null, off: false,
       if (typeof require !== 'function' || typeof process === 'undefined' || typeof __filename !== 'string' || process.env.RGRC_NO_PARSE_CACHE) { this.off = true; return false; }
       const fs = require('fs'), path = require('path'), os = require('os');
       const st = fs.statSync(__filename);
-      this.stamp = 'v2:' + st.size + ':' + st.mtimeMs;
+      this.stamp = 'v3:' + st.size + ':' + st.mtimeMs;
       this.dir = path.join(os.tmpdir(), 'ranger-parse-cache');
       return true;
     } catch (e) { this.off = true; return false; }
@@ -105575,7 +105583,10 @@ const rg_parse_cache = { dir: null, stamp: null, off: false,
     return require('path').join(this.dir, h.digest('hex'));
   },
   load: function (p, dis, CodeNode) {
-    if (!this.usable(p)) return false;
+    // parse() called from JavaScript with no argument passes undefined, which
+    // the parser treats as neither true nor false (`false == undefined` is
+    // false, so operators are off): a third tree, not cached
+    if (typeof dis !== 'boolean' || !this.usable(p)) return false;
     try {
       const fs = require('fs');
       const fname = this.file(p, dis); p.cache_file = fname;
