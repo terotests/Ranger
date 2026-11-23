@@ -1034,13 +1034,13 @@ class RangerJavaScriptClassWriter {
       return
     }
     def enumRoot:RangerAppWriterContext (ctx.getRoot())
-    for (keys enumRoot.definedEnums) ten:string tei {
+    for enumRoot.definedEnumOrder ten:string tei {
       if (this.tsEnumIsNative(ten ctx)) {
         def teDef:RangerAppEnum (unwrap (get enumRoot.definedEnums ten))
         wr.out("" true)
         wr.out(("export enum " + ten + " {") true)
         wr.indent(1)
-        for (keys teDef.values) tmn:string tmi {
+        for teDef.order tmn:string tmi {
           def tmv:int (unwrap (get teDef.values tmn))
           wr.out(((ctx.transformWord(tmn)) + " = " + (to_string tmv) + ",") true)
         }

@@ -43,13 +43,13 @@ class RangerDartClassWriter {
     }
     dart_enums_written = true
     def enumRoot:RangerAppWriterContext (ctx.getRoot())
-    for (keys enumRoot.definedEnums) den:string dei {
+    for enumRoot.definedEnumOrder den:string dei {
       if (this.dartEnumIsNative(den ctx)) {
         def deDef:RangerAppEnum (unwrap (get enumRoot.definedEnums den))
         wr.out("" true)
         wr.out(("enum " + den + " {") true)
         wr.indent(1)
-        for (keys deDef.values) dmn:string dmi {
+        for deDef.order dmn:string dmi {
           wr.out(((ctx.transformWord(dmn)) + ",") true)
         }
         wr.indent(-1)

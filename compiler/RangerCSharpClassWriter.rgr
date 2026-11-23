@@ -68,13 +68,13 @@ class RangerCSharpClassWriter {
     }
     csharp_enums_written = true
     def enumRoot:RangerAppWriterContext (ctx.getRoot())
-    for (keys enumRoot.definedEnums) cen:string cei {
+    for enumRoot.definedEnumOrder cen:string cei {
       if (this.csEnumIsNative(cen ctx)) {
         def ceDef:RangerAppEnum (unwrap (get enumRoot.definedEnums cen))
         wr.out("" true)
         wr.out(("public enum " + cen + " : int {") true)
         wr.indent(1)
-        for (keys ceDef.values) cmn:string cmi {
+        for ceDef.order cmn:string cmi {
           def cmv:int (unwrap (get ceDef.values cmn))
           wr.out(((ctx.transformWord(cmn)) + " = " + (to_string cmv) + ",") true)
         }

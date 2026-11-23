@@ -39,13 +39,13 @@ class RangerKotlinClassWriter {
     }
     kotlin_enums_written = true
     def enumRoot:RangerAppWriterContext (ctx.getRoot())
-    for (keys enumRoot.definedEnums) ken:string kei {
+    for enumRoot.definedEnumOrder ken:string kei {
       if (this.ktEnumIsNative(ken ctx)) {
         def keDef:RangerAppEnum (unwrap (get enumRoot.definedEnums ken))
         wr.out("" true)
         wr.out(("enum class " + ken + " {") true)
         wr.indent(1)
-        for (keys keDef.values) kmn:string kmi {
+        for keDef.order kmn:string kmi {
           wr.out(((ctx.transformWord(kmn)) + ",") true)
         }
         wr.indent(-1)

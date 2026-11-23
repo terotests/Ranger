@@ -1692,13 +1692,13 @@ extension RangerRustClassWriter {
       ; still 1 and nothing downstream has to know which form it got.
       def hdrEnumRoot:RangerAppWriterContext (ctx.getRoot())
       def anyNativeEnum:boolean false
-      for (keys hdrEnumRoot.definedEnums) hen:string hei {
+      for hdrEnumRoot.definedEnumOrder hen:string hei {
         if ((this.rustEnumIsNative(hen ctx)) && ((RustExtern.crateOf(hen ctx)) == "")) {
           def heDef:RangerAppEnum (unwrap (get hdrEnumRoot.definedEnums hen))
           header.out("#[repr(i64)]" true)
           header.out("#[derive(Clone, Copy, PartialEq, Eq, Debug)]" true)
           header.out(("pub enum " + hen + " {") true)
-          for (keys heDef.values) hmn:string hmi {
+          for heDef.order hmn:string hmi {
             def hmv:int (unwrap (get heDef.values hmn))
             def heLine:string ((("    " + hmn) + " = ") + (to_string hmv))
             header.out((heLine + ",") true)
@@ -2358,6 +2358,23 @@ extension RangerRustClassWriter {
           }
           wr.out("," true)
         } {
+          ; a collection DECLARED `@(optional)` is Option<Vec<…>> /
+          ; Option<HashMap<…>> (writeTypeDef goes by the flag) and starts as
+          ; None, as it starts null on the other targets
+          def pvarDeclOpt:boolean false
+          if ((pvar.isArray()) || (pvar.isHash())) {
+            def pvarNN@(optional):CodeNode pvar.nameNode
+            if (!null? pvarNN) {
+              pvarDeclOpt = ((unwrap pvarNN).hasFlag("optional"))
+            }
+          }
+          if pvarDeclOpt {
+            if pvar.rust_interior_cell {
+              wr.out(((this.adjustType(pvar.compiledName)) + ": RefCell::new(None),") true)
+            } {
+              wr.out(((this.adjustType(pvar.compiledName)) + ": None,") true)
+            }
+          } {
           ; Initialize array fields with Vec::new()
           if (pvar.isArray()) {
             if pvar.rust_interior_cell {
@@ -2385,6 +2402,7 @@ extension RangerRustClassWriter {
                 }
               }
             }
+          }
           }
         }
       }

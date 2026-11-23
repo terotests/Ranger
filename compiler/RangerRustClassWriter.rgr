@@ -2034,7 +2034,25 @@ class RangerRustClassWriter {
           }
         } {
           ; Rust: If this field is optional and there are more parts after it, unwrap it
-          if p.is_optional {
+          def segOpt:boolean p.is_optional
+          ; …and a LOCAL copied from an optional field (`def t (o.target)`)
+          ; keeps the Option in its `let` (the optional flag on its name),
+          ; while its desc says is_optional false because it has an
+          ; initializer: `t.ioFn` read a field straight off the Option (E0609)
+          if ((segOpt == false) && (i == 0)) {
+            if ((p.varType == RangerContextVarType.LocalVariable) && (p.rust_needs_rc_wrap == false)) {
+              def segLocNN@(optional):CodeNode p.nameNode
+              if (!null? segLocNN) {
+                def segLocN:CodeNode (unwrap segLocNN)
+                if ((segLocN.hasFlag("optional")) && (((strlen segLocN.array_type) == 0) && ((strlen segLocN.key_type) == 0))) {
+                  if ((this.rustClassIsShared(segLocN.type_name ctx)) == false) {
+                    segOpt = true
+                  }
+                }
+              }
+            }
+          }
+          if segOpt {
             if (i < (nsp_len - 1)) {
               ; More parts coming - need to unwrap the Option
               ; Check if this is a trait type (Rc<RefCell<dyn Trait>>)
@@ -3246,8 +3264,23 @@ class RangerRustClassWriter {
           }
         }
         ; Wrap initialization in Rc::new(RefCell::new(...)) if needed
+        ; …twice for a local of an EXTENDED class: its type is
+        ; Rc<RefCell<dyn XTrait>>, and the trait is implemented for
+        ; Rc<RefCell<X>> (`def w:Base (new Base)`), the shape a field
+        ; assignment of a `new` writes too
+        def localDynWrap:boolean false
         if ((local_needs_rc_wrap && (init_rc_state == 0)) && (optInitPassthrough == false)) {
+          def ldwCls@(optional):RangerAppClassDesc (ctx.findClass(nameN.type_name))
+          if (!null? ldwCls) {
+            def ldwC:RangerAppClassDesc (unwrap ldwCls)
+            if ((ldwC.is_extended_by_children && (this.rustTypeIsOwnHandle(nameN.type_name ctx))) && (this.rustTraitFamilyIsReentrant(ldwC ctx))) {
+              localDynWrap = true
+            }
+          }
           wr.out("Rc::new(RefCell::new(" false)
+          if localDynWrap {
+            wr.out("Rc::new(RefCell::new(" false)
+          }
         }
 
 
@@ -3296,6 +3329,9 @@ class RangerRustClassWriter {
         if (local_needs_rc_wrap && (optInitPassthrough == false)) {
           if (init_rc_state == 0) {
             wr.out("))" false)
+            if localDynWrap {
+              wr.out("))" false)
+            }
           }
           if (init_rc_state == 1) {
             wr.out(".clone()" false)
@@ -4092,6 +4128,13 @@ class RangerRustClassWriter {
     if ((nsLen == 1) && node.hasParamDesc) {
       def bp:RangerAppParamDesc (unwrap node.paramDesc)
       if (bp.varType == RangerContextVarType.Property) {
+        if ((this.rustFieldIsCopyScalar(bp ctx)) == false) {
+          return ".clone()"
+        }
+      }
+      ; …and a LOCAL: `if c { a } else { b }` moves the String it names, and
+      ; the name is usually read again after the expression (E0382)
+      if (bp.varType == RangerContextVarType.LocalVariable) {
         if ((this.rustFieldIsCopyScalar(bp ctx)) == false) {
           return ".clone()"
         }

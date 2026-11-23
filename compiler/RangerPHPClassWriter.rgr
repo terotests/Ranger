@@ -93,13 +93,13 @@ class RangerPHPClassWriter {
     }
     php_enums_written = true
     def enumRoot:RangerAppWriterContext (ctx.getRoot())
-    for (keys enumRoot.definedEnums) pen:string pei {
+    for enumRoot.definedEnumOrder pen:string pei {
       if (this.phpEnumIsNative(pen ctx)) {
         def peDef:RangerAppEnum (unwrap (get enumRoot.definedEnums pen))
         wr.out("" true)
         wr.out(("enum " + pen + " : int {") true)
         wr.indent(1)
-        for (keys peDef.values) pmn:string pmi {
+        for peDef.order pmn:string pmi {
           def pmv:int (unwrap (get peDef.values pmn))
           wr.out(("case " + (ctx.transformWord(pmn)) + " = " + (to_string pmv) + ";") true)
         }

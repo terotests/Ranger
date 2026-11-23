@@ -9181,6 +9181,7 @@ std::optional<double> cpp_get_map_string_double_value( const M & m , const K & k
         i
     "}" nl
     "res.has_value = false" nl
+    "res.value = v" nl
     "return res" nl
 i "}" nl ))                   
                     "r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"
@@ -9259,6 +9260,7 @@ r_map_get_val(const M& m, const K& key) {
         i
     "}" nl
     "res.has_value = false" nl
+    "res.value = v" nl
     "return res" nl
 i "}" nl ))                   
                     "r_get_" (r_ktype 1)  "_" (r_atype_fname 1) "(" (e 1) ", " (e 2) ")"

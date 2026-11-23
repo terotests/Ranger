@@ -1199,9 +1199,14 @@ extension RangerRustClassWriter {
               is_optional = true
             }
           }
+          ; …unless the collection was DECLARED `@(optional)`: only then
+          ; does its name carry the flag, and writeTypeDef makes the field
+          ; Option<Vec<…>> / Option<HashMap<…>>, so the value goes in Some()
           if is_optional {
             if (((strlen nn.array_type) > 0) || ((strlen nn.key_type) > 0)) {
-              is_optional = false
+              if (nn.hasFlag("optional") == false) {
+                is_optional = false
+              }
             }
           }
           ; Check if field has weak annotation. A `@(weak)` LOCAL is no cycle
@@ -1253,7 +1258,17 @@ extension RangerRustClassWriter {
       ; Arrays are not optional even if pp.is_optional says so - this can happen due to 
       ; how some array fields are inferred
       if left_is_array {
-        is_optional = false
+        def leftArrDeclOpt:boolean false
+        if left.hasParamDesc {
+          def lpArr:RangerAppParamDesc left.paramDesc
+          def lpArrNN@(optional):CodeNode lpArr.nameNode
+          if (!null? lpArrNN) {
+            leftArrDeclOpt = ((unwrap lpArrNN).hasFlag("optional"))
+          }
+        }
+        if (leftArrDeclOpt == false) {
+          is_optional = false
+        }
       }
       
       ; Check if right side is a variable that should be cloned
@@ -1990,6 +2005,11 @@ extension RangerRustClassWriter {
                 if (!null? fieldTypeClassAssign) {
                   needs_refcell_wrap_assign = true
                 }
+              }
+              ; …and so is a field of ANOTHER trait-related class written from
+              ; outside it (`w.value = (new Val)` in Main)
+              if (needs_refcell_wrap_assign == false) {
+                needs_refcell_wrap_assign = (this.rustUnwrapGivesCell(left ctx))
               }
               ; A field of a shared class already holds the Rc — writeStructField
               ; gives it Option<Rc<RefCell<X>>> and never the extra cell — so a
@@ -2942,6 +2962,16 @@ extension RangerRustClassWriter {
         } {
           wr.out(".unwrap()" false)
         }
+        ; an optional object field of a trait-related class is
+        ; Option<RefCell<T>> (writeTypeDef): the unwrap hands out the cell,
+        ; and the value is what the expression means
+        if (this.rustUnwrapGivesCell(arg ctx)) {
+          if (is_self_field || unwrap_bare_local) {
+            wr.out(".into_inner()" false)
+          } {
+            wr.out(".clone().into_inner()" false)
+          }
+        }
         }
       }
       ctx.unsetInExpr()
@@ -3467,4 +3497,71 @@ extension RangerRustClassWriter {
     wr.indent(-1)
     wr.out("}" true)
   }
+
+  ; Is `arg` an optional object field that writeTypeDef wrote as
+  ; Option<RefCell<T>>: a field of a trait-related class (one that is
+  ; extended, or extends one), of a class type that is neither shared nor
+  ; itself extended?
+  fn rustUnwrapGivesCell:boolean (arg:CodeNode ctx:RangerAppWriterContext) {
+    if (arg.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    def n:int (array_length arg.nsp)
+    if (n == 0) {
+      return false
+    }
+    def p:RangerAppParamDesc (itemAt arg.nsp (n - 1))
+    if (p.varType != RangerContextVarType.Property) {
+      if (p.is_class_variable == false) {
+        return false
+      }
+    }
+    def pnn@(optional):CodeNode p.nameNode
+    if (null? pnn) {
+      return false
+    }
+    def nn:CodeNode (unwrap pnn)
+    if ((nn.hasFlag("optional")) == false) {
+      return false
+    }
+    if (nn.hasFlag("weak")) {
+      return false
+    }
+    if (((strlen nn.array_type) > 0) || ((strlen nn.key_type) > 0)) {
+      return false
+    }
+    if p.rust_needs_rc_wrap {
+      return false
+    }
+    def ftc@(optional):RangerAppClassDesc (ctx.findClass(nn.type_name))
+    if (null? ftc) {
+      return false
+    }
+    def ft:RangerAppClassDesc (unwrap ftc)
+    if ft.is_extended_by_children {
+      return false
+    }
+    if (this.rustClassIsShared(nn.type_name ctx)) {
+      return false
+    }
+    def ocO@(optional):RangerAppClassDesc p.propertyClass
+    if (null? ocO) {
+      return false
+    }
+    def oc:RangerAppClassDesc (unwrap ocO)
+    if oc.is_extended_by_children {
+      return true
+    }
+    for oc.extends_classes en:string ei {
+      def ecO@(optional):RangerAppClassDesc (ctx.findClass(en))
+      if (!null? ecO) {
+        def ec:RangerAppClassDesc (unwrap ecO)
+        if ec.is_extended_by_children {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
 }

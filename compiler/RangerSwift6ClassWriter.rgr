@@ -195,7 +195,7 @@ class RangerSwift6ClassWriter {
     }
     swift_enums_written = true
     def enumRoot:RangerAppWriterContext (ctx.getRoot())
-    for (keys enumRoot.definedEnums) sen:string sei {
+    for enumRoot.definedEnumOrder sen:string sei {
       if (this.swEnumIsNative(sen ctx)) {
         def seDef:RangerAppEnum (unwrap (get enumRoot.definedEnums sen))
         wr.out("" true)
@@ -203,7 +203,7 @@ class RangerSwift6ClassWriter {
         ; refuses a public member whose type is less visible than it
         wr.out(("public enum " + sen + " : Int {") true)
         wr.indent(1)
-        for (keys seDef.values) smn:string smi {
+        for seDef.order smn:string smi {
           def smv:int (unwrap (get seDef.values smn))
           wr.out(("case " + (ctx.transformWord(smn)) + " = " + (to_string smv)) true)
         }

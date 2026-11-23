@@ -66,7 +66,7 @@ class RangerJava7ClassWriter {
     java_enums_written = true
     def package_name:string (ctx.getCompilerSetting("package"))
     def enumRoot:RangerAppWriterContext (ctx.getRoot())
-    for (keys enumRoot.definedEnums) jen:string jei {
+    for enumRoot.definedEnumOrder jen:string jei {
       if (this.javaEnumIsNative(jen ctx)) {
         def jeDef:RangerAppEnum (unwrap (get enumRoot.definedEnums jen))
         def eWr:CodeWriter (wr.getFileWriter("." (jen + ".java")))
@@ -78,7 +78,7 @@ class RangerJava7ClassWriter {
         eWr.out(("public enum " + jen + " {") true)
         eWr.indent(1)
         def jeFirst:boolean true
-        for (keys jeDef.values) jmn:string jmi {
+        for jeDef.order jmn:string jmi {
           if jeFirst {
             eWr.out((ctx.transformWord(jmn)) false)
             jeFirst = false
