@@ -102664,6 +102664,26 @@ class RustLower  {
     }
     return name;
   };
+  boxMoveOp (t) {
+    if ( this.target != "cpp" ) {
+      return "";
+    }
+    const k = t.kind;
+    if ( false == (((k == "vec" || k == "map") || k == "set") || k == "string") ) {
+      return "";
+    }
+    const plain = t.copy();
+    plain.isRef = false;
+    plain.isMutRef = false;
+    const op = "rs_move_" + this.mangleKey(plain);
+    if ( false == ( typeof(this.genNames[op] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, op) ) ) {
+      this.genNames[op] = true;
+      const rts = this.rtype(plain);
+      const pd = this.declText("a0", plain);
+      this.genOut.push(((((("operators {\n  " + op) + " _:") + rts) + " (") + pd) + ") {\n    templates {\n      cpp ( \"std::move(\" (e 1) \")\" )\n      * ( (e 1) )\n    }\n  }\n}");
+    }
+    return op;
+  };
   boxedCall (head, f, args, owner, extra, at) {
     const env = this.methodEnv(owner);
     let codes = [];
@@ -102687,7 +102707,12 @@ class RustLower  {
         const bn = this.tmp("box");
         const bc = this.boxClass(pty);
         this.out.line(((("def " + bn) + ":") + bc) + ((" (new " + bc) + ")"));
-        this.out.line((bn + ".v = ") + cur.code);
+        const mv = this.boxMoveOp(pty);
+        if ( mv != "" ) {
+          this.out.line(((((bn + ".v = (") + mv) + " ") + cur.code) + ")");
+        } else {
+          this.out.line((bn + ".v = ") + cur.code);
+        }
         codes.push(bn);
         places.push(place);
         boxes.push(bn);
@@ -102711,7 +102736,13 @@ class RustLower  {
     }
     let k = 0;
     while (k < places.length) {
-      this.assignTo(places[k], this.simpleExpr((boxes[k] + ".v"), btypes[k]));
+      const bt = btypes[k];
+      let back = boxes[k] + ".v";
+      const mvb = this.boxMoveOp(bt);
+      if ( mvb != "" ) {
+        back = ((("(" + mvb) + " ") + back) + ")";
+      }
+      this.assignTo(places[k], this.simpleExpr(back, bt));
       k = k + 1;
     };
     return result;

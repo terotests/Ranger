@@ -12270,6 +12270,32 @@ class RustLower {
     return name
   }
 
+  ; C++: an operator that moves a vector, map, set or string into or out of
+  ; its RsBox_ (std::move) instead of copying it. Rust's borrow rules keep
+  ; the place untouched while the `&mut` lives, so the move is not seen; a
+  ; copy made `v.len()` work per call (a whole token table per token, a
+  ; whole object table per object write). Other targets: "" (no operator).
+  fn boxMoveOp:string (t:RsType) {
+    if (target != "cpp") {
+      return ""
+    }
+    def k:string t.kind
+    if (false == ((k == "vec") || (k == "map") || (k == "set") || (k == "string"))) {
+      return ""
+    }
+    def plain:RsType (t.copy())
+    plain.isRef = false
+    plain.isMutRef = false
+    def op:string ("rs_move_" + (this.mangleKey(plain)))
+    if (false == (has genNames op)) {
+      set genNames op true
+      def rts:string (this.rtype(plain))
+      def pd:string (this.declText("a0" plain))
+      push genOut (((((("operators {\n  " + op) + " _:") + rts) + " (") + pd) + ") {\n    templates {\n      cpp ( \"std::move(\" (e 1) \")\" )\n      * ( (e 1) )\n    }\n  }\n}")
+    }
+    return op
+  }
+
   ; A call with boxed `&mut` arguments: box each place, call as a statement,
   ; write the boxes back, then answer the result.
   fn boxedCall:RsExpr (head:string f:RsFn args:[RustNode] owner:RsType extra:string at:RustNode) {
@@ -12294,7 +12320,12 @@ class RustLower {
         def bn:string (this.tmp("box"))
         def bc:string (this.boxClass(pty))
         out.line((((("def " + bn) + ":") + bc) + ((" (new " + bc) + ")")))
-        out.line((((bn + ".v = ") + cur.code)))
+        def mv:string (this.boxMoveOp(pty))
+        if (mv != "") {
+          out.line((((((bn + ".v = (") + mv) + " ") + cur.code) + ")"))
+        } {
+          out.line((((bn + ".v = ") + cur.code)))
+        }
         push codes bn
         push places place
         push boxes bn
@@ -12318,7 +12349,13 @@ class RustLower {
     }
     def k:int 0
     while (k < (array_length places)) {
-      this.assignTo((itemAt places k) (this.simpleExpr(((itemAt boxes k) + ".v") (itemAt btypes k))))
+      def bt:RsType (itemAt btypes k)
+      def back:string ((itemAt boxes k) + ".v")
+      def mvb:string (this.boxMoveOp(bt))
+      if (mvb != "") {
+        back = (((("(" + mvb) + " ") + back) + ")")
+      }
+      this.assignTo((itemAt places k) (this.simpleExpr(back bt)))
       k = k + 1
     }
     return result
