@@ -45,6 +45,7 @@ describe("plain structs as C++ values", () => {
   for (const [name, src, want, gone] of [
     ["a moved struct (a call frame) in a Vec, next to a shared one", "tests/fixtures/rust_cpp_plain/app.rgr", "180216 2 true", "make_shared<F>"],
     ["Copy structs reached through &mut", "tests/fixtures/rust_cpp_plain_copy/app.rgr", "1246 1011 4 2.5 118 77 1 42", "make_shared<P>"],
+    ["moved structs that hold vectors, in a Vec", "tests/fixtures/rust_cpp_plain_vec/app.rgr", "61 1 5", "make_shared<O>"],
   ] as const) {
     it.skipIf(!has("g++ --version"))(name, () => {
       const sub = path.basename(path.dirname(src));

@@ -32009,6 +32009,9 @@ class CppValueClassAnalysis  {
     };
   };
   fieldOfOtherReason (ocl, className) {
+    if ( (((ocl.is_template || ocl.is_trait) || ocl.is_generic_form) || ocl.generic_has_placeholder) || ocl.is_system ) {
+      return "";
+    }
     // Loop start
     for ( let cvi = 0; cvi < ocl.variables.length; cvi++) {
       var cv = ocl.variables[cvi];
@@ -32999,7 +33002,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       return false;
     }
     if ( this.cppIsValueClass(rcl, ctx) ) {
-      if ( rcl.is_copy == false || node.hasFlag("ref_mut") == false ) {
+      if ( rcl.is_copy == false ) {
         return false;
       }
     }
@@ -34534,6 +34537,13 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     return this.cppIsValueClass(cl, ctx);
   };
+  cppConstRefParam (arg) {
+    if ( (arg.nameNode == null) ) {
+      return false;
+    }
+    const tNode = arg.nameNode;
+    return tNode.hasFlag("cref");
+  };
   cppMutRefParam (arg) {
     if ( (arg.nameNode == null) ) {
       return false;
@@ -34639,6 +34649,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     return true;
   };
   cppNeedsCallTempCopy (fnDesc, arg, n, ctx) {
+    if ( (this.cppMutRefParam(arg) || this.cppConstRefParam(arg)) || this.cppByvalCopyParam(arg, ctx) ) {
+      return false;
+    }
     if ( this.cppBorrowedObjectParam(fnDesc, arg, ctx) == false ) {
       return false;
     }
@@ -34686,6 +34699,12 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         continue;
       }
       if ( this.cppMutRefParam(arg) ) {
+        this.writeTypeDef(arg.nameNode, ctx, wr);
+        wr.out(("& " + arg.compiledName) + " ", false);
+        continue;
+      }
+      if ( this.cppConstRefParam(arg) ) {
+        wr.out("const ", false);
         this.writeTypeDef(arg.nameNode, ctx, wr);
         wr.out(("& " + arg.compiledName) + " ", false);
         continue;
@@ -34770,6 +34789,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   cppMutableRefParam (fnDesc, arg, ctx) {
     if ( this.cppMutRefParam(arg) ) {
       return true;
+    }
+    if ( this.cppConstRefParam(arg) ) {
+      return false;
     }
     if ( this.cppReadonlyValueParam(arg) ) {
       return false;
@@ -93742,6 +93764,9 @@ class RustLower  {
         rp.boxed = false;
         rp.mutref = true;
       }
+      if ( (((this.target == "cpp" && rp.ty.isMutRef) && pat.kind == "pat_ident") && rp.ty.kind == "named") && this.isScalarCopyType(rp.ty) ) {
+        rp.mutref = true;
+      }
       f.params.push(rp);
     }
     const ret = m.kid(2);
@@ -94255,12 +94280,36 @@ class RustLower  {
           return false;
         }
       } else {
-        if ( ((k == "int" || k == "double") || k == "bool") == false ) {
-          return false;
+        if ( (k == "vec" && false == s.derivesTrait("Copy")) && this.plainElem(ft, s) ) {
+        } else {
+          if ( ((k == "int" || k == "double") || k == "bool") == false ) {
+            return false;
+          }
         }
       }
     }
     return true;
+  };
+  plainElem (ft, s) {
+    if ( ft.args.length != 1 ) {
+      return false;
+    }
+    const e = ft.args[0];
+    if ( ((e.shared || e.weak) || e.isRef) || e.isMutRef ) {
+      return false;
+    }
+    const ek = e.kind;
+    if ( (ek == "int" || ek == "double") || ek == "bool" ) {
+      return true;
+    }
+    if ( ek == "named" && ( typeof(this.structs[e.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, e.name) ) ) {
+      const es = ( Object.prototype.hasOwnProperty.call(this.structs, e.name) ? this.structs[e.name] : undefined );
+      if ( false == this.isScalarCopyStruct(es) ) {
+        return false;
+      }
+      return this.structOrder.indexOf(e.name) < this.structOrder.indexOf(s.name);
+    }
+    return false;
   };
   isScalarTuple (t) {
     if ( t.kind != "tuple" || t.args.length == 0 ) {
@@ -96013,8 +96062,12 @@ class RustLower  {
       if ( pat.kind == "pat_ident" ) {
         const l = this.declare(p.name, pty);
         let pdecl = this.declText(l.rname, pty);
-        if ( false == pty.isMutRef && this.isScalarCopyType(pty) ) {
+        if ( (false == pty.isMutRef && this.isScalarCopyType(pty)) && (this.isScalarTuple(pty) || this.isCopyStruct(pty)) ) {
           pdecl = this.declText((l.rname + "@(byval)"), pty);
+        } else {
+          if ( (((this.target == "cpp" && pty.isRef) && false == pty.isMutRef) && pty.kind == "named") && this.isScalarCopyType(pty) ) {
+            pdecl = this.declText((l.rname + "@(cref)"), pty);
+          }
         }
         ps.push(pdecl);
       } else {
@@ -96112,29 +96165,27 @@ class RustLower  {
       const ows = ( Object.prototype.hasOwnProperty.call(this.structs, owner) ? this.structs[owner] : undefined );
       constSelf = this.isScalarCopyStruct(ows);
     }
+    let hflags = [];
     if ( fret.kind == "opt" ) {
-      if ( constSelf ) {
-        head = head + "@(optional const)";
-      } else {
-        head = head + "@(optional)";
-      }
-    } else {
-      if ( constSelf ) {
-        head = head + "@(const)";
-      }
+      hflags.push("optional");
+    }
+    if ( constSelf ) {
+      hflags.push("const");
     }
     if ( (((fret.kind == "string" && fret.isRef) && kw == "fn") && f.fromTrait == "") && false == isFmt ) {
-      head = head + "@(ref_return)";
+      hflags.push("ref_return");
     }
     if ( this.isRcString(fret) ) {
-      head = head + "@(rc)";
+      hflags.push("rc");
     }
     if ( (((fret.kind == "named" && (fret.isRef || fret.isMutRef)) && ( typeof(this.structs[fret.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, fret.name) )) && f.fromTrait == "") && false == isFmt ) {
+      hflags.push("ref_return");
       if ( fret.isMutRef ) {
-        head = head + "@(ref_return ref_mut)";
-      } else {
-        head = head + "@(ref_return)";
+        hflags.push("ref_mut");
       }
+    }
+    if ( hflags.length > 0 ) {
+      head = ((head + "@(") + hflags.join(" ")) + ")";
     }
     let lines = [];
     lines.push((((head + ":") + retText) + " (") + (ps.join(" ") + ") {"));
@@ -96283,6 +96334,10 @@ class RustLower  {
           };
           if ( ip.kind == "unary" && ip.name == "&mut" || t.isMutRef ) {
             bn = bn + "@(place)";
+          } else {
+            if ( (false == this.isCopyStruct(t) && false == this.isScalarTuple(t)) && (ip.kind == "unary" && ip.name == "&" || t.isRef) ) {
+              bn = bn + "@(place)";
+            }
           }
         }
         this.out.line((("def " + this.declText(bn, t)) + " ") + c.code);
@@ -97284,6 +97339,11 @@ class RustLower  {
     if ( ((pat.kind == "pat_ident" && mutElems) && this.isScalarCopyType(t)) && false == pat.hasMod("mut") ) {
       const lp = this.declare(pat.name, t);
       this.out.line((("def " + this.declText((lp.rname + "@(place)"), t)) + " ") + code);
+      return;
+    }
+    if ( (((pat.kind == "pat_ident" && this.isScalarCopyType(t)) && false == this.isCopyStruct(t)) && false == this.isScalarTuple(t)) && false == pat.hasMod("mut") ) {
+      const lq = this.declare(pat.name, t);
+      this.out.line((("def " + this.declText((lq.rname + "@(place)"), t)) + " ") + code);
       return;
     }
     this.bindForPattern(pat, code, t);

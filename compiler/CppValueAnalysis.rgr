@@ -340,6 +340,11 @@ class CppValueClassAnalysis {
   ; An @(optional) FIELD of that class somewhere else: the field is the null
   ; pointer, so the class it points at stays a pointer.
   fn fieldOfOtherReason:string (ocl:RangerAppClassDesc className:string) {
+    ; a generic class's field of its type parameter (a parameter that has
+    ; the class's name) is no field of that class
+    if (ocl.is_template || ocl.is_trait || ocl.is_generic_form || ocl.generic_has_placeholder || ocl.is_system) {
+      return ""
+    }
     for ocl.variables cv:RangerAppParamDesc cvi {
       def cvNN@(optional):CodeNode cv.nameNode
       if (!null? cvNN) {
