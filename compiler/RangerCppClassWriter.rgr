@@ -3029,6 +3029,16 @@ namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_r
     return (this.cppIsValueClass(cl ctx))
   }
 
+  ; A Rust `&mut` of a vector, map, set, string or number (RustLower marks
+  ; it @(mutref)): a plain `T&` on C++, where other targets pass an RsBox_.
+  fn cppMutRefParam:boolean (arg:RangerAppParamDesc) {
+    if (null? arg.nameNode) {
+      return false
+    }
+    def tNode:CodeNode (unwrap arg.nameNode)
+    return (tNode.hasFlag("mutref"))
+  }
+
   fn cppByvalCopyParam:boolean (arg:RangerAppParamDesc ctx:RangerAppWriterContext) {
     if (null? arg.nameNode) {
       return false
@@ -3209,6 +3219,11 @@ namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_r
         wr.out(((" " + arg.compiledName) + " ") false)
         continue
       }
+      if (this.cppMutRefParam(arg)) {
+        this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
+        wr.out((("& " + arg.compiledName) + " ") false)
+        continue
+      }
       def constRef:boolean (this.cppReadonlyValueParam(arg))
       if (constRef == false) {
         constRef = (this.cppReadonlyUnionParam(arg ctx))
@@ -3288,6 +3303,9 @@ namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_r
     if (null? vD.nameNode) {
       return false
     }
+    if (this.cppMutRefParam(vD)) {
+      return true
+    }
     def typeNode:CodeNode (unwrap vD.nameNode)
     def tn:string typeNode.type_name
     if (((tn == "buffer") || (tn == "int_buffer")) || (tn == "double_buffer")) {
@@ -3311,6 +3329,9 @@ namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_r
   ; call site knows the argument has to be an lvalue. Mirrors the decisions the
   ; loop above makes, in the same order.
   fn cppMutableRefParam:boolean (fnDesc:RangerAppFunctionDesc arg:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if (this.cppMutRefParam(arg)) {
+      return true
+    }
     if (this.cppReadonlyValueParam(arg)) {
       return false
     }
