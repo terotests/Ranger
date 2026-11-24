@@ -3917,6 +3917,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     this.is_singleton = false;
     this.is_trait = false;
     this.is_record = false;
+    this.is_copy = false;
     this.is_operator_class = false;
     this.is_generic_instance = false;
     this.is_union = false;
@@ -23608,6 +23609,9 @@ class RangerFlowParser  {
       if ( node.hasBooleanProperty("trait") ) {
         new_class_3.is_trait = true;
       }
+      if ( classNameNode_1.hasFlag("copy") ) {
+        new_class_3.is_copy = true;
+      }
       if ( classNameNode_1.hasFlag("immutable") ) {
         this.immutableClasses.push(new_class_3);
         new_class_3.is_immutable = true;
@@ -31738,7 +31742,12 @@ class CppValueClassAnalysis  {
     return false;
   };
   unsafeReason (node, className, ctx) {
-    if ( this.optionalOf(node, className) ) {
+    let optOk = false;
+    if ( ctx.isDefinedClass(className) ) {
+      const ccl = ctx.findClass(className);
+      optOk = ccl.is_copy;
+    }
+    if ( optOk == false && this.optionalOf(node, className) ) {
       return "used as an @(optional)";
     }
     if ( node.expression ) {
@@ -31753,7 +31762,7 @@ class CppValueClassAnalysis  {
             }
           }
         }
-        if ( cmd == "null?" || cmd == "!null?" ) {
+        if ( (cmd == "null?" || cmd == "!null?") && optOk == false ) {
           if ( node.children.length >= 2 ) {
             const arg = node.getSecond();
             if ( this.nodeIsClassOf(arg, className) ) {
@@ -31855,7 +31864,7 @@ class CppValueClassAnalysis  {
     if ( cl.isSingletonClass() ) {
       return "a singleton";
     }
-    if ( cl.is_record == false ) {
+    if ( cl.is_record == false && cl.is_copy == false ) {
       return "not a record";
     }
     if ( cl.extends_classes.length > 0 ) {
@@ -31875,7 +31884,7 @@ class CppValueClassAnalysis  {
         }
       }
     };
-    if ( cl.rust_needs_ref_semantics ) {
+    if ( cl.rust_needs_ref_semantics && cl.is_copy == false ) {
       return cl.rust_ref_reason;
     }
     const fr = this.fieldReason(cl, cl.name);
@@ -32587,6 +32596,11 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
             return;
           }
           if ( this.cppIsValueClass(cc_1, ctx) ) {
+            if ( cc_1.is_copy && node.IsOptional() ) {
+              wr.addImport("<optional>");
+              wr.out(("std::optional<" + cc_1.name) + ">", false);
+              return;
+            }
             wr.out(cc_1.name, false);
             return;
           }
@@ -32862,6 +32876,32 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
     }
     return true;
+  };
+  cppCallReceiverIsValue (obj, ctx) {
+    if ( obj.vref == "this" && obj.ns.length <= 1 ) {
+      return false;
+    }
+    let tn = obj.eval_type_name;
+    if ( tn.length == 0 ) {
+      tn = obj.type_name;
+    }
+    if ( obj.eval_array_type.length > 0 || obj.eval_key_type.length > 0 ) {
+      return false;
+    }
+    if ( obj.eval_type == 6 || obj.eval_type == 7 ) {
+      return false;
+    }
+    if ( tn.length == 0 ) {
+      return false;
+    }
+    if ( ctx.isDefinedClass(tn) == false ) {
+      return false;
+    }
+    const tc = ctx.findClass(tn);
+    if ( tc.is_copy == false ) {
+      return false;
+    }
+    return this.cppIsValueClass(tc, ctx);
   };
   cppCallReceiverNeedsValue (obj, ctx) {
     let cnt = obj.nsp.length;
@@ -33142,7 +33182,19 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       } else {
         wr.out("", false);
       }
-      this.writeTypeDef(p.nameNode, ctx, wr);
+      let placeRef = false;
+      if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
+        const pnn = p.nameNode;
+        if ( (pnn.hasFlag("place") && p.set_cnt == 0) && ctx.isDefinedClass(pnn.type_name) ) {
+          const pcl = ctx.findClass(pnn.type_name);
+          placeRef = pcl.is_copy && this.cppIsValueClass(pcl, ctx);
+        }
+      }
+      if ( placeRef ) {
+        wr.out("auto&&", false);
+      } else {
+        this.writeTypeDef(p.nameNode, ctx, wr);
+      }
       let useCppRef = p.needs_cpp_reference && p.is_assigned_from_member;
       if ( node.children.length > 2 ) {
         const initNode = node.getThird();
@@ -33164,6 +33216,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
             useCppRef = false;
           }
         }
+      }
+      if ( placeRef ) {
+        useCppRef = false;
       }
       if ( useCppRef ) {
         wr.out("&", false);
@@ -33224,7 +33279,11 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           wr.out(".value()", false);
         }
       }
-      wr.out("->", false);
+      if ( this.cppCallReceiverIsValue(obj, ctx) ) {
+        wr.out(".", false);
+      } else {
+        wr.out("->", false);
+      }
       wr.out(method.vref, false);
       wr.out("(", false);
       ctx.setInExpr();
@@ -34109,6 +34168,32 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     return false;
   };
+  cppConstMethod (variant, cl, ctx) {
+    if ( cl.is_copy == false ) {
+      return false;
+    }
+    if ( variant.nameNode.hasFlag("const") == false ) {
+      return false;
+    }
+    return this.cppIsValueClass(cl, ctx);
+  };
+  cppByvalCopyParam (arg, ctx) {
+    if ( (arg.nameNode == null) ) {
+      return false;
+    }
+    const tNode = arg.nameNode;
+    if ( tNode.hasFlag("byval") == false ) {
+      return false;
+    }
+    if ( tNode.array_type.length > 0 || tNode.key_type.length > 0 ) {
+      return false;
+    }
+    if ( ctx.isDefinedClass(tNode.type_name) == false ) {
+      return false;
+    }
+    const tc = ctx.findClass(tNode.type_name);
+    return tc.is_copy && this.cppIsValueClass(tc, ctx);
+  };
   cppMutatedValueClassParam (arg, ctx) {
     if ( arg.needs_cpp_reference == false ) {
       return false;
@@ -34231,6 +34316,11 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         wr.out(",", false);
       }
       wr.out(" ", false);
+      if ( this.cppByvalCopyParam(arg, ctx) ) {
+        this.writeTypeDef(arg.nameNode, ctx, wr);
+        wr.out((" " + arg.compiledName) + " ", false);
+        continue;
+      }
       let constRef = this.cppReadonlyValueParam(arg);
       if ( constRef == false ) {
         constRef = this.cppReadonlyUnionParam(arg, ctx);
@@ -34596,7 +34686,11 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         this.writeReturnTypeDef(variant_1, ctx, wr);
         wr.out((" " + variant_1.compiledName) + "(", false);
         this.writeArgsDef(variant_1, ctx, wr);
-        wr.out(");", true);
+        wr.out(")", false);
+        if ( this.cppConstMethod(variant_1, cl, ctx) ) {
+          wr.out(" const", false);
+        }
+        wr.out(";", true);
       }
     }
     if ( this.cppUnionValueCase(cl, ctx) ) {
@@ -35000,6 +35094,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       wr.out("", true);
       wr.out("// header definitions", true);
       wr.createTag("c++TraitDefs");
+      wr.createTag("c++CopyHeader");
       wr.createTag("c++Header");
       wr.out("", true);
       wr.out("int __g_argc;", true);
@@ -35009,7 +35104,10 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       this.header_created = true;
     }
     const classWriter = orig_wr.getTag("c++ClassDefs");
-    const headerWriter = orig_wr.getTag("c++Header");
+    let headerWriter = orig_wr.getTag("c++Header");
+    if ( cl.is_copy && this.cppIsValueClass(cl, ctx) ) {
+      headerWriter = orig_wr.getTag("c++CopyHeader");
+    }
     const projectName = "project";
     const tplPrefix = this.cppTemplatePrefix(cl, ctx);
     const clRef = this.cppClassRef(cl, ctx);
@@ -35135,7 +35233,11 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         wr.out((" " + clRef) + "::", false);
         wr.out(variant_1.compiledName + "(", false);
         this.writeArgsDef(variant_1, ctx, wr);
-        wr.out(") {", true);
+        wr.out(")", false);
+        if ( this.cppConstMethod(variant_1, cl, ctx) ) {
+          wr.out(" const", false);
+        }
+        wr.out(" {", true);
         wr.indent(1);
         wr.newline();
         const subCtx_2 = variant_1.fnCtx;
@@ -93403,6 +93505,35 @@ class RustLower  {
     }
     return s;
   };
+  isScalarCopyStruct (s) {
+    if ( false == s.derivesTrait("Copy") ) {
+      return false;
+    }
+    if ( s.generics.length > 0 ) {
+      return false;
+    }
+    if ( s.fields.length == 0 ) {
+      return false;
+    }
+    // Loop start
+    for ( const f of s.fields) {
+      const k = f.ty.kind;
+      if ( ((k == "int" || k == "double") || k == "bool") == false ) {
+        return false;
+      }
+    }
+    return true;
+  };
+  isScalarCopyType (t) {
+    if ( t.kind != "named" ) {
+      return false;
+    }
+    if ( ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+      const s = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+      return this.isScalarCopyStruct(s);
+    }
+    return false;
+  };
   isCopyStruct (t) {
     if ( t.kind != "named" ) {
       return false;
@@ -94420,7 +94551,11 @@ class RustLower  {
   };
   emitStructAs (s, cname) {
     let lines = [];
-    lines.push(("class " + cname) + " {");
+    if ( this.isScalarCopyStruct(s) ) {
+      lines.push(("class " + cname) + "@(copy) {");
+    } else {
+      lines.push(("class " + cname) + " {");
+    }
     // Loop start
     for ( const f of s.fields) {
       let fdoc = "";
@@ -94450,7 +94585,11 @@ class RustLower  {
     }
     lines.push(this.emitStructZero(s, cname));
     if ( s.derivesTrait("Clone") || s.derivesTrait("Copy") ) {
-      lines.push(("  fn rs_clone:" + cname) + " () {");
+      if ( this.isScalarCopyStruct(s) ) {
+        lines.push(("  fn rs_clone@(const):" + cname) + " () {");
+      } else {
+        lines.push(("  fn rs_clone:" + cname) + " () {");
+      }
       if ( s.isTuple ) {
         let args = [];
         // Loop start
@@ -95102,7 +95241,11 @@ class RustLower  {
       }
       if ( pat.kind == "pat_ident" ) {
         const l = this.declare(p.name, pty);
-        ps.push(this.declText(l.rname, pty));
+        let pdecl = this.declText(l.rname, pty);
+        if ( false == pty.isMutRef && this.isScalarCopyType(pty) ) {
+          pdecl = this.declText((l.rname + "@(byval)"), pty);
+        }
+        ps.push(pdecl);
       } else {
         const wn = this.allocLocal("arg");
         ps.push(this.declText(wn, pty));
@@ -95193,8 +95336,21 @@ class RustLower  {
       }
     }
     let head = (("  " + kw) + " ") + name;
+    let constSelf = false;
+    if ( ((f.hasSelf && false == f.selfMut) && false == enumOwner) && ( typeof(this.structs[owner] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, owner) ) ) {
+      const ows = ( Object.prototype.hasOwnProperty.call(this.structs, owner) ? this.structs[owner] : undefined );
+      constSelf = this.isScalarCopyStruct(ows);
+    }
     if ( fret.kind == "opt" ) {
-      head = head + "@(optional)";
+      if ( constSelf ) {
+        head = head + "@(optional const)";
+      } else {
+        head = head + "@(optional)";
+      }
+    } else {
+      if ( constSelf ) {
+        head = head + "@(const)";
+      }
     }
     let lines = [];
     lines.push((((head + ":") + retText) + " (") + (ps.join(" ") + ") {"));
@@ -96943,6 +97099,10 @@ class RustLower  {
       return v.code;
     }
     const name = this.tmp(base);
+    if ( this.isScalarCopyType(t) ) {
+      this.out.line((("def " + this.declText((name + "@(place)"), t)) + " ") + v.code);
+      return name;
+    }
     this.out.line((("def " + this.declText(name, t)) + " ") + v.code);
     return name;
   };

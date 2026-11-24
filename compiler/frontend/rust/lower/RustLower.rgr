@@ -2519,6 +2519,38 @@ class RustLower {
     return s
   }
 
+  ; A `#[derive(Clone, Copy)]` struct, not generic, whose fields are all
+  ; numbers or booleans: a plain value on every target that has one.
+  fn isScalarCopyStruct:boolean (s:RsStruct) {
+    if (false == (s.derivesTrait("Copy"))) {
+      return false
+    }
+    if ((array_length s.generics) > 0) {
+      return false
+    }
+    if ((array_length s.fields) == 0) {
+      return false
+    }
+    for s.fields f:RsField i {
+      def k:string f.ty.kind
+      if (((k == "int") || (k == "double") || (k == "bool")) == false) {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn isScalarCopyType:boolean (t:RsType) {
+    if (t.kind != "named") {
+      return false
+    }
+    if (has structs t.name) {
+      def s:RsStruct (unwrap (get structs t.name))
+      return (this.isScalarCopyStruct(s))
+    }
+    return false
+  }
+
   fn isCopyStruct:boolean (t:RsType) {
     if (t.kind != "named") {
       return false
@@ -3583,7 +3615,13 @@ class RustLower {
 
   fn emitStructAs:string (s:RsStruct cname:string) {
     def lines:[string]
-    push lines (("class " + cname) + " {")
+    if (this.isScalarCopyStruct(s)) {
+      ; @(copy): a Copy struct of scalars only -- a target with value types
+      ; (C++) may hold it by value, since Rust copies it on every read
+      push lines (("class " + cname) + "@(copy) {")
+    } {
+      push lines (("class " + cname) + " {")
+    }
     for s.fields f:RsField i {
       def fdoc:string ""
       if (!null? f.node) {
@@ -3609,7 +3647,11 @@ class RustLower {
     }
     push lines (this.emitStructZero(s cname))
     if ((s.derivesTrait("Clone")) || (s.derivesTrait("Copy"))) {
-      push lines (("  fn rs_clone:" + cname) + " () {")
+      if (this.isScalarCopyStruct(s)) {
+        push lines (("  fn rs_clone@(const):" + cname) + " () {")
+      } {
+        push lines (("  fn rs_clone:" + cname) + " () {")
+      }
       if (s.isTuple) {
         def args:[string]
         for s.fields f4:RsField k2 {
@@ -4276,7 +4318,12 @@ class RustLower {
       }
       if (pat.kind == "pat_ident") {
         def l:RsLocal (this.declare(p.name pty))
-        push ps (this.declText(l.rname pty))
+        def pdecl:string (this.declText(l.rname pty))
+        ; `&T` or `T` of a Copy struct of scalars: C++ takes a copy
+        if ((false == pty.isMutRef) && (this.isScalarCopyType(pty))) {
+          pdecl = (this.declText((l.rname + "@(byval)") pty))
+        }
+        push ps pdecl
       } {
         def wn:string (this.allocLocal("arg"))
         push ps (this.declText(wn pty))
@@ -4361,8 +4408,23 @@ class RustLower {
       }
     }
     def head:string ((("  " + kw) + " ") + name)
+    ; `&self` on a Copy struct of scalars: a C++ value class makes it a const
+    ; member function, callable on an element of a const container
+    def constSelf:boolean false
+    if (f.hasSelf && (false == f.selfMut) && (false == enumOwner) && (has structs owner)) {
+      def ows:RsStruct (unwrap (get structs owner))
+      constSelf = (this.isScalarCopyStruct(ows))
+    }
     if (fret.kind == "opt") {
-      head = head + "@(optional)"
+      if constSelf {
+        head = head + "@(optional const)"
+      } {
+        head = head + "@(optional)"
+      }
+    } {
+      if constSelf {
+        head = head + "@(const)"
+      }
     }
     def lines:[string]
     push lines ((((head + ":") + retText) + " (") + ((join ps " ") + ") {"))
@@ -6260,6 +6322,12 @@ class RustLower {
       return v.code
     }
     def name:string (this.tmp(base))
+    if (this.isScalarCopyType(t)) {
+      ; a place of a Copy struct (`v[i].a = x` writes through it): a target
+      ; that holds the struct by value binds a reference (@(place))
+      out.line(((("def " + (this.declText((name + "@(place)") t))) + " ") + v.code))
+      return name
+    }
     out.line(((("def " + (this.declText(name t))) + " ") + v.code))
     return name
   }

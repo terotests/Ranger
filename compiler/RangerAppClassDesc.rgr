@@ -59,6 +59,8 @@ class RangerAppClassDesc {
   def is_singleton:boolean false
   def is_trait:boolean false
   def is_record:boolean false
+  ; @(copy): a Rust Copy struct of scalars (RustLower.isScalarCopyStruct)
+  def is_copy:boolean false
   def is_operator_class false
   def is_generic_instance false
   def is_union false
