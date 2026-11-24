@@ -2109,6 +2109,10 @@ class RustLower {
         rp.boxed = false
         rp.mutref = true
       }
+      ; `&mut` of a struct C++ holds by value: a `T&` to the caller's place
+      if ((target == "cpp") && rp.ty.isMutRef && (pat.kind == "pat_ident") && (rp.ty.kind == "named") && (this.isScalarCopyType(rp.ty))) {
+        rp.mutref = true
+      }
       push f.params rp
     }
     def ret:RustNode (m.kid(2))
@@ -2664,12 +2668,41 @@ class RustLower {
           return false
         }
       } {
-        if (((k == "int") || (k == "double") || (k == "bool")) == false) {
-          return false
+        if ((k == "vec") && (false == (s.derivesTrait("Copy"))) && (this.plainElem(ft s))) {
+          ; a vector of plain values in a non-Copy struct: the C++ class
+          ; holds the std::vector by value
+        } {
+          if (((k == "int") || (k == "double") || (k == "bool")) == false) {
+            return false
+          }
         }
       }
     }
     return true
+  }
+
+  ; the element of a Vec field that a plain struct may hold: a number, a
+  ; boolean or a plain struct written before s
+  fn plainElem:boolean (ft:RsType s:RsStruct) {
+    if ((array_length ft.args) != 1) {
+      return false
+    }
+    def e:RsType (itemAt ft.args 0)
+    if (e.shared || e.weak || e.isRef || e.isMutRef) {
+      return false
+    }
+    def ek:string e.kind
+    if ((ek == "int") || (ek == "double") || (ek == "bool")) {
+      return true
+    }
+    if ((ek == "named") && (has structs e.name)) {
+      def es:RsStruct (unwrap (get structs e.name))
+      if (false == (this.isScalarCopyStruct(es))) {
+        return false
+      }
+      return ((indexOf structOrder e.name) < (indexOf structOrder s.name))
+    }
+    return false
   }
 
   ; a tuple of numbers and booleans: Copy in Rust, a plain value on C++
@@ -4487,8 +4520,14 @@ class RustLower {
         def l:RsLocal (this.declare(p.name pty))
         def pdecl:string (this.declText(l.rname pty))
         ; `&T` or `T` of a Copy struct of scalars: C++ takes a copy
-        if ((false == pty.isMutRef) && (this.isScalarCopyType(pty))) {
+        if ((false == pty.isMutRef) && (this.isScalarCopyType(pty)) && ((this.isScalarTuple(pty)) || (this.isCopyStruct(pty)))) {
           pdecl = (this.declText((l.rname + "@(byval)") pty))
+        } {
+          ; `&T` of a struct C++ holds by value that Rust only moves: a
+          ; `const T&` (no copy of its vectors)
+          if ((target == "cpp") && pty.isRef && (false == pty.isMutRef) && (pty.kind == "named") && (this.isScalarCopyType(pty))) {
+            pdecl = (this.declText((l.rname + "@(cref)") pty))
+          }
         }
         push ps pdecl
       } {
@@ -4582,34 +4621,33 @@ class RustLower {
       def ows:RsStruct (unwrap (get structs owner))
       constSelf = (this.isScalarCopyStruct(ows))
     }
+    ; the head's flags, in one group (`@(a)@(b)` does not parse)
+    def hflags:[string]
     if (fret.kind == "opt") {
-      if constSelf {
-        head = head + "@(optional const)"
-      } {
-        head = head + "@(optional)"
-      }
-    } {
-      if constSelf {
-        head = head + "@(const)"
-      }
+      push hflags "optional"
+    }
+    if constSelf {
+      push hflags "const"
     }
     ; `fn f(&self) -> &str`: a borrow of self, which the C++ writer may hand
     ; back as `const std::string&` when every return is self's own text
     if ((fret.kind == "string") && fret.isRef && (kw == "fn") && (f.fromTrait == "") && (false == isFmt)) {
-      head = head + "@(ref_return)"
+      push hflags "ref_return"
     }
     if (this.isRcString(fret)) {
-      head = head + "@(rc)"
+      push hflags "rc"
     }
     ; `fn f(&self) -> &T` / `fn f(v: &Vec<T>, i) -> &T` of a struct: the C++
     ; writer may hand back `const std::shared_ptr<T>&` (no count up and down)
     if ((fret.kind == "named") && (fret.isRef || fret.isMutRef) && (has structs fret.name) && (f.fromTrait == "") && (false == isFmt)) {
+      push hflags "ref_return"
       ; `-> &mut T` of a struct held by value: `T&`, not `const T&`
       if (fret.isMutRef) {
-        head = head + "@(ref_return ref_mut)"
-      } {
-        head = head + "@(ref_return)"
+        push hflags "ref_mut"
       }
+    }
+    if ((array_length hflags) > 0) {
+      head = ((head + "@(") + (join hflags " ")) + ")"
     }
     def lines:[string]
     push lines ((((head + ":") + retText) + " (") + ((join ps " ") + ") {"))
@@ -4778,6 +4816,13 @@ class RustLower {
           }
           if (((ip.kind == "unary") && (ip.name == "&mut")) || t.isMutRef) {
             bn = bn + "@(place)"
+          } {
+            ; `let ob = &self.objs[i]` / `let ob = self.ob(i)` of a struct
+            ; Rust only moves: a borrow, bound as a reference (no copy of
+            ; its vectors)
+            if ((false == (this.isCopyStruct(t))) && (false == (this.isScalarTuple(t))) && (((ip.kind == "unary") && (ip.name == "&")) || t.isRef)) {
+              bn = bn + "@(place)"
+            }
           }
         }
         out.line(((("def " + (this.declText(bn t))) + " ") + c.code))
@@ -5866,6 +5911,13 @@ class RustLower {
       ; element itself (`p.x += 1` in an iter_mut() loop writes the vector)
       def lp:RsLocal (this.declare(pat.name t))
       out.line(((("def " + (this.declText((lp.rname + "@(place)") t))) + " ") + code))
+      return
+    }
+    if ((pat.kind == "pat_ident") && (this.isScalarCopyType(t)) && (false == (this.isCopyStruct(t))) && (false == (this.isScalarTuple(t))) && (false == (pat.hasMod("mut")))) {
+      ; `for o in v.iter()` of a struct Rust only moves: the element is
+      ; borrowed, bound as a reference (no copy of its vectors)
+      def lq:RsLocal (this.declare(pat.name t))
+      out.line(((("def " + (this.declText((lq.rname + "@(place)") t))) + " ") + code))
       return
     }
     this.bindForPattern(pat code t)

@@ -1236,9 +1236,10 @@ namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_r
       return false
     }
     ; a @(copy) value class comes back as a reference to the element or
-    ; field (`-> &mut T`: `T&`, writes through it land there)
+    ; field: `-> &T` a `const T&` (no copy of a class that holds vectors),
+    ; `-> &mut T` a `T&` (writes through it land there)
     if (this.cppIsValueClass(rcl ctx)) {
-      if ((rcl.is_copy == false) || ((node.hasFlag("ref_mut")) == false)) {
+      if (rcl.is_copy == false) {
         return false
       }
     }
@@ -3048,6 +3049,16 @@ namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_r
 
   ; A Rust `&mut` of a vector, map, set, string or number (RustLower marks
   ; it @(mutref)): a plain `T&` on C++, where other targets pass an RsBox_.
+  ; A Rust `&T` of a struct C++ holds by value (RustLower marks it
+  ; @(cref)): a `const T&`, whatever the body calls on it.
+  fn cppConstRefParam:boolean (arg:RangerAppParamDesc) {
+    if (null? arg.nameNode) {
+      return false
+    }
+    def tNode:CodeNode (unwrap arg.nameNode)
+    return (tNode.hasFlag("cref"))
+  }
+
   fn cppMutRefParam:boolean (arg:RangerAppParamDesc) {
     if (null? arg.nameNode) {
       return false
@@ -3183,6 +3194,10 @@ namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_r
   ; temporary that pins the call-time object, which is exactly the guarantee
   ; the by-value parameter used to give.
   fn cppNeedsCallTempCopy:boolean (fnDesc:RangerAppFunctionDesc arg:RangerAppParamDesc n:CodeNode ctx:RangerAppWriterContext) {
+    ; a `T&` / `const T&` of a class held by value binds the caller's place
+    if ((this.cppMutRefParam(arg)) || (this.cppConstRefParam(arg)) || (this.cppByvalCopyParam(arg ctx))) {
+      return false
+    }
     if ((this.cppBorrowedObjectParam(fnDesc arg ctx)) == false) {
       return false
     }
@@ -3237,6 +3252,12 @@ namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_r
         continue
       }
       if (this.cppMutRefParam(arg)) {
+        this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
+        wr.out((("& " + arg.compiledName) + " ") false)
+        continue
+      }
+      if (this.cppConstRefParam(arg)) {
+        wr.out("const " false)
         this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
         wr.out((("& " + arg.compiledName) + " ") false)
         continue
@@ -3348,6 +3369,9 @@ namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_r
   fn cppMutableRefParam:boolean (fnDesc:RangerAppFunctionDesc arg:RangerAppParamDesc ctx:RangerAppWriterContext) {
     if (this.cppMutRefParam(arg)) {
       return true
+    }
+    if (this.cppConstRefParam(arg)) {
+      return false
     }
     if (this.cppReadonlyValueParam(arg)) {
       return false
