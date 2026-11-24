@@ -52834,7 +52834,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
         break;
       case 4 : 
-        const s = this.EncodeString(node, ctx, wr);
+        let s = this.EncodeString(node, ctx, wr);
+        if ( s.indexOf(String.fromCharCode(65279)) >= 0 ) {
+          s = s.split(String.fromCharCode(65279)).join("\\ufeff");
+        }
         wr.out(("\"" + s) + "\"", false);
         break;
       case 3 : 

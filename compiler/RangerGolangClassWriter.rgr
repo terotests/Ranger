@@ -214,6 +214,11 @@ class RangerGolangClassWriter {
       }
       case RangerNodeType.String {
         def s:string (this.EncodeString(node ctx wr))
+        ; Go refuses a byte order mark inside the file, even in a string
+        ; literal (CEr's whitespace tests): the escape is the same text
+        if ((indexOf s (strfromcode 65279)) >= 0) {
+          s = (replace s (strfromcode 65279) "\\ufeff")
+        }
         wr.out((("\"" + s) + "\"") false)
       }
       case RangerNodeType.Integer {
