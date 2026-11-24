@@ -18,7 +18,7 @@ class CLIConsole {
     def inputFile:string ""
     def outputFile:string ""
     def targetLanguage:string ""
-    def compilerVersion:string "3.5.1"
+    def compilerVersion:string "4.1.0"
     
     Constructor () {
         ; Detect if colors should be used

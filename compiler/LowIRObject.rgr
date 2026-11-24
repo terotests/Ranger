@@ -546,6 +546,8 @@ extension LowIRBuilderPass {
     def emptyOwned:[string]
     def emptyParamNames:[string]
     lctx.paramNames = emptyParamNames
+    def emptyOptStr:[string]
+    lctx.optionalStringLocals = emptyOptStr
     def emptyCaptured:[string]
     lctx.capturedNames = emptyCaptured
     lctx.ownedObjectLocals = emptyOwned

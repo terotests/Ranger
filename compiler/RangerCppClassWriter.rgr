@@ -3517,12 +3517,12 @@ class RangerCppClassWriter {
       ; downstream has to know which form the enum got.
       def cppEnumRoot:RangerAppWriterContext (ctx.getRoot())
       def wroteAnyEnum:boolean false
-      for (keys cppEnumRoot.definedEnums) cen:string cei {
+      for cppEnumRoot.definedEnumOrder cen:string cei {
         if (this.cppEnumIsNative(cen ctx)) {
           def ceDef:RangerAppEnum (unwrap (get cppEnumRoot.definedEnums cen))
           wr.out((("enum class " + cen) + " : int {") true)
           wr.indent(1)
-          for (keys ceDef.values) cmn:string cmi {
+          for ceDef.order cmn:string cmi {
             def cmv:int (unwrap (get ceDef.values cmn))
             def ceLine:string ((cmn + " = ") + (to_string cmv))
             wr.out((ceLine + ",") true)

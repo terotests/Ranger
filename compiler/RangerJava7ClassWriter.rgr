@@ -66,7 +66,7 @@ class RangerJava7ClassWriter {
     java_enums_written = true
     def package_name:string (ctx.getCompilerSetting("package"))
     def enumRoot:RangerAppWriterContext (ctx.getRoot())
-    for (keys enumRoot.definedEnums) jen:string jei {
+    for enumRoot.definedEnumOrder jen:string jei {
       if (this.javaEnumIsNative(jen ctx)) {
         def jeDef:RangerAppEnum (unwrap (get enumRoot.definedEnums jen))
         def eWr:CodeWriter (wr.getFileWriter("." (jen + ".java")))
@@ -78,7 +78,7 @@ class RangerJava7ClassWriter {
         eWr.out(("public enum " + jen + " {") true)
         eWr.indent(1)
         def jeFirst:boolean true
-        for (keys jeDef.values) jmn:string jmi {
+        for jeDef.order jmn:string jmi {
           if jeFirst {
             eWr.out((ctx.transformWord(jmn)) false)
             jeFirst = false
@@ -1234,6 +1234,12 @@ public class RgJson {
       return
     }
     if(cmd == "return") {
+      ; javac rejects a statement after `while (true)` with no break in it
+      ; ("unreachable statement"); the other targets accept the return the
+      ; source writes there (and Swift needs it)
+      if (this.javaFollowsEndlessLoop(node)) {
+        return
+      }
       wr.newline()
       if( (array_length node.children ) > 1 ) {
         def value:CodeNode (node.getSecond())
@@ -1250,6 +1256,51 @@ public class RgJson {
       }
     }
   }  
+
+  fn javaHasBreak:boolean (node:CodeNode) {
+    if ((node.expression == false) && (node.vref == "break")) {
+      return true
+    }
+    for node.children ch:CodeNode i {
+      if (this.javaHasBreak(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Is `node` the statement right after a `while true` whose body has no
+  ; `break` anywhere in it?
+  fn javaFollowsEndlessLoop:boolean (node:CodeNode) {
+    if (null? node.parent) {
+      return false
+    }
+    def par:CodeNode (unwrap node.parent)
+    def idx:int (indexOf par.children node)
+    if (idx < 1) {
+      return false
+    }
+    def prev:CodeNode (itemAt par.children (idx - 1))
+    if ((array_length prev.children) < 3) {
+      return false
+    }
+    def head:CodeNode (prev.getFirst())
+    if (head.vref != "while") {
+      return false
+    }
+    def cond:CodeNode (prev.getSecond())
+    def isTrue:boolean false
+    if ((cond.value_type == RangerNodeType.Boolean) && cond.boolean_value) {
+      isTrue = true
+    }
+    if ((cond.expression == false) && (cond.vref == "true")) {
+      isTrue = true
+    }
+    if (isTrue == false) {
+      return false
+    }
+    return ((this.javaHasBreak((prev.getThird()))) == false)
+  }
 
   fn buildLambdaSignature:string (node:CodeNode) {
       def exp node

@@ -166,6 +166,8 @@ extension LowIRBuilderPass {
     def emptyOwned:[string]
     def emptyParamNames:[string]
     lctx.paramNames = emptyParamNames
+    def emptyOptStr:[string]
+    lctx.optionalStringLocals = emptyOptStr
     def emptyCaptured:[string]
     lctx.capturedNames = emptyCaptured
     lctx.ownedObjectLocals = emptyOwned
@@ -234,6 +236,7 @@ extension LowIRBuilderPass {
       if ((strlen lp.name) == 0) {
         lp.name = p.name
       }
+      lp.name = (LowIRUtil.ssaParamName(lp.name))
       def pn (unwrap p.nameNode)
       def paramTypeName (this.varTypeName(pn))
       lp.irType = (this.llvmTypeForRanger(paramTypeName lctx.ptrType))
@@ -308,7 +311,7 @@ extension LowIRBuilderPass {
       if (this.isLambdaTypeNode(pn)) {
         pType = lctx.ptrType
       }
-      def paramVal:string ("%" + lpName)
+      def paramVal:string ("%" + (LowIRUtil.ssaParamName(lpName)))
       push lctx.paramNames lpName
       this.bindSlot(p.name pType paramVal lctx)
       ; A MAP parameter also spells its type with a leading "[", so it matched
@@ -510,6 +513,8 @@ extension LowIRBuilderPass {
     def emptyOwned:[string]
     def emptyParamNames:[string]
     lctx.paramNames = emptyParamNames
+    def emptyOptStr:[string]
+    lctx.optionalStringLocals = emptyOptStr
     def emptyCaptured:[string]
     lctx.capturedNames = emptyCaptured
     lctx.ownedObjectLocals = emptyOwned
@@ -546,13 +551,13 @@ extension LowIRBuilderPass {
     push params envParam
     for lam.params p:RangerAppParamDesc i {
       def lp@(lives):LowIRParam (new LowIRParam())
-      lp.name = p.name
+      lp.name = (LowIRUtil.ssaParamName(p.name))
       def pn (unwrap p.nameNode)
       def paramTypeName (this.varTypeName(pn))
       lp.irType = (this.llvmTypeForRanger(paramTypeName lctx.ptrType))
       push params lp
       push lctx.paramNames p.name
-      this.bindSlot(p.name lp.irType ("%" + p.name) lctx)
+      this.bindSlot(p.name lp.irType ("%" + lp.name) lctx)
       if (this.isObjectTypeName(paramTypeName)) {
         set lctx.objectSlots p.name paramTypeName
       }

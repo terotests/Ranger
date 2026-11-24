@@ -81,7 +81,7 @@ class RangerPythonClassWriter {
     python_enums_written = true
     def enumRoot:RangerAppWriterContext (ctx.getRoot())
     def wroteAny:boolean false
-    for (keys enumRoot.definedEnums) pen:string pei {
+    for enumRoot.definedEnumOrder pen:string pei {
       if (this.pyEnumIsNative(pen ctx)) {
         def peDef:RangerAppEnum (unwrap (get enumRoot.definedEnums pen))
         if (wroteAny == false) {
@@ -91,7 +91,7 @@ class RangerPythonClassWriter {
         }
         wr.out(("class " + pen + "(IntEnum):") true)
         wr.indent(1)
-        for (keys peDef.values) pmn:string pmi {
+        for peDef.order pmn:string pmi {
           def pmv:int (unwrap (get peDef.values pmn))
           wr.out(((ctx.transformWord(pmn)) + " = " + (to_string pmv)) true)
         }

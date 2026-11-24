@@ -28,11 +28,19 @@ class RangerAppEnum {
   def name:string ""
   def cnt:int 0
   def values:[string:int]
+  ; the member names in declaration order: a map's keys come back in a
+  ; different order on Go (and in a random one on every call), and a writer
+  ; that lists the members must write the same file on every host
+  def order:[string]
   def node:CodeNode
   fn add:void (n:string) {
     ; the counter first: writing one own field while reading another in the
     ; same statement is a mutable and a shared borrow of one object at once
     def nextVal:int cnt
+    if (has values n) {
+      return
+    }
+    push order n
     set values n nextVal
     cnt = (cnt + 1)
   }
@@ -201,6 +209,8 @@ class RangerAppWriterContext {
   def currentMethod@(weak):RangerAppFunctionDesc
   def thisName@(rare):string "this"
   def definedEnums@(lazy):[string:RangerAppEnum]
+  ; the names of definedEnums in declaration order (see RangerAppEnum.order)
+  def definedEnumOrder@(lazy):[string]
   def definedInterfaces@(lazy):[string:RangerAppClassDesc]
   def definedInterfaceList@(lazy):[string]
   def definedClasses@(lazy):[string:RangerAppClassDesc]

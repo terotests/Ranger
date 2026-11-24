@@ -50,14 +50,15 @@ class RangerGolangClassWriter {
     }
     go_enums_written = true
     def enumRoot:RangerAppWriterContext (ctx.getRoot())
-    for (keys enumRoot.definedEnums) gen:string gei {
-      if (this.goEnumIsNative(gen ctx)) {
+    ; declaration order, not map order: the same file on every host
+    for enumRoot.definedEnumOrder gen:string gei {
+      if ((has enumRoot.definedEnums gen) && (this.goEnumIsNative(gen ctx))) {
         def geDef:RangerAppEnum (unwrap (get enumRoot.definedEnums gen))
         wr.out("" true)
         wr.out(("type " + gen + " int64") true)
         wr.out("const (" true)
         wr.indent(1)
-        for (keys geDef.values) gmn:string gmi {
+        for geDef.order gmn:string gmi {
           def gmv:int (unwrap (get geDef.values gmn))
           wr.out(((this.goEnumMemberName(gen gmn ctx)) + " " + gen + " = " + (to_string gmv)) true)
         }
@@ -1461,7 +1462,27 @@ class RangerGolangClassWriter {
                 ctx.unsetInExpr()
               }
               wr.out(";" true)
-              wr.out((p.compiledName + ".has_value = true;") true)
+              ; a call typed as returning an object can still hand back
+              ; nil -- `def c@(optional) (ctx.findClass(n))` for a name that
+              ; is no class -- and the null test after it is the reason
+              ; the local is optional: a nil pointer is no value
+              def nilCheck:boolean false
+              if (value.hasNewOper == false) {
+                def pnnO@(optional):CodeNode p.nameNode
+                if (!null? pnnO) {
+                  def pnnC:CodeNode (unwrap pnnO)
+                  if ((((strlen pnnC.array_type) == 0) && ((strlen pnnC.key_type) == 0)) && (ctx.hasClass(pnnC.type_name))) {
+                    nilCheck = true
+                  }
+                }
+              }
+              if nilCheck {
+                wr.addImport("reflect")
+                wr.out((((p.compiledName + ".has_value = ") + p.compiledName) + ".value != nil && !reflect.ValueOf(") false)
+                wr.out((p.compiledName + ".value).IsNil();") true)
+              } {
+                wr.out((p.compiledName + ".has_value = true;") true)
+              }
               return
             }
             ; An optional is a *GoNullable BOX, so a plain assignment makes the

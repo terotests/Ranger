@@ -1585,7 +1585,7 @@ extension LowIRBuilderPass {
       if (opName == "shell_arg") {
         return (this.lowerShellArg(node lctx))
       }
-      if (opName == "read_file") {
+      if ((opName == "read_file") || (opName == "read_file_sync")) {
         return (this.lowerReadFile(node lctx))
       }
       if (opName == "buffer_alloc") {
@@ -1599,6 +1599,21 @@ extension LowIRBuilderPass {
       }
       if (opName == "buffer_fill") {
         return (this.lowerBufferFill(node lctx))
+      }
+      if (opName == "char_length") {
+        return (this.lowerCharLength(node lctx))
+      }
+      if (opName == "to_chars") {
+        return (this.lowerToChars(node lctx))
+      }
+      if (opName == "buffer_from_string") {
+        return (this.lowerBufferFromString(node lctx))
+      }
+      if (opName == "buffer_copy") {
+        return (this.lowerBufferCopy(node lctx))
+      }
+      if (opName == "run_process_result") {
+        return (this.lowerRunProcessResult(node lctx))
       }
       if (opName == "buffer_set") {
         return (this.lowerBufferSet(node lctx))
@@ -1862,6 +1877,7 @@ extension LowIRBuilderPass {
     if (op == "replace") { return true }
     if (op == "join") { return true }
     if (op == "read_file") { return true }
+    if (op == "read_file_sync") { return true }
     if (op == "buffer_to_string") { return true }
     if (op == "env_var") { return true }
     if (op == "sha256") { return true }
@@ -2031,6 +2047,7 @@ extension LowIRBuilderPass {
       if (rOp == "to_lowercase") { return true }
       if (rOp == "to_uppercase") { return true }
       if (rOp == "read_file") { return true }
+      if (rOp == "read_file_sync") { return true }
       if (rOp == "shell_arg") { return true }
     }
     ; An element READ out of a [string] array is a string. Without this the
@@ -2266,11 +2283,18 @@ extension LowIRBuilderPass {
       builder.terminateBrIf(a endL rhsL)
     }
     builder.startBlock(rhsL)
+    ; Temps the right operand makes exist only on this path, so they are
+    ; released here: flushed at the end of the statement they would be used
+    ; in a block they do not dominate, which opt rejects.
+    def strMark (array_length lctx.pendingStringTemps)
+    def objMark (array_length lctx.pendingObjectTemps)
     def b (this.lowerCondOperand((node.getThird()) lctx))
     builder.emitStore("i1" b slot)
     if (!null? builder.currentBlock) {
       def rb (unwrap builder.currentBlock)
       if (rb.termKind == "") {
+        this.flushStringTempsFrom(strMark lctx)
+        this.flushObjectTempsFrom(objMark lctx)
         builder.terminateBr(endL)
       }
     }

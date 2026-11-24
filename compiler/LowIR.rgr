@@ -5,6 +5,16 @@
 ; Phase 1: Ranger AST ? Low IR ? LLVM IR / WAT
 
 class LowIRUtil {
+  ; The SSA name of a parameter. Labels and values share one namespace in an
+  ; LLVM function, so a parameter called `entry` collided with the entry
+  ; block and the module did not assemble (RustCrateLoader.load has one).
+  static fn ssaParamName:string (name:string) {
+    if (name == "entry") {
+      return "entry.p"
+    }
+    return name
+  }
+
   static fn typeFromRanger:string (typeName:string) {
     switch typeName {
       case "int" {

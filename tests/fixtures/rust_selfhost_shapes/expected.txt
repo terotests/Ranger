@@ -1,0 +1,8 @@
+printf libc
+a|a|b
+b||b
+none x,y
+Base base
+Derived base
+no value
+v

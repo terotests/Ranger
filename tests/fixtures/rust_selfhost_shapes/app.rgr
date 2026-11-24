@@ -1,0 +1,89 @@
+; Shapes from the compiler's own sources that the Rust target got wrong
+; (tests/rust-selfhost-shapes.test.ts).
+
+class Tgt {
+  def ioFn:string "printf"
+  def usesLibc:boolean true
+}
+
+class Val {
+  def text:string "v"
+}
+
+; extended, so a field of it of class type is Option<RefCell<T>>
+class Base {
+  def name:string "base"
+  def value:Val
+  fn describe:string () {
+    return ("Base " + name)
+  }
+}
+
+class Derived {
+  Extends (Base)
+  fn describe:string () {
+    return ("Derived " + name)
+  }
+}
+
+class Holder {
+  def target:Tgt
+  def chain@(optional):[string]
+  def init@(optional):[int]
+}
+
+class Main {
+  fn readTarget:string (h:Holder) {
+    ; a local copied from an optional field keeps the Option
+    def target (h.target)
+    def t2:Tgt h.target
+    def s:string target.ioFn
+    if t2.usesLibc {
+      s = s + " libc"
+    }
+    return s
+  }
+  fn pick:string (a:string b:string) {
+    ; both names are read again after the expression
+    def k:string (? ((strlen a) > 0) a b)
+    return (k + "|" + a + "|" + b)
+  }
+  fn chains:string (h:Holder) {
+    def out:string ""
+    if (null? h.chain) {
+      out = "none"
+    }
+    def lst:[string]
+    push lst "x"
+    push lst "y"
+    h.chain = lst
+    if (!null? h.chain) {
+      def c:[string] (unwrap h.chain)
+      out = out + " " + (join c ",")
+    }
+    return out
+  }
+  fn unwrapVal:string (b:Base) {
+    if (!null? b.value) {
+      def v:Val (unwrap b.value)
+      return v.text
+    }
+    return "no value"
+  }
+  sfn main@(main):void () {
+    def m (new Main)
+    def h (new Holder)
+    h.target = (new Tgt)
+    print (m.readTarget(h))
+    print (m.pick("a" "b"))
+    print (m.pick("" "b"))
+    print (m.chains(h))
+    def w:Base (new Base)
+    print (w.describe())
+    def d:Base (new Derived)
+    print (d.describe())
+    print (m.unwrapVal(w))
+    w.value = (new Val)
+    print (m.unwrapVal(w))
+  }
+}

@@ -6803,10 +6803,15 @@ class RangerAppEnum  {
     this.name = "";     /* note: unused */
     this.cnt = 0;
     this.values = {};
+    this.order = [];
     this.node = undefined;     /* note: unused */
   }
   add (n) {
     const nextVal = this.cnt;
+    if ( ( typeof(this.values[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.values, n) ) ) {
+      return;
+    }
+    this.order.push(n);
     this.values[n] = nextVal;
     this.cnt = this.cnt + 1;
   };
@@ -6887,6 +6892,7 @@ class RangerAppWriterContext  {
     this.currentMethod = undefined;
     this.thisName = "this";
     this.__lz_definedEnums = undefined;
+    this.__lz_definedEnumOrder = undefined;
     this.__lz_definedInterfaces = undefined;     /* note: unused */
     this.__lz_definedInterfaceList = undefined;     /* note: unused */
     this.__lz_definedClasses = undefined;
@@ -6965,6 +6971,8 @@ class RangerAppWriterContext  {
   set typeClasses (v) { this.__lz_typeClasses = v; }
   get definedEnums () { if (this.__lz_definedEnums === undefined) { this.__lz_definedEnums = {}; } return this.__lz_definedEnums; }
   set definedEnums (v) { this.__lz_definedEnums = v; }
+  get definedEnumOrder () { if (this.__lz_definedEnumOrder === undefined) { this.__lz_definedEnumOrder = []; } return this.__lz_definedEnumOrder; }
+  set definedEnumOrder (v) { this.__lz_definedEnumOrder = v; }
   get definedInterfaces () { if (this.__lz_definedInterfaces === undefined) { this.__lz_definedInterfaces = {}; } return this.__lz_definedInterfaces; }
   set definedInterfaces (v) { this.__lz_definedInterfaces = v; }
   get definedInterfaceList () { if (this.__lz_definedInterfaceList === undefined) { this.__lz_definedInterfaceList = []; } return this.__lz_definedInterfaceList; }
@@ -23522,6 +23530,9 @@ class RangerFlowParser  {
         const fc_1 = item.getFirst();
         new_enum.add(fc_1.vref);
       }
+      if ( ( typeof(ctx.definedEnums[fNameNode.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.definedEnums, fNameNode.vref) ) == false ) {
+        ctx.definedEnumOrder.push(fNameNode.vref);
+      }
       ctx.definedEnums[fNameNode.vref] = new_enum;
       find_more = false;
     }
@@ -23536,6 +23547,9 @@ class RangerFlowParser  {
       // Loop start
       for ( const item_1 of enumList_1.children) {
         new_enum_1.add(item_1.vref);
+      }
+      if ( ( typeof(ctx.definedEnums[fNameNode_1.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.definedEnums, fNameNode_1.vref) ) == false ) {
+        ctx.definedEnumOrder.push(fNameNode_1.vref);
       }
       ctx.definedEnums[fNameNode_1.vref] = new_enum_1;
       find_more = false;
@@ -27491,45 +27505,42 @@ class EnumNativeAnalysis  {
     const root = ctx.getRoot();
     const diag = ctx.hasCompilerFlag("strict-ownership");
     // Loop start
-    {
-      const __rg_list = Object.keys(root.definedEnums);
-      for ( let ei = 0; ei < __rg_list.length; ei++) {
-        var ename = __rg_list[ei];
-        let reason = "";
-        for( var ci in root.definedClasses) {
-          if(root.definedClasses.hasOwnProperty(ci)) {
-            var cl = root.definedClasses[ci] 
-            if ( reason.length > 0 ) {
-              continue;
-            }
-            if ( (((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
-              continue;
-            }
-            if ( cl.is_serialized ) {
-              // Loop start
-              for ( const sv of cl.variables) {
-                const svNN = sv.nameNode;
-                if ( (typeof(svNN) !== "undefined" && svNN != null )  ) {
-                  const svN = svNN;
-                  if ( svN.type_name == ename ) {
-                    reason = "a field of an @serialize class";
-                  }
+    for ( let ei = 0; ei < root.definedEnumOrder.length; ei++) {
+      var ename = root.definedEnumOrder[ei];
+      let reason = "";
+      for( var ci in root.definedClasses) {
+        if(root.definedClasses.hasOwnProperty(ci)) {
+          var cl = root.definedClasses[ci] 
+          if ( reason.length > 0 ) {
+            continue;
+          }
+          if ( (((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union ) {
+            continue;
+          }
+          if ( cl.is_serialized ) {
+            // Loop start
+            for ( const sv of cl.variables) {
+              const svNN = sv.nameNode;
+              if ( (typeof(svNN) !== "undefined" && svNN != null )  ) {
+                const svN = svNN;
+                if ( svN.type_name == ename ) {
+                  reason = "a field of an @serialize class";
                 }
               }
             }
-            reason = this.scanFns(cl.methods, ename, ctx, reason);
-            reason = this.scanFns(cl.static_methods, ename, ctx, reason);
           }
-        };
-        if ( reason.length == 0 ) {
-          this.nativeEnums[ename] = true;
-          if ( diag ) {
-            console.log(((("enum[" + this.targetName) + "] ") + ename) + " -> native enum");
-          }
-        } else {
-          if ( diag ) {
-            console.log(((((("enum[" + this.targetName) + "] ") + ename) + (" -> " + this.fallbackType)) + (" (" + reason)) + ")");
-          }
+          reason = this.scanFns(cl.methods, ename, ctx, reason);
+          reason = this.scanFns(cl.static_methods, ename, ctx, reason);
+        }
+      };
+      if ( reason.length == 0 ) {
+        this.nativeEnums[ename] = true;
+        if ( diag ) {
+          console.log(((("enum[" + this.targetName) + "] ") + ename) + " -> native enum");
+        }
+      } else {
+        if ( diag ) {
+          console.log(((((("enum[" + this.targetName) + "] ") + ename) + (" -> " + this.fallbackType)) + (" (" + reason)) + ")");
         }
       }
     }
@@ -27604,38 +27615,31 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     const package_name = ctx.getCompilerSetting("package");
     const enumRoot = ctx.getRoot();
     // Loop start
-    {
-      const __rg_list = Object.keys(enumRoot.definedEnums);
-      for ( let jei = 0; jei < __rg_list.length; jei++) {
-        var jen = __rg_list[jei];
-        if ( this.javaEnumIsNative(jen, ctx) ) {
-          const jeDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, jen) ? enumRoot.definedEnums[jen] : undefined );
-          const eWr = wr.getFileWriter(".", (jen + ".java"));
-          if ( this.isPackaged(ctx) ) {
-            if ( package_name.length > 0 ) {
-              eWr.out(("package " + package_name) + ";", true);
-            }
+    for ( let jei = 0; jei < enumRoot.definedEnumOrder.length; jei++) {
+      var jen = enumRoot.definedEnumOrder[jei];
+      if ( this.javaEnumIsNative(jen, ctx) ) {
+        const jeDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, jen) ? enumRoot.definedEnums[jen] : undefined );
+        const eWr = wr.getFileWriter(".", (jen + ".java"));
+        if ( this.isPackaged(ctx) ) {
+          if ( package_name.length > 0 ) {
+            eWr.out(("package " + package_name) + ";", true);
           }
-          eWr.out(("public enum " + jen) + " {", true);
-          eWr.indent(1);
-          let jeFirst = true;
-          // Loop start
-          {
-            const __rg_list = Object.keys(jeDef.values);
-            for ( let jmi = 0; jmi < __rg_list.length; jmi++) {
-              var jmn = __rg_list[jmi];
-              if ( jeFirst ) {
-                eWr.out(ctx.transformWord(jmn), false);
-                jeFirst = false;
-              } else {
-                eWr.out("," + ctx.transformWord(jmn), false);
-              }
-            }
-          }
-          eWr.out("", true);
-          eWr.indent(-1);
-          eWr.out("}", true);
         }
+        eWr.out(("public enum " + jen) + " {", true);
+        eWr.indent(1);
+        let jeFirst = true;
+        // Loop start
+        for ( const jmn of jeDef.order) {
+          if ( jeFirst ) {
+            eWr.out(ctx.transformWord(jmn), false);
+            jeFirst = false;
+          } else {
+            eWr.out("," + ctx.transformWord(jmn), false);
+          }
+        }
+        eWr.out("", true);
+        eWr.indent(-1);
+        eWr.out("}", true);
       }
     }
   };
@@ -28450,6 +28454,9 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       return;
     }
     if ( cmd == "return" ) {
+      if ( this.javaFollowsEndlessLoop(node) ) {
+        return;
+      }
       wr.newline();
       if ( node.children.length > 1 ) {
         const value = node.getSecond();
@@ -28462,6 +28469,48 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
         wr.out("return;", true);
       }
     }
+  };
+  javaHasBreak (node) {
+    if ( node.expression == false && node.vref == "break" ) {
+      return true;
+    }
+    // Loop start
+    for ( const ch of node.children) {
+      if ( this.javaHasBreak(ch) ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  javaFollowsEndlessLoop (node) {
+    if ( (node.parent == null) ) {
+      return false;
+    }
+    const par = node.parent;
+    const idx = par.children.indexOf(node);
+    if ( idx < 1 ) {
+      return false;
+    }
+    const prev = par.children[(idx - 1)];
+    if ( prev.children.length < 3 ) {
+      return false;
+    }
+    const head = prev.getFirst();
+    if ( head.vref != "while" ) {
+      return false;
+    }
+    const cond = prev.getSecond();
+    let isTrue = false;
+    if ( cond.value_type == 5 && cond.boolean_value ) {
+      isTrue = true;
+    }
+    if ( cond.expression == false && cond.vref == "true" ) {
+      isTrue = true;
+    }
+    if ( isTrue == false ) {
+      return false;
+    }
+    return this.javaHasBreak(prev.getThird()) == false;
   };
   buildLambdaSignature (node) {
     const exp = node;
@@ -28878,27 +28927,21 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     this.swift3_enums_written = true;
     const enumRoot = ctx.getRoot();
     // Loop start
-    {
-      const __rg_list = Object.keys(enumRoot.definedEnums);
-      for ( let sei = 0; sei < __rg_list.length; sei++) {
-        var sen = __rg_list[sei];
-        if ( this.sw3EnumIsNative(sen, ctx) ) {
-          const seDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, sen) ? enumRoot.definedEnums[sen] : undefined );
-          wr.out("", true);
-          wr.out(("enum " + sen) + " : Int {", true);
-          wr.indent(1);
-          // Loop start
-          {
-            const __rg_list = Object.keys(seDef.values);
-            for ( let smi = 0; smi < __rg_list.length; smi++) {
-              var smn = __rg_list[smi];
-              const smv = ( Object.prototype.hasOwnProperty.call(seDef.values, smn) ? seDef.values[smn] : undefined );
-              wr.out((("case " + ctx.transformWord(smn)) + " = ") + ((smv).toString()), true);
-            }
-          }
-          wr.indent(-1);
-          wr.out("}", true);
+    for ( let sei = 0; sei < enumRoot.definedEnumOrder.length; sei++) {
+      var sen = enumRoot.definedEnumOrder[sei];
+      if ( this.sw3EnumIsNative(sen, ctx) ) {
+        const seDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, sen) ? enumRoot.definedEnums[sen] : undefined );
+        wr.out("", true);
+        wr.out(("enum " + sen) + " : Int {", true);
+        wr.indent(1);
+        // Loop start
+        for ( let smi = 0; smi < seDef.order.length; smi++) {
+          var smn = seDef.order[smi];
+          const smv = ( Object.prototype.hasOwnProperty.call(seDef.values, smn) ? seDef.values[smn] : undefined );
+          wr.out((("case " + ctx.transformWord(smn)) + " = ") + ((smv).toString()), true);
         }
+        wr.indent(-1);
+        wr.out("}", true);
       }
     }
   };
@@ -30031,27 +30074,21 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
     this.swift_enums_written = true;
     const enumRoot = ctx.getRoot();
     // Loop start
-    {
-      const __rg_list = Object.keys(enumRoot.definedEnums);
-      for ( let sei = 0; sei < __rg_list.length; sei++) {
-        var sen = __rg_list[sei];
-        if ( this.swEnumIsNative(sen, ctx) ) {
-          const seDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, sen) ? enumRoot.definedEnums[sen] : undefined );
-          wr.out("", true);
-          wr.out(("public enum " + sen) + " : Int {", true);
-          wr.indent(1);
-          // Loop start
-          {
-            const __rg_list = Object.keys(seDef.values);
-            for ( let smi = 0; smi < __rg_list.length; smi++) {
-              var smn = __rg_list[smi];
-              const smv = ( Object.prototype.hasOwnProperty.call(seDef.values, smn) ? seDef.values[smn] : undefined );
-              wr.out((("case " + ctx.transformWord(smn)) + " = ") + ((smv).toString()), true);
-            }
-          }
-          wr.indent(-1);
-          wr.out("}", true);
+    for ( let sei = 0; sei < enumRoot.definedEnumOrder.length; sei++) {
+      var sen = enumRoot.definedEnumOrder[sei];
+      if ( this.swEnumIsNative(sen, ctx) ) {
+        const seDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, sen) ? enumRoot.definedEnums[sen] : undefined );
+        wr.out("", true);
+        wr.out(("public enum " + sen) + " : Int {", true);
+        wr.indent(1);
+        // Loop start
+        for ( let smi = 0; smi < seDef.order.length; smi++) {
+          var smn = seDef.order[smi];
+          const smv = ( Object.prototype.hasOwnProperty.call(seDef.values, smn) ? seDef.values[smn] : undefined );
+          wr.out((("case " + ctx.transformWord(smn)) + " = ") + ((smv).toString()), true);
         }
+        wr.indent(-1);
+        wr.out("}", true);
       }
     }
   };
@@ -34867,28 +34904,22 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       const cppEnumRoot = ctx.getRoot();
       let wroteAnyEnum = false;
       // Loop start
-      {
-        const __rg_list = Object.keys(cppEnumRoot.definedEnums);
-        for ( let cei = 0; cei < __rg_list.length; cei++) {
-          var cen = __rg_list[cei];
-          if ( this.cppEnumIsNative(cen, ctx) ) {
-            const ceDef = ( Object.prototype.hasOwnProperty.call(cppEnumRoot.definedEnums, cen) ? cppEnumRoot.definedEnums[cen] : undefined );
-            wr.out(("enum class " + cen) + " : int {", true);
-            wr.indent(1);
-            // Loop start
-            {
-              const __rg_list = Object.keys(ceDef.values);
-              for ( let cmi = 0; cmi < __rg_list.length; cmi++) {
-                var cmn = __rg_list[cmi];
-                const cmv = ( Object.prototype.hasOwnProperty.call(ceDef.values, cmn) ? ceDef.values[cmn] : undefined );
-                const ceLine = (cmn + " = ") + ((cmv).toString());
-                wr.out(ceLine + ",", true);
-                wroteAnyEnum = true;
-              }
-            }
-            wr.indent(-1);
-            wr.out("};", true);
+      for ( let cei = 0; cei < cppEnumRoot.definedEnumOrder.length; cei++) {
+        var cen = cppEnumRoot.definedEnumOrder[cei];
+        if ( this.cppEnumIsNative(cen, ctx) ) {
+          const ceDef = ( Object.prototype.hasOwnProperty.call(cppEnumRoot.definedEnums, cen) ? cppEnumRoot.definedEnums[cen] : undefined );
+          wr.out(("enum class " + cen) + " : int {", true);
+          wr.indent(1);
+          // Loop start
+          for ( let cmi = 0; cmi < ceDef.order.length; cmi++) {
+            var cmn = ceDef.order[cmi];
+            const cmv = ( Object.prototype.hasOwnProperty.call(ceDef.values, cmn) ? ceDef.values[cmn] : undefined );
+            const ceLine = (cmn + " = ") + ((cmv).toString());
+            wr.out(ceLine + ",", true);
+            wroteAnyEnum = true;
           }
+          wr.indent(-1);
+          wr.out("};", true);
         }
       }
       if ( wroteAnyEnum ) {
@@ -36874,7 +36905,21 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             }
           }
         } else {
-          if ( p.is_optional ) {
+          let segOpt = p.is_optional;
+          if ( segOpt == false && i == 0 ) {
+            if ( p.varType == 5 && p.rust_needs_rc_wrap == false ) {
+              const segLocNN = p.nameNode;
+              if ( (typeof(segLocNN) !== "undefined" && segLocNN != null )  ) {
+                const segLocN = segLocNN;
+                if ( segLocN.hasFlag("optional") && (segLocN.array_type.length == 0 && segLocN.key_type.length == 0) ) {
+                  if ( this.rustClassIsShared(segLocN.type_name, ctx) == false ) {
+                    segOpt = true;
+                  }
+                }
+              }
+            }
+          }
+          if ( segOpt ) {
             if ( i < nsp_len - 1 ) {
               let field_is_trait_type = false;
               const pNameN = p.nameNode;
@@ -37802,8 +37847,19 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             }
           }
         }
+        let localDynWrap = false;
         if ( (local_needs_rc_wrap && init_rc_state == 0) && optInitPassthrough == false ) {
+          const ldwCls = ctx.findClass(nameN.type_name);
+          if ( (typeof(ldwCls) !== "undefined" && ldwCls != null )  ) {
+            const ldwC = ldwCls;
+            if ( (ldwC.is_extended_by_children && this.rustTypeIsOwnHandle(nameN.type_name, ctx)) && this.rustTraitFamilyIsReentrant(ldwC, ctx) ) {
+              localDynWrap = true;
+            }
+          }
           wr.out("Rc::new(RefCell::new(", false);
+          if ( localDynWrap ) {
+            wr.out("Rc::new(RefCell::new(", false);
+          }
         }
         let wroteUnionInit = false;
         if ( local_is_union_slot ) {
@@ -37844,6 +37900,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         if ( local_needs_rc_wrap && optInitPassthrough == false ) {
           if ( init_rc_state == 0 ) {
             wr.out("))", false);
+            if ( localDynWrap ) {
+              wr.out("))", false);
+            }
           }
           if ( init_rc_state == 1 ) {
             wr.out(".clone()", false);
@@ -38259,6 +38318,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     if ( nsLen == 1 && node.hasParamDesc ) {
       const bp = node.paramDesc;
       if ( bp.varType == 8 ) {
+        if ( this.rustFieldIsCopyScalar(bp, ctx) == false ) {
+          return ".clone()";
+        }
+      }
+      if ( bp.varType == 5 ) {
         if ( this.rustFieldIsCopyScalar(bp, ctx) == false ) {
           return ".clone()";
         }
@@ -43414,7 +43478,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           }
           if ( is_optional ) {
             if ( nn.array_type.length > 0 || nn.key_type.length > 0 ) {
-              is_optional = false;
+              if ( nn.hasFlag("optional") == false ) {
+                is_optional = false;
+              }
             }
           }
           if ( nn.hasFlag("weak") ) {
@@ -43444,7 +43510,17 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         }
       }
       if ( left_is_array ) {
-        is_optional = false;
+        let leftArrDeclOpt = false;
+        if ( left.hasParamDesc ) {
+          const lpArr = left.paramDesc;
+          const lpArrNN = lpArr.nameNode;
+          if ( (typeof(lpArrNN) !== "undefined" && lpArrNN != null )  ) {
+            leftArrDeclOpt = lpArrNN.hasFlag("optional");
+          }
+        }
+        if ( leftArrDeclOpt == false ) {
+          is_optional = false;
+        }
       }
       let should_clone_rhs = false;
       const rightInner = this.rustUnwrapParens(right);
@@ -44032,6 +44108,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                 if ( (typeof(fieldTypeClassAssign) !== "undefined" && fieldTypeClassAssign != null )  ) {
                   needs_refcell_wrap_assign = true;
                 }
+              }
+              if ( needs_refcell_wrap_assign == false ) {
+                needs_refcell_wrap_assign = this.rustUnwrapGivesCell(left, ctx);
               }
               if ( this.rustClassIsShared(field_type_name, ctx) ) {
                 needs_refcell_wrap_assign = false;
@@ -44820,6 +44899,13 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           } else {
             wr.out(".unwrap()", false);
           }
+          if ( this.rustUnwrapGivesCell(arg_3, ctx) ) {
+            if ( is_self_field || unwrap_bare_local ) {
+              wr.out(".into_inner()", false);
+            } else {
+              wr.out(".clone().into_inner()", false);
+            }
+          }
         }
       }
       ctx.unsetInExpr();
@@ -45237,6 +45323,68 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     this.WalkNode(body, sCtx, wr);
     wr.indent(-1);
     wr.out("}", true);
+  };
+  rustUnwrapGivesCell (arg, ctx) {
+    if ( arg.value_type != 11 ) {
+      return false;
+    }
+    const n = arg.nsp.length;
+    if ( n == 0 ) {
+      return false;
+    }
+    const p = arg.nsp[(n - 1)];
+    if ( p.varType != 8 ) {
+      if ( p.is_class_variable == false ) {
+        return false;
+      }
+    }
+    const pnn = p.nameNode;
+    if ( (pnn == null) ) {
+      return false;
+    }
+    const nn = pnn;
+    if ( nn.hasFlag("optional") == false ) {
+      return false;
+    }
+    if ( nn.hasFlag("weak") ) {
+      return false;
+    }
+    if ( nn.array_type.length > 0 || nn.key_type.length > 0 ) {
+      return false;
+    }
+    if ( p.rust_needs_rc_wrap ) {
+      return false;
+    }
+    const ftc = ctx.findClass(nn.type_name);
+    if ( (ftc == null) ) {
+      return false;
+    }
+    const ft = ftc;
+    if ( ft.is_extended_by_children ) {
+      return false;
+    }
+    if ( this.rustClassIsShared(nn.type_name, ctx) ) {
+      return false;
+    }
+    const ocO = p.propertyClass;
+    if ( (ocO == null) ) {
+      return false;
+    }
+    const oc = ocO;
+    if ( oc.is_extended_by_children ) {
+      return true;
+    }
+    // Loop start
+    for ( const en of oc.extends_classes) {
+      const ecO = ctx.findClass(en);
+      if ( (typeof(ecO) !== "undefined" && ecO != null )  ) {
+        const ec = ecO;
+        if ( ec.is_extended_by_children ) {
+          return true;
+        }
+      }
+    }
+    return false;
   };
   rustMethodInTraitIface (cl, name, ctx) {
     if ( cl.is_extended_by_children ) {
@@ -46604,28 +46752,22 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       const hdrEnumRoot = ctx.getRoot();
       let anyNativeEnum = false;
       // Loop start
-      {
-        const __rg_list = Object.keys(hdrEnumRoot.definedEnums);
-        for ( let hei = 0; hei < __rg_list.length; hei++) {
-          var hen = __rg_list[hei];
-          if ( this.rustEnumIsNative(hen, ctx) && RustExtern.crateOf(hen, ctx) == "" ) {
-            const heDef = ( Object.prototype.hasOwnProperty.call(hdrEnumRoot.definedEnums, hen) ? hdrEnumRoot.definedEnums[hen] : undefined );
-            header.out("#[repr(i64)]", true);
-            header.out("#[derive(Clone, Copy, PartialEq, Eq, Debug)]", true);
-            header.out(("pub enum " + hen) + " {", true);
-            // Loop start
-            {
-              const __rg_list = Object.keys(heDef.values);
-              for ( let hmi = 0; hmi < __rg_list.length; hmi++) {
-                var hmn = __rg_list[hmi];
-                const hmv = ( Object.prototype.hasOwnProperty.call(heDef.values, hmn) ? heDef.values[hmn] : undefined );
-                const heLine = (("    " + hmn) + " = ") + ((hmv).toString());
-                header.out(heLine + ",", true);
-              }
-            }
-            header.out("}", true);
-            anyNativeEnum = true;
+      for ( let hei = 0; hei < hdrEnumRoot.definedEnumOrder.length; hei++) {
+        var hen = hdrEnumRoot.definedEnumOrder[hei];
+        if ( this.rustEnumIsNative(hen, ctx) && RustExtern.crateOf(hen, ctx) == "" ) {
+          const heDef = ( Object.prototype.hasOwnProperty.call(hdrEnumRoot.definedEnums, hen) ? hdrEnumRoot.definedEnums[hen] : undefined );
+          header.out("#[repr(i64)]", true);
+          header.out("#[derive(Clone, Copy, PartialEq, Eq, Debug)]", true);
+          header.out(("pub enum " + hen) + " {", true);
+          // Loop start
+          for ( let hmi = 0; hmi < heDef.order.length; hmi++) {
+            var hmn = heDef.order[hmi];
+            const hmv = ( Object.prototype.hasOwnProperty.call(heDef.values, hmn) ? heDef.values[hmn] : undefined );
+            const heLine = (("    " + hmn) + " = ") + ((hmv).toString());
+            header.out(heLine + ",", true);
           }
+          header.out("}", true);
+          anyNativeEnum = true;
         }
       }
       if ( anyNativeEnum ) {
@@ -47182,25 +47324,40 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           }
           wr.out(",", true);
         } else {
-          if ( pvar_1.isArray() ) {
+          let pvarDeclOpt = false;
+          if ( pvar_1.isArray() || pvar_1.isHash() ) {
+            const pvarNN = pvar_1.nameNode;
+            if ( (typeof(pvarNN) !== "undefined" && pvarNN != null )  ) {
+              pvarDeclOpt = pvarNN.hasFlag("optional");
+            }
+          }
+          if ( pvarDeclOpt ) {
             if ( pvar_1.rust_interior_cell ) {
-              wr.out(this.adjustType(pvar_1.compiledName) + ": RefCell::new(Vec::new()),", true);
+              wr.out(this.adjustType(pvar_1.compiledName) + ": RefCell::new(None),", true);
             } else {
-              wr.out(this.adjustType(pvar_1.compiledName) + ": Vec::new(),", true);
+              wr.out(this.adjustType(pvar_1.compiledName) + ": None,", true);
             }
           } else {
-            if ( pvar_1.isHash() ) {
+            if ( pvar_1.isArray() ) {
               if ( pvar_1.rust_interior_cell ) {
-                wr.out(this.adjustType(pvar_1.compiledName) + ": RefCell::new(HashMap::default()),", true);
+                wr.out(this.adjustType(pvar_1.compiledName) + ": RefCell::new(Vec::new()),", true);
               } else {
-                wr.out(this.adjustType(pvar_1.compiledName) + ": HashMap::default(),", true);
+                wr.out(this.adjustType(pvar_1.compiledName) + ": Vec::new(),", true);
               }
             } else {
-              if ( pvar_1.is_optional ) {
+              if ( pvar_1.isHash() ) {
                 if ( pvar_1.rust_interior_cell ) {
-                  wr.out(this.adjustType(pvar_1.compiledName) + ": RefCell::new(None),", true);
+                  wr.out(this.adjustType(pvar_1.compiledName) + ": RefCell::new(HashMap::default()),", true);
                 } else {
-                  wr.out(this.adjustType(pvar_1.compiledName) + ": None,", true);
+                  wr.out(this.adjustType(pvar_1.compiledName) + ": HashMap::default(),", true);
+                }
+              } else {
+                if ( pvar_1.is_optional ) {
+                  if ( pvar_1.rust_interior_cell ) {
+                    wr.out(this.adjustType(pvar_1.compiledName) + ": RefCell::new(None),", true);
+                  } else {
+                    wr.out(this.adjustType(pvar_1.compiledName) + ": None,", true);
+                  }
                 }
               }
             }
@@ -48097,26 +48254,19 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     this.kotlin_enums_written = true;
     const enumRoot = ctx.getRoot();
     // Loop start
-    {
-      const __rg_list = Object.keys(enumRoot.definedEnums);
-      for ( let kei = 0; kei < __rg_list.length; kei++) {
-        var ken = __rg_list[kei];
-        if ( this.ktEnumIsNative(ken, ctx) ) {
-          const keDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, ken) ? enumRoot.definedEnums[ken] : undefined );
-          wr.out("", true);
-          wr.out(("enum class " + ken) + " {", true);
-          wr.indent(1);
-          // Loop start
-          {
-            const __rg_list = Object.keys(keDef.values);
-            for ( let kmi = 0; kmi < __rg_list.length; kmi++) {
-              var kmn = __rg_list[kmi];
-              wr.out(ctx.transformWord(kmn) + ",", true);
-            }
-          }
-          wr.indent(-1);
-          wr.out("}", true);
+    for ( let kei = 0; kei < enumRoot.definedEnumOrder.length; kei++) {
+      var ken = enumRoot.definedEnumOrder[kei];
+      if ( this.ktEnumIsNative(ken, ctx) ) {
+        const keDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, ken) ? enumRoot.definedEnums[ken] : undefined );
+        wr.out("", true);
+        wr.out(("enum class " + ken) + " {", true);
+        wr.indent(1);
+        // Loop start
+        for ( const kmn of keDef.order) {
+          wr.out(ctx.transformWord(kmn) + ",", true);
         }
+        wr.indent(-1);
+        wr.out("}", true);
       }
     }
   };
@@ -49446,26 +49596,19 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
     this.dart_enums_written = true;
     const enumRoot = ctx.getRoot();
     // Loop start
-    {
-      const __rg_list = Object.keys(enumRoot.definedEnums);
-      for ( let dei = 0; dei < __rg_list.length; dei++) {
-        var den = __rg_list[dei];
-        if ( this.dartEnumIsNative(den, ctx) ) {
-          const deDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, den) ? enumRoot.definedEnums[den] : undefined );
-          wr.out("", true);
-          wr.out(("enum " + den) + " {", true);
-          wr.indent(1);
-          // Loop start
-          {
-            const __rg_list = Object.keys(deDef.values);
-            for ( let dmi = 0; dmi < __rg_list.length; dmi++) {
-              var dmn = __rg_list[dmi];
-              wr.out(ctx.transformWord(dmn) + ",", true);
-            }
-          }
-          wr.indent(-1);
-          wr.out("}", true);
+    for ( let dei = 0; dei < enumRoot.definedEnumOrder.length; dei++) {
+      var den = enumRoot.definedEnumOrder[dei];
+      if ( this.dartEnumIsNative(den, ctx) ) {
+        const deDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, den) ? enumRoot.definedEnums[den] : undefined );
+        wr.out("", true);
+        wr.out(("enum " + den) + " {", true);
+        wr.indent(1);
+        // Loop start
+        for ( const dmn of deDef.order) {
+          wr.out(ctx.transformWord(dmn) + ",", true);
         }
+        wr.indent(-1);
+        wr.out("}", true);
       }
     }
   };
@@ -50536,27 +50679,21 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
     this.csharp_enums_written = true;
     const enumRoot = ctx.getRoot();
     // Loop start
-    {
-      const __rg_list = Object.keys(enumRoot.definedEnums);
-      for ( let cei = 0; cei < __rg_list.length; cei++) {
-        var cen = __rg_list[cei];
-        if ( this.csEnumIsNative(cen, ctx) ) {
-          const ceDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, cen) ? enumRoot.definedEnums[cen] : undefined );
-          wr.out("", true);
-          wr.out(("public enum " + cen) + " : int {", true);
-          wr.indent(1);
-          // Loop start
-          {
-            const __rg_list = Object.keys(ceDef.values);
-            for ( let cmi = 0; cmi < __rg_list.length; cmi++) {
-              var cmn = __rg_list[cmi];
-              const cmv = ( Object.prototype.hasOwnProperty.call(ceDef.values, cmn) ? ceDef.values[cmn] : undefined );
-              wr.out(((ctx.transformWord(cmn) + " = ") + ((cmv).toString())) + ",", true);
-            }
-          }
-          wr.indent(-1);
-          wr.out("}", true);
+    for ( let cei = 0; cei < enumRoot.definedEnumOrder.length; cei++) {
+      var cen = enumRoot.definedEnumOrder[cei];
+      if ( this.csEnumIsNative(cen, ctx) ) {
+        const ceDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, cen) ? enumRoot.definedEnums[cen] : undefined );
+        wr.out("", true);
+        wr.out(("public enum " + cen) + " : int {", true);
+        wr.indent(1);
+        // Loop start
+        for ( let cmi = 0; cmi < ceDef.order.length; cmi++) {
+          var cmn = ceDef.order[cmi];
+          const cmv = ( Object.prototype.hasOwnProperty.call(ceDef.values, cmn) ? ceDef.values[cmn] : undefined );
+          wr.out(((ctx.transformWord(cmn) + " = ") + ((cmv).toString())) + ",", true);
         }
+        wr.indent(-1);
+        wr.out("}", true);
       }
     }
   };
@@ -52224,28 +52361,22 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
     this.scala_enums_written = true;
     const enumRoot = ctx.getRoot();
     // Loop start
-    {
-      const __rg_list = Object.keys(enumRoot.definedEnums);
-      for ( let sei = 0; sei < __rg_list.length; sei++) {
-        var sen = __rg_list[sei];
-        if ( this.scEnumIsNative(sen, ctx) ) {
-          const seDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, sen) ? enumRoot.definedEnums[sen] : undefined );
-          wr.out("", true);
-          wr.out(("sealed abstract class " + sen) + "(val value : Int)", true);
-          wr.out(("object " + sen) + " {", true);
-          wr.indent(1);
-          // Loop start
-          {
-            const __rg_list = Object.keys(seDef.values);
-            for ( let smi = 0; smi < __rg_list.length; smi++) {
-              var smn = __rg_list[smi];
-              const smv = ( Object.prototype.hasOwnProperty.call(seDef.values, smn) ? seDef.values[smn] : undefined );
-              wr.out(((((("case object " + ctx.transformWord(smn)) + " extends ") + sen) + "(") + ((smv).toString())) + ")", true);
-            }
-          }
-          wr.indent(-1);
-          wr.out("}", true);
+    for ( let sei = 0; sei < enumRoot.definedEnumOrder.length; sei++) {
+      var sen = enumRoot.definedEnumOrder[sei];
+      if ( this.scEnumIsNative(sen, ctx) ) {
+        const seDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, sen) ? enumRoot.definedEnums[sen] : undefined );
+        wr.out("", true);
+        wr.out(("sealed abstract class " + sen) + "(val value : Int)", true);
+        wr.out(("object " + sen) + " {", true);
+        wr.indent(1);
+        // Loop start
+        for ( let smi = 0; smi < seDef.order.length; smi++) {
+          var smn = seDef.order[smi];
+          const smv = ( Object.prototype.hasOwnProperty.call(seDef.values, smn) ? seDef.values[smn] : undefined );
+          wr.out(((((("case object " + ctx.transformWord(smn)) + " extends ") + sen) + "(") + ((smv).toString())) + ")", true);
         }
+        wr.indent(-1);
+        wr.out("}", true);
       }
     }
   };
@@ -52560,32 +52691,26 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     this.go_enums_written = true;
     const enumRoot = ctx.getRoot();
     // Loop start
-    {
-      const __rg_list = Object.keys(enumRoot.definedEnums);
-      for ( let gei = 0; gei < __rg_list.length; gei++) {
-        var gen = __rg_list[gei];
-        if ( this.goEnumIsNative(gen, ctx) ) {
-          const geDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, gen) ? enumRoot.definedEnums[gen] : undefined );
-          wr.out("", true);
-          wr.out(("type " + gen) + " int64", true);
-          wr.out("const (", true);
-          wr.indent(1);
-          // Loop start
-          {
-            const __rg_list = Object.keys(geDef.values);
-            for ( let gmi = 0; gmi < __rg_list.length; gmi++) {
-              var gmn = __rg_list[gmi];
-              const gmv = ( Object.prototype.hasOwnProperty.call(geDef.values, gmn) ? geDef.values[gmn] : undefined );
-              wr.out((((this.goEnumMemberName(
-                gen,
-                gmn,
-                ctx
-              ) + " ") + gen) + " = ") + ((gmv).toString()), true);
-            }
-          }
-          wr.indent(-1);
-          wr.out(")", true);
+    for ( let gei = 0; gei < enumRoot.definedEnumOrder.length; gei++) {
+      var gen = enumRoot.definedEnumOrder[gei];
+      if ( ( typeof(enumRoot.definedEnums[gen] ) != "undefined" && Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, gen) ) && this.goEnumIsNative(gen, ctx) ) {
+        const geDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, gen) ? enumRoot.definedEnums[gen] : undefined );
+        wr.out("", true);
+        wr.out(("type " + gen) + " int64", true);
+        wr.out("const (", true);
+        wr.indent(1);
+        // Loop start
+        for ( let gmi = 0; gmi < geDef.order.length; gmi++) {
+          var gmn = geDef.order[gmi];
+          const gmv = ( Object.prototype.hasOwnProperty.call(geDef.values, gmn) ? geDef.values[gmn] : undefined );
+          wr.out((((this.goEnumMemberName(
+            gen,
+            gmn,
+            ctx
+          ) + " ") + gen) + " = ") + ((gmv).toString()), true);
         }
+        wr.indent(-1);
+        wr.out(")", true);
       }
     }
   };
@@ -53770,7 +53895,23 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
                 ctx.unsetInExpr();
               }
               wr.out(";", true);
-              wr.out(p.compiledName + ".has_value = true;", true);
+              let nilCheck = false;
+              if ( value_5.hasNewOper == false ) {
+                const pnnO = p.nameNode;
+                if ( (typeof(pnnO) !== "undefined" && pnnO != null )  ) {
+                  const pnnC = pnnO;
+                  if ( (pnnC.array_type.length == 0 && pnnC.key_type.length == 0) && ctx.hasClass(pnnC.type_name) ) {
+                    nilCheck = true;
+                  }
+                }
+              }
+              if ( nilCheck ) {
+                wr.addImport("reflect");
+                wr.out(((p.compiledName + ".has_value = ") + p.compiledName) + ".value != nil && !reflect.ValueOf(", false);
+                wr.out(p.compiledName + ".value).IsNil();", true);
+              } else {
+                wr.out(p.compiledName + ".has_value = true;", true);
+              }
               return;
             }
             const srcName = p.compiledName + "__src";
@@ -55359,27 +55500,21 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     this.php_enums_written = true;
     const enumRoot = ctx.getRoot();
     // Loop start
-    {
-      const __rg_list = Object.keys(enumRoot.definedEnums);
-      for ( let pei = 0; pei < __rg_list.length; pei++) {
-        var pen = __rg_list[pei];
-        if ( this.phpEnumIsNative(pen, ctx) ) {
-          const peDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, pen) ? enumRoot.definedEnums[pen] : undefined );
-          wr.out("", true);
-          wr.out(("enum " + pen) + " : int {", true);
-          wr.indent(1);
-          // Loop start
-          {
-            const __rg_list = Object.keys(peDef.values);
-            for ( let pmi = 0; pmi < __rg_list.length; pmi++) {
-              var pmn = __rg_list[pmi];
-              const pmv = ( Object.prototype.hasOwnProperty.call(peDef.values, pmn) ? peDef.values[pmn] : undefined );
-              wr.out(((("case " + ctx.transformWord(pmn)) + " = ") + ((pmv).toString())) + ";", true);
-            }
-          }
-          wr.indent(-1);
-          wr.out("}", true);
+    for ( let pei = 0; pei < enumRoot.definedEnumOrder.length; pei++) {
+      var pen = enumRoot.definedEnumOrder[pei];
+      if ( this.phpEnumIsNative(pen, ctx) ) {
+        const peDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, pen) ? enumRoot.definedEnums[pen] : undefined );
+        wr.out("", true);
+        wr.out(("enum " + pen) + " : int {", true);
+        wr.indent(1);
+        // Loop start
+        for ( let pmi = 0; pmi < peDef.order.length; pmi++) {
+          var pmn = peDef.order[pmi];
+          const pmv = ( Object.prototype.hasOwnProperty.call(peDef.values, pmn) ? peDef.values[pmn] : undefined );
+          wr.out(((("case " + ctx.transformWord(pmn)) + " = ") + ((pmv).toString())) + ";", true);
         }
+        wr.indent(-1);
+        wr.out("}", true);
       }
     }
   };
@@ -56288,31 +56423,25 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
     const enumRoot = ctx.getRoot();
     let wroteAny = false;
     // Loop start
-    {
-      const __rg_list = Object.keys(enumRoot.definedEnums);
-      for ( let pei = 0; pei < __rg_list.length; pei++) {
-        var pen = __rg_list[pei];
-        if ( this.pyEnumIsNative(pen, ctx) ) {
-          const peDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, pen) ? enumRoot.definedEnums[pen] : undefined );
-          if ( wroteAny == false ) {
-            wr.out("from enum import IntEnum", true);
-            wr.out("", true);
-            wroteAny = true;
-          }
-          wr.out(("class " + pen) + "(IntEnum):", true);
-          wr.indent(1);
-          // Loop start
-          {
-            const __rg_list = Object.keys(peDef.values);
-            for ( let pmi = 0; pmi < __rg_list.length; pmi++) {
-              var pmn = __rg_list[pmi];
-              const pmv = ( Object.prototype.hasOwnProperty.call(peDef.values, pmn) ? peDef.values[pmn] : undefined );
-              wr.out((ctx.transformWord(pmn) + " = ") + ((pmv).toString()), true);
-            }
-          }
-          wr.indent(-1);
+    for ( let pei = 0; pei < enumRoot.definedEnumOrder.length; pei++) {
+      var pen = enumRoot.definedEnumOrder[pei];
+      if ( this.pyEnumIsNative(pen, ctx) ) {
+        const peDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, pen) ? enumRoot.definedEnums[pen] : undefined );
+        if ( wroteAny == false ) {
+          wr.out("from enum import IntEnum", true);
           wr.out("", true);
+          wroteAny = true;
         }
+        wr.out(("class " + pen) + "(IntEnum):", true);
+        wr.indent(1);
+        // Loop start
+        for ( let pmi = 0; pmi < peDef.order.length; pmi++) {
+          var pmn = peDef.order[pmi];
+          const pmv = ( Object.prototype.hasOwnProperty.call(peDef.values, pmn) ? peDef.values[pmn] : undefined );
+          wr.out((ctx.transformWord(pmn) + " = ") + ((pmv).toString()), true);
+        }
+        wr.indent(-1);
+        wr.out("", true);
       }
     }
   };
@@ -58375,27 +58504,21 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     }
     const enumRoot = ctx.getRoot();
     // Loop start
-    {
-      const __rg_list = Object.keys(enumRoot.definedEnums);
-      for ( let tei = 0; tei < __rg_list.length; tei++) {
-        var ten = __rg_list[tei];
-        if ( this.tsEnumIsNative(ten, ctx) ) {
-          const teDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, ten) ? enumRoot.definedEnums[ten] : undefined );
-          wr.out("", true);
-          wr.out(("export enum " + ten) + " {", true);
-          wr.indent(1);
-          // Loop start
-          {
-            const __rg_list = Object.keys(teDef.values);
-            for ( let tmi = 0; tmi < __rg_list.length; tmi++) {
-              var tmn = __rg_list[tmi];
-              const tmv = ( Object.prototype.hasOwnProperty.call(teDef.values, tmn) ? teDef.values[tmn] : undefined );
-              wr.out(((ctx.transformWord(tmn) + " = ") + ((tmv).toString())) + ",", true);
-            }
-          }
-          wr.indent(-1);
-          wr.out("}", true);
+    for ( let tei = 0; tei < enumRoot.definedEnumOrder.length; tei++) {
+      var ten = enumRoot.definedEnumOrder[tei];
+      if ( this.tsEnumIsNative(ten, ctx) ) {
+        const teDef = ( Object.prototype.hasOwnProperty.call(enumRoot.definedEnums, ten) ? enumRoot.definedEnums[ten] : undefined );
+        wr.out("", true);
+        wr.out(("export enum " + ten) + " {", true);
+        wr.indent(1);
+        // Loop start
+        for ( let tmi = 0; tmi < teDef.order.length; tmi++) {
+          var tmn = teDef.order[tmi];
+          const tmv = ( Object.prototype.hasOwnProperty.call(teDef.values, tmn) ? teDef.values[tmn] : undefined );
+          wr.out(((ctx.transformWord(tmn) + " = ") + ((tmv).toString())) + ",", true);
         }
+        wr.indent(-1);
+        wr.out("}", true);
       }
     }
   };
@@ -59633,6 +59756,12 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
 }
 class LowIRUtil  {
 }
+LowIRUtil.ssaParamName = function(name) {
+  if ( name == "entry" ) {
+    return "entry.p";
+  }
+  return name;
+};
 LowIRUtil.typeFromRanger = function(typeName) {
   switch (typeName ) { 
     case "int" : 
@@ -61752,6 +61881,7 @@ class LowIRLowerContext  {
     this.ptrType = "i32";
     this.slots = {};
     this.paramNames = [];
+    this.optionalStringLocals = [];
     this.capturedNames = [];
     this.shadowStack = [];
     this.shadowCounter = 0;
@@ -61987,6 +62117,17 @@ class LowIRBuilderPass  {
       }
     }
     return v;
+  };
+  emitStrdupOptExpr (strPtr, lctx) {
+    if ( this.wasmStrEnabled(lctx) ) {
+      return this.emitStrdupExpr(strPtr, lctx);
+    }
+    let ps = [];
+    ps.push("i8*");
+    this.ensureExternDecl("ranger_strdup_opt", "i8*", ps, false);
+    let dupArgs = [];
+    dupArgs.push(strPtr);
+    return lctx.builder.emitCall("ranger_strdup_opt", "i8*", dupArgs, ps);
   };
   emitStrdupExpr (strPtr, lctx) {
     let dupArgs = [];
@@ -62292,6 +62433,97 @@ class LowIRBuilderPass  {
     lctx.builder.emitCall("ranger_buffer_fill", "void", args, argTypes);
     return "";
   };
+  lowerCharLength (node, lctx) {
+    const s = this.lowerExpr(node.getSecond(), lctx);
+    let ps = [];
+    ps.push("i8*");
+    this.ensureExternDecl("ranger_char_length", "i32", ps, false);
+    let args = [];
+    let argTypes = [];
+    args.push(s);
+    argTypes.push("i8*");
+    return lctx.builder.emitCall("ranger_char_length", "i32", args, argTypes);
+  };
+  lowerToChars (node, lctx) {
+    const s = this.lowerExpr(node.getSecond(), lctx);
+    let ps = [];
+    ps.push("i8*");
+    this.ensureExternDecl("ranger_to_chars", lctx.ptrType, ps, false);
+    let args = [];
+    let argTypes = [];
+    args.push(s);
+    argTypes.push("i8*");
+    return lctx.builder.emitCall(
+      "ranger_to_chars",
+      lctx.ptrType,
+      args,
+      argTypes
+    );
+  };
+  lowerBufferFromString (node, lctx) {
+    const s = this.lowerExpr(node.getSecond(), lctx);
+    let ps = [];
+    ps.push("i8*");
+    this.ensureExternDecl("ranger_buffer_from_string", lctx.ptrType, ps, false);
+    let args = [];
+    let argTypes = [];
+    args.push(s);
+    argTypes.push("i8*");
+    return lctx.builder.emitCall(
+      "ranger_buffer_from_string",
+      lctx.ptrType,
+      args,
+      argTypes
+    );
+  };
+  lowerBufferCopy (node, lctx) {
+    const dest = this.lowerExpr(node.getSecond(), lctx);
+    const destOff = this.lowerExpr(node.getThird(), lctx);
+    const src = this.lowerExpr(node.children[3], lctx);
+    const srcOff = this.lowerExpr(node.children[4], lctx);
+    const __len = this.lowerExpr(node.children[5], lctx);
+    let ps = [];
+    ps.push(lctx.ptrType);
+    ps.push("i32");
+    ps.push(lctx.ptrType);
+    ps.push("i32");
+    ps.push("i32");
+    this.ensureExternDecl("ranger_buffer_copy", "void", ps, false);
+    let args = [];
+    args.push(dest);
+    args.push(destOff);
+    args.push(src);
+    args.push(srcOff);
+    args.push(__len);
+    lctx.builder.emitCall("ranger_buffer_copy", "void", args, ps);
+    return "";
+  };
+  lowerRunProcessResult (node, lctx) {
+    const prog = this.lowerExpr(node.getSecond(), lctx);
+    const pargs = this.lowerExpr(node.getThird(), lctx);
+    const cwd = this.lowerExpr(node.children[3], lctx);
+    const cap = lctx.builder.emitZextI1ToI32(this.lowerExpr(node.children[4], lctx));
+    const env = this.lowerExpr(node.children[5], lctx);
+    let ps = [];
+    ps.push("i8*");
+    ps.push(lctx.ptrType);
+    ps.push("i8*");
+    ps.push("i32");
+    ps.push(lctx.ptrType);
+    this.ensureExternDecl("ranger_run_process_result", lctx.ptrType, ps, false);
+    let args = [];
+    args.push(prog);
+    args.push(pargs);
+    args.push(cwd);
+    args.push(cap);
+    args.push(env);
+    return lctx.builder.emitCall(
+      "ranger_run_process_result",
+      lctx.ptrType,
+      args,
+      ps
+    );
+  };
   lowerBufferReadFile (node, lctx) {
     const pathNode = node.getSecond();
     const fileNode = node.getThird();
@@ -62539,7 +62771,7 @@ class LowIRBuilderPass  {
   lowerPtrIsNull (ptr, lctx) {
     const builder = lctx.builder;
     const vt = builder.emittedType(ptr);
-    if ( vt == "i32" || vt == "i1" ) {
+    if ( (vt == "i32" || vt == "i1") || vt == "i64" ) {
       const zeroI = builder.emitConst(vt, "0");
       return builder.emitIcmpTyped("eq", vt, ptr, zeroI);
     }
@@ -62554,7 +62786,7 @@ class LowIRBuilderPass  {
   lowerPtrIsNotNull (ptr, lctx) {
     const builder = lctx.builder;
     const vt = builder.emittedType(ptr);
-    if ( vt == "i32" || vt == "i1" ) {
+    if ( (vt == "i32" || vt == "i1") || vt == "i64" ) {
       const zeroI = builder.emitConst(vt, "0");
       return builder.emitIcmpTyped("ne", vt, ptr, zeroI);
     }
@@ -63412,6 +63644,10 @@ class LowIRBuilderPass  {
     return false;
   };
   strKeyPtr (keyNode, key, lctx) {
+    const ket = lctx.builder.emittedType(key);
+    if ( ket == "i8*" ) {
+      return key;
+    }
     if ( keyNode.value_type == 11 ) {
       if ( ( typeof(lctx.slotTypes[keyNode.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(lctx.slotTypes, keyNode.vref) ) ) {
         const kst = ( Object.prototype.hasOwnProperty.call(lctx.slotTypes, keyNode.vref) ? lctx.slotTypes[keyNode.vref] : undefined );
@@ -63589,7 +63825,11 @@ class LowIRBuilderPass  {
     const head = valNode.getFirst();
     if ( head.vref == "unwrap" ) {
       if ( valNode.children.length > 1 ) {
-        return this.isBorrowedArrayExpr(valNode.getSecond());
+        const uw = valNode.getSecond();
+        if ( uw.value_type == 11 ) {
+          return true;
+        }
+        return this.isBorrowedArrayExpr(uw);
       }
       return false;
     }
@@ -66225,7 +66465,7 @@ class LowIRBuilderPass  {
       if ( opName == "shell_arg" ) {
         return this.lowerShellArg(node, lctx);
       }
-      if ( opName == "read_file" ) {
+      if ( opName == "read_file" || opName == "read_file_sync" ) {
         return this.lowerReadFile(node, lctx);
       }
       if ( opName == "buffer_alloc" ) {
@@ -66239,6 +66479,21 @@ class LowIRBuilderPass  {
       }
       if ( opName == "buffer_fill" ) {
         return this.lowerBufferFill(node, lctx);
+      }
+      if ( opName == "char_length" ) {
+        return this.lowerCharLength(node, lctx);
+      }
+      if ( opName == "to_chars" ) {
+        return this.lowerToChars(node, lctx);
+      }
+      if ( opName == "buffer_from_string" ) {
+        return this.lowerBufferFromString(node, lctx);
+      }
+      if ( opName == "buffer_copy" ) {
+        return this.lowerBufferCopy(node, lctx);
+      }
+      if ( opName == "run_process_result" ) {
+        return this.lowerRunProcessResult(node, lctx);
       }
       if ( opName == "buffer_set" ) {
         return this.lowerBufferSet(node, lctx);
@@ -66491,6 +66746,9 @@ class LowIRBuilderPass  {
     if ( op == "read_file" ) {
       return true;
     }
+    if ( op == "read_file_sync" ) {
+      return true;
+    }
     if ( op == "buffer_to_string" ) {
       return true;
     }
@@ -66651,6 +66909,9 @@ class LowIRBuilderPass  {
         return true;
       }
       if ( rOp == "read_file" ) {
+        return true;
+      }
+      if ( rOp == "read_file_sync" ) {
         return true;
       }
       if ( rOp == "shell_arg" ) {
@@ -66864,11 +67125,15 @@ class LowIRBuilderPass  {
       builder.terminateBrIf(a, endL, rhsL);
     }
     builder.startBlock(rhsL);
+    const strMark = lctx.pendingStringTemps.length;
+    const objMark = lctx.pendingObjectTemps.length;
     const b = this.lowerCondOperand(node.getThird(), lctx);
     builder.emitStore("i1", b, slot);
     if ( (typeof(builder.currentBlock) !== "undefined" && builder.currentBlock != null )  ) {
       const rb = builder.currentBlock;
       if ( rb.termKind == "" ) {
+        this.flushStringTempsFrom(strMark, lctx);
+        this.flushObjectTempsFrom(objMark, lctx);
         builder.terminateBr(endL);
       }
     }
@@ -67659,6 +67924,11 @@ class LowIRBuilderPass  {
   lowerVarDefBody (node, lctx) {
     const nameNode = node.getSecond();
     const varName = nameNode.vref;
+    if ( nameNode.hasFlag("optional") ) {
+      if ( lctx.optionalStringLocals.indexOf(varName) < 0 ) {
+        lctx.optionalStringLocals.push(varName);
+      }
+    }
     let valNode;
     const cnt = node.children.length;
     if ( cnt > 2 ) {
@@ -68898,6 +69168,8 @@ class LowIRBuilderPass  {
     let emptyOwned = [];
     let emptyParamNames = [];
     lctx.paramNames = emptyParamNames;
+    let emptyOptStr = [];
+    lctx.optionalStringLocals = emptyOptStr;
     let emptyCaptured = [];
     lctx.capturedNames = emptyCaptured;
     lctx.ownedObjectLocals = emptyOwned;
@@ -71331,6 +71603,8 @@ class LowIRBuilderPass  {
     let emptyOwned = [];
     let emptyParamNames = [];
     lctx.paramNames = emptyParamNames;
+    let emptyOptStr = [];
+    lctx.optionalStringLocals = emptyOptStr;
     let emptyCaptured = [];
     lctx.capturedNames = emptyCaptured;
     lctx.ownedObjectLocals = emptyOwned;
@@ -71398,6 +71672,7 @@ class LowIRBuilderPass  {
       if ( lp.name.length == 0 ) {
         lp.name = p.name;
       }
+      lp.name = LowIRUtil.ssaParamName(lp.name);
       const pn = p.nameNode;
       const paramTypeName = this.varTypeName(pn);
       lp.irType = this.llvmTypeForRanger(paramTypeName, lctx.ptrType);
@@ -71456,7 +71731,7 @@ class LowIRBuilderPass  {
       if ( this.isLambdaTypeNode(pn_1) ) {
         pType = lctx.ptrType;
       }
-      const paramVal = "%" + lpName;
+      const paramVal = "%" + LowIRUtil.ssaParamName(lpName);
       lctx.paramNames.push(lpName);
       this.bindSlot(p_1.name, pType, paramVal, lctx);
       if ( this.isStringKeyMapTypeNode(pn_1) ) {
@@ -71641,6 +71916,8 @@ class LowIRBuilderPass  {
     let emptyOwned = [];
     let emptyParamNames = [];
     lctx.paramNames = emptyParamNames;
+    let emptyOptStr = [];
+    lctx.optionalStringLocals = emptyOptStr;
     let emptyCaptured = [];
     lctx.capturedNames = emptyCaptured;
     lctx.ownedObjectLocals = emptyOwned;
@@ -71676,13 +71953,13 @@ class LowIRBuilderPass  {
     for ( let i = 0; i < lam.params.length; i++) {
       var p = lam.params[i];
       const lp = new LowIRParam();
-      lp.name = p.name;
+      lp.name = LowIRUtil.ssaParamName(p.name);
       const pn = p.nameNode;
       const paramTypeName = this.varTypeName(pn);
       lp.irType = this.llvmTypeForRanger(paramTypeName, lctx.ptrType);
       params.push(lp);
       lctx.paramNames.push(p.name);
-      this.bindSlot(p.name, lp.irType, "%" + p.name, lctx);
+      this.bindSlot(p.name, lp.irType, "%" + lp.name, lctx);
       if ( this.isObjectTypeName(paramTypeName) ) {
         lctx.objectSlots[p.name] = paramTypeName;
       }
@@ -72233,12 +72510,18 @@ class LowIRBuilderPass  {
     }
     lctx.builder.emitCall(relFn, "void", args, argTypes);
   };
+  emitLocalStrCopy (varName, strPtr, lctx) {
+    if ( lctx.optionalStringLocals.indexOf(varName) >= 0 ) {
+      return this.emitStrdupOptExpr(strPtr, lctx);
+    }
+    return this.emitStrdupExpr(strPtr, lctx);
+  };
   emitOwnedStringInit (varName, valNode, strPtr, lctx) {
     if ( this.isCapturedName(varName, lctx) ) {
       return this.emitStrdupExpr(strPtr, lctx);
     }
     if ( this.wasmStrEnabled(lctx) == false ) {
-      const libcOwned = this.emitStrdupExpr(strPtr, lctx);
+      const libcOwned = this.emitLocalStrCopy(varName, strPtr, lctx);
       if ( this.strRcEnabled(lctx) ) {
         if ( this.isOwnedStringLocal(varName, lctx) == false ) {
           lctx.ownedStringLocals.push(varName);
@@ -72262,7 +72545,7 @@ class LowIRBuilderPass  {
       return this.emitStrdupExpr(strPtr, lctx);
     }
     if ( this.wasmStrEnabled(lctx) == false ) {
-      const libcNew = this.emitStrdupExpr(strPtr, lctx);
+      const libcNew = this.emitLocalStrCopy(varName, strPtr, lctx);
       if ( this.strRcEnabled(lctx) ) {
         if ( this.isOwnedStringLocal(varName, lctx) ) {
           this.releaseOwnedString(varName, lctx);
@@ -76261,7 +76544,7 @@ class CLIConsole  {
     this.inputFile = "";
     this.outputFile = "";
     this.targetLanguage = "";
-    this.compilerVersion = "3.5.1";
+    this.compilerVersion = "4.1.0";
     this.useColors = ((typeof process !== "undefined" && process.stdout && process.stdout.isTTY) || false);
     this.startTime = Date.now();
   }
@@ -105749,7 +106032,7 @@ const rg_parse_cache = { dir: null, stamp: null, off: false,
       if (typeof require !== 'function' || typeof process === 'undefined' || typeof __filename !== 'string' || process.env.RGRC_NO_PARSE_CACHE) { this.off = true; return false; }
       const fs = require('fs'), path = require('path'), os = require('os');
       const st = fs.statSync(__filename);
-      this.stamp = 'v2:' + st.size + ':' + st.mtimeMs;
+      this.stamp = 'v3:' + st.size + ':' + st.mtimeMs;
       this.dir = path.join(os.tmpdir(), 'ranger-parse-cache');
       return true;
     } catch (e) { this.off = true; return false; }
@@ -105764,7 +106047,10 @@ const rg_parse_cache = { dir: null, stamp: null, off: false,
     return require('path').join(this.dir, h.digest('hex'));
   },
   load: function (p, dis, CodeNode) {
-    if (!this.usable(p)) return false;
+    // parse() called from JavaScript with no argument passes undefined, which
+    // the parser treats as neither true nor false (`false == undefined` is
+    // false, so operators are off): a third tree, not cached
+    if (typeof dis !== 'boolean' || !this.usable(p)) return false;
     try {
       const fs = require('fs');
       const fname = this.file(p, dis); p.cache_file = fname;

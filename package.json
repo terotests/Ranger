@@ -921,5 +921,5 @@
     "zstd:tool": "bash scripts/rgr-suite.sh ./gallery/zstd/src/zstd_tool.rgr ./gallery/zstd/bin zstd_tool.js"
   },
   "types": "dist/api.d.ts",
-  "version": "4.0.2"
+  "version": "4.1.0"
 }

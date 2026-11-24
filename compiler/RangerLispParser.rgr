@@ -34,7 +34,7 @@ const rg_parse_cache = { dir: null, stamp: null, off: false,
       if (typeof require !== 'function' || typeof process === 'undefined' || typeof __filename !== 'string' || process.env.RGRC_NO_PARSE_CACHE) { this.off = true; return false; }
       const fs = require('fs'), path = require('path'), os = require('os');
       const st = fs.statSync(__filename);
-      this.stamp = 'v2:' + st.size + ':' + st.mtimeMs;
+      this.stamp = 'v3:' + st.size + ':' + st.mtimeMs;
       this.dir = path.join(os.tmpdir(), 'ranger-parse-cache');
       return true;
     } catch (e) { this.off = true; return false; }
@@ -49,7 +49,10 @@ const rg_parse_cache = { dir: null, stamp: null, off: false,
     return require('path').join(this.dir, h.digest('hex'));
   },
   load: function (p, dis, CodeNode) {
-    if (!this.usable(p)) return false;
+    // parse() called from JavaScript with no argument passes undefined, which
+    // the parser treats as neither true nor false (`false == undefined` is
+    // false, so operators are off): a third tree, not cached
+    if (typeof dis !== 'boolean' || !this.usable(p)) return false;
     try {
       const fs = require('fs');
       const fname = this.file(p, dis); p.cache_file = fname;

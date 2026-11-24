@@ -582,6 +582,11 @@ extension LowIRBuilderPass {
   fn lowerVarDefBody:void (node:CodeNode lctx:LowIRLowerContext) {
     def nameNode (node.getSecond())
     def varName:string nameNode.vref
+    if (nameNode.hasFlag("optional")) {
+      if ((indexOf lctx.optionalStringLocals varName) < 0) {
+        push lctx.optionalStringLocals varName
+      }
+    }
     def valNode@(optional):CodeNode
     def cnt (array_length node.children)
     if (cnt > 2) {
