@@ -432,6 +432,21 @@ class PkgImport {
       hit.err = ("no ranger.json for " + spec)
       return hit
     }
+    ; One package per name, the one the project's lock has (rgrc install
+    ; keeps the first it meets, the project's own dependencies first): a
+    ; project that pins a package a dependency also pins gets its pin in
+    ; the dependency's imports too. The project's manifest is the last in
+    ; the chain, so it is asked first.
+    if ((array_length dirs) > 1) {
+      def ordered:[string]
+      push ordered (itemAt dirs ((array_length dirs) - 1))
+      def oi:int 0
+      while (oi < ((array_length dirs) - 1)) {
+        push ordered (itemAt dirs oi)
+        oi = (oi + 1)
+      }
+      dirs = ordered
+    }
     def firstErr:string ""
     def di:int 0
     while (di < (array_length dirs)) {

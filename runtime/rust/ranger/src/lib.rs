@@ -38,7 +38,9 @@ macro_rules! import_rgr {
 
 /// Target code: `ranger::native!(rust: expr, es6: "…", python: "…")`. For
 /// rustc it is the `rust` arm; Ranger writes the arm of the target it
-/// compiles for, with `{x}` standing for the local `x` (stage R7).
+/// compiles for, with `{x}` standing for the local `x` (stage R7). An arm
+/// `<target>_polyfill: "…"` (e.g. `cpp_polyfill`) is code Ranger writes once
+/// at file level for that target, for the arm to call.
 #[macro_export]
 macro_rules! native {
     (rust: $e:expr $(, $($rest:tt)*)?) => {

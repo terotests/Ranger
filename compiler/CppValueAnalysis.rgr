@@ -103,7 +103,13 @@ class CppValueClassAnalysis {
   }
 
   fn unsafeReason:string (node:CodeNode className:string ctx:RangerAppWriterContext) {
-    if (this.optionalOf(node className)) {
+    ; an optional @(copy) class is a std::optional<T> (writeTypeDef)
+    def optOk:boolean false
+    if (ctx.isDefinedClass(className)) {
+      def ccl:RangerAppClassDesc (ctx.findClass(className))
+      optOk = ccl.is_copy
+    }
+    if ((optOk == false) && (this.optionalOf(node className))) {
       return "used as an @(optional)"
     }
     if node.expression {
@@ -118,7 +124,7 @@ class CppValueClassAnalysis {
             }
           }
         }
-        if ((cmd == "null?") || (cmd == "!null?")) {
+        if (((cmd == "null?") || (cmd == "!null?")) && (optOk == false)) {
           if ((array_length node.children) >= 2) {
             def arg:CodeNode (node.getSecond())
             if (this.nodeIsClassOf(arg className)) {
@@ -237,7 +243,10 @@ class CppValueClassAnalysis {
     ; behaviour is the same question and a much larger blast radius -- every
     ; `return this` builder, every method a subclass overrides -- so it waits
     ; for its own pass.
-    if (cl.is_record == false) {
+    ; A Rust Copy struct of scalars (@(copy)) is the other case: Rust copies
+    ; it on every read from a place (RustLower writes the rs_clone()), so
+    ; nothing can alias it, and its methods take `&self` as a value would.
+    if ((cl.is_record == false) && (cl.is_copy == false)) {
       return "not a record"
     }
     ; inheritance in either direction needs a pointer for the vtable
@@ -265,7 +274,7 @@ class CppValueClassAnalysis {
     }
     ; the shared verdict: some object of this class is aliased and held, so the
     ; language's reference semantics need a pointer to hold them up
-    if cl.rust_needs_ref_semantics {
+    if (cl.rust_needs_ref_semantics && (cl.is_copy == false)) {
       return cl.rust_ref_reason
     }
     def fr:string (this.fieldReason(cl cl.name))
@@ -320,7 +329,7 @@ class CppValueClassAnalysis {
         }
       } {
         if diag {
-          if (cl.is_record) {
+          if (cl.is_record || cl.is_copy) {
             print ((("ownership[cpp] class " + cl.name) + " -> shared_ptr (") + (reason + ")"))
           }
         }

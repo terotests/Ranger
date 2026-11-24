@@ -754,6 +754,12 @@ class RangerCppClassWriter {
           ; getObjectTypeString applies, so a narrowing binds what the variant
           ; actually holds
           if (this.cppIsValueClass(cc ctx)) {
+            ; an optional @(copy) value: std::optional<T>, read with .value()
+            if (cc.is_copy && (node.IsOptional())) {
+              wr.addImport("<optional>")
+              wr.out((("std::optional<" + cc.name) + ">") false)
+              return
+            }
             wr.out(cc.name false)
             return
           }
@@ -1230,6 +1236,35 @@ class RangerCppClassWriter {
   ; `obj.all()` reaches here as `(call obj all ())` when an operator shares
   ; the method's name. WriteVRef leaves the last segment of a path as it is,
   ; so an optional object receiver still needs its value taken.
+  ; Is the receiver of a method call a value class (a @(copy) struct read
+  ; through `unwrap`, a tuple's field)? Then the method is reached with a dot.
+  fn cppCallReceiverIsValue:boolean (obj:CodeNode ctx:RangerAppWriterContext) {
+    if ((obj.vref == "this") && ((array_length obj.ns) <= 1)) {
+      return false
+    }
+    def tn:string obj.eval_type_name
+    if ((strlen tn) == 0) {
+      tn = obj.type_name
+    }
+    if (((strlen obj.eval_array_type) > 0) || ((strlen obj.eval_key_type) > 0)) {
+      return false
+    }
+    if ((obj.eval_type == RangerNodeType.Array) || (obj.eval_type == RangerNodeType.Hash)) {
+      return false
+    }
+    if ((strlen tn) == 0) {
+      return false
+    }
+    if ((ctx.isDefinedClass(tn)) == false) {
+      return false
+    }
+    def tc:RangerAppClassDesc (ctx.findClass(tn))
+    if (tc.is_copy == false) {
+      return false
+    }
+    return (this.cppIsValueClass(tc ctx))
+  }
+
   fn cppCallReceiverNeedsValue:boolean (obj:CodeNode ctx:RangerAppWriterContext) {
     def cnt:int (array_length obj.nsp)
     def pp@(optional):RangerAppParamDesc
@@ -1522,6 +1557,16 @@ class RangerCppClassWriter {
       } {
         wr.out("" false)
       }
+      ; a place temporary of a @(copy) value class (RustLower.bindTemp):
+      ; `auto&&` aliases an element or field, and keeps a returned value alive
+      def placeRef:boolean false
+      if (!null? p.nameNode) {
+        def pnn:CodeNode (unwrap p.nameNode)
+        if ((pnn.hasFlag("place")) && (p.set_cnt == 0) && (ctx.isDefinedClass(pnn.type_name))) {
+          def pcl:RangerAppClassDesc (ctx.findClass(pnn.type_name))
+          placeRef = (pcl.is_copy && (this.cppIsValueClass(pcl ctx)))
+        }
+      }
       ; `def s@(borrow):string x` (the Rust lowering's `let s: &str = x`),
       ; never assigned again: a const reference, not a copy of the text
       def cppBorrow:boolean false
@@ -1530,13 +1575,21 @@ class RangerCppClassWriter {
         if ((bnN.hasFlag("borrow")) && (bnN.type_name == "string") && (bnN.value_type != RangerNodeType.Array) && (bnN.value_type != RangerNodeType.Hash)) {
           cppBorrow = true
         }
+        ; `let v = &x.items` of a Vec / map / set: a const reference too
+        if ((bnN.hasFlag("borrow")) && ((bnN.value_type == RangerNodeType.Array) || (bnN.value_type == RangerNodeType.Hash))) {
+          cppBorrow = true
+        }
       }
-      if cppBorrow {
-        wr.out("const " false)
-      }
-      this.writeTypeDef((unwrap p.nameNode) ctx wr)
-      if cppBorrow {
-        wr.out("&" false)
+      if placeRef {
+        wr.out("auto&&" false)
+      } {
+        if cppBorrow {
+          wr.out("const " false)
+        }
+        this.writeTypeDef((unwrap p.nameNode) ctx wr)
+        if cppBorrow {
+          wr.out("&" false)
+        }
       }
       ; Only member-alias locals need C++ &. Exclude new/fn-call inits (is_assigned_from_member
       ; false-positives on (new T) and (fn arg) AST shapes).
@@ -1569,6 +1622,9 @@ class RangerCppClassWriter {
             useCppRef = false
           }
         }
+      }
+      if placeRef {
+        useCppRef = false
       }
       if useCppRef {
         wr.out("&" false)
@@ -1656,7 +1712,11 @@ class RangerCppClassWriter {
           wr.out(".value()" false)
         }
       }
-      wr.out("->" false)
+      if (this.cppCallReceiverIsValue(obj ctx)) {
+        wr.out("." false)
+      } {
+        wr.out("->" false)
+      }
       wr.out(method.vref false)
 ;       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
@@ -2723,6 +2783,35 @@ class RangerCppClassWriter {
   ; `needs_cpp_reference` is the fact, and StaticAnalyzer.markVarAsMutated has
   ; been setting it for a mutated object parameter all along -- writeArgsDef
   ; suppressed the `&` for class types because a shared_ptr never needed one.
+  ; A method of a @(copy) value class that takes `&self` (RustLower: @(const))
+  fn cppConstMethod:boolean (variant:RangerAppFunctionDesc cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if (cl.is_copy == false) {
+      return false
+    }
+    if ((variant.nameNode.hasFlag("const")) == false) {
+      return false
+    }
+    return (this.cppIsValueClass(cl ctx))
+  }
+
+  fn cppByvalCopyParam:boolean (arg:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if (null? arg.nameNode) {
+      return false
+    }
+    def tNode:CodeNode (unwrap arg.nameNode)
+    if ((tNode.hasFlag("byval")) == false) {
+      return false
+    }
+    if (((strlen tNode.array_type) > 0) || ((strlen tNode.key_type) > 0)) {
+      return false
+    }
+    if ((ctx.isDefinedClass(tNode.type_name)) == false) {
+      return false
+    }
+    def tc:RangerAppClassDesc (ctx.findClass(tNode.type_name))
+    return (tc.is_copy && (this.cppIsValueClass(tc ctx)))
+  }
+
   fn cppMutatedValueClassParam:boolean (arg:RangerAppParamDesc ctx:RangerAppWriterContext) {
     if (arg.needs_cpp_reference == false) {
       return false
@@ -2878,6 +2967,13 @@ class RangerCppClassWriter {
         wr.out("," false)
       }
       wr.out(" " false)
+      ; a Rust `&T` / `T` of a @(copy) value class (RustLower marks it
+      ; @(byval)): a plain copy, small and never written back
+      if (this.cppByvalCopyParam(arg ctx)) {
+        this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
+        wr.out(((" " + arg.compiledName) + " ") false)
+        continue
+      }
       def constRef:boolean (this.cppReadonlyValueParam(arg))
       if (constRef == false) {
         constRef = (this.cppReadonlyUnionParam(arg ctx))
@@ -3301,7 +3397,11 @@ class RangerCppClassWriter {
         this.writeReturnTypeDef(variant ctx wr)
         wr.out(((" " + variant.compiledName) + "(") false)
         this.writeArgsDef(variant ctx wr)
-        wr.out(");" true)
+        wr.out(")" false)
+        if (this.cppConstMethod(variant (unwrap cl) ctx)) {
+          wr.out(" const" false)
+        }
+        wr.out(";" true)
       }
     }
     ; A case the variant carries BY VALUE needs an operator==, because the
@@ -3808,6 +3908,9 @@ class RangerCppClassWriter {
       ; a behaviour-only trait used as a type becomes an abstract base, and a
       ; base has to be complete before the class that derives from it
       wr.createTag("c++TraitDefs")
+      ; a @(copy) value class holds only scalars, and another class may hold
+      ; it by value: it is defined before them all
+      wr.createTag("c++CopyHeader")
       wr.createTag("c++Header")
       wr.out("" true)
 
@@ -3821,6 +3924,9 @@ class RangerCppClassWriter {
     }
     def classWriter:CodeWriter (orig_wr.getTag("c++ClassDefs"))
     def headerWriter:CodeWriter (orig_wr.getTag("c++Header"))
+    if (cl.is_copy && (this.cppIsValueClass((unwrap cl) ctx))) {
+      headerWriter = (orig_wr.getTag("c++CopyHeader"))
+    }
     def projectName:string "project"
 
     ; for cl.capturedLocals dd@(lives):RangerAppParamDesc i {
@@ -3966,7 +4072,11 @@ class RangerCppClassWriter {
         wr.out(((" " + clRef) + "::") false)
         wr.out((variant.compiledName + "(") false)
         this.writeArgsDef(variant ctx wr)
-        wr.out(") {" true)
+        wr.out(")" false)
+        if (this.cppConstMethod(variant (unwrap cl) ctx)) {
+          wr.out(" const" false)
+        }
+        wr.out(" {" true)
         wr.indent(1)
         wr.newline()
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx )

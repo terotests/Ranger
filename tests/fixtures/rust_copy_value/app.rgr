@@ -1,0 +1,7 @@
+Import "copy.rs"
+
+class App {
+    sfn m@(main):void () {
+        print (Copy.run())
+    }
+}

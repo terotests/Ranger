@@ -2519,6 +2519,38 @@ class RustLower {
     return s
   }
 
+  ; A `#[derive(Clone, Copy)]` struct, not generic, whose fields are all
+  ; numbers or booleans: a plain value on every target that has one.
+  fn isScalarCopyStruct:boolean (s:RsStruct) {
+    if (false == (s.derivesTrait("Copy"))) {
+      return false
+    }
+    if ((array_length s.generics) > 0) {
+      return false
+    }
+    if ((array_length s.fields) == 0) {
+      return false
+    }
+    for s.fields f:RsField i {
+      def k:string f.ty.kind
+      if (((k == "int") || (k == "double") || (k == "bool")) == false) {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn isScalarCopyType:boolean (t:RsType) {
+    if (t.kind != "named") {
+      return false
+    }
+    if (has structs t.name) {
+      def s:RsStruct (unwrap (get structs t.name))
+      return (this.isScalarCopyStruct(s))
+    }
+    return false
+  }
+
   fn isCopyStruct:boolean (t:RsType) {
     if (t.kind != "named") {
       return false
@@ -3583,7 +3615,13 @@ class RustLower {
 
   fn emitStructAs:string (s:RsStruct cname:string) {
     def lines:[string]
-    push lines (("class " + cname) + " {")
+    if (this.isScalarCopyStruct(s)) {
+      ; @(copy): a Copy struct of scalars only -- a target with value types
+      ; (C++) may hold it by value, since Rust copies it on every read
+      push lines (("class " + cname) + "@(copy) {")
+    } {
+      push lines (("class " + cname) + " {")
+    }
     for s.fields f:RsField i {
       def fdoc:string ""
       if (!null? f.node) {
@@ -3609,7 +3647,11 @@ class RustLower {
     }
     push lines (this.emitStructZero(s cname))
     if ((s.derivesTrait("Clone")) || (s.derivesTrait("Copy"))) {
-      push lines (("  fn rs_clone:" + cname) + " () {")
+      if (this.isScalarCopyStruct(s)) {
+        push lines (("  fn rs_clone@(const):" + cname) + " () {")
+      } {
+        push lines (("  fn rs_clone:" + cname) + " () {")
+      }
       if (s.isTuple) {
         def args:[string]
         for s.fields f4:RsField k2 {
@@ -4276,7 +4318,12 @@ class RustLower {
       }
       if (pat.kind == "pat_ident") {
         def l:RsLocal (this.declare(p.name pty))
-        push ps (this.declText(l.rname pty))
+        def pdecl:string (this.declText(l.rname pty))
+        ; `&T` or `T` of a Copy struct of scalars: C++ takes a copy
+        if ((false == pty.isMutRef) && (this.isScalarCopyType(pty))) {
+          pdecl = (this.declText((l.rname + "@(byval)") pty))
+        }
+        push ps pdecl
       } {
         def wn:string (this.allocLocal("arg"))
         push ps (this.declText(wn pty))
@@ -4361,8 +4408,23 @@ class RustLower {
       }
     }
     def head:string ((("  " + kw) + " ") + name)
+    ; `&self` on a Copy struct of scalars: a C++ value class makes it a const
+    ; member function, callable on an element of a const container
+    def constSelf:boolean false
+    if (f.hasSelf && (false == f.selfMut) && (false == enumOwner) && (has structs owner)) {
+      def ows:RsStruct (unwrap (get structs owner))
+      constSelf = (this.isScalarCopyStruct(ows))
+    }
     if (fret.kind == "opt") {
-      head = head + "@(optional)"
+      if constSelf {
+        head = head + "@(optional const)"
+      } {
+        head = head + "@(optional)"
+      }
+    } {
+      if constSelf {
+        head = head + "@(const)"
+      }
     }
     ; `fn f(&self) -> &str`: a borrow of self, which the C++ writer may hand
     ; back as `const std::string&` when every return is self's own text
@@ -4515,6 +4577,17 @@ class RustLower {
         def bn:string (l2.rname)
         if ((t.kind == "string") && (t.name != "String") && (false == (pat.hasMod("mut"))) && (false == (pat.hasMod("ref")))) {
           bn = bn + "@(borrow)"
+        }
+        ; `let v = &x.items;` of a Vec / map / set: a borrow too, so the C++
+        ; writer binds a const reference instead of copying the collection
+        if (((t.kind == "vec") || (t.kind == "map") || (t.kind == "set")) && (false == (pat.hasMod("mut"))) && (false == (pat.hasMod("ref")))) {
+          def ib:RustNode init
+          while (ib.kind == "paren") {
+            ib = (ib.kid(0))
+          }
+          if ((ib.kind == "unary") && (ib.name == "&")) {
+            bn = bn + "@(borrow)"
+          }
         }
         out.line(((("def " + (this.declText(bn t))) + " ") + c.code))
       }
@@ -6273,6 +6346,12 @@ class RustLower {
       return v.code
     }
     def name:string (this.tmp(base))
+    if (this.isScalarCopyType(t)) {
+      ; a place of a Copy struct (`v[i].a = x` writes through it): a target
+      ; that holds the struct by value binds a reference (@(place))
+      out.line(((("def " + (this.declText((name + "@(place)") t))) + " ") + v.code))
+      return name
+    }
     out.line(((("def " + (this.declText(name t))) + " ") + v.code))
     return name
   }
@@ -10768,9 +10847,21 @@ class RustLower {
     }
     def code:string ""
     def found:boolean false
+    def polyfill:string ""
     def listed:[string]
     for arms.kids arm:RustNode ai {
       def an:string (RustLower.targetAlias(arm.name))
+      ; `cpp_polyfill: "..."`: code written once at file level (before the
+      ; functions) for the target, so the arm's template can call it
+      if ((an == (want + "_polyfill")) && (arm.kind == "native_arm")) {
+        def pex:RustNode (arm.kid(0))
+        if ((pex.kind != "lit") || (false == (pex.hasMod("str")))) {
+          this.err(arm (("the `" + arm.name) + "` arm of native! must be a string literal of target code"))
+          return (this.unit())
+        }
+        polyfill = pex.value
+        continue
+      }
       push listed an
       if ((an == want) && (arm.kind == "native_arm")) {
         def ex:RustNode (arm.kid(0))
@@ -10860,6 +10951,9 @@ class RustLower {
       k = k + 1
     }
     def tpl:[string]
+    if (polyfill != "") {
+      push tpl (("(create_polyfill " + (this.rangerString(polyfill))) + ")")
+    }
     def pk:int 0
     while (pk < (array_length pieces)) {
       push tpl (this.rangerString((itemAt pieces pk)))

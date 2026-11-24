@@ -953,6 +953,9 @@ extension RangerFlowParser {
       if(node.hasBooleanProperty("trait")) {
         new_class.is_trait = true
       }
+      if(classNameNode.hasFlag("copy")) {
+        new_class.is_copy = true
+      }
       if(classNameNode.hasFlag("immutable")) {
         push immutableClasses new_class
         new_class.is_immutable = true
