@@ -2566,7 +2566,24 @@ class RustLower {
     return true
   }
 
+  ; a tuple of numbers and booleans: Copy in Rust, a plain value on C++
+  fn isScalarTuple:boolean (t:RsType) {
+    if ((t.kind != "tuple") || ((array_length t.args) == 0)) {
+      return false
+    }
+    for t.args a:RsType i {
+      def k:string a.kind
+      if ((((k == "int") || (k == "double") || (k == "bool")) == false) || a.isRef || a.isMutRef) {
+        return false
+      }
+    }
+    return true
+  }
+
   fn isScalarCopyType:boolean (t:RsType) {
+    if (this.isScalarTuple(t)) {
+      return true
+    }
     if (t.kind != "named") {
       return false
     }
@@ -2599,7 +2616,13 @@ class RustLower {
     if (false == (has genNames name)) {
       set genNames name true
       def lines:[string]
-      push lines (("class " + name) + " {")
+      def scalar:boolean (this.isScalarTuple(t))
+      if scalar {
+        ; @(copy): held by value where the target has value types (C++)
+        push lines (("class " + name) + "@(copy) {")
+      } {
+        push lines (("class " + name) + " {")
+      }
       def ci:int 0
       def cps:[string]
       for t.args a2:RsType j {
@@ -2614,7 +2637,11 @@ class RustLower {
         ck = ck + 1
       }
       push lines "  }"
-      push lines (("  fn rs_clone:" + name) + " () {")
+      if scalar {
+        push lines (("  fn rs_clone@(const):" + name) + " () {")
+      } {
+        push lines (("  fn rs_clone:" + name) + " () {")
+      }
       def cargs:[string]
       def cj:int 0
       for t.args a3:RsType j2 {
@@ -5760,9 +5787,102 @@ class RustLower {
 
   ; ---------------------------------------------------------------- match
 
+  ; `match (a, b) { (P, Q) => .. }`: the elements are matched where they are,
+  ; one temporary each, instead of building a tuple object per match (on C++
+  ; a heap allocation each time). tupSplit maps the stand-in subject to them.
+  def tupSplit:[string:[string]]
+
+  fn tupField:string (subj:string i:int) {
+    if (has tupSplit subj) {
+      def fs:[string] (unwrap (get tupSplit subj))
+      return (itemAt fs i)
+    }
+    return ((subj + ".f") + (to_string i))
+  }
+
+  ; A tuple of numbers held by value (C++) reached through an expression
+  ; (`v[i]`, `o.unwrap()`): bound to a place first, so its parts are read
+  ; from the value where it is.
+  fn tuplePlace:string (subj:string t:RsType) {
+    if ((false == (this.isScalarTuple(t))) || (has tupSplit subj)) {
+      return subj
+    }
+    if ((indexOf subj "(") < 0) {
+      return subj
+    }
+    def name:string (this.tmp("tp"))
+    out.line(((("def " + (this.declText((name + "@(place)") t))) + " ") + subj))
+    return name
+  }
+
+  ; every arm takes the tuple apart (or ignores it): none needs it whole
+  fn tuplePat:boolean (p:RustNode) {
+    if (p.kind == "pat_wild") {
+      return true
+    }
+    if (p.kind == "pat_tuple") {
+      for p.kids sp:RustNode i {
+        if (sp.kind == "pat_rest") {
+          return false
+        }
+      }
+      return true
+    }
+    if (p.kind == "pat_or") {
+      for p.kids alt:RustNode j {
+        if (false == (this.tuplePat(alt))) {
+          return false
+        }
+      }
+      return true
+    }
+    return false
+  }
+
+  fn splitsTuple:boolean (e:RustNode) {
+    def scr:RustNode (e.kid(0))
+    if ((scr.kind != "tuple") || ((array_length scr.kids) < 2)) {
+      return false
+    }
+    def i:int 1
+    while (i < (array_length e.kids)) {
+      def arm:RustNode (e.kid(i))
+      if (false == (this.tuplePat((arm.kid(0))))) {
+        return false
+      }
+      i = i + 1
+    }
+    return true
+  }
+
   fn lowerMatch:void (e:RustNode mode:string var:string) {
-    def v:RsExpr (this.lowerExpr((e.kid(0)) (RsType.mk("unknown"))))
-    def subj:string (this.bindTemp(v v.ty "m"))
+    def v:RsExpr (RsExpr.of("" (RsType.mk("unknown"))))
+    def subj:string ""
+    if (this.splitsTuple(e)) {
+      def scr:RustNode (e.kid(0))
+      def tt:RsType (RsType.mk("tuple"))
+      def names:[string]
+      for scr.kids el:RustNode j {
+        def ev:RsExpr (this.lowerExprCopy(el (RsType.mk("unknown"))))
+        def ek:string ev.ty.kind
+        if (ev.simple && (false == ev.ty.isRef) && ((ek == "int") || (ek == "double") || (ek == "bool") || (ek == "char"))) {
+          ; a number is copied into the tuple: an arm that changes the
+          ; variable must not change what the pattern bound
+          def en:string (this.tmp("m"))
+          out.line(((("def " + (this.declText(en ev.ty))) + " ") + ev.code))
+          push names en
+        } {
+          push names (this.bindTemp(ev ev.ty "m"))
+        }
+        push tt.args ev.ty
+      }
+      subj = (this.tmp("tup"))
+      set tupSplit subj names
+      v = (RsExpr.of(subj tt))
+    } {
+      v = (this.lowerExpr((e.kid(0)) (RsType.mk("unknown"))))
+      subj = (this.bindTemp(v v.ty "m"))
+    }
     def arms:[RustNode]
     def narrow:boolean false
     def i:int 1
@@ -6022,7 +6142,7 @@ class RustLower {
         if (sp.kind == "pat_rest") {
           this.unsupported(sp "`..` in a tuple pattern")
         }
-        def c:string (this.patCond(sp ((subj + ".f") + (to_string ti)) (t.arg(ti))))
+        def c:string (this.patCond(sp (this.tupField(subj ti)) (t.arg(ti))))
         if (c != "true") {
           push tc c
         }
@@ -6370,9 +6490,10 @@ class RustLower {
       return
     }
     if (k == "pat_tuple") {
+      def ts:string (this.tuplePlace(subj t))
       def ti:int 0
       for pat.kids sp:RustNode tj {
-        this.walkBindings(sp ((subj + ".f") + (to_string ti)) (t.arg(ti)) aliasOnly)
+        this.walkBindings(sp (this.tupField(ts ti)) (t.arg(ti)) aliasOnly)
         ti = ti + 1
       }
       return
@@ -6458,6 +6579,10 @@ class RustLower {
     def v:RsExpr (this.lowerExpr(n expect))
     if (false == expect.isRef) {
       this.noteMove(n v.ty)
+    }
+    if ((this.isScalarTuple(v.ty)) && (this.isPlace(n))) {
+      ; a tuple of numbers is Copy: `let u = t` is a new tuple
+      return (RsExpr.of((("(" + (this.bindTemp(v v.ty "c"))) + ".rs_clone())") v.ty))
     }
     if ((this.isCopyStruct(v.ty)) && (this.isPlace(n))) {
       def r:RsExpr (RsExpr.of((("(" + (this.bindTemp(v v.ty "c"))) + ".rs_clone())") v.ty))
@@ -11833,8 +11958,9 @@ class RustLower {
       }
       def opened:int 0
       def ti:int 0
+      subj = (this.tuplePlace(subj t))
       for pat.kids sp:RustNode tj {
-        opened = opened + (this.patOpen(sp ((subj + ".f") + (to_string ti)) (t.arg(ti))))
+        opened = opened + (this.patOpen(sp (this.tupField(subj ti)) (t.arg(ti))))
         ti = ti + 1
       }
       return opened

@@ -92010,6 +92010,7 @@ class RustLower  {
     this.pendingFlags = [];
     this.forPat = undefined;
     this.forBody = undefined;
+    this.tupSplit = {};
     this.matchMut = false;
     this.armBefore = [];
     this.armAcc = [];
@@ -94156,7 +94157,23 @@ class RustLower  {
     }
     return true;
   };
+  isScalarTuple (t) {
+    if ( t.kind != "tuple" || t.args.length == 0 ) {
+      return false;
+    }
+    // Loop start
+    for ( const a of t.args) {
+      const k = a.kind;
+      if ( (((k == "int" || k == "double") || k == "bool") == false || a.isRef) || a.isMutRef ) {
+        return false;
+      }
+    }
+    return true;
+  };
   isScalarCopyType (t) {
+    if ( this.isScalarTuple(t) ) {
+      return true;
+    }
     if ( t.kind != "named" ) {
       return false;
     }
@@ -94186,7 +94203,12 @@ class RustLower  {
     if ( false == ( typeof(this.genNames[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.genNames, name) ) ) {
       this.genNames[name] = true;
       let lines = [];
-      lines.push(("class " + name) + " {");
+      const scalar = this.isScalarTuple(t);
+      if ( scalar ) {
+        lines.push(("class " + name) + "@(copy) {");
+      } else {
+        lines.push(("class " + name) + " {");
+      }
       let ci = 0;
       let cps = [];
       // Loop start
@@ -94203,7 +94225,11 @@ class RustLower  {
         ck = ck + 1;
       }
       lines.push("  }");
-      lines.push(("  fn rs_clone:" + name) + " () {");
+      if ( scalar ) {
+        lines.push(("  fn rs_clone@(const):" + name) + " () {");
+      } else {
+        lines.push(("  fn rs_clone:" + name) + " () {");
+      }
       let cargs = [];
       let cj = 0;
       // Loop start
@@ -97176,9 +97202,90 @@ class RustLower  {
     }
     this.out.line("}))");
   };
+  tupField (subj, i) {
+    if ( ( typeof(this.tupSplit[subj] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.tupSplit, subj) ) ) {
+      const fs = ( Object.prototype.hasOwnProperty.call(this.tupSplit, subj) ? this.tupSplit[subj] : undefined );
+      return fs[i];
+    }
+    return (subj + ".f") + ((i).toString());
+  };
+  tuplePlace (subj, t) {
+    if ( false == this.isScalarTuple(t) || ( typeof(this.tupSplit[subj] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.tupSplit, subj) ) ) {
+      return subj;
+    }
+    if ( subj.indexOf("(") < 0 ) {
+      return subj;
+    }
+    const name = this.tmp("tp");
+    this.out.line((("def " + this.declText((name + "@(place)"), t)) + " ") + subj);
+    return name;
+  };
+  tuplePat (p) {
+    if ( p.kind == "pat_wild" ) {
+      return true;
+    }
+    if ( p.kind == "pat_tuple" ) {
+      // Loop start
+      for ( const sp of p.kids) {
+        if ( sp.kind == "pat_rest" ) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if ( p.kind == "pat_or" ) {
+      // Loop start
+      for ( const alt of p.kids) {
+        if ( false == this.tuplePat(alt) ) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return false;
+  };
+  splitsTuple (e) {
+    const scr = e.kid(0);
+    if ( scr.kind != "tuple" || scr.kids.length < 2 ) {
+      return false;
+    }
+    let i = 1;
+    while (i < e.kids.length) {
+      const arm = e.kid(i);
+      if ( false == this.tuplePat(arm.kid(0)) ) {
+        return false;
+      }
+      i = i + 1;
+    };
+    return true;
+  };
   lowerMatch (e, mode, _var) {
-    const v = this.lowerExpr(e.kid(0), RsType.mk("unknown"));
-    const subj = this.bindTemp(v, v.ty, "m");
+    let v = RsExpr.of("", RsType.mk("unknown"));
+    let subj = "";
+    if ( this.splitsTuple(e) ) {
+      const scr = e.kid(0);
+      const tt = RsType.mk("tuple");
+      let names = [];
+      // Loop start
+      for ( const el of scr.kids) {
+        const ev = this.lowerExprCopy(el, RsType.mk("unknown"));
+        const ek = ev.ty.kind;
+        if ( (ev.simple && false == ev.ty.isRef) && (((ek == "int" || ek == "double") || ek == "bool") || ek == "char") ) {
+          const en = this.tmp("m");
+          this.out.line((("def " + this.declText(en, ev.ty)) + " ") + ev.code);
+          names.push(en);
+        } else {
+          names.push(this.bindTemp(ev, ev.ty, "m"));
+        }
+        tt.args.push(ev.ty);
+      }
+      subj = this.tmp("tup");
+      this.tupSplit[subj] = names;
+      v = RsExpr.of(subj, tt);
+    } else {
+      v = this.lowerExpr(e.kid(0), RsType.mk("unknown"));
+      subj = this.bindTemp(v, v.ty, "m");
+    }
     let arms = [];
     let narrow = false;
     let i = 1;
@@ -97422,11 +97529,7 @@ class RustLower  {
         if ( sp.kind == "pat_rest" ) {
           this.unsupported(sp, "`..` in a tuple pattern");
         }
-        const c = this.patCond(
-          sp,
-          ((subj + ".f") + ((ti).toString())),
-          t.arg(ti)
-        );
+        const c = this.patCond(sp, this.tupField(subj, ti), t.arg(ti));
         if ( c != "true" ) {
           tc.push(c);
         }
@@ -97742,15 +97845,11 @@ class RustLower  {
       return;
     }
     if ( k == "pat_tuple" ) {
+      const ts = this.tuplePlace(subj, t);
       let ti = 0;
       // Loop start
       for ( const sp of pat.kids) {
-        this.walkBindings(
-          sp,
-          (subj + ".f") + ((ti).toString()),
-          t.arg(ti),
-          aliasOnly
-        );
+        this.walkBindings(sp, this.tupField(ts, ti), t.arg(ti), aliasOnly);
         ti = ti + 1;
       }
       return;
@@ -97814,6 +97913,13 @@ class RustLower  {
     const v = this.lowerExpr(n, expect);
     if ( false == expect.isRef ) {
       this.noteMove(n, v.ty);
+    }
+    if ( this.isScalarTuple(v.ty) && this.isPlace(n) ) {
+      return RsExpr.of((("(" + this.bindTemp(
+        v,
+        v.ty,
+        "c"
+      )) + ".rs_clone())"), v.ty);
     }
     if ( this.isCopyStruct(v.ty) && this.isPlace(n) ) {
       const r = RsExpr.of((("(" + this.bindTemp(
@@ -102920,7 +103026,7 @@ class RustLower  {
   };
   patOpen (pat, subj0, t) {
     const k = pat.kind;
-    const subj = subj0;
+    let subj = subj0;
     if ( k == "pat_wild" || k == "pat_rest" ) {
       return 0;
     }
@@ -102951,13 +103057,10 @@ class RustLower  {
       }
       let opened = 0;
       let ti = 0;
+      subj = this.tuplePlace(subj, t);
       // Loop start
       for ( const sp of pat.kids) {
-        opened = opened + this.patOpen(
-          sp,
-          ((subj + ".f") + ((ti).toString())),
-          t.arg(ti)
-        );
+        opened = opened + this.patOpen(sp, this.tupField(subj, ti), t.arg(ti));
         ti = ti + 1;
       }
       return opened;
