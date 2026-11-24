@@ -48,7 +48,7 @@ describe("Rust Copy struct on C++", () => {
   it.skipIf(!has("g++ --version"))("is a value and prints what es6 prints", () => {
     const es = compile("es6", "app.js");
     const expected = run("node", [path.join(es, "app.js")]).stdout;
-    expect(expected.trim()).toBe("1 2 10 3 2 3 10 20 12.5 11 first 20 empty");
+    expect(expected.trim()).toBe("1 2 10 3 2 3 10 20 12.5 11 first 20 empty 6 8");
 
     const dir = compile("cpp", "app.cpp");
     const code = fs.readFileSync(path.join(dir, "app.cpp"), "utf8");
@@ -57,6 +57,8 @@ describe("Rust Copy struct on C++", () => {
     expect(code).toContain("std::optional<P>");
     expect(code).toMatch(/double sum\(\s*\) const;/);
     expect(code).toMatch(/void bump\(\s*\);/);
+    // the cpp_polyfill arm is written once however many calls use it
+    expect(code.split("static int rs_twice(int n)").length - 1).toBe(1);
 
     const bin = path.join(dir, "app");
     const b = run("g++", ["-std=c++17", "-o", bin, path.join(dir, "app.cpp")]);

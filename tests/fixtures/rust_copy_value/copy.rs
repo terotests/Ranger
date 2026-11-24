@@ -44,6 +44,17 @@ fn first(ps: &Vec<P>) -> Option<P> {
     if ps.is_empty() { None } else { Some(ps[0]) }
 }
 
+// a C++ arm that calls code written once at file level (cpp_polyfill)
+fn twice(n: int) -> int {
+    let r: int = ranger::native!(
+        rust: n * 2,
+        es6: "({n} * 2)",
+        cpp: "rs_twice({n})",
+        cpp_polyfill: r#"static int rs_twice(int n) { return n * 2; }"#
+    );
+    r
+}
+
 pub fn run() -> String {
     let mut out = String::new();
     let a = P::new(1, 2.5);
@@ -72,5 +83,6 @@ pub fn run() -> String {
     if first(&empty).is_none() {
         out.push_str("empty");
     }
+    out.push_str(&format!(" {} {}", twice(3), twice(4)));
     out
 }

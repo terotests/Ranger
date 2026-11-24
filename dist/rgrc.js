@@ -101526,10 +101526,20 @@ class RustLower  {
     }
     let code = "";
     let found = false;
+    let polyfill = "";
     let listed = [];
     // Loop start
     for ( const arm of arms.kids) {
       const an = RustLower.targetAlias(arm.name);
+      if ( an == want + "_polyfill" && arm.kind == "native_arm" ) {
+        const pex = arm.kid(0);
+        if ( pex.kind != "lit" || false == pex.hasMod("str") ) {
+          this.err(arm, ("the `" + arm.name) + "` arm of native! must be a string literal of target code");
+          return this.unit();
+        }
+        polyfill = pex.value;
+        continue;
+      }
       listed.push(an);
       if ( an == want && arm.kind == "native_arm" ) {
         const ex = arm.kid(0);
@@ -101618,6 +101628,9 @@ class RustLower  {
       k = k + 1;
     }
     let tpl = [];
+    if ( polyfill != "" ) {
+      tpl.push(("(create_polyfill " + this.rangerString(polyfill)) + ")");
+    }
     let pk = 0;
     while (pk < pieces.length) {
       tpl.push(this.rangerString(pieces[pk]));

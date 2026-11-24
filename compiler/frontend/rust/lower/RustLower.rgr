@@ -10836,9 +10836,21 @@ class RustLower {
     }
     def code:string ""
     def found:boolean false
+    def polyfill:string ""
     def listed:[string]
     for arms.kids arm:RustNode ai {
       def an:string (RustLower.targetAlias(arm.name))
+      ; `cpp_polyfill: "..."`: code written once at file level (before the
+      ; functions) for the target, so the arm's template can call it
+      if ((an == (want + "_polyfill")) && (arm.kind == "native_arm")) {
+        def pex:RustNode (arm.kid(0))
+        if ((pex.kind != "lit") || (false == (pex.hasMod("str")))) {
+          this.err(arm (("the `" + arm.name) + "` arm of native! must be a string literal of target code"))
+          return (this.unit())
+        }
+        polyfill = pex.value
+        continue
+      }
       push listed an
       if ((an == want) && (arm.kind == "native_arm")) {
         def ex:RustNode (arm.kid(0))
@@ -10928,6 +10940,9 @@ class RustLower {
       k = k + 1
     }
     def tpl:[string]
+    if (polyfill != "") {
+      push tpl (("(create_polyfill " + (this.rangerString(polyfill))) + ")")
+    }
     def pk:int 0
     while (pk < (array_length pieces)) {
       push tpl (this.rangerString((itemAt pieces pk)))
