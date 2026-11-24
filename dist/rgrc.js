@@ -34519,6 +34519,13 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     return this.cppIsValueClass(cl, ctx);
   };
+  cppMutRefParam (arg) {
+    if ( (arg.nameNode == null) ) {
+      return false;
+    }
+    const tNode = arg.nameNode;
+    return tNode.hasFlag("mutref");
+  };
   cppByvalCopyParam (arg, ctx) {
     if ( (arg.nameNode == null) ) {
       return false;
@@ -34663,6 +34670,11 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         wr.out((" " + arg.compiledName) + " ", false);
         continue;
       }
+      if ( this.cppMutRefParam(arg) ) {
+        this.writeTypeDef(arg.nameNode, ctx, wr);
+        wr.out(("& " + arg.compiledName) + " ", false);
+        continue;
+      }
       let constRef = this.cppReadonlyValueParam(arg);
       if ( constRef == false ) {
         constRef = this.cppReadonlyUnionParam(arg, ctx);
@@ -34718,6 +34730,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     if ( (vD.nameNode == null) ) {
       return false;
     }
+    if ( this.cppMutRefParam(vD) ) {
+      return true;
+    }
     const typeNode = vD.nameNode;
     const tn = typeNode.type_name;
     if ( (tn == "buffer" || tn == "int_buffer") || tn == "double_buffer" ) {
@@ -34738,6 +34753,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     return true;
   };
   cppMutableRefParam (fnDesc, arg, ctx) {
+    if ( this.cppMutRefParam(arg) ) {
+      return true;
+    }
     if ( this.cppReadonlyValueParam(arg) ) {
       return false;
     }
@@ -90479,6 +90497,7 @@ class RsParam  {
     this.ty = new RsType("unknown");
     this.pat = undefined;
     this.boxed = false;
+    this.mutref = false;
   }
 }
 RsParam.unknown = function() {
@@ -91961,6 +91980,7 @@ class RustLower  {
     this.localReserved = {};
     this.memberUnsafe = {};
     this.genNames = {};
+    this.mutrefLocals = {};
     this.cloneClass = "RsClone";
     this.genOut = [];
     this.hoisted = [];     /* note: unused */
@@ -93699,6 +93719,10 @@ class RustLower  {
       }
       rp.ty = this.typeOfIn(p.kid(1), sigGen);
       rp.boxed = this.needsBox(rp.ty);
+      if ( ((rp.boxed && this.target == "cpp") && pat.kind == "pat_ident") && false == this.isRcString(rp.ty) ) {
+        rp.boxed = false;
+        rp.mutref = true;
+      }
       f.params.push(rp);
     }
     const ret = m.kid(2);
@@ -95784,6 +95808,8 @@ class RustLower  {
     this.out = new RustOut();
     this.out.ind = "    ";
     this.scope = new RsScope();
+    let noMutref = {};
+    this.mutrefLocals = noMutref;
     let fresh = {};
     this.used = fresh;
     this.tmpN = 0;
@@ -95845,6 +95871,12 @@ class RustLower  {
         this.used[boxName] = true;
         ps.push((boxName + ":") + this.boxClass(pty));
         bl.rname = boxName + ".v";
+        continue;
+      }
+      if ( pat.kind == "pat_ident" && p.mutref ) {
+        const ml = this.declare(p.name, pty);
+        this.mutrefLocals[ml.rname] = true;
+        ps.push(this.declText(ml.rname + "@(mutref)", pty));
         continue;
       }
       if ( pat.kind == "pat_ident" ) {
@@ -99496,6 +99528,11 @@ class RustLower  {
       return RsExpr.of(this.cloneCode(rc, t), t);
     }
     if ( (((((name == "as_str" || name == "as_ref") || name == "borrow") || name == "borrow_mut") || name == "as_mut") || name == "into") || name == "into_owned" && k == "string" ) {
+      if ( (k == "string" && t.shared) && name != "into" ) {
+        const pt = t.copy();
+        pt.shared = false;
+        return RsExpr.of(c, pt);
+      }
       return rv;
     }
     if ( name == "to_string" && k != "vec" ) {
@@ -103446,6 +103483,9 @@ class RustLower  {
       return false;
     }
     const b = bl;
+    if ( ( typeof(this.mutrefLocals[b.rname] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.mutrefLocals, b.rname) ) ) {
+      return true;
+    }
     return b.rname.endsWith("_box.v");
   };
   hasBoxed (f) {
