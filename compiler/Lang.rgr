@@ -6652,6 +6652,7 @@ def rg_to_chars(s: String): collection.mutable.ArrayBuffer[Int] = {
 (create_polyfill "
 static std::vector<int> r_to_chars(const std::string & s) {
     std::vector<int> out;
+    out.reserve(s.size());
     size_t i = 0;
     while (i < s.size()) {
         unsigned char c = (unsigned char)s[i];

@@ -300,6 +300,30 @@ func rs_f2i(x float64) int64 {
   ; its code point.
   rs_char_code _:int (c:string) {
     templates {
+      ; a char is a one-character std::string: decode its first code point
+      ; in place, no vector of the whole string per character
+      cpp ( "r_char_code(" (e 1) ")" (imp "<string>")
+(create_polyfill "
+static inline int r_char_code(const std::string & s) {
+    if (s.empty()) { return 0; }
+    unsigned char c = (unsigned char)s[0];
+    if ((c & 0x80) == 0) { return c; }
+    int cp = 0;
+    size_t n = 1;
+    if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; n = 2; }
+    else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; n = 3; }
+    else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; n = 4; }
+    else { return 0xFFFD; }
+    if (n > s.size()) { return 0xFFFD; }
+    for (size_t k = 1; k < n; k++) {
+        unsigned char cc = (unsigned char)s[k];
+        if ((cc & 0xC0) != 0x80) { return 0xFFFD; }
+        cp = (cp << 6) | (cc & 0x3F);
+    }
+    return cp;
+}
+")
+      )
       * @macro(true) ( "(itemAt (to_chars " "(" (e 1) ")" ") 0)" )
     }
   }
