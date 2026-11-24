@@ -1,7 +1,7 @@
 // Borrowed structs and Rc<String> on C++ (tests/rust-cpp-borrow.test.ts).
 use ranger::prelude::*;
 use std::rc::Rc;
-pub struct O { pub x: int }
+pub struct O { pub x: int, pub tag: String }
 pub struct E { pub v: Vec<int> }
 pub struct M { pub objs: Vec<O>, pub evs: Vec<E>, pub texts: Vec<Rc<String>>, pub src: Rc<String> }
 pub fn obj_at(v: &Vec<O>, i: usize) -> &O { &v[i] }
@@ -13,7 +13,7 @@ impl M {
 }
 pub fn run() -> String {
     let mut m = M { objs: Vec::new(), evs: Vec::new(), texts: Vec::new(), src: Rc::new(String::from("banana")) };
-    m.objs.push(O { x: 5 });
+    m.objs.push(O { x: 5, tag: String::new() });
     m.evs.push(E { v: vec![1, 2] });
     m.texts.push(m.src.clone());
     m.texts.push(Rc::new(format!("{}!", m.src)));

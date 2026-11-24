@@ -1235,8 +1235,12 @@ namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_r
     if (rcl.is_union || rcl.is_interface || rcl.is_trait || rcl.is_system) {
       return false
     }
+    ; a @(copy) value class comes back as a reference to the element or
+    ; field (`-> &mut T`: `T&`, writes through it land there)
     if (this.cppIsValueClass(rcl ctx)) {
-      return false
+      if ((rcl.is_copy == false) || ((node.hasFlag("ref_mut")) == false)) {
+        return false
+      }
     }
     if (!null? variant.container_class) {
       def cc:RangerAppClassDesc (unwrap variant.container_class)
@@ -1326,6 +1330,19 @@ namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_r
   ; out-of-line definition so the two signatures always agree.
   fn writeReturnTypeDef:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if ((this.cppStringReturnByRef(variant ctx)) || (this.cppObjReturnByRef(variant ctx))) {
+      def mutRef:boolean false
+      if (!null? variant.nameNode) {
+        def rn:CodeNode (unwrap variant.nameNode)
+        if ((rn.hasFlag("ref_mut")) && (ctx.isDefinedClass(rn.type_name))) {
+          def rcl2:RangerAppClassDesc (ctx.findClass(rn.type_name))
+          mutRef = (this.cppIsValueClass(rcl2 ctx))
+        }
+      }
+      if mutRef {
+        this.writeTypeDef((unwrap variant.nameNode) ctx wr)
+        wr.out("&" false)
+        return
+      }
       wr.out("const " false)
       this.writeTypeDef((unwrap variant.nameNode) ctx wr)
       wr.out("&" false)
