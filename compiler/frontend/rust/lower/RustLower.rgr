@@ -64,6 +64,8 @@ class RustLower {
   def nativeN:int 0
   ; the target being compiled for (`es6`, `cpp`, …), for `#[ranger::target]`
   def target:string ""
+  ; C++ push_str: the appended text, when assignTo writes str_append
+  def strPush:string ""
   ; Cargo features `#[cfg(feature = "x")]` sees: the crates' `[features]
   ; default` lists (unless -no-default-features) and -features=a,b
   def features:[string]
@@ -8382,6 +8384,13 @@ class RustLower {
     if (name == "insert") {
       def iv3:RsExpr (this.lowerExpr((itemAt args 0) it))
       def xv:RsExpr (this.lowerExprCopy((itemAt args 1) et))
+      ; C++: std::vector::insert in place; the helper takes the vector by
+      ; reference and answers a copy of it, which the assignment then copied
+      ; back (the whole vector, every element's count, per insert)
+      if (target == "cpp") {
+        out.line((((("insert " + v) + " ") + iv3.code) + " ") + xv.code))
+        return (this.unit())
+      }
       ; the helper answers the array: on Go a push inside it makes a new
       ; slice the caller would not see
       out.line((((((((v + " = ") + (this.vecInserter(t))) + "(") + v) + " ") + iv3.code) + " ") + (xv.code + ")"))
@@ -8572,7 +8581,15 @@ class RustLower {
       def x:RsExpr (this.arg0(args st))
       ; rs_str_append is `c + x`; on Go it grows the string in place when
       ; it can (RsPrelude), so a loop of appends is linear there too
+      ; C++: `s += x` on a std::string grows it in place (amortized), where
+      ; `s = s + x` copied all of s for each append: quadratic for a string
+      ; built a character at a time (assignTo writes str_append for a local
+      ; or a field; any other place keeps the copy)
+      if (target == "cpp") {
+        strPush = x.code
+      }
       this.assignTo((at.kid(0)) (RsExpr.of((((("(rs_str_append " + c) + " ") + x.code) + ")") st)))
+      strPush = ""
       return (this.unit())
     }
     if (name == "to_uppercase") {
@@ -9504,7 +9521,11 @@ class RustLower {
           if (lv.backBad) {
             this.unsupported(lhs (("assigning to `" + lv.name) + "`, a `ref mut` binding of a whole `&mut` match subject"))
           }
-          out.line(((lv.rname + " = ") + v.code))
+          if ((strPush != "") && (lv.iterVec == "")) {
+            out.line(((("str_append " + lv.rname) + " ") + strPush))
+          } {
+            out.line(((lv.rname + " = ") + v.code))
+          }
           if (lv.backTo != "") {
             out.line(((lv.backTo + " = ") + lv.rname))
             this.noteWrittenCase(lv)
@@ -9537,7 +9558,11 @@ class RustLower {
           }
         }
       }
-      out.line(((((recv + ".") + fname) + " = ") + v.code))
+      if (strPush != "") {
+        out.line(((((("str_append " + recv) + ".") + fname) + " ") + strPush))
+      } {
+        out.line(((((recv + ".") + fname) + " = ") + v.code))
+      }
       return
     }
     if (k == "index") {
