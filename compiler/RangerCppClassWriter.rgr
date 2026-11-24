@@ -1575,6 +1575,10 @@ class RangerCppClassWriter {
         if ((bnN.hasFlag("borrow")) && (bnN.type_name == "string") && (bnN.value_type != RangerNodeType.Array) && (bnN.value_type != RangerNodeType.Hash)) {
           cppBorrow = true
         }
+        ; `let v = &x.items` of a Vec / map / set: a const reference too
+        if ((bnN.hasFlag("borrow")) && ((bnN.value_type == RangerNodeType.Array) || (bnN.value_type == RangerNodeType.Hash))) {
+          cppBorrow = true
+        }
       }
       if placeRef {
         wr.out("auto&&" false)

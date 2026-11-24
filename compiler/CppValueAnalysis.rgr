@@ -329,7 +329,7 @@ class CppValueClassAnalysis {
         }
       } {
         if diag {
-          if (cl.is_record) {
+          if (cl.is_record || cl.is_copy) {
             print ((("ownership[cpp] class " + cl.name) + " -> shared_ptr (") + (reason + ")"))
           }
         }

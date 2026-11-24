@@ -15399,10 +15399,20 @@ PkgImport.resolve = function(env, startDir, spec, libraryPaths) {
     hit.name = PkgImport.stripDot(spec);
     return hit;
   }
-  const dirs = PkgImport.manifestChain(env, startDir, libraryPaths);
+  let dirs = PkgImport.manifestChain(env, startDir, libraryPaths);
   if ( dirs.length == 0 ) {
     hit.err = "no ranger.json for " + spec;
     return hit;
+  }
+  if ( dirs.length > 1 ) {
+    let ordered = [];
+    ordered.push(dirs[(dirs.length - 1)]);
+    let oi = 0;
+    while (oi < dirs.length - 1) {
+      ordered.push(dirs[oi]);
+      oi = oi + 1;
+    };
+    dirs = ordered;
   }
   let firstErr = "";
   let di = 0;
@@ -31953,7 +31963,7 @@ class CppValueClassAnalysis  {
           }
         } else {
           if ( diag ) {
-            if ( cl.is_record ) {
+            if ( cl.is_record || cl.is_copy ) {
               console.log((("ownership[cpp] class " + cl.name) + " -> shared_ptr (") + (reason + ")"));
             }
           }
@@ -33312,6 +33322,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       if ( ((((typeof(p.nameNode) !== "undefined" && p.nameNode != null ) ) && node.children.length > 2) && p.set_cnt == 0) && p.is_class_variable == false ) {
         const bnN = p.nameNode;
         if ( ((bnN.hasFlag("borrow") && bnN.type_name == "string") && bnN.value_type != 6) && bnN.value_type != 7 ) {
+          cppBorrow = true;
+        }
+        if ( bnN.hasFlag("borrow") && (bnN.value_type == 6 || bnN.value_type == 7) ) {
           cppBorrow = true;
         }
       }
@@ -95619,6 +95632,15 @@ class RustLower  {
         let bn = l2.rname;
         if ( ((t.kind == "string" && t.name != "String") && false == pat.hasMod("mut")) && false == pat.hasMod("ref") ) {
           bn = bn + "@(borrow)";
+        }
+        if ( (((t.kind == "vec" || t.kind == "map") || t.kind == "set") && false == pat.hasMod("mut")) && false == pat.hasMod("ref") ) {
+          let ib = init;
+          while (ib.kind == "paren") {
+            ib = ib.kid(0);
+          };
+          if ( ib.kind == "unary" && ib.name == "&" ) {
+            bn = bn + "@(borrow)";
+          }
         }
         this.out.line((("def " + this.declText(bn, t)) + " ") + c.code);
       }

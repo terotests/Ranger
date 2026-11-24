@@ -4578,6 +4578,17 @@ class RustLower {
         if ((t.kind == "string") && (t.name != "String") && (false == (pat.hasMod("mut"))) && (false == (pat.hasMod("ref")))) {
           bn = bn + "@(borrow)"
         }
+        ; `let v = &x.items;` of a Vec / map / set: a borrow too, so the C++
+        ; writer binds a const reference instead of copying the collection
+        if (((t.kind == "vec") || (t.kind == "map") || (t.kind == "set")) && (false == (pat.hasMod("mut"))) && (false == (pat.hasMod("ref")))) {
+          def ib:RustNode init
+          while (ib.kind == "paren") {
+            ib = (ib.kid(0))
+          }
+          if ((ib.kind == "unary") && (ib.name == "&")) {
+            bn = bn + "@(borrow)"
+          }
+        }
         out.line(((("def " + (this.declText(bn t))) + " ") + c.code))
       }
       ; `let list = map.entry(k).or_insert_with(Vec::new)`: the Vec is a
