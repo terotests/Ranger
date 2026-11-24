@@ -91226,6 +91226,7 @@ class RustLower  {
     this.jsonN = 0;
     this.nativeN = 0;
     this.target = "";
+    this.strPush = "";
     this.features = [];
     this.noDefaultFeatures = false;
     this.declLate = false;
@@ -98974,6 +98975,10 @@ class RustLower  {
     if ( name == "insert" ) {
       const iv3 = this.lowerExpr(args[0], it);
       const xv = this.lowerExprCopy(args[1], et);
+      if ( this.target == "cpp" ) {
+        this.out.line((((("insert " + v) + " ") + iv3.code) + " ") + xv.code);
+        return this.unit();
+      }
       this.out.line((((((((v + " = ") + this.vecInserter(t)) + "(") + v) + " ") + iv3.code) + " ") + (xv.code + ")"));
       return this.unit();
     }
@@ -99153,7 +99158,11 @@ class RustLower  {
     }
     if ( name == "push_str" || name == "push" ) {
       const x = this.arg0(args, st);
+      if ( this.target == "cpp" ) {
+        this.strPush = x.code;
+      }
       this.assignTo(at.kid(0), RsExpr.of((((("(rs_str_append " + c) + " ") + x.code) + ")"), st));
+      this.strPush = "";
       return this.unit();
     }
     if ( name == "to_uppercase" ) {
@@ -100046,7 +100055,11 @@ class RustLower  {
           if ( lv.backBad ) {
             this.unsupported(lhs, ("assigning to `" + lv.name) + "`, a `ref mut` binding of a whole `&mut` match subject");
           }
-          this.out.line((lv.rname + " = ") + v.code);
+          if ( this.strPush != "" && lv.iterVec == "" ) {
+            this.out.line((("str_append " + lv.rname) + " ") + this.strPush);
+          } else {
+            this.out.line((lv.rname + " = ") + v.code);
+          }
           if ( lv.backTo != "" ) {
             this.out.line((lv.backTo + " = ") + lv.rname);
             this.noteWrittenCase(lv);
@@ -100079,7 +100092,11 @@ class RustLower  {
           }
         }
       }
-      this.out.line((((recv + ".") + fname) + " = ") + v.code);
+      if ( this.strPush != "" ) {
+        this.out.line((((("str_append " + recv) + ".") + fname) + " ") + this.strPush);
+      } else {
+        this.out.line((((recv + ".") + fname) + " = ") + v.code);
+      }
       return;
     }
     if ( k == "index" ) {
