@@ -180,6 +180,8 @@ class RsParam {
   ; `&mut` of a value type (a Vec on Go, a String or a number everywhere):
   ; passed in an RsBox so the caller sees the change
   def boxed:boolean false
+  ; C++: the same `&mut` passed as a plain `T&` (@(mutref)) instead
+  def mutref:boolean false
 
   sfn unknown:RsParam () {
     return (new RsParam())

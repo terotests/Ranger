@@ -128,6 +128,8 @@ class RustLower {
 
   ; generated concrete classes: tuples, monomorphized generics
   def genNames:[string:boolean]
+  ; C++ `&mut` parameters taken as `T&` (@(mutref)) in the current function
+  def mutrefLocals:[string:boolean]
   ; the class holding this lowering's collection clone/debug helpers: another
   ; `.rs` crate lowered into the same program has its own (FlowImport)
   def cloneClass:string "RsClone"
@@ -2101,6 +2103,11 @@ class RustLower {
       }
       rp.ty = (this.typeOfIn((p.kid(1)) sigGen))
       rp.boxed = (this.needsBox(rp.ty))
+      ; C++ binds the caller's place to a `T&`: no box allocated per call
+      if (rp.boxed && (target == "cpp") && (pat.kind == "pat_ident") && (false == (this.isRcString(rp.ty)))) {
+        rp.boxed = false
+        rp.mutref = true
+      }
       push f.params rp
     }
     def ret:RustNode (m.kid(2))
@@ -4265,6 +4272,8 @@ class RustLower {
     out = (new RustOut())
     out.ind = "    "
     scope = (new RsScope())
+    def noMutref:[string:boolean]
+    mutrefLocals = noMutref
     def fresh:[string:boolean]
     used = fresh
     tmpN = 0
@@ -4333,6 +4342,12 @@ class RustLower {
         set used boxName true
         push ps ((boxName + ":") + (this.boxClass(pty)))
         bl.rname = (boxName + ".v")
+        continue
+      }
+      if ((pat.kind == "pat_ident") && p.mutref) {
+        def ml:RsLocal (this.declare(p.name pty))
+        set mutrefLocals ml.rname true
+        push ps (this.declText((ml.rname + "@(mutref)") pty))
         continue
       }
       if (pat.kind == "pat_ident") {
@@ -8232,6 +8247,13 @@ class RustLower {
       return (RsExpr.of((this.cloneCode(rc t)) t))
     }
     if ((name == "as_str") || (name == "as_ref") || (name == "borrow") || (name == "borrow_mut") || (name == "as_mut") || (name == "into") || ((name == "into_owned") && (k == "string"))) {
+      ; `rc.as_ref()` of an `Rc<String>` is the `&String` inside: no longer
+      ; the shared text, so `.as_ref().clone()` is an owned String
+      if ((k == "string") && t.shared && (name != "into")) {
+        def pt:RsType (t.copy())
+        pt.shared = false
+        return (RsExpr.of(c pt))
+      }
       return rv
     }
     if ((name == "to_string") && (k != "vec")) {
@@ -12386,6 +12408,9 @@ class RustLower {
       return false
     }
     def b:RsLocal (unwrap bl)
+    if (has mutrefLocals b.rname) {
+      return true
+    }
     return (endsWith b.rname "_box.v")
   }
 
