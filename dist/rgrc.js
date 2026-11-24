@@ -32053,6 +32053,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     this.str_ret_owned = {};
     this.str_ret_seen = false;
     this.str_ret_safe = true;
+    this.obj_ret_memo = {};
   }
   cppEnumIsNative (enumName, ctx) {
     this.cppEnums.targetName = "cpp";
@@ -32455,6 +32456,17 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       p_write.compiledTags[code] = true;
     }
   };
+  cppEmitRcStr (wr) {
+    const code = "#include <memory>\n#include <string>\n#include <ostream>\n#include <functional>\n#include <string_view>\n#include <vector>\nstruct rg_rcstr {\n  std::shared_ptr<const std::string> p;\n  static const std::shared_ptr<const std::string>& empty_text() { static const std::shared_ptr<const std::string> e = std::make_shared<const std::string>(); return e; }\n  rg_rcstr() : p(empty_text()) {}\n  rg_rcstr(const std::string& s) : p(s.empty() ? empty_text() : std::make_shared<const std::string>(s)) {}\n  rg_rcstr(std::string&& s) : p(s.empty() ? empty_text() : std::make_shared<const std::string>(std::move(s))) {}\n  rg_rcstr(const char* s) : p(std::make_shared<const std::string>(s)) {}\n  rg_rcstr& operator=(const std::string& s) { p = std::make_shared<const std::string>(s); return *this; }\n  rg_rcstr& operator=(std::string&& s) { p = std::make_shared<const std::string>(std::move(s)); return *this; }\n  operator const std::string&() const { return *p; }\n  operator std::string_view() const { return std::string_view(*p); }\n  const std::string& str() const { return *p; }\n  size_t size() const { return p->size(); }\n  size_t length() const { return p->size(); }\n  bool empty() const { return p->empty(); }\n  const char* c_str() const { return p->c_str(); }\n  const char* data() const { return p->data(); }\n  char operator[](size_t i) const { return (*p)[i]; }\n  char at(size_t i) const { return p->at(i); }\n  std::string substr(size_t a, size_t n = std::string::npos) const { return p->substr(a, n); }\n  template <class... A> size_t find(A&&... a) const { return p->find(std::forward<A>(a)...); }\n  template <class... A> size_t rfind(A&&... a) const { return p->rfind(std::forward<A>(a)...); }\n  template <class... A> int compare(A&&... a) const { return p->compare(std::forward<A>(a)...); }\n  std::string::const_iterator begin() const { return p->begin(); }\n  std::string::const_iterator end() const { return p->end(); }\n};\ninline bool operator==(const rg_rcstr& a, const rg_rcstr& b) { return a.p == b.p || *a.p == *b.p; }\ninline bool operator!=(const rg_rcstr& a, const rg_rcstr& b) { return !(a == b); }\ninline bool operator<(const rg_rcstr& a, const rg_rcstr& b) { return *a.p < *b.p; }\ninline bool operator==(const rg_rcstr& a, const std::string& b) { return *a.p == b; }\ninline bool operator==(const std::string& a, const rg_rcstr& b) { return a == *b.p; }\ninline bool operator!=(const rg_rcstr& a, const std::string& b) { return *a.p != b; }\ninline bool operator!=(const std::string& a, const rg_rcstr& b) { return a != *b.p; }\ninline bool operator==(const rg_rcstr& a, const char* b) { return *a.p == b; }\ninline bool operator!=(const rg_rcstr& a, const char* b) { return *a.p != b; }\ninline std::string operator+(const rg_rcstr& a, const rg_rcstr& b) { return *a.p + *b.p; }\ninline std::string operator+(const rg_rcstr& a, const std::string& b) { return *a.p + b; }\ninline std::string operator+(const std::string& a, const rg_rcstr& b) { return a + *b.p; }\ninline std::string operator+(const rg_rcstr& a, const char* b) { return *a.p + b; }\ninline std::string operator+(const char* a, const rg_rcstr& b) { return a + *b.p; }\ninline std::string operator+(const rg_rcstr& a, char b) { return *a.p + b; }\ninline std::ostream& operator<<(std::ostream& o, const rg_rcstr& s) { return o << *s.p; }\nstruct rg_rcvec : std::vector<rg_rcstr> {\n  using std::vector<rg_rcstr>::vector;\n  rg_rcvec() {}\n  rg_rcvec(const std::vector<std::string>& v) { this->reserve(v.size()); for (const auto& s : v) this->push_back(rg_rcstr(s)); }\n  rg_rcvec& operator=(const std::vector<std::string>& v) { this->clear(); this->reserve(v.size()); for (const auto& s : v) this->push_back(rg_rcstr(s)); return *this; }\n  operator std::vector<std::string>() const { std::vector<std::string> r; r.reserve(this->size()); for (const auto& s : *this) r.push_back(*s.p); return r; }\n};\nnamespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_rcstr& s) const { return std::hash<std::string>()(*s.p); } }; }\n";
+    const p_write = wr.getTag("utilities");
+    if ( ( typeof(p_write.compiledTags[code] ) != "undefined" && Object.prototype.hasOwnProperty.call(p_write.compiledTags, code) ) == false ) {
+      p_write.raw(code, true);
+      p_write.compiledTags[code] = true;
+    }
+  };
+  cppIsRcStr (node) {
+    return node.hasFlag("rc") && node.hasFlag("optional") == false;
+  };
   writeTypeDef (node, ctx, wr) {
     let v_type = node.value_type;
     let t_name = node.type_name;
@@ -32587,7 +32599,12 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           wr.addImport("<optional>");
           wr.out(" std::optional<std::string> ", false);
         } else {
-          wr.out("std::string", false);
+          if ( this.cppIsRcStr(node) ) {
+            this.cppEmitRcStr(wr);
+            wr.out("rg_rcstr", false);
+          } else {
+            wr.out("std::string", false);
+          }
         }
         break;
       case 5 : 
@@ -32609,7 +32626,12 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           wr.addImport("<optional>");
           wr.out("std::optional<", false);
         }
-        wr.out(("std::vector<" + this.getObjectTypeString(a_name, ctx)) + ">", false);
+        if ( a_name == "string" && this.cppIsRcStr(node) ) {
+          this.cppEmitRcStr(wr);
+          wr.out("rg_rcvec", false);
+        } else {
+          wr.out(("std::vector<" + this.getObjectTypeString(a_name, ctx)) + ">", false);
+        }
         wr.addImport("<vector>");
         if ( node.hasFlag("optional") ) {
           wr.out(">", false);
@@ -32877,6 +32899,139 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     this.cppScanStringReturns(variant.fnBody);
     return this.str_ret_seen && this.str_ret_safe;
   };
+  cppObjRetKey (variant) {
+    let k = variant.name;
+    if ( (typeof(variant.container_class) !== "undefined" && variant.container_class != null )  ) {
+      const cc = variant.container_class;
+      k = (cc.name + "::") + k;
+    }
+    if ( variant.is_static ) {
+      k = k + "/s";
+    }
+    return k;
+  };
+  cppRootIsBorrowed (path, names) {
+    if ( path.length == 0 ) {
+      return false;
+    }
+    const dot = path.indexOf(".");
+    if ( dot <= 0 ) {
+      return false;
+    }
+    const root = path.substring(0, dot );
+    if ( root == "this" ) {
+      return true;
+    }
+    return names.indexOf(root) >= 0;
+  };
+  cppReturnIsBorrowedObj (retValue, names, ctx) {
+    if ( this.cppRootIsBorrowed(this.cppMemberPathOf(retValue), names) ) {
+      return true;
+    }
+    if ( retValue.expression ) {
+      if ( retValue.children.length >= 2 ) {
+        const head = retValue.getFirst();
+        if ( head.vref == "itemAt" || head.vref == "get" ) {
+          const container = retValue.getSecond();
+          if ( this.cppRootIsBorrowed(this.cppMemberPathOf(container), names) ) {
+            return true;
+          }
+          if ( container.ns.length < 2 ) {
+            if ( container.vref.indexOf(".") < 0 && names.indexOf(container.vref) >= 0 ) {
+              return true;
+            }
+          }
+          return false;
+        }
+      }
+    }
+    if ( retValue.hasFnCall || retValue.has_call ) {
+      if ( (typeof(retValue.fnDesc) !== "undefined" && retValue.fnDesc != null )  ) {
+        return this.cppObjReturnByRef(retValue.fnDesc, ctx);
+      }
+    }
+    return false;
+  };
+  cppScanObjReturns (node, names, ctx) {
+    if ( (typeof(node.lambda_ctx) !== "undefined" && node.lambda_ctx != null )  ) {
+      return true;
+    }
+    if ( node.expression ) {
+      if ( node.children.length > 0 ) {
+        const first = node.getFirst();
+        if ( first.vref == "return" ) {
+          if ( node.children.length < 2 ) {
+            return false;
+          }
+          if ( false == this.cppReturnIsBorrowedObj(node.getSecond(), names, ctx) ) {
+            return false;
+          }
+        }
+      }
+    }
+    // Loop start
+    for ( const child of node.children) {
+      if ( false == this.cppScanObjReturns(child, names, ctx) ) {
+        return false;
+      }
+    }
+    return true;
+  };
+  cppObjReturnByRef (variant, ctx) {
+    if ( (variant.nameNode == null) ) {
+      return false;
+    }
+    const node = variant.nameNode;
+    if ( node.hasFlag("ref_return") == false ) {
+      return false;
+    }
+    if ( node.hasFlag("optional") ) {
+      return false;
+    }
+    if ( node.value_type == 6 || node.value_type == 7 ) {
+      return false;
+    }
+    if ( ctx.isDefinedClass(node.type_name) == false ) {
+      return false;
+    }
+    const rcl = ctx.findClass(node.type_name);
+    if ( ((rcl.is_union || rcl.is_interface) || rcl.is_trait) || rcl.is_system ) {
+      return false;
+    }
+    if ( this.cppIsValueClass(rcl, ctx) ) {
+      return false;
+    }
+    if ( (typeof(variant.container_class) !== "undefined" && variant.container_class != null )  ) {
+      const cc = variant.container_class;
+      if ( cc.is_inherited ) {
+        return false;
+      }
+      if ( cc.extends_classes.length > 0 ) {
+        return false;
+      }
+    }
+    if ( (variant.fnBody == null) ) {
+      return false;
+    }
+    const key = this.cppObjRetKey(variant);
+    if ( ( typeof(this.obj_ret_memo[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.obj_ret_memo, key) ) ) {
+      return ( Object.prototype.hasOwnProperty.call(this.obj_ret_memo, key) ? this.obj_ret_memo[key] : undefined ) == 1;
+    }
+    this.obj_ret_memo[key] = 0;
+    let names = [];
+    // Loop start
+    for ( const pp of variant.params) {
+      names.push(pp.compiledName);
+      names.push(pp.name);
+    }
+    const ok = this.cppScanObjReturns(variant.fnBody, names, ctx);
+    if ( ok ) {
+      this.obj_ret_memo[key] = 1;
+    } else {
+      this.obj_ret_memo[key] = 2;
+    }
+    return ok;
+  };
   cppBufferReturnByRef (variant, ctx) {
     if ( (variant.nameNode == null) ) {
       return false;
@@ -32916,7 +33071,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     return this.buf_ret_all_safe;
   };
   writeReturnTypeDef (variant, ctx, wr) {
-    if ( this.cppStringReturnByRef(variant, ctx) ) {
+    if ( this.cppStringReturnByRef(variant, ctx) || this.cppObjReturnByRef(variant, ctx) ) {
       wr.out("const ", false);
       this.writeTypeDef(variant.nameNode, ctx, wr);
       wr.out("&", false);
@@ -33353,6 +33508,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         if ( (pnn.hasFlag("place") && p.set_cnt == 0) && ctx.isDefinedClass(pnn.type_name) ) {
           const pcl = ctx.findClass(pnn.type_name);
           placeRef = pcl.is_copy && this.cppIsValueClass(pcl, ctx);
+          if ( (((((((placeRef == false && this.cppIsValueClass(pcl, ctx) == false) && pcl.is_union == false) && pcl.is_interface == false) && pcl.is_trait == false) && pcl.is_system == false) && pnn.value_type != 6) && pnn.value_type != 7) && pnn.hasFlag("optional") == false ) {
+            placeRef = true;
+          }
         }
       }
       let cppBorrow = false;
@@ -93914,6 +94072,19 @@ class RustLower  {
     }
     return "";
   };
+  isRcString (t) {
+    if ( this.target != "cpp" ) {
+      return false;
+    }
+    if ( t.kind == "string" && t.shared ) {
+      return true;
+    }
+    if ( t.kind == "vec" && t.args.length > 0 ) {
+      const e = t.arg(0);
+      return e.kind == "string" && e.shared;
+    }
+    return false;
+  };
   declText (rname, t) {
     let s = rname;
     if ( t.kind == "opt" ) {
@@ -93930,6 +94101,10 @@ class RustLower  {
     } else {
       if ( t.weak ) {
         s = s + "@(weak)";
+      } else {
+        if ( this.isRcString(t) ) {
+          s = s + "@(rc)";
+        }
       }
     }
     const tt = this.rtype(t);
@@ -95788,6 +95963,12 @@ class RustLower  {
     if ( (((fret.kind == "string" && fret.isRef) && kw == "fn") && f.fromTrait == "") && false == isFmt ) {
       head = head + "@(ref_return)";
     }
+    if ( this.isRcString(fret) ) {
+      head = head + "@(rc)";
+    }
+    if ( (((fret.kind == "named" && fret.isRef) && ( typeof(this.structs[fret.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, fret.name) )) && f.fromTrait == "") && false == isFmt ) {
+      head = head + "@(ref_return)";
+    }
     let lines = [];
     lines.push((((head + ":") + retText) + " (") + (ps.join(" ") + ") {"));
     // Loop start
@@ -97548,6 +97729,10 @@ class RustLower  {
       return v.code;
     }
     const name = this.tmp(base);
+    if ( (t.kind == "named" && ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) )) && false == this.isScalarCopyType(t) ) {
+      this.out.line((("def " + this.declText((name + "@(place)"), t)) + " ") + v.code);
+      return name;
+    }
     if ( this.isScalarCopyType(t) ) {
       this.out.line((("def " + this.declText((name + "@(place)"), t)) + " ") + v.code);
       return name;

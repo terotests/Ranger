@@ -549,6 +549,79 @@ class RangerCppClassWriter {
     }
   }
 
+  ; `Rc<String>` of the Rust subset (`@(rc)` on the declaration): one shared,
+  ; immutable text. A clone is a pointer copy, where a std::string copied the
+  ; whole text (CEr's source per compiled function, its string table on
+  ; every read). It reads as a `const std::string&` wherever one is wanted.
+  fn cppEmitRcStr:void (wr:CodeWriter) {
+    def code:string "#include <memory>
+#include <string>
+#include <ostream>
+#include <functional>
+#include <string_view>
+#include <vector>
+struct rg_rcstr {
+  std::shared_ptr<const std::string> p;
+  static const std::shared_ptr<const std::string>& empty_text() { static const std::shared_ptr<const std::string> e = std::make_shared<const std::string>(); return e; }
+  rg_rcstr() : p(empty_text()) {}
+  rg_rcstr(const std::string& s) : p(s.empty() ? empty_text() : std::make_shared<const std::string>(s)) {}
+  rg_rcstr(std::string&& s) : p(s.empty() ? empty_text() : std::make_shared<const std::string>(std::move(s))) {}
+  rg_rcstr(const char* s) : p(std::make_shared<const std::string>(s)) {}
+  rg_rcstr& operator=(const std::string& s) { p = std::make_shared<const std::string>(s); return *this; }
+  rg_rcstr& operator=(std::string&& s) { p = std::make_shared<const std::string>(std::move(s)); return *this; }
+  operator const std::string&() const { return *p; }
+  operator std::string_view() const { return std::string_view(*p); }
+  const std::string& str() const { return *p; }
+  size_t size() const { return p->size(); }
+  size_t length() const { return p->size(); }
+  bool empty() const { return p->empty(); }
+  const char* c_str() const { return p->c_str(); }
+  const char* data() const { return p->data(); }
+  char operator[](size_t i) const { return (*p)[i]; }
+  char at(size_t i) const { return p->at(i); }
+  std::string substr(size_t a, size_t n = std::string::npos) const { return p->substr(a, n); }
+  template <class... A> size_t find(A&&... a) const { return p->find(std::forward<A>(a)...); }
+  template <class... A> size_t rfind(A&&... a) const { return p->rfind(std::forward<A>(a)...); }
+  template <class... A> int compare(A&&... a) const { return p->compare(std::forward<A>(a)...); }
+  std::string::const_iterator begin() const { return p->begin(); }
+  std::string::const_iterator end() const { return p->end(); }
+};
+inline bool operator==(const rg_rcstr& a, const rg_rcstr& b) { return a.p == b.p || *a.p == *b.p; }
+inline bool operator!=(const rg_rcstr& a, const rg_rcstr& b) { return !(a == b); }
+inline bool operator<(const rg_rcstr& a, const rg_rcstr& b) { return *a.p < *b.p; }
+inline bool operator==(const rg_rcstr& a, const std::string& b) { return *a.p == b; }
+inline bool operator==(const std::string& a, const rg_rcstr& b) { return a == *b.p; }
+inline bool operator!=(const rg_rcstr& a, const std::string& b) { return *a.p != b; }
+inline bool operator!=(const std::string& a, const rg_rcstr& b) { return a != *b.p; }
+inline bool operator==(const rg_rcstr& a, const char* b) { return *a.p == b; }
+inline bool operator!=(const rg_rcstr& a, const char* b) { return *a.p != b; }
+inline std::string operator+(const rg_rcstr& a, const rg_rcstr& b) { return *a.p + *b.p; }
+inline std::string operator+(const rg_rcstr& a, const std::string& b) { return *a.p + b; }
+inline std::string operator+(const std::string& a, const rg_rcstr& b) { return a + *b.p; }
+inline std::string operator+(const rg_rcstr& a, const char* b) { return *a.p + b; }
+inline std::string operator+(const char* a, const rg_rcstr& b) { return a + *b.p; }
+inline std::string operator+(const rg_rcstr& a, char b) { return *a.p + b; }
+inline std::ostream& operator<<(std::ostream& o, const rg_rcstr& s) { return o << *s.p; }
+struct rg_rcvec : std::vector<rg_rcstr> {
+  using std::vector<rg_rcstr>::vector;
+  rg_rcvec() {}
+  rg_rcvec(const std::vector<std::string>& v) { this->reserve(v.size()); for (const auto& s : v) this->push_back(rg_rcstr(s)); }
+  rg_rcvec& operator=(const std::vector<std::string>& v) { this->clear(); this->reserve(v.size()); for (const auto& s : v) this->push_back(rg_rcstr(s)); return *this; }
+  operator std::vector<std::string>() const { std::vector<std::string> r; r.reserve(this->size()); for (const auto& s : *this) r.push_back(*s.p); return r; }
+};
+namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_rcstr& s) const { return std::hash<std::string>()(*s.p); } }; }
+"
+    def p_write:CodeWriter (wr.getTag("utilities"))
+    if ((has p_write.compiledTags code) == false) {
+      p_write.raw(code true)
+      set p_write.compiledTags code true
+    }
+  }
+
+  fn cppIsRcStr:boolean (node:CodeNode) {
+    return ((node.hasFlag("rc")) && ((node.hasFlag("optional")) == false))
+  }
+
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def v_type:RangerNodeType node.value_type
     def t_name:string node.type_name
@@ -676,7 +749,12 @@ class RangerCppClassWriter {
           wr.addImport("<optional>")
           wr.out(" std::optional<std::string> " false)
         } {
-          wr.out("std::string" false)
+          if (this.cppIsRcStr(node)) {
+            this.cppEmitRcStr(wr)
+            wr.out("rg_rcstr" false)
+          } {
+            wr.out("std::string" false)
+          }
         }
       }
       case RangerNodeType.Boolean {
@@ -700,7 +778,12 @@ class RangerCppClassWriter {
           wr.addImport("<optional>")
           wr.out("std::optional<" false)
         }
-        wr.out((("std::vector<" + (this.getObjectTypeString(a_name ctx))) + ">") false)
+        if ((a_name == "string") && (this.cppIsRcStr(node))) {
+          this.cppEmitRcStr(wr)
+          wr.out("rg_rcvec" false)
+        } {
+          wr.out((("std::vector<" + (this.getObjectTypeString(a_name ctx))) + ">") false)
+        }
         wr.addImport("<vector>")
         if( node.hasFlag("optional") ) {
           wr.out(">" false)
@@ -1041,6 +1124,152 @@ class RangerCppClassWriter {
     return (str_ret_seen && str_ret_safe)
   }
 
+  ; An object method or function the Rust lowering marked `@(ref_return)`
+  ; (`fn f(&self, ..) -> &T`, `fn f(v: &Vec<T>, i) -> &T`) returns
+  ; `const std::shared_ptr<T>&` instead of a copy of the pointer (a count up
+  ; and down on every call) when every `return` is storage the call's
+  ; borrowed inputs own: a field path from `this` or a parameter, an element
+  ; of such a container, or another call this decides the same way. rustc
+  ; already proved that the returned reference comes from a borrowed input.
+  def obj_ret_memo:[string:int]
+
+  fn cppObjRetKey:string (variant:RangerAppFunctionDesc) {
+    def k:string variant.name
+    if (!null? variant.container_class) {
+      def cc:RangerAppClassDesc (unwrap variant.container_class)
+      k = cc.name + "::" + k
+    }
+    if variant.is_static {
+      k = k + "/s"
+    }
+    return k
+  }
+
+  fn cppRootIsBorrowed:boolean (path:string names:[string]) {
+    if ((strlen path) == 0) {
+      return false
+    }
+    def dot:int (indexOf path ".")
+    if (dot <= 0) {
+      return false
+    }
+    def root:string (substring path 0 dot)
+    if (root == "this") {
+      return true
+    }
+    return ((indexOf names root) >= 0)
+  }
+
+  fn cppReturnIsBorrowedObj:boolean (retValue:CodeNode names:[string] ctx:RangerAppWriterContext) {
+    if (this.cppRootIsBorrowed((this.cppMemberPathOf(retValue)) names)) {
+      return true
+    }
+    if retValue.expression {
+      if ((array_length retValue.children) >= 2) {
+        def head:CodeNode (retValue.getFirst())
+        if ((head.vref == "itemAt") || (head.vref == "get")) {
+          def container:CodeNode (retValue.getSecond())
+          if (this.cppRootIsBorrowed((this.cppMemberPathOf(container)) names)) {
+            return true
+          }
+          if ((array_length container.ns) < 2) {
+            if (((indexOf container.vref ".") < 0) && ((indexOf names container.vref) >= 0)) {
+              return true
+            }
+          }
+          return false
+        }
+      }
+    }
+    if (retValue.hasFnCall || retValue.has_call) {
+      if (!null? retValue.fnDesc) {
+        return (this.cppObjReturnByRef((unwrap retValue.fnDesc) ctx))
+      }
+    }
+    return false
+  }
+
+  fn cppScanObjReturns:boolean (node:CodeNode names:[string] ctx:RangerAppWriterContext) {
+    if (!null? node.lambda_ctx) {
+      return true
+    }
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "return") {
+          if ((array_length node.children) < 2) {
+            return false
+          }
+          if (false == (this.cppReturnIsBorrowedObj((node.getSecond()) names ctx))) {
+            return false
+          }
+        }
+      }
+    }
+    for node.children child:CodeNode i {
+      if (false == (this.cppScanObjReturns(child names ctx))) {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn cppObjReturnByRef:boolean (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if (null? variant.nameNode) {
+      return false
+    }
+    def node:CodeNode (unwrap variant.nameNode)
+    if ((node.hasFlag("ref_return")) == false) {
+      return false
+    }
+    if (node.hasFlag("optional")) {
+      return false
+    }
+    if ((node.value_type == RangerNodeType.Array) || (node.value_type == RangerNodeType.Hash)) {
+      return false
+    }
+    if ((ctx.isDefinedClass(node.type_name)) == false) {
+      return false
+    }
+    def rcl:RangerAppClassDesc (ctx.findClass(node.type_name))
+    if (rcl.is_union || rcl.is_interface || rcl.is_trait || rcl.is_system) {
+      return false
+    }
+    if (this.cppIsValueClass(rcl ctx)) {
+      return false
+    }
+    if (!null? variant.container_class) {
+      def cc:RangerAppClassDesc (unwrap variant.container_class)
+      if cc.is_inherited {
+        return false
+      }
+      if ((array_length cc.extends_classes) > 0) {
+        return false
+      }
+    }
+    if (null? variant.fnBody) {
+      return false
+    }
+    def key:string (this.cppObjRetKey(variant))
+    if (has obj_ret_memo key) {
+      return ((unwrap (get obj_ret_memo key)) == 1)
+    }
+    ; (in progress: a call back into it is not yet known to be safe)
+    set obj_ret_memo key 0
+    def names:[string]
+    for variant.params pp:RangerAppParamDesc pi {
+      push names pp.compiledName
+      push names pp.name
+    }
+    def ok:boolean (this.cppScanObjReturns((unwrap variant.fnBody) names ctx))
+    if ok {
+      set obj_ret_memo key 1
+    } {
+      set obj_ret_memo key 2
+    }
+    return ok
+  }
+
   ; Decide whether `variant`'s (buffer) return type should be emitted as a C++
   ; reference. Returns true only for buffer/int_buffer/double_buffer returns
   ; whose every return statement is a safe stored-buffer lvalue.
@@ -1096,7 +1325,7 @@ class RangerCppClassWriter {
   ; reference parameters). Used for both the header declaration and the
   ; out-of-line definition so the two signatures always agree.
   fn writeReturnTypeDef:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
-    if (this.cppStringReturnByRef(variant ctx)) {
+    if ((this.cppStringReturnByRef(variant ctx)) || (this.cppObjReturnByRef(variant ctx))) {
       wr.out("const " false)
       this.writeTypeDef((unwrap variant.nameNode) ctx wr)
       wr.out("&" false)
@@ -1565,6 +1794,12 @@ class RangerCppClassWriter {
         if ((pnn.hasFlag("place")) && (p.set_cnt == 0) && (ctx.isDefinedClass(pnn.type_name))) {
           def pcl:RangerAppClassDesc (ctx.findClass(pnn.type_name))
           placeRef = (pcl.is_copy && (this.cppIsValueClass(pcl ctx)))
+          ; a place temporary of a struct held by shared_ptr: `auto&&` binds
+          ; the pointer where it is (or keeps a returned one alive) instead
+          ; of a copy that counts up and down
+          if ((placeRef == false) && ((this.cppIsValueClass(pcl ctx)) == false) && (pcl.is_union == false) && (pcl.is_interface == false) && (pcl.is_trait == false) && (pcl.is_system == false) && (pnn.value_type != RangerNodeType.Array) && (pnn.value_type != RangerNodeType.Hash) && ((pnn.hasFlag("optional")) == false)) {
+            placeRef = true
+          }
         }
       }
       ; `def s@(borrow):string x` (the Rust lowering's `let s: &str = x`),
