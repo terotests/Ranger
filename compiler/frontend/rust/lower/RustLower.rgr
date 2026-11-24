@@ -1579,6 +1579,7 @@ class RustLower {
       this.collectSigNames(root)
       return
     }
+    this.scanShared(root false)
     for root.kids it:RustNode i {
       if (it.kind == "struct") {
         def s:RsStruct (new RsStruct())
@@ -2160,6 +2161,64 @@ class RustLower {
     return (this.typeOfIn(t none))
   }
 
+  ; structs seen behind Rc / Box / RefCell / Weak: never plain values
+  def sharedNamed:[string:boolean]
+  ; isScalarCopyStruct per struct, decided once
+  def plainMemo:[string:boolean]
+
+  fn isShareWord:boolean (w:string) {
+    return ((w == "Rc") || (w == "Box") || (w == "Arc") || (w == "RefCell") || (w == "Cell") || (w == "Mutex") || (w == "Weak"))
+  }
+
+  fn mentionsShare:boolean (n:RustNode) {
+    if (this.isShareWord(n.name)) {
+      return true
+    }
+    for n.kids k:RustNode i {
+      if (this.mentionsShare(k)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Before any struct is judged plain: every name inside `Rc<…>`, `Box<…>`,
+  ; `RefCell<…>`… and inside the arguments of `Rc::new(…)` and the like
+  ; (a body's `Rc<RefCell<Node>>` as much as a field's) is noted shared.
+  ; Names that are not structs do no harm.
+  fn scanShared:void (n:RustNode inShared:boolean) {
+    def sh:boolean inShared
+    if (this.isShareWord(n.name)) {
+      sh = true
+    }
+    if (sh && (n.name != "")) {
+      set sharedNamed n.name true
+    }
+    if ((n.kind == "call") && ((array_length n.kids) > 0)) {
+      if (this.mentionsShare((n.kid(0)))) {
+        sh = true
+      }
+    }
+    for n.kids k:RustNode i {
+      this.scanShared(k sh)
+    }
+  }
+
+  fn noteShared:void (t:RsType at:RustNode) {
+    if (t.kind != "named") {
+      return
+    }
+    if ((has plainMemo t.name) && (unwrap (get plainMemo t.name))) {
+      if (has structs t.name) {
+        def ps:RsStruct (unwrap (get structs t.name))
+        if (false == (ps.derivesTrait("Copy"))) {
+          this.err(at (("`" + t.name) + "` was already written as a plain C++ value; it cannot also be shared (Rc / Box / RefCell)"))
+        }
+      }
+    }
+    set sharedNamed t.name true
+  }
+
   fn typeOfIn:RsType (t:RustNode generics:[string]) {
     def k:string t.kind
     if (k == "none") {
@@ -2341,12 +2400,14 @@ class RustLower {
     if ((name == "Box") || (name == "Rc") || (name == "Arc") || (name == "RefCell") || (name == "Cell") || (name == "Mutex")) {
       def inner:RsType ((this.argOr(args 0)).copy())
       inner.shared = true
+      this.noteShared(inner at)
       return inner
     }
     if (name == "Weak") {
       def w:RsType ((this.argOr(args 0)).copy())
       w.weak = true
       w.shared = true
+      this.noteShared(w at)
       return w
     }
     if (name == "Self") {
@@ -2547,20 +2608,65 @@ class RustLower {
 
   ; A `#[derive(Clone, Copy)]` struct, not generic, whose fields are all
   ; numbers or booleans: a plain value on every target that has one.
+  ; A struct of numbers and booleans (or of such structs): a plain value on
+  ; a target that has one. A Copy struct on every target; on C++ also a
+  ; struct Rust only moves, unless it is ever behind Rc / Box / RefCell /
+  ; Weak (sharedNamed) or implements a trait (a trait object is a pointer).
   fn isScalarCopyStruct:boolean (s:RsStruct) {
-    if (false == (s.derivesTrait("Copy"))) {
-      return false
+    if (has plainMemo s.name) {
+      return (unwrap (get plainMemo s.name))
     }
+    ; (in progress: a struct that contains itself is not plain)
+    set plainMemo s.name false
+    def r:boolean (this.plainStruct(s))
+    set plainMemo s.name r
+    return r
+  }
+
+  fn plainStruct:boolean (s:RsStruct) {
     if ((array_length s.generics) > 0) {
       return false
     }
     if ((array_length s.fields) == 0) {
       return false
     }
-    for s.fields f:RsField i {
-      def k:string f.ty.kind
-      if (((k == "int") || (k == "double") || (k == "bool")) == false) {
+    if s.rgr {
+      return false
+    }
+    if (false == (s.derivesTrait("Copy"))) {
+      if (target != "cpp") {
         return false
+      }
+      if (has sharedNamed s.name) {
+        return false
+      }
+      if ((array_length s.traits) > 0) {
+        return false
+      }
+      if s.serialize {
+        return false
+      }
+    }
+    for s.fields f:RsField i {
+      def ft:RsType f.ty
+      def k:string ft.kind
+      if (ft.shared || ft.weak || ft.isRef || ft.isMutRef) {
+        return false
+      }
+      if ((k == "named") && (has structs ft.name)) {
+        def fs:RsStruct (unwrap (get structs ft.name))
+        if ((false == (this.isScalarCopyStruct(fs))) || ((s.derivesTrait("Copy")) && (false == (fs.derivesTrait("Copy"))))) {
+          return false
+        }
+        ; a C++ class held by value must be defined before the class that
+        ; holds it: the classes are written in structOrder
+        if ((indexOf structOrder ft.name) >= (indexOf structOrder s.name)) {
+          return false
+        }
+      } {
+        if (((k == "int") || (k == "double") || (k == "bool")) == false) {
+          return false
+        }
       }
     }
     return true
@@ -4497,8 +4603,13 @@ class RustLower {
     }
     ; `fn f(&self) -> &T` / `fn f(v: &Vec<T>, i) -> &T` of a struct: the C++
     ; writer may hand back `const std::shared_ptr<T>&` (no count up and down)
-    if ((fret.kind == "named") && fret.isRef && (has structs fret.name) && (f.fromTrait == "") && (false == isFmt)) {
-      head = head + "@(ref_return)"
+    if ((fret.kind == "named") && (fret.isRef || fret.isMutRef) && (has structs fret.name) && (f.fromTrait == "") && (false == isFmt)) {
+      ; `-> &mut T` of a struct held by value: `T&`, not `const T&`
+      if (fret.isMutRef) {
+        head = head + "@(ref_return ref_mut)"
+      } {
+        head = head + "@(ref_return)"
+      }
     }
     def lines:[string]
     push lines ((((head + ":") + retText) + " (") + ((join ps " ") + ") {"))
@@ -4656,6 +4767,17 @@ class RustLower {
           }
           if ((ib.kind == "unary") && (ib.name == "&")) {
             bn = bn + "@(borrow)"
+          }
+        }
+        ; `let q = &mut v[i]` / `let p = self.top()` of a struct held by value
+        ; (C++): a reference to the place, so writes through it land there
+        if ((this.isScalarCopyType(t)) && (false == (pat.hasMod("mut"))) && (false == (pat.hasMod("ref")))) {
+          def ip:RustNode init
+          while (ip.kind == "paren") {
+            ip = (ip.kid(0))
+          }
+          if (((ip.kind == "unary") && (ip.name == "&mut")) || t.isMutRef) {
+            bn = bn + "@(place)"
           }
         }
         out.line(((("def " + (this.declText(bn t))) + " ") + c.code))
@@ -5737,6 +5859,13 @@ class RustLower {
     }
     if ((pat.kind == "pat_ref") && ((array_length pat.kids) > 0)) {
       this.bindElem((pat.kid(0)) code t mutElems seq cur)
+      return
+    }
+    if ((pat.kind == "pat_ident") && mutElems && (this.isScalarCopyType(t)) && (false == (pat.hasMod("mut")))) {
+      ; an element of a struct held by value (C++): the loop variable is the
+      ; element itself (`p.x += 1` in an iter_mut() loop writes the vector)
+      def lp:RsLocal (this.declare(pat.name t))
+      out.line(((("def " + (this.declText((lp.rname + "@(place)") t))) + " ") + code))
       return
     }
     this.bindForPattern(pat code t)

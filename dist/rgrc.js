@@ -32999,7 +32999,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       return false;
     }
     if ( this.cppIsValueClass(rcl, ctx) ) {
-      return false;
+      if ( rcl.is_copy == false || node.hasFlag("ref_mut") == false ) {
+        return false;
+      }
     }
     if ( (typeof(variant.container_class) !== "undefined" && variant.container_class != null )  ) {
       const cc = variant.container_class;
@@ -33072,6 +33074,19 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   };
   writeReturnTypeDef (variant, ctx, wr) {
     if ( this.cppStringReturnByRef(variant, ctx) || this.cppObjReturnByRef(variant, ctx) ) {
+      let mutRef = false;
+      if ( (typeof(variant.nameNode) !== "undefined" && variant.nameNode != null )  ) {
+        const rn = variant.nameNode;
+        if ( rn.hasFlag("ref_mut") && ctx.isDefinedClass(rn.type_name) ) {
+          const rcl2 = ctx.findClass(rn.type_name);
+          mutRef = this.cppIsValueClass(rcl2, ctx);
+        }
+      }
+      if ( mutRef ) {
+        this.writeTypeDef(variant.nameNode, ctx, wr);
+        wr.out("&", false);
+        return;
+      }
       wr.out("const ", false);
       this.writeTypeDef(variant.nameNode, ctx, wr);
       wr.out("&", false);
@@ -91999,6 +92014,8 @@ class RustLower  {
     this.loopBindStart = -1;
     this.typeRename = {};
     this.rustNames = {};
+    this.sharedNamed = {};
+    this.plainMemo = {};
     this.clonerOut = [];
     this.writtenCases = {};
     this.moduleDoc = new RustDocInfo();
@@ -93198,6 +93215,7 @@ class RustLower  {
       this.collectSigNames(root);
       return;
     }
+    this.scanShared(root, false);
     // Loop start
     for ( const it of root.kids) {
       if ( it.kind == "struct" ) {
@@ -93768,6 +93786,53 @@ class RustLower  {
     let none = [];
     return this.typeOfIn(t, none);
   };
+  isShareWord (w) {
+    return (((((w == "Rc" || w == "Box") || w == "Arc") || w == "RefCell") || w == "Cell") || w == "Mutex") || w == "Weak";
+  };
+  mentionsShare (n) {
+    if ( this.isShareWord(n.name) ) {
+      return true;
+    }
+    // Loop start
+    for ( const k of n.kids) {
+      if ( this.mentionsShare(k) ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  scanShared (n, inShared) {
+    let sh = inShared;
+    if ( this.isShareWord(n.name) ) {
+      sh = true;
+    }
+    if ( sh && n.name != "" ) {
+      this.sharedNamed[n.name] = true;
+    }
+    if ( n.kind == "call" && n.kids.length > 0 ) {
+      if ( this.mentionsShare(n.kid(0)) ) {
+        sh = true;
+      }
+    }
+    // Loop start
+    for ( const k of n.kids) {
+      this.scanShared(k, sh);
+    }
+  };
+  noteShared (t, at) {
+    if ( t.kind != "named" ) {
+      return;
+    }
+    if ( ( typeof(this.plainMemo[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.plainMemo, t.name) ) && ( Object.prototype.hasOwnProperty.call(this.plainMemo, t.name) ? this.plainMemo[t.name] : undefined ) ) {
+      if ( ( typeof(this.structs[t.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, t.name) ) ) {
+        const ps = ( Object.prototype.hasOwnProperty.call(this.structs, t.name) ? this.structs[t.name] : undefined );
+        if ( false == ps.derivesTrait("Copy") ) {
+          this.err(at, ("`" + t.name) + "` was already written as a plain C++ value; it cannot also be shared (Rc / Box / RefCell)");
+        }
+      }
+    }
+    this.sharedNamed[t.name] = true;
+  };
   typeOfIn (t, generics) {
     const k = t.kind;
     if ( k == "none" ) {
@@ -93945,12 +94010,14 @@ class RustLower  {
     if ( ((((name == "Box" || name == "Rc") || name == "Arc") || name == "RefCell") || name == "Cell") || name == "Mutex" ) {
       const inner = this.argOr(args, 0).copy();
       inner.shared = true;
+      this.noteShared(inner, at);
       return inner;
     }
     if ( name == "Weak" ) {
       const w = this.argOr(args, 0).copy();
       w.weak = true;
       w.shared = true;
+      this.noteShared(w, at);
       return w;
     }
     if ( name == "Self" ) {
@@ -94139,20 +94206,58 @@ class RustLower  {
     return s;
   };
   isScalarCopyStruct (s) {
-    if ( false == s.derivesTrait("Copy") ) {
-      return false;
+    if ( ( typeof(this.plainMemo[s.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.plainMemo, s.name) ) ) {
+      return ( Object.prototype.hasOwnProperty.call(this.plainMemo, s.name) ? this.plainMemo[s.name] : undefined );
     }
+    this.plainMemo[s.name] = false;
+    const r = this.plainStruct(s);
+    this.plainMemo[s.name] = r;
+    return r;
+  };
+  plainStruct (s) {
     if ( s.generics.length > 0 ) {
       return false;
     }
     if ( s.fields.length == 0 ) {
       return false;
     }
-    // Loop start
-    for ( const f of s.fields) {
-      const k = f.ty.kind;
-      if ( ((k == "int" || k == "double") || k == "bool") == false ) {
+    if ( s.rgr ) {
+      return false;
+    }
+    if ( false == s.derivesTrait("Copy") ) {
+      if ( this.target != "cpp" ) {
         return false;
+      }
+      if ( ( typeof(this.sharedNamed[s.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.sharedNamed, s.name) ) ) {
+        return false;
+      }
+      if ( s.traits.length > 0 ) {
+        return false;
+      }
+      if ( s.serialize ) {
+        return false;
+      }
+    }
+    // Loop start
+    for ( let i = 0; i < s.fields.length; i++) {
+      var f = s.fields[i];
+      const ft = f.ty;
+      const k = ft.kind;
+      if ( ((ft.shared || ft.weak) || ft.isRef) || ft.isMutRef ) {
+        return false;
+      }
+      if ( k == "named" && ( typeof(this.structs[ft.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, ft.name) ) ) {
+        const fs = ( Object.prototype.hasOwnProperty.call(this.structs, ft.name) ? this.structs[ft.name] : undefined );
+        if ( false == this.isScalarCopyStruct(fs) || s.derivesTrait("Copy") && false == fs.derivesTrait("Copy") ) {
+          return false;
+        }
+        if ( this.structOrder.indexOf(ft.name) >= this.structOrder.indexOf(s.name) ) {
+          return false;
+        }
+      } else {
+        if ( ((k == "int" || k == "double") || k == "bool") == false ) {
+          return false;
+        }
       }
     }
     return true;
@@ -96024,8 +96129,12 @@ class RustLower  {
     if ( this.isRcString(fret) ) {
       head = head + "@(rc)";
     }
-    if ( (((fret.kind == "named" && fret.isRef) && ( typeof(this.structs[fret.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, fret.name) )) && f.fromTrait == "") && false == isFmt ) {
-      head = head + "@(ref_return)";
+    if ( (((fret.kind == "named" && (fret.isRef || fret.isMutRef)) && ( typeof(this.structs[fret.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, fret.name) )) && f.fromTrait == "") && false == isFmt ) {
+      if ( fret.isMutRef ) {
+        head = head + "@(ref_return ref_mut)";
+      } else {
+        head = head + "@(ref_return)";
+      }
     }
     let lines = [];
     lines.push((((head + ":") + retText) + " (") + (ps.join(" ") + ") {"));
@@ -96165,6 +96274,15 @@ class RustLower  {
           };
           if ( ib.kind == "unary" && ib.name == "&" ) {
             bn = bn + "@(borrow)";
+          }
+        }
+        if ( (this.isScalarCopyType(t) && false == pat.hasMod("mut")) && false == pat.hasMod("ref") ) {
+          let ip = init;
+          while (ip.kind == "paren") {
+            ip = ip.kid(0);
+          };
+          if ( ip.kind == "unary" && ip.name == "&mut" || t.isMutRef ) {
+            bn = bn + "@(place)";
           }
         }
         this.out.line((("def " + this.declText(bn, t)) + " ") + c.code);
@@ -97161,6 +97279,11 @@ class RustLower  {
     }
     if ( pat.kind == "pat_ref" && pat.kids.length > 0 ) {
       this.bindElem(pat.kid(0), code, t, mutElems, seq, cur);
+      return;
+    }
+    if ( ((pat.kind == "pat_ident" && mutElems) && this.isScalarCopyType(t)) && false == pat.hasMod("mut") ) {
+      const lp = this.declare(pat.name, t);
+      this.out.line((("def " + this.declText((lp.rname + "@(place)"), t)) + " ") + code);
       return;
     }
     this.bindForPattern(pat, code, t);
