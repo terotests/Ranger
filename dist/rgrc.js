@@ -32003,6 +32003,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     this.cppTraits = new TraitInterfaceAnalysis();
     this.cppValues = new CppValueClassAnalysis();
     this.cppLoops = new ForLoopShape();
+    this.str_ret_owned = {};
+    this.str_ret_seen = false;
+    this.str_ret_safe = true;
   }
   cppEnumIsNative (enumName, ctx) {
     this.cppEnums.targetName = "cpp";
@@ -32718,6 +32721,115 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       this.cppScanBufferReturns(child);
     }
   };
+  cppScanOwnedLocals (node, ctx) {
+    if ( (typeof(node.lambda_ctx) !== "undefined" && node.lambda_ctx != null )  ) {
+      return;
+    }
+    if ( node.expression && node.children.length > 2 ) {
+      const first = node.getFirst();
+      if ( first.vref == "def" ) {
+        const nn = node.children[1];
+        const init = node.getThird();
+        let owned = false;
+        if ( init.expression ) {
+          if ( init.children.length >= 2 ) {
+            const head = init.getFirst();
+            if ( head.vref == "itemAt" ) {
+              const cpath = this.cppMemberPathOf(init.getSecond());
+              if ( cpath.indexOf("this.") == 0 ) {
+                owned = true;
+              }
+            }
+          }
+        } else {
+          const ipath = this.cppMemberPathOf(init);
+          if ( ipath.indexOf("this.") == 0 ) {
+            owned = true;
+          }
+        }
+        if ( owned && nn.hasParamDesc ) {
+          const pd = nn.paramDesc;
+          if ( ((pd.set_cnt == 0 && nn.value_type != 6) && nn.value_type != 7) && ctx.isDefinedClass(nn.type_name) ) {
+            if ( this.cppIsValueClass(ctx.findClass(nn.type_name), ctx) == false ) {
+              this.str_ret_owned[nn.vref] = true;
+            }
+          }
+        }
+      }
+    }
+    // Loop start
+    for ( const child of node.children) {
+      this.cppScanOwnedLocals(child, ctx);
+    }
+  };
+  cppReturnIsOwnedText (retValue) {
+    if ( retValue.ns.length < 2 ) {
+      return false;
+    }
+    const root = retValue.ns[0];
+    if ( root == "this" ) {
+      return true;
+    }
+    return ( typeof(this.str_ret_owned[root] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.str_ret_owned, root) );
+  };
+  cppScanStringReturns (node) {
+    if ( (typeof(node.lambda_ctx) !== "undefined" && node.lambda_ctx != null )  ) {
+      return;
+    }
+    if ( node.expression ) {
+      if ( node.children.length > 0 ) {
+        const first = node.getFirst();
+        if ( first.vref == "return" ) {
+          this.str_ret_seen = true;
+          if ( node.children.length >= 2 ) {
+            if ( false == this.cppReturnIsOwnedText(node.getSecond()) ) {
+              this.str_ret_safe = false;
+            }
+          } else {
+            this.str_ret_safe = false;
+          }
+        }
+      }
+    }
+    // Loop start
+    for ( const child of node.children) {
+      this.cppScanStringReturns(child);
+    }
+  };
+  cppStringReturnByRef (variant, ctx) {
+    if ( (variant.nameNode == null) ) {
+      return false;
+    }
+    const node = variant.nameNode;
+    if ( node.hasFlag("ref_return") == false ) {
+      return false;
+    }
+    if ( node.hasFlag("optional") ) {
+      return false;
+    }
+    if ( (node.type_name != "string" || node.value_type == 6) || node.value_type == 7 ) {
+      return false;
+    }
+    if ( (typeof(variant.container_class) !== "undefined" && variant.container_class != null )  ) {
+      const cc = variant.container_class;
+      if ( cc.is_inherited ) {
+        return false;
+      }
+      if ( cc.extends_classes.length > 0 ) {
+        return false;
+      }
+    }
+    if ( (variant.fnBody == null) ) {
+      return false;
+    }
+    let fresh = {};
+    this.str_ret_owned = fresh;
+    this.str_ret_seen = false;
+    this.str_ret_safe = true;
+    this.cppScanOwnedLocals(variant.fnBody, ctx);
+    this.cppScanStringReturns(variant.fnBody);
+    return this.str_ret_seen && this.str_ret_safe;
+  };
   cppBufferReturnByRef (variant, ctx) {
     if ( (variant.nameNode == null) ) {
       return false;
@@ -32757,6 +32869,12 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     return this.buf_ret_all_safe;
   };
   writeReturnTypeDef (variant, ctx, wr) {
+    if ( this.cppStringReturnByRef(variant, ctx) ) {
+      wr.out("const ", false);
+      this.writeTypeDef(variant.nameNode, ctx, wr);
+      wr.out("&", false);
+      return;
+    }
     this.writeTypeDef(variant.nameNode, ctx, wr);
     if ( this.cppBufferReturnByRef(variant, ctx) ) {
       wr.out("&", false);
@@ -33190,12 +33308,28 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           placeRef = pcl.is_copy && this.cppIsValueClass(pcl, ctx);
         }
       }
+      let cppBorrow = false;
+      if ( ((((typeof(p.nameNode) !== "undefined" && p.nameNode != null ) ) && node.children.length > 2) && p.set_cnt == 0) && p.is_class_variable == false ) {
+        const bnN = p.nameNode;
+        if ( ((bnN.hasFlag("borrow") && bnN.type_name == "string") && bnN.value_type != 6) && bnN.value_type != 7 ) {
+          cppBorrow = true;
+        }
+      }
       if ( placeRef ) {
         wr.out("auto&&", false);
       } else {
+        if ( cppBorrow ) {
+          wr.out("const ", false);
+        }
         this.writeTypeDef(p.nameNode, ctx, wr);
+        if ( cppBorrow ) {
+          wr.out("&", false);
+        }
       }
       let useCppRef = p.needs_cpp_reference && p.is_assigned_from_member;
+      if ( cppBorrow ) {
+        useCppRef = false;
+      }
       if ( node.children.length > 2 ) {
         const initNode = node.getThird();
         if ( initNode.hasNewOper ) {
@@ -95352,6 +95486,9 @@ class RustLower  {
         head = head + "@(const)";
       }
     }
+    if ( (((fret.kind == "string" && fret.isRef) && kw == "fn") && f.fromTrait == "") && false == isFmt ) {
+      head = head + "@(ref_return)";
+    }
     let lines = [];
     lines.push((((head + ":") + retText) + " (") + (ps.join(" ") + ") {"));
     // Loop start
@@ -95479,7 +95616,11 @@ class RustLower  {
       if ( c.code == "" ) {
         this.out.line("def " + this.fieldDecl(l2.rname, t));
       } else {
-        this.out.line((("def " + this.declText(l2.rname, t)) + " ") + c.code);
+        let bn = l2.rname;
+        if ( ((t.kind == "string" && t.name != "String") && false == pat.hasMod("mut")) && false == pat.hasMod("ref") ) {
+          bn = bn + "@(borrow)";
+        }
+        this.out.line((("def " + this.declText(bn, t)) + " ") + c.code);
       }
       let initM = init;
       while (initM.kind == "unary" || initM.kind == "paren") {

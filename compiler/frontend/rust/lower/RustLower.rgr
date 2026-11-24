@@ -4426,6 +4426,11 @@ class RustLower {
         head = head + "@(const)"
       }
     }
+    ; `fn f(&self) -> &str`: a borrow of self, which the C++ writer may hand
+    ; back as `const std::string&` when every return is self's own text
+    if ((fret.kind == "string") && fret.isRef && (kw == "fn") && (f.fromTrait == "") && (false == isFmt)) {
+      head = head + "@(ref_return)"
+    }
     def lines:[string]
     push lines ((((head + ":") + retText) + " (") + ((join ps " ") + ") {"))
     for out.lines b:string j {
@@ -4565,7 +4570,15 @@ class RustLower {
       if (c.code == "") {
         out.line(("def " + (this.fieldDecl(l2.rname t))))
       } {
-        out.line(((("def " + (this.declText(l2.rname t))) + " ") + c.code))
+        ; `let s = <a &str>` (not `mut`): a borrow, which the C++ writer
+        ; binds as `const std::string&` instead of copying the text (a
+        ; temporary lives as long as the reference; Rust's borrow rules keep
+        ; a borrowed one unchanged while it is used)
+        def bn:string (l2.rname)
+        if ((t.kind == "string") && (t.name != "String") && (false == (pat.hasMod("mut"))) && (false == (pat.hasMod("ref")))) {
+          bn = bn + "@(borrow)"
+        }
+        out.line(((("def " + (this.declText(bn t))) + " ") + c.code))
       }
       ; `let list = map.entry(k).or_insert_with(Vec::new)`: the Vec is a
       ; copy on Go and C++, so its changes are stored back in the slot

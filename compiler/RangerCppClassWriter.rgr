@@ -919,6 +919,128 @@ class RangerCppClassWriter {
     }
   }
 
+  ; A string method the Rust lowering marked `@(ref_return)` (`fn f(&self)
+  ; -> &str`, a borrow of self) returns `const std::string&` instead of a
+  ; copy of the text when every `return` is text that self owns and that
+  ; outlives the call: `this.field...`, or a field of a local that holds an
+  ; element of self's containers (`def e:T (itemAt this.items i)` ...
+  ; `return e.name`; the element is an object self's container keeps).
+  ; Rust's borrow rules keep self unchanged while the caller uses it.
+  def str_ret_owned:[string:boolean]
+  def str_ret_seen:boolean false
+  def str_ret_safe:boolean true
+
+  fn cppScanOwnedLocals:void (node:CodeNode ctx:RangerAppWriterContext) {
+    if (!null? node.lambda_ctx) {
+      return
+    }
+    if (node.expression && ((array_length node.children) > 2)) {
+      def first:CodeNode (node.getFirst())
+      if (first.vref == "def") {
+        def nn:CodeNode (itemAt node.children 1)
+        def init:CodeNode (node.getThird())
+        def owned:boolean false
+        if init.expression {
+          if ((array_length init.children) >= 2) {
+            def head:CodeNode (init.getFirst())
+            if (head.vref == "itemAt") {
+              def cpath:string (this.cppMemberPathOf((init.getSecond())))
+              if ((indexOf cpath "this.") == 0) {
+                owned = true
+              }
+            }
+          }
+        } {
+          def ipath:string (this.cppMemberPathOf(init))
+          if ((indexOf ipath "this.") == 0) {
+            owned = true
+          }
+        }
+        if (owned && nn.hasParamDesc) {
+          def pd:RangerAppParamDesc nn.paramDesc
+          if ((pd.set_cnt == 0) && (nn.value_type != RangerNodeType.Array) && (nn.value_type != RangerNodeType.Hash) && (ctx.isDefinedClass(nn.type_name))) {
+            if ((this.cppIsValueClass((ctx.findClass(nn.type_name)) ctx)) == false) {
+              set str_ret_owned nn.vref true
+            }
+          }
+        }
+      }
+    }
+    for node.children child:CodeNode i {
+      this.cppScanOwnedLocals(child ctx)
+    }
+  }
+
+  fn cppReturnIsOwnedText:boolean (retValue:CodeNode) {
+    if ((array_length retValue.ns) < 2) {
+      return false
+    }
+    def root:string (itemAt retValue.ns 0)
+    if (root == "this") {
+      return true
+    }
+    return (has str_ret_owned root)
+  }
+
+  fn cppScanStringReturns:void (node:CodeNode) {
+    if (!null? node.lambda_ctx) {
+      return
+    }
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "return") {
+          str_ret_seen = true
+          if ((array_length node.children) >= 2) {
+            if (false == (this.cppReturnIsOwnedText((node.getSecond())))) {
+              str_ret_safe = false
+            }
+          } {
+            str_ret_safe = false
+          }
+        }
+      }
+    }
+    for node.children child:CodeNode i {
+      this.cppScanStringReturns(child)
+    }
+  }
+
+  fn cppStringReturnByRef:boolean (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if (null? variant.nameNode) {
+      return false
+    }
+    def node:CodeNode (unwrap variant.nameNode)
+    if ((node.hasFlag("ref_return")) == false) {
+      return false
+    }
+    if (node.hasFlag("optional")) {
+      return false
+    }
+    if ((node.type_name != "string") || (node.value_type == RangerNodeType.Array) || (node.value_type == RangerNodeType.Hash)) {
+      return false
+    }
+    if (!null? variant.container_class) {
+      def cc:RangerAppClassDesc (unwrap variant.container_class)
+      if cc.is_inherited {
+        return false
+      }
+      if ((array_length cc.extends_classes) > 0) {
+        return false
+      }
+    }
+    if (null? variant.fnBody) {
+      return false
+    }
+    def fresh:[string:boolean]
+    str_ret_owned = fresh
+    str_ret_seen = false
+    str_ret_safe = true
+    this.cppScanOwnedLocals((unwrap variant.fnBody) ctx)
+    this.cppScanStringReturns((unwrap variant.fnBody))
+    return (str_ret_seen && str_ret_safe)
+  }
+
   ; Decide whether `variant`'s (buffer) return type should be emitted as a C++
   ; reference. Returns true only for buffer/int_buffer/double_buffer returns
   ; whose every return statement is a safe stored-buffer lvalue.
@@ -974,6 +1096,12 @@ class RangerCppClassWriter {
   ; reference parameters). Used for both the header declaration and the
   ; out-of-line definition so the two signatures always agree.
   fn writeReturnTypeDef:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (this.cppStringReturnByRef(variant ctx)) {
+      wr.out("const " false)
+      this.writeTypeDef((unwrap variant.nameNode) ctx wr)
+      wr.out("&" false)
+      return
+    }
     this.writeTypeDef((unwrap variant.nameNode) ctx wr)
     if (this.cppBufferReturnByRef(variant ctx)) {
       wr.out("&" false)
@@ -1439,14 +1567,32 @@ class RangerCppClassWriter {
           placeRef = (pcl.is_copy && (this.cppIsValueClass(pcl ctx)))
         }
       }
+      ; `def s@(borrow):string x` (the Rust lowering's `let s: &str = x`),
+      ; never assigned again: a const reference, not a copy of the text
+      def cppBorrow:boolean false
+      if ((!null? p.nameNode) && ((array_length node.children) > 2) && (p.set_cnt == 0) && (p.is_class_variable == false)) {
+        def bnN:CodeNode (unwrap p.nameNode)
+        if ((bnN.hasFlag("borrow")) && (bnN.type_name == "string") && (bnN.value_type != RangerNodeType.Array) && (bnN.value_type != RangerNodeType.Hash)) {
+          cppBorrow = true
+        }
+      }
       if placeRef {
         wr.out("auto&&" false)
       } {
+        if cppBorrow {
+          wr.out("const " false)
+        }
         this.writeTypeDef((unwrap p.nameNode) ctx wr)
+        if cppBorrow {
+          wr.out("&" false)
+        }
       }
       ; Only member-alias locals need C++ &. Exclude new/fn-call inits (is_assigned_from_member
       ; false-positives on (new T) and (fn arg) AST shapes).
       def useCppRef:boolean (p.needs_cpp_reference && p.is_assigned_from_member)
+      if cppBorrow {
+        useCppRef = false
+      }
       if ((array_length node.children) > 2) {
         def initNode:CodeNode (node.getThird())
         if initNode.hasNewOper {
