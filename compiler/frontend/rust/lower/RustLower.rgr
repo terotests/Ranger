@@ -2492,6 +2492,20 @@ class RustLower {
   }
 
   ; `def name:T` / `def name@(optional):T` / `def name` for a type.
+  fn isRcString:boolean (t:RsType) {
+    if (target != "cpp") {
+      return false
+    }
+    if ((t.kind == "string") && t.shared) {
+      return true
+    }
+    if ((t.kind == "vec") && ((array_length t.args) > 0)) {
+      def e:RsType (t.arg(0))
+      return ((e.kind == "string") && e.shared)
+    }
+    return false
+  }
+
   fn declText:string (rname:string t:RsType) {
     def s:string rname
     if (t.kind == "opt") {
@@ -2510,6 +2524,11 @@ class RustLower {
     } {
       if (t.weak) {
         s = s + "@(weak)"
+      } {
+        ; `Rc<String>` (or a Vec of them): one shared text on C++ (rg_rcstr)
+        if (this.isRcString(t)) {
+          s = s + "@(rc)"
+        }
       }
     }
     def tt:string (this.rtype(t))
@@ -4431,6 +4450,14 @@ class RustLower {
     if ((fret.kind == "string") && fret.isRef && (kw == "fn") && (f.fromTrait == "") && (false == isFmt)) {
       head = head + "@(ref_return)"
     }
+    if (this.isRcString(fret)) {
+      head = head + "@(rc)"
+    }
+    ; `fn f(&self) -> &T` / `fn f(v: &Vec<T>, i) -> &T` of a struct: the C++
+    ; writer may hand back `const std::shared_ptr<T>&` (no count up and down)
+    if ((fret.kind == "named") && fret.isRef && (has structs fret.name) && (f.fromTrait == "") && (false == isFmt)) {
+      head = head + "@(ref_return)"
+    }
     def lines:[string]
     push lines ((((head + ":") + retText) + " (") + ((join ps " ") + ") {"))
     for out.lines b:string j {
@@ -6346,6 +6373,12 @@ class RustLower {
       return v.code
     }
     def name:string (this.tmp(base))
+    if ((t.kind == "named") && (has structs t.name) && (false == (this.isScalarCopyType(t)))) {
+      ; a place of a struct (`v[i].a = x`, `self.ob(o).elems`): C++ binds the
+      ; pointer where it is instead of copying it (@(place))
+      out.line(((("def " + (this.declText((name + "@(place)") t))) + " ") + v.code))
+      return name
+    }
     if (this.isScalarCopyType(t)) {
       ; a place of a Copy struct (`v[i].a = x` writes through it): a target
       ; that holds the struct by value binds a reference (@(place))
