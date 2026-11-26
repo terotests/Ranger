@@ -69,7 +69,9 @@ impl Module {
         self
     }
 
-    /// Text replaced in the written module, for code rustc refuses.
+    /// Text replaced in the written module, for code rustc refuses. The build
+    /// fails when `from` is not in the module, so a stub the Rust writer has
+    /// outgrown is removed instead of silently changing other code.
     pub fn stub(mut self, from: &str, to: &str) -> Module {
         self.stubs.push((from.to_string(), to.to_string()));
         self
@@ -119,6 +121,9 @@ impl Module {
         let file = out_dir.join(format!("{}.rs", self.out));
         let mut code = std::fs::read_to_string(&file).expect("rgrc wrote no module");
         for (from, to) in &self.stubs {
+            if !code.contains(from.as_str()) {
+                panic!("ranger::build: stub {:?} matches nothing in {}.rs; remove it", from, self.out);
+            }
             code = code.replace(from.as_str(), to.as_str());
         }
         if !self.prefix.is_empty() {
