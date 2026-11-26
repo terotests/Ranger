@@ -1833,6 +1833,17 @@ namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_r
           cppBorrow = true
         }
       }
+      ; `def items@(refmut):[T] x.items` (RustLower: a `ref mut` binding of
+      ; a variant's Vec / map / String): a reference to that place, not a copy
+      def cppRefMut:boolean false
+      if ((cppBorrow == false) && (!null? p.nameNode) && ((array_length node.children) > 2) && (p.is_class_variable == false)) {
+        def rmN:CodeNode (unwrap p.nameNode)
+        if ((rmN.hasFlag("refmut")) && ((rmN.hasFlag("optional")) == false)) {
+          if ((rmN.value_type == RangerNodeType.Array) || (rmN.value_type == RangerNodeType.Hash) || (rmN.type_name == "string")) {
+            cppRefMut = true
+          }
+        }
+      }
       if placeRef {
         wr.out("auto&&" false)
       } {
@@ -1840,14 +1851,14 @@ namespace std { template <> struct hash<rg_rcstr> { size_t operator()(const rg_r
           wr.out("const " false)
         }
         this.writeTypeDef((unwrap p.nameNode) ctx wr)
-        if cppBorrow {
+        if (cppBorrow || cppRefMut) {
           wr.out("&" false)
         }
       }
       ; Only member-alias locals need C++ &. Exclude new/fn-call inits (is_assigned_from_member
       ; false-positives on (new T) and (fn arg) AST shapes).
       def useCppRef:boolean (p.needs_cpp_reference && p.is_assigned_from_member)
-      if cppBorrow {
+      if (cppBorrow || cppRefMut) {
         useCppRef = false
       }
       if ((array_length node.children) > 2) {

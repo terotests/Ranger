@@ -33541,6 +33541,15 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           cppBorrow = true;
         }
       }
+      let cppRefMut = false;
+      if ( ((cppBorrow == false && ((typeof(p.nameNode) !== "undefined" && p.nameNode != null ) )) && node.children.length > 2) && p.is_class_variable == false ) {
+        const rmN = p.nameNode;
+        if ( rmN.hasFlag("refmut") && rmN.hasFlag("optional") == false ) {
+          if ( (rmN.value_type == 6 || rmN.value_type == 7) || rmN.type_name == "string" ) {
+            cppRefMut = true;
+          }
+        }
+      }
       if ( placeRef ) {
         wr.out("auto&&", false);
       } else {
@@ -33548,12 +33557,12 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           wr.out("const ", false);
         }
         this.writeTypeDef(p.nameNode, ctx, wr);
-        if ( cppBorrow ) {
+        if ( cppBorrow || cppRefMut ) {
           wr.out("&", false);
         }
       }
       let useCppRef = p.needs_cpp_reference && p.is_assigned_from_member;
-      if ( cppBorrow ) {
+      if ( cppBorrow || cppRefMut ) {
         useCppRef = false;
       }
       if ( node.children.length > 2 ) {
@@ -97926,7 +97935,11 @@ class RustLower  {
     } else {
       code = this.copyCode(subj, t);
     }
-    this.out.line((("def " + this.declText(l.rname, t)) + " ") + code);
+    let dn = l.rname;
+    if ( (((l.backTo != "" && (((t.kind == "vec" || t.kind == "map") || t.kind == "set") || t.kind == "string")) && false == this.isBytes(t)) && false == this.isRcString(t)) && false == t.shared ) {
+      dn = dn + "@(refmut)";
+    }
+    this.out.line((("def " + this.declText(dn, t)) + " ") + code);
   };
   copyCode (code, t) {
     if ( this.isCopyStruct(t) ) {
@@ -101237,6 +101250,19 @@ class RustLower  {
       const inner = lhs.kid(0);
       if ( inner.kind == "index" && vec != cv.code ) {
         this.assignTo(inner, this.simpleExpr(vec, cv.ty));
+      }
+      if ( inner.kind == "path_expr" ) {
+        const ip = inner.kid(0);
+        if ( ip.kids.length == 1 ) {
+          const il = this.scope.lookup(this.lastSeg(ip));
+          if ( (typeof(il) !== "undefined" && il != null )  ) {
+            const ilv = il;
+            if ( ilv.backTo != "" && ilv.iterVec == "" ) {
+              this.out.line((ilv.backTo + " = ") + ilv.rname);
+              this.noteWrittenCase(ilv);
+            }
+          }
+        }
       }
       return;
     }
