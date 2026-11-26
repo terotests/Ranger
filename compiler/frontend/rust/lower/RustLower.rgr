@@ -6576,7 +6576,15 @@ class RustLower {
     } {
       code = (this.copyCode(subj t))
     }
-    out.line(((("def " + (this.declText(l.rname t))) + " ") + code))
+    ; a `ref mut` Vec / map / set / String of a place (a variant's field):
+    ; the C++ writer binds a reference to it (`std::vector<T>& items =
+    ; x->items`), so a push changes the case without copying the collection
+    ; there and back; the write-backs become self-assignments
+    def dn:string l.rname
+    if ((l.backTo != "") && ((t.kind == "vec") || (t.kind == "map") || (t.kind == "set") || (t.kind == "string")) && (false == (this.isBytes(t))) && (false == (this.isRcString(t))) && (false == t.shared)) {
+      dn = dn + "@(refmut)"
+    }
+    out.line(((("def " + (this.declText(dn t))) + " ") + code))
   }
 
   ; `code` copied when `t` is a Copy struct or a Copy enum with data (they
@@ -10038,6 +10046,22 @@ class RustLower {
       def inner:RustNode (lhs.kid(0))
       if ((inner.kind == "index") && (vec != cv.code)) {
         this.assignTo(inner (this.simpleExpr(vec cv.ty)))
+      }
+      ; `items[i] = v` through a `ref mut` binding of a variant's Vec
+      ; (`if let E::Dict { items, .. } = self`): the binding is a copy where
+      ; arrays are values (C++, Swift), so it is stored back into the case
+      if (inner.kind == "path_expr") {
+        def ip:RustNode (inner.kid(0))
+        if ((array_length ip.kids) == 1) {
+          def il@(optional):RsLocal (scope.lookup((this.lastSeg(ip))))
+          if (!null? il) {
+            def ilv:RsLocal (unwrap il)
+            if ((ilv.backTo != "") && (ilv.iterVec == "")) {
+              out.line(((ilv.backTo + " = ") + ilv.rname))
+              this.noteWrittenCase(ilv)
+            }
+          }
+        }
       }
       return
     }
